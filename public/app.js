@@ -732,9 +732,16 @@ async function pushRegistration() {
   } catch { return null; }
   finally { clearTimeout(timer); }
 }
+// D-5.3: a browser can still hold a subscription the server dropped (Sign out everywhere removes them all); it is
+// unsubscribed here, so the bell and Settings show Off and the owner turns notifications on again.
 async function pushState() {
-  try { const reg = await pushRegistration(); return reg ? await reg.pushManager.getSubscription() : null; }
-  catch { return null; }
+  try {
+    const reg = await pushRegistration(), sub = reg ? await reg.pushManager.getSubscription() : null;
+    if (!sub) return null;
+    try { await api('/push/prefs?endpoint=' + encodeURIComponent(sub.endpoint), { signal: AbortSignal.timeout(8000) }); }
+    catch (e) { if (e.code === 'not_subscribed') { await sub.unsubscribe().catch(() => { }); return null; } }
+    return sub;
+  } catch { return null; }
 }
 async function togglePush(btn) {
   if (btn) btn.disabled = true;
@@ -867,7 +874,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       </form></div>
     <div class="title-settings model-offer" id="s-signout" role="group" aria-labelledby="s-signout-h" aria-describedby="s-signout-lead">
       <p class="vault-set-head" id="s-signout-h">Sign out</p>
-      <p class="title-note" id="s-signout-lead">Sign out everywhere ends the sign-in on every browser and phone, this one included. Use it for a lost phone or a shared computer.</p>
+      <p class="title-note" id="s-signout-lead">Sign out also turns off notifications on this browser. Sign out everywhere does both on every browser and phone, this one included; turn notifications on again where you still want them. Use it for a lost phone or a shared computer.</p>
       <p class="vault-field-error" id="s-signout-error" role="alert"></p>
       <span class="vault-set-actions"><button class="chip" type="button" id="s-signout-here">Sign out</button><button class="chip" type="button" id="s-signout-all">Sign out everywhere</button></span></div>
     <button class="opt" id="s-keys">${IC.term}<span>Keyboard & workspace<span class="sub">Shortcuts and open-conversation tabs</span></span></button>
@@ -1004,8 +1011,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
   };
   const refreshPush = async () => {
     const reg = await pushRegistration();
-    let sub = null;
-    try { if (reg) sub = await reg.pushManager.getSubscription(); } catch { }
+    const sub = reg ? await pushState() : null;
     if (!sh.isConnected) return;
     pushSub = sub; pushPrefs = null;
     const btn = sh.querySelector('#s-push');
@@ -1199,13 +1205,19 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
   sh.querySelector('#s-access-off').onclick = () => confirmSheet('Turn off one sign-in?', 'Pocket asks for its own password again after Cloudflare Access. Browsers already signed in stay signed in for up to a day.', 'Turn off', () => saveAccess({ enabled: false }, 'One sign-in is off'));
   sh.querySelector('#s-access-reset').onclick = () => saveAccess(null, 'Using the server\'s values');
   // 1.117: sign out this browser, or every browser (the server ends every earlier cookie); either way the sign-in page follows.
+  // D-5.3: the server forgets this browser's push subscription (Sign out everywhere forgets them all) and the browser drops it.
   const signOut = async everywhere => {
     const err = sh.querySelector('#s-signout-error'); err.textContent = '';
-    try { await api(everywhere ? '/logout/everywhere' : '/logout', { method: 'POST', body: '{}' }); closeCurrentSheet?.(); renderLogin(); }
+    let sub = null; try { sub = await (await pushRegistration())?.pushManager.getSubscription(); } catch { }
+    try {
+      await api(everywhere ? '/logout/everywhere' : '/logout', { method: 'POST', body: JSON.stringify(sub && !everywhere ? { endpoint: sub.endpoint } : {}) });
+      try { await sub?.unsubscribe(); } catch { }
+      closeCurrentSheet?.(); renderLogin();
+    }
     catch (e2) { if (e2.message !== 'login' && sh.isConnected) err.textContent = e2.message || 'Could not sign out'; }
   };
   sh.querySelector('#s-signout-here').onclick = () => signOut(false);
-  sh.querySelector('#s-signout-all').onclick = () => confirmSheet('Sign out everywhere?', 'Every browser and phone signed in to Pocket, this one included, has to sign in again. Conversations and replies in progress carry on.', 'Sign out everywhere', () => signOut(true));
+  sh.querySelector('#s-signout-all').onclick = () => confirmSheet('Sign out everywhere?', 'Every browser and phone signed in to Pocket, this one included, has to sign in again, and notifications stop on all of them until you turn them on again. Conversations and replies in progress carry on.', 'Sign out everywhere', () => signOut(true));
   sh.querySelector('#s-models-list').onclick = e => {
     const btn = e.target.closest('[data-offer-model]'), cm = srv?.claudeModels; if (!btn || !cm) return;
     const m = cm.models.find(x => x.id === btn.dataset.offerModel); if (!m) return;

@@ -90,6 +90,11 @@ for (const k of ['POCKET_SMTP_URL', 'POCKET_SMTP_FROM', 'POCKET_ROUTER_KEY']) de
 const PROJECTS_ROOT = process.env.POCKET_SESSION_ROOT || path.join(HOME, '.claude', 'projects');
 const DATA_DIR = process.env.POCKET_DATA_DIR || import.meta.dirname;
 fs.mkdirSync(DATA_DIR, { recursive: true });
+// D-5: whether a daemon has started on this data folder before, read before this start writes anything. Every start since
+// 1.43.1 writes cli-token and cli-url, so any earlier start leaves them. (Settings and stores are not evidence: an operator
+// or a test may write those before the first start.) The sign-in state (auth below) uses it to tell a new install from an
+// auth-state.json that went missing.
+const DATA_USED_BEFORE = ['auth-state.json', 'cli-token', 'cli-url'].some(f => { try { fs.lstatSync(path.join(DATA_DIR, f)); return true; } catch { return false; } });
 const deliveryReceipts = new DeliveryReceipts(path.join(DATA_DIR, 'delivery-receipts.json'));
 const followups = new FollowupQueue(path.join(DATA_DIR, 'followup-queue.json'));
 const usage = new UsageStore(path.join(DATA_DIR, 'usage-state.json'));
@@ -560,8 +565,13 @@ fs.writeFileSync(CLI_TOKEN_FILE, cliToken + '\n', { mode: 0o600 }); fs.chmodSync
 const CLI_URL_FILE = path.join(DATA_DIR, 'cli-url');
 fs.writeFileSync(CLI_URL_FILE, `http://127.0.0.1:${PORT}\n`, { mode: 0o600 }); fs.chmodSync(CLI_URL_FILE, 0o600);
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
-// A request made on this box straight to the port: a loopback socket and no proxy header (a tunnel or proxy adds one).
-const directLoopback = req => LOOPBACK.has(req.socket.remoteAddress) && !req.get('cf-connecting-ip') && !req.get('x-forwarded-for');
+// A request that names a client address in a proxy header. D-7: Forwarded (RFC 7239) and X-Real-IP count as well as
+// Cloudflare's and X-Forwarded-For, so a proxy that sends only one of those is not taken for this box. This only ever makes
+// Pocket trust a request less; the address the limits count is still chosen by clientAddress.
+const proxied = req => Boolean(req.get('cf-connecting-ip') || req.get('x-forwarded-for') || req.get('forwarded') || req.get('x-real-ip'));
+// A request made on this box straight to the port: a loopback socket and no proxy header. A proxy that adds none (nginx's
+// proxy_pass on its own) looks the same as this box, so docs/install.md has it send X-Forwarded-For.
+const directLoopback = req => LOOPBACK.has(req.socket.remoteAddress) && !proxied(req);
 // Cookie, or the loopback CLI token: mounted only on /api/board* and /api/documents*.
 async function requireBoardAuth(req, res, next) {
   if (checkCookie(getCookie(req, 'pc_auth'))) return next();
@@ -823,25 +833,61 @@ async function pushRaw(title, body, { tag, url, kind = 'turns', badge, ...extra 
 
 // ---------- auth ----------
 // 1.117 (PC-06): a sign-in generation, kept in <data dir>/auth-state.json (0600) with a keyed mark of the password, is mixed
-// into every cookie's signature. "Sign out everywhere" raises it, and so does a start with a different POCKET_PASSWORD, and
-// every cookie signed before stops working. Generation 0 signs the expiry alone, as before 1.117, so cookies from before the
-// upgrade keep working until the first such change. A state file that exists but cannot be read starts a generation no
-// earlier cookie carries, rather than falling back to 0.
+// into every cookie's signature. "Sign out everywhere" replaces it, and so does a start with a different POCKET_PASSWORD, and
+// every cookie signed before stops working.
+// D-5: a new install (a data folder no daemon has used: DATA_USED_BEFORE) starts at generation 0, which signs the expiry
+// alone as before 1.117; nobody holds a cookie yet, and it stays 0 until the first Sign out everywhere or password change.
+// Every later generation is 128 random bits. A start in a used data folder that finds no usable state file (missing,
+// unreadable, corrupt, or written by an earlier build) begins a new one, and every browser signs in again: so a deleted file,
+// or a data folder restored from a copy taken before the upgrade, never makes a signed-out or pre-upgrade cookie valid again,
+// and the first start on this version (an upgrade: a used folder with no state file) ends the cookies from before it, which
+// covers a password changed in the same restart. The limits are in SECURITY.md: restoring an older auth-state.json brings
+// back that file's generation, and a data folder emptied of every Pocket file counts as a new install.
 const AUTH_STATE_FILE = path.join(DATA_DIR, 'auth-state.json');
-const passwordMark = () => createHmac('sha256', SECRET).update('pocket-password\0' + PASSWORD).digest('hex');
+const PASSWORD_MARK = createHmac('sha256', SECRET).update('pocket-password\0' + PASSWORD).digest('hex');
+const newGeneration = () => randomBytes(16).toString('hex');
 const authState = (() => {
-  let raw = null; try { raw = fs.readFileSync(AUTH_STATE_FILE, 'utf8'); } catch (e) { if (e.code !== 'ENOENT') raw = ''; }
-  if (raw === null) return { generation: 0, password: '' };
-  try { const s = JSON.parse(raw); if (Number.isSafeInteger(s.generation) && s.generation >= 0) return { generation: s.generation, password: typeof s.password === 'string' ? s.password : '' }; } catch { }
-  log(`${AUTH_STATE_FILE} could not be read; every browser signs in again`);
-  return { generation: Date.now(), password: passwordMark() };
+  let raw = null, why = 'is missing';
+  try { raw = fs.readFileSync(AUTH_STATE_FILE, 'utf8'); } catch (e) { if (e.code !== 'ENOENT') why = 'could not be read'; }
+  if (raw === null && !DATA_USED_BEFORE) return { v: 2, generation: 0, password: PASSWORD_MARK };
+  if (raw !== null) {
+    let s = null; try { s = JSON.parse(raw); } catch { }
+    if (s?.v === 2 && (s.generation === 0 || /^[0-9a-f]{32}$/.test(s.generation)) && /^[0-9a-f]{64}$/.test(s.password)) return { v: 2, generation: s.generation, password: s.password };
+    why = s && typeof s === 'object' && s.v === undefined && Number.isSafeInteger(s.generation) ? 'is from an earlier build' : 'could not be read';
+  }
+  log(`${AUTH_STATE_FILE} ${why}: a new sign-in generation starts, and every browser signs in again`);
+  return { v: 2, generation: newGeneration(), password: PASSWORD_MARK };
 })();
 const saveAuthState = () => atomicWrite(AUTH_STATE_FILE, authState);
-if (authState.password && authState.password !== passwordMark()) { authState.generation++; log('POCKET_PASSWORD changed since the last start: every browser signs in again'); }
-authState.password = passwordMark(); saveAuthState();
+if (authState.password !== PASSWORD_MARK) { authState.generation = newGeneration(); log('POCKET_PASSWORD changed since the last start: every browser signs in again'); }
+authState.password = PASSWORD_MARK; saveAuthState();
 function sign(exp) {
   return createHmac('sha256', SECRET).update(authState.generation ? `${exp}.${authState.generation}` : String(exp)).digest('hex');
 }
+// D-6 (1.117): a "known device" cookie, set at each sign-in and sent back only to /api/login. A sign-in that carries a valid
+// one skips the queue across all addresses (it still counts against its own address's 20), so a flood of wrong passwords from
+// many addresses cannot keep the owner out on a browser that has signed in before. It never signs anything in by itself: no
+// other route reads it, and its signature is in its own domain, so it is not a pc_auth value either. It is bound to the
+// generation (Sign out everywhere ends every one) and to the password mark (a new POCKET_PASSWORD ends them too). A device
+// cookie that has carried five wrong passwords within the hour stops skipping the queue, so a stolen one buys little.
+const DEVICE_DAYS = 365;
+const deviceSig = exp => createHmac('sha256', SECRET).update(`pocket-known-device\0${exp}\0${authState.generation}\0${PASSWORD_MARK}`).digest('hex');
+const makeDeviceCookie = () => { const exp = Date.now() + DEVICE_DAYS * 24 * 3600_000; return `d.${exp}.${deviceSig(exp)}`; };
+const deviceMisses = new Map(); // device cookie signature -> {n wrong, resetAt}
+function knownDevice(v) { // the cookie's signature when it is valid and has not carried too many wrong passwords, else null
+  const m = /^d\.(\d{13,15})\.([0-9a-f]{64})$/.exec(v || '');
+  if (!m || Number(m[1]) < Date.now()) return null;
+  if (!timingSafeEqual(Buffer.from(m[2]), Buffer.from(deviceSig(m[1])))) return null;
+  const miss = deviceMisses.get(m[2]);
+  return miss && miss.resetAt > Date.now() && miss.n >= 5 ? null : m[2];
+}
+function deviceFailed(sig) {
+  const now = Date.now(), rec = deviceMisses.get(sig);
+  if (deviceMisses.size > 5000) for (const [k, v] of deviceMisses) if (v.resetAt < now) deviceMisses.delete(k);
+  if (!rec || rec.resetAt < now) deviceMisses.set(sig, { n: 1, resetAt: now + 3600_000 }); else rec.n++;
+}
+// HTTPS as the browser saw it: the tunnel or proxy says so in X-Forwarded-Proto, or Cloudflare's CF-Visitor.
+const viaHttps = req => (req.get('x-forwarded-proto') || '').split(',')[0].trim().toLowerCase() === 'https' || /"scheme"\s*:\s*"https"/.test(req.get('cf-visitor') || '');
 function makeCookie(ms = 90 * 24 * 3600 * 1000) {
   const exp = Date.now() + ms;
   return `${exp}.${sign(exp)}`;
@@ -891,13 +937,20 @@ function loginTurn() { // ms this attempt waits before its check, or -1: the que
 }
 // 1.117 (PC-07): the key an address counts under. An IPv6 caller can use any address of its /64 (usually the whole of one
 // home or server), so it counts as the /64; an IPv4-mapped address counts as the IPv4 one.
+// D-6: the mapped form is read whichever way it is written (::ffff:1.2.3.4, ::ffff:102:304, 0:0:0:0:0:ffff:…), and ::1
+// counts on its own rather than under the all-zero /64 the mapped addresses fall in.
 function addressKey(ip) {
-  const a = String(ip || '?').split('%')[0].replace(/^::ffff:(?=\d+\.\d+\.\d+\.\d+$)/i, '');
+  const a = String(ip || '?').split('%')[0].trim().toLowerCase().slice(0, 64);
   if (!a.includes(':')) return a;
-  const [head, tail] = a.split('::'), part = s => s ? s.split(':') : [];
-  const width = g => g.includes('.') ? 2 : 1, h = part(head), t = part(tail);
-  const groups = tail === undefined ? h : [...h, ...Array(Math.max(0, 8 - h.length - t.reduce((n, g) => n + width(g), 0))).fill('0'), ...t];
-  return groups.slice(0, 4).map(g => (parseInt(g, 16) || 0).toString(16)).join(':') + '::/64';
+  const [head, tail, extra] = a.split('::'), part = s => s ? s.split(':') : [];
+  if (extra !== undefined) return a; // not an address (two '::'): it counts as itself
+  const h = part(head), t = part(tail), v4 = g => /^\d+\.\d+\.\d+\.\d+$/.test(g);
+  const words = list => list.flatMap(g => v4(g) ? (([p, q, r, s]) => [((p & 255) << 8 | (q & 255)).toString(16), ((r & 255) << 8 | (s & 255)).toString(16)])(g.split('.').map(Number)) : [g]);
+  const hw = words(h), tw = words(t);
+  const groups = (tail === undefined ? hw : [...hw, ...Array(Math.max(0, 8 - hw.length - tw.length)).fill('0'), ...tw]).map(g => parseInt(g, 16) || 0);
+  if (groups.length === 8 && groups.slice(0, 5).every(g => g === 0) && groups[5] === 0xffff) return [groups[6] >> 8, groups[6] & 255, groups[7] >> 8, groups[7] & 255].join('.');
+  if (groups.length === 8 && groups.slice(0, 7).every(g => g === 0) && groups[7] === 1) return '::1';
+  return groups.slice(0, 4).map(g => (g & 0xffff).toString(16)).join(':') + '::/64';
 }
 // 1.89 (S-6): the address the login and Vault attempt limits count against. cf-connecting-ip is Cloudflare's, but any
 // caller that reaches the port can type it, so a new value on each try never ran out of tries. It counts only when the
@@ -917,7 +970,7 @@ function getCookie(req, name) {
   const h = req.headers.cookie || '';
   for (const part of h.split(';')) {
     const [k, ...rest] = part.trim().split('=');
-    if (k === name) return decodeURIComponent(rest.join('='));
+    if (k === name) { try { return decodeURIComponent(rest.join('=')); } catch { return null; } } // a malformed %-escape is no cookie, not a 500
   }
   return null;
 }
@@ -2494,7 +2547,7 @@ app.use((req, res, next) => {
   // 1.117 (PC-11): HSTS when the request reached the tunnel or proxy over HTTPS (it says so in X-Forwarded-Proto, or
   // Cloudflare's CF-Visitor). A browser only honours it over HTTPS, so plain loopback HTTP never gets it. No includeSubDomains:
   // other names under the owner's domain are not Pocket's to decide.
-  if ((req.get('x-forwarded-proto') || '').split(',')[0].trim().toLowerCase() === 'https' || /"scheme"\s*:\s*"https"/.test(req.get('cf-visitor') || '')) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+  if (viaHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
   // No inline scripts, no third-party hosts: everything the app needs is same-origin.
   // img-src 'self' also stops agent-written Markdown from loading a remote image (a
   // prompt-injected turn could otherwise exfiltrate text through an image URL).
@@ -2520,15 +2573,21 @@ app.use(express.static(path.join(import.meta.dirname, 'public'), { index: 'index
 app.post('/api/login', async (req, res) => {
   const ip = await clientAddress(req), key = addressKey(ip); // 1.89 (S-6); 1.117 an IPv6 /64 counts once
   if (rateLimited(key)) return res.status(429).json({ error: 'too many attempts' });
-  const wait = loginTurn(); // 1.117 (PC-07)
+  const device = knownDevice(getCookie(req, 'pc_device')); // D-6: a browser that signed in before skips the queue
+  const wait = device ? 0 : loginTurn(); // 1.117 (PC-07)
   if (wait < 0) return res.status(429).set('Retry-After', String(Math.ceil(LOGIN_GLOBAL.maxWaitMs / 1000))).json({ error: 'too many sign-in attempts right now', code: 'busy' });
-  if (wait) await new Promise(r => setTimeout(r, wait));
+  if (wait) {
+    await new Promise(r => setTimeout(r, wait));
+    if (rateLimited(key)) return res.status(429).json({ error: 'too many attempts' }); // D-6: a queued burst from one address stops at its 20
+  }
   const given = String(req.body?.password || '');
   const digest = s => createHash('sha256').update(s, 'utf8').digest();
   if (timingSafeEqual(digest(PASSWORD), digest(given))) {
-    res.setHeader('Set-Cookie', `pc_auth=${makeCookie()}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${90 * 24 * 3600}`);
+    res.setHeader('Set-Cookie', [`pc_auth=${makeCookie()}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${90 * 24 * 3600}`,
+      `pc_device=${makeDeviceCookie()}; HttpOnly;${viaHttps(req) ? ' Secure;' : ''} SameSite=Lax; Path=/api/login; Max-Age=${DEVICE_DAYS * 24 * 3600}`]);
     return res.json({ ok: true });
   }
+  if (device) deviceFailed(device);
   loginFailed(key);
   log(`login FAIL from ${ip}`);
   res.status(403).json({ error: 'wrong password' });
@@ -2543,12 +2602,28 @@ const ownPageJson = (req, res, next) => {
   next();
 };
 const clearAuthCookie = res => res.setHeader('Set-Cookie', 'pc_auth=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0');
-app.post('/api/logout', ownPageJson, (_req, res) => { res.setHeader('Cache-Control', 'no-store'); clearAuthCookie(res); res.json({ ok: true }); });
+// D-5.3: Sign out also forgets this browser's push subscription (the page sends its endpoint and unsubscribes the browser),
+// and only for a caller that is still signed in. Sign out everywhere removes every subscription: a lost phone stops
+// receiving notification text, and the owner turns notifications on again on the devices that stay.
+app.post('/api/logout', ownPageJson, (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const endpoint = req.body?.endpoint;
+  if (typeof endpoint === 'string' && endpoint && checkCookie(getCookie(req, 'pc_auth'))) {
+    try { const subs = loadSubs(), keep = subs.filter(s => s.endpoint !== endpoint); if (keep.length !== subs.length) { saveSubs(keep); log(`push unsubscribed at sign-out (${keep.length} devices)`); } }
+    catch (e) { log(`sign out: the push subscription could not be removed: ${e.message}`); }
+  }
+  clearAuthCookie(res); res.json({ ok: true });
+});
 app.post('/api/logout/everywhere', ownPageJson, requireAuth, (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  authState.generation++;
-  try { saveAuthState(); } catch (e) { authState.generation--; log(`sign out everywhere failed: ${e.message}`); return res.status(500).json({ error: 'Pocket could not save the change, so nobody was signed out. Try again.' }); }
-  clearAuthCookie(res); log('signed out everywhere: every browser signs in again'); res.json({ ok: true });
+  const before = authState.generation;
+  authState.generation = newGeneration();
+  try { saveAuthState(); } catch (e) { authState.generation = before; log(`sign out everywhere failed: ${e.message}`); return res.status(500).json({ error: 'Pocket could not save the change, so nobody was signed out. Try again.' }); }
+  deviceMisses.clear();
+  let push = 0; // the sign-out above already holds; a failure here is logged, as for any other push store write
+  try { push = loadSubs().length; if (push) saveSubs([]); }
+  catch (e) { push = null; log(`sign out everywhere: the push subscriptions could not be removed: ${e.message}`); }
+  clearAuthCookie(res); log(`signed out everywhere: every browser signs in again; ${push} push subscriptions removed`); res.json({ ok: true, pushRemoved: push });
 });
 
 // 1.20.1: a signed-out browser asks this first; answering 200 { ok: false } keeps the console free of a 401 error.
@@ -5156,7 +5231,7 @@ const INTAKE_LIMIT = { get: [60, 600_000], post: [15, 600_000], miss: [20, 3600_
 const INTAKE_SLOW_MS = 1500;
 async function intakeAddress(req) {
   const ip = await clientAddress(req);
-  if (ip === req.socket.remoteAddress && (req.get('cf-connecting-ip') || req.get('x-forwarded-for'))) return null;
+  if (ip === req.socket.remoteAddress && proxied(req)) return null;
   return addressKey(ip);
 }
 async function intakeMiss(ip) { if (ip) intakeCount('miss:' + ip, ...INTAKE_LIMIT.miss); if (intakeCount('miss:*', ...INTAKE_LIMIT.missAll)) await new Promise(r => setTimeout(r, INTAKE_SLOW_MS)); }
@@ -5338,7 +5413,7 @@ app.get('/api/codex/models', requireAuth, async (_req, res) => {
 // 1.86: Pocket's ask tool (acp-ask-mcp.mjs) inside an OpenRouter reply's OpenCode process. Direct loopback only, and
 // the key that one process was started with, which also names its conversation. Ask, then poll for the answer.
 function acpAskTurn(req, res) {
-  const direct = LOOPBACK.has(req.socket.remoteAddress) && !req.get('cf-connecting-ip') && !req.get('x-forwarded-for');
+  const direct = directLoopback(req);
   const key = String(req.get('x-pocket-ask-key') || ''), session = direct && /^[0-9a-f]{48}$/.test(key) ? acp.acpSessionByAskKey(key) : null;
   if (!session) { res.status(403).json({ error: 'not allowed' }); return null; }
   return session;

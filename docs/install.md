@@ -150,8 +150,30 @@ code.yourdomain.com {
 }
 ```
 
-**nginx**: a TLS server block proxying to `http://127.0.0.1:3610` with `proxy_http_version 1.1`
-and the `Upgrade`/`Connection` headers passed through, so streamed replies are not buffered.
+**nginx**: a TLS server block proxying to `http://127.0.0.1:3610`, with `proxy_http_version 1.1`
+and the `Upgrade`/`Connection` headers passed through so streamed replies are not buffered, and
+the caller's address and scheme passed on:
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:3610;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_buffering off;
+}
+```
+
+**Any reverse proxy must send `X-Forwarded-For`.** Pocket tells a request made on the box itself
+from one that came through a proxy by the proxy's headers (`X-Forwarded-For`, `Forwarded`,
+`X-Real-IP`, or Cloudflare's `CF-Connecting-IP`). nginx's `proxy_pass` adds none of them unless
+told to, and without one every caller looks local: strangers get the `/api/health` counts, all
+callers share the intake links' per-address limits, and without `X-Forwarded-Proto` the browser
+is not sent HSTS. Cloudflare Tunnel (`cloudflared`), Caddy's `reverse_proxy` and Tailscale Serve
+add `X-Forwarded-For` themselves, so their examples above need nothing more.
 
 Whichever you use, `POCKET_FRAME_ANCESTORS` in `.env` is only needed if another page will embed
 Pocket in a frame.
@@ -170,7 +192,8 @@ not affected. On a Cloudflare Tunnel install without Access, with the port bound
 set `POCKET_TRUSTED_PROXY=1` so each caller counts on its own. Tailscale Serve, Caddy and nginx
 do not set `cf-connecting-ip` (they pass on whatever the client sent), so leave the setting off
 behind them. Since 1.117 an IPv6 caller counts by its /64, and past 30 wrong passwords an hour
-across all callers, sign-ins are checked one at a time with a growing pause (see SECURITY.md).
+across all callers, sign-ins are checked one at a time with a growing pause; a browser that has
+signed in before skips that queue (see SECURITY.md).
 
 An uptime monitor that checks `/api/health` through the tunnel gets `{"ok":true}` and nothing
 more (1.117); the counts are shown only on the box itself or to a signed-in browser.

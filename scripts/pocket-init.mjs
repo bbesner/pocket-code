@@ -194,7 +194,7 @@ const ts = onPath('tailscale');
 if (ts) https.push({ tool: 'Tailscale Serve', text: `tailscale is installed. One command gives an HTTPS address on your tailnet:\n      tailscale serve --bg ${port}\n    then open the https://<machine>.<tailnet>.ts.net address it prints (devices must be on the tailnet).` });
 const caddy = onPath('caddy');
 if (caddy) https.push({ tool: 'Caddy', text: `caddy is installed. A Caddyfile site block with automatic certificates:\n      code.yourdomain.com {\n        reverse_proxy 127.0.0.1:${port}\n      }` });
-if (onPath('nginx') && !caddy) https.push({ tool: 'nginx', text: `nginx is installed. Proxy a TLS server block to http://127.0.0.1:${port} with proxy_http_version 1.1 and the Upgrade/Connection headers for streaming.` });
+if (onPath('nginx') && !caddy) https.push({ tool: 'nginx', text: `nginx is installed. Proxy a TLS server block to http://127.0.0.1:${port} with proxy_http_version 1.1, the Upgrade/Connection headers for streaming, and these two lines (without them every caller looks local to Pocket; see docs/install.md):\n      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n      proxy_set_header X-Forwarded-Proto $scheme;` });
 if (!https.length) https.push({ tool: 'none found', text: `No tunnel or proxy found. The simplest is Tailscale (https://tailscale.com/download, then: tailscale serve --bg ${port}); a public hostname needs a Cloudflare Tunnel or a reverse proxy such as Caddy. Details: docs/install.md.` });
 
 finish();
