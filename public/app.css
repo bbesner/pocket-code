@@ -1648,7 +1648,7 @@ header.bar .chat-statebar { border: 0; background: none; padding: 0; order: 10; 
 .vault-deny:hover { background: var(--raised); }
 .vault-answer:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
 .vault-answer:disabled { opacity: .55; cursor: default; filter: none; }
-.vault-request-missed, .vault-notice { margin: 0 0 10px; padding: 9px 12px; border: 1px solid var(--warn); border-radius: 10px; color: var(--text); font-size: 14px; line-height: 1.45; max-width: 64ch; }
+.vault-request-missed, .vault-request-changed, .vault-notice { margin: 0 0 10px; padding: 9px 12px; border: 1px solid var(--warn); border-radius: 10px; color: var(--text); font-size: 14px; line-height: 1.45; max-width: 64ch; }
 .vault-notice { margin: 0 18px 14px; }
 .vault-notice:focus { outline: none; }
 /* Finding a secret: search and order over the list, a New mark for a day, and a short highlight on the row a link opened. */

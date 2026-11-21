@@ -270,7 +270,7 @@ export class VaultStore {
     const eff = this.effective(i);
     return { ...rest, fields: fieldNames(i), custom: i.custom, effectivePolicy: eff, policyWord: POLICY_WORDS[eff], ...(owner ? { notes } : {}), expiring: Boolean(i.expiresAt) && Date.parse(i.expiresAt) - now < 14 * 86400_000 };
   }
-  requestView(r) { const { env, waiters, caller, bindings, ...rest } = r; return { ...rest, pending: !r.answer, allowAlways: r.allowAlways !== false }; }
+  requestView(r) { const { env, waiters, caller, bindings, pin, ...rest } = r; return { ...rest, pending: !r.answer, allowAlways: r.allowAlways !== false }; }
   // The policy that applies to an item now: its own, or the Agent access setting's when it follows the default.
   effective(i) { if (i.policy !== 'default') return i.policy; const a = this.access(); return ACCESS_POLICY[ACCESS.includes(a) ? a : 'once']; }
   snapshot({ owner = false, now = this.now() } = {}) {
@@ -506,6 +506,21 @@ export class VaultStore {
   // 1.73.4: a command is a run or a browser fill; a recipe saved before 1.73.4 carries no action and is read from its argv.
   static actionOf(x) { return x?.action === 'fill' || (!x?.action && x?.argv?.[0] === 'pocket-fill') ? 'fill' : 'run'; }
   static sameCommand(a, b) { return a.cwd === b.cwd && VaultStore.actionOf(a) === VaultStore.actionOf(b) && a.argv.length === b.argv.length && a.argv.every((x, k) => x === b.argv[k]); }
+  // PC-02: a run recipe also holds what the command executes (pinCommand: the program, its interpreter and every file argument,
+  // by path and content hash), and matches only while all of it is unchanged. A recipe saved before this has no pin and
+  // matches no pinned run, so the owner is asked once more. A fill runs nothing of the agent's, so its recipe has no pin.
+  // A command with no pin object at all is one the store was handed without a check (only direct callers of the store do
+  // that; every HTTP run is pinned), and matches only a recipe without one.
+  static samePin(a, b) { if (VaultStore.actionOf(b) === 'fill') return true; return VaultStore.pinsMatch(a?.pin, b?.pin); }
+  static pinsMatch(a, b) { if (!a && !b) return true; const k = pinKey(a); return k !== null && k === pinKey(b); }
+  static recipeFor(item, cmd) { return item.recipes.find(r => VaultStore.sameCommand(r, cmd) && VaultStore.samePin(r, cmd)) || null; }
+  // Why an approved command asks again: 'changed' (a file it runs is different), 'unpinned' (approved before content was
+  // checked), or null when no recipe has this text.
+  static recipeChange(items, cmd) {
+    if (VaultStore.actionOf(cmd) === 'fill') return null;
+    const same = items.flatMap(i => i.recipes.filter(r => VaultStore.sameCommand(r, cmd) && !VaultStore.samePin(r, cmd))); if (!same.length) return null;
+    return same.some(r => r.pin) ? 'changed' : 'unpinned';
+  }
   // What the policies say about running this command with these items: 'run', or 'ask' with the items that need the owner's word.
   decide(bound, cmd) {
     const need = [];
@@ -513,7 +528,7 @@ export class VaultStore {
       const item = this.items.find(x => x.id === boundItem.id) || boundItem; // 1.73.6: an edit replaces the item object; the policy read is the one in the store now
       const p = this.effective(item);
       if (p === 'owner') throw fail(`${item.name} is for the owner only; agents cannot use it. Ask the owner to change its policy.`, 403, { code: 'owner_only' });
-      if (p === 'every' || (p === 'ask' && !item.recipes.some(r => VaultStore.sameCommand(r, cmd)))) need.push(item);
+      if (p === 'every' || (p === 'ask' && !VaultStore.recipeFor(item, cmd))) need.push(item);
     }
     return need;
   }
@@ -524,7 +539,10 @@ export class VaultStore {
     this.expireRequests();
     const now = this.now();
     let id = shortId(); for (let n = 0; this.requests.has(id); n++) { if (n >= 8) throw fail('Could not number the request; try again.', 500); id = shortId(); } // never over an existing row
+    // PC-02: the row keeps the pin of what was asked about (an Always saves it, a continuation must still match it) and says
+    // when an approved command asks again because what it runs changed, or because it was approved before content was checked.
     const r = { id, action: VaultStore.actionOf(cmd), items: need.map(i => i.id), itemNames: need.map(i => i.name), argv: cmd.argv, cwd: cmd.cwd, env, session, sessionTitle, by, created: iso(now), expiresAt: iso(now + LIMITS.requestTtlMs), answer: null, consumed: false, waiters: [], allowAlways: need.every(i => this.effective(i) !== 'every'),
+      pin: cmd.pin || null, program: cmd.pin?.program || null, changed: VaultStore.recipeChange(need, cmd),
       bindings: bound.map(b => ({ v: b.v, item: b.item.id, name: b.item.name, field: b.field })), caller: { actor: by, session, tokenHash } };
     this.audit({ action: 'request', request: r.id, item: need[0].id, name: need.map(i => i.name).join(','), by, session, sessionTitle, argv: cmd.argv, cwd: cmd.cwd });
     this.requests.set(r.id, r);
@@ -548,7 +566,9 @@ export class VaultStore {
   // both pass: the bindings are resolved again by item id against the store as it is now (a removed item or field voids the
   // approval; a renamed item does not), the policy decision is run again (an item that is now the owner's only refuses; one
   // that now needs approval and was not in the answered set sends the agent back to ask), and the row is marked used.
-  claim(id, { action = 'run', caller = null } = {}) {
+  // PC-02: `pin` is what the command runs now (pinCommand, just before the claim); it must be what the owner was asked about,
+  // so a script rewritten while the request waited is not run on the strength of an answer about its old content.
+  claim(id, { action = 'run', caller = null, pin = null } = {}) {
     const r = this.continuation(id, { action, caller });
     if (!r.answer || !['once', 'always'].includes(r.answer.decision)) throw fail('The owner has not allowed that request.', 409);
     const bound = [];
@@ -557,7 +577,8 @@ export class VaultStore {
       if (!item || item.trashedAt || !fieldNames(item).includes(b.field)) throw fail(`${b.name} changed since the owner was asked; ask again.`, 409, { code: 'request_stale' });
       bound.push({ v: b.v, item, field: b.field });
     }
-    const cmd = { argv: r.argv, cwd: r.cwd, action: r.action };
+    if (r.action === 'run' && !VaultStore.pinsMatch(r.pin, pin)) throw fail('The program or a file the command names changed since the owner was asked; ask again.', 409, { code: 'request_stale' });
+    const cmd = { argv: r.argv, cwd: r.cwd, action: r.action, ...(r.action === 'run' && pin ? { pin } : {}) };
     const need = this.decide(bound, cmd);
     if (need.some(i => !r.items.includes(i.id))) throw fail('A policy changed since the owner was asked; ask again.', 409, { code: 'request_stale' });
     r.consumed = true;
@@ -572,9 +593,15 @@ export class VaultStore {
     // 1.73.6: the recipes an Always saves are written first; the row is answered, and its waiters woken, only once they are on disk.
     let next = null;
     if (decision === 'always') {
+      // PC-02: a run recipe keeps the pin of what the owner was asked about; a recipe with the same text whose pin no longer
+      // matches (the script changed, or it was saved before pins) takes the new pin instead of gaining a twin.
+      const pinned = r.action === 'run' ? { pin: r.pin } : {};
       next = this.items.map(live => {
-        if (!r.items.includes(live.id) || live.trashedAt || this.effective(live) === 'every' || live.recipes.some(x => VaultStore.sameCommand(x, r))) return live;
-        const i = structuredClone(live); i.recipes.push({ id: shortId(), argv: r.argv, cwd: r.cwd, action: r.action, created: answer.at }); if (i.recipes.length > LIMITS.recipes) i.recipes.shift(); this.touch(i); return i;
+        if (!r.items.includes(live.id) || live.trashedAt || this.effective(live) === 'every' || VaultStore.recipeFor(live, r)) return live;
+        const i = structuredClone(live), old = i.recipes.find(x => VaultStore.sameCommand(x, r));
+        if (old) { if (r.pin) Object.assign(old, pinned, { pinned: answer.at }); } // never unpins a recipe
+        else { i.recipes.push({ id: shortId(), argv: r.argv, cwd: r.cwd, action: r.action, ...pinned, created: answer.at }); if (i.recipes.length > LIMITS.recipes) i.recipes.shift(); }
+        this.touch(i); return i;
       });
     }
     this.audit({ action: 'request-answered', request: r.id, item: r.items[0], name: r.itemNames.join(','), by: 'owner', decision, session: r.session, sessionTitle: r.sessionTitle, argv: r.argv, cwd: r.cwd });
@@ -627,6 +654,64 @@ export class VaultStore {
   }
 }
 
+// ---------- what a run executes (PC-02) ----------
+// An "Always allow" used to match the command's text alone, so an agent could rewrite the script it names (or put a program
+// of the same name earlier on PATH) and run its own code with the secret, unasked. A run is now pinned: the program found
+// on the Vault's own PATH (never the caller's), the interpreter its #! line names (and, for `#!/usr/bin/env x`, the x that
+// PATH finds), and every argument that names an existing regular file, each by absolute path and SHA-256 of its content.
+// A recipe matches only while the pin is the same, and the run executes the program found here, by its full path.
+// Not covered, and said so in SECURITY.md: files a script reads or sources itself, code an interpreter loads from
+// elsewhere (modules, package.json scripts, Makefiles), and a file swapped in the moment between this check and the start.
+export const PIN_LIMITS = { fileBytes: 512 * 1024 * 1024, cache: 1000 };
+// The Vault's PATH: POCKET_VAULT_PATH, or the daemon's own PATH at start, keeping absolute folders only (an empty entry or
+// "." would search the agent's working directory).
+export const runPath = raw => String(raw || '').split(':').filter(d => path.isAbsolute(d)).join(':') || '/usr/local/bin:/usr/bin:/bin';
+const runnable = p => { try { const st = fs.statSync(p); if (!st.isFile()) return false; fs.accessSync(p, fs.constants.X_OK); return true; } catch { return false; } };
+export function findProgram(name, cwd, PATH) {
+  if (name.includes('/')) { const p = path.resolve(cwd, name); return runnable(p) ? p : null; }
+  for (const d of runPath(PATH).split(':')) { const p = path.join(d, name); if (runnable(p)) return p; }
+  return null;
+}
+// Hashes are kept per path while the file's device, inode, size, modification and change times stay the same (a program
+// such as node is large; the change time cannot be set back by its owner), and the file must not change while it is read.
+const pinCache = new Map();
+const statKey = st => [st.dev, st.ino, st.size, st.mtimeNs, st.ctimeNs].join(':');
+async function fileHash(p) {
+  const st = await fs.promises.stat(p, { bigint: true }), key = statKey(st), hit = pinCache.get(p);
+  if (hit && hit.key === key) return hit.sha;
+  if (st.size > BigInt(PIN_LIMITS.fileBytes)) return null; // too large to check: such a command asks every time
+  const h = createHash('sha256'); for await (const c of fs.createReadStream(p)) h.update(c);
+  if (statKey(await fs.promises.stat(p, { bigint: true })) !== key) throw fail(`${p} changed while the Vault was checking it; try again.`, 409);
+  const sha = h.digest('hex'); if (pinCache.size >= PIN_LIMITS.cache) pinCache.clear(); pinCache.set(p, { key, sha }); return sha;
+}
+async function shebang(p) {
+  let fh; try { fh = await fs.promises.open(p, 'r'); const b = Buffer.alloc(256), { bytesRead } = await fh.read(b, 0, 256, 0); const line = b.subarray(0, bytesRead).toString('latin1').split('\n')[0]; return line.startsWith('#!') ? line.slice(2).trim().split(/\s+/).filter(Boolean) : null; }
+  catch { return null; } finally { await fh?.close(); }
+}
+export async function pinCommand({ argv, cwd }, { PATH } = {}) {
+  const program = findProgram(argv[0], cwd, PATH);
+  if (!program) throw fail(`${argv[0]} was not found${argv[0].includes('/') ? '' : ' on the Vault\'s PATH'}, or is not executable.`, 400, { code: 'not_found' });
+  const files = [{ role: 'program', path: program }];
+  const bang = await shebang(program);
+  if (bang?.[0] && path.isAbsolute(bang[0])) {
+    files.push({ role: 'interpreter', path: bang[0] });
+    if (path.basename(bang[0]) === 'env') { const name = bang.slice(1).find(t => !t.startsWith('-') && !t.includes('=')); const found = name && findProgram(name, cwd, PATH); if (found) files.push({ role: 'interpreter', path: found }); }
+  }
+  // Every argument that names an existing regular file, wherever it is, and the value of a --flag=file argument.
+  for (const a of argv.slice(1)) for (const x of [a, /^--?[\w-]+=(.+)$/.exec(a)?.[1]]) {
+    if (!x || x.startsWith('-')) continue;
+    const p = path.resolve(cwd, x); let st; try { st = fs.statSync(p); } catch { continue; }
+    if (st.isFile() && !files.some(f => f.path === p)) files.push({ role: 'argument', path: p });
+  }
+  for (const f of files) f.sha256 = await fileHash(f.path).catch(e => { if (e.status) throw e; return null; });
+  return { v: 1, program, files };
+}
+// The pin as one comparable string; null when there is none or any file in it could not be hashed (such a pin never matches).
+export function pinKey(pin) {
+  if (!pin || !Array.isArray(pin.files) || !pin.files.length || pin.files.some(f => !f || typeof f.path !== 'string' || typeof f.sha256 !== 'string')) return null;
+  return JSON.stringify(pin.files.map(f => [f.path, f.sha256]));
+}
+
 // ---------- scrubbing ----------
 // Every form a value is likely to take in a program's output: as typed, base64, base64url, URL-encoded, JSON-escaped
 // (1.73.3: in the spellings other JSON writers use too, and escaped twice).
@@ -646,6 +731,10 @@ export function needlesFor(values) {
       const core = Buffer.concat([Buffer.alloc(k), bytes]).toString('base64').slice(Math.ceil(k * 8 / 6), Math.floor((k + bytes.length) * 8 / 6));
       if (core.length >= 7) { out.add(core); out.add(core.replace(/\+/g, '-').replace(/\//g, '_')); }
     }
+    // PC-02: hex (either case) and reversed, as defence in depth. Scrubbing is not the control: a command can always
+    // spell a value some other way; what may run is decided by the recipe and its pin.
+    const hex = bytes.toString('hex'); out.add(hex); out.add(hex.toUpperCase());
+    const rev = [...v].reverse().join(''); if (rev !== v) out.add(rev);
     try { const e = encodeURIComponent(v); if (e !== v) out.add(e); } catch { }
     const j = JSON.stringify(v).slice(1, -1); if (j !== v) out.add(j);
     // PHP's json_encode writes "/" as "\/" and, like Python's json.dumps, non-ASCII as \uXXXX; a JSON string carried inside
@@ -684,7 +773,8 @@ export function scrubber(values, placeholder = '{{vault}}') { return makeScrubSt
 // KILL after five seconds), and so does the command's own exit: whatever it started and left running is ended, so a run
 // cannot leave a daemon behind holding the values or the output pipes. The run resolves within about two seconds of the
 // command's exit even if something outside the group still holds a pipe.
-export function runWithSecrets({ argv, cwd, env, secrets, placeholders, timeoutMs = LIMITS.timeoutDefault * 1000, maxOutput = LIMITS.output, onOut = () => {}, onErr = () => {}, signal }) {
+// PC-02: `file` is the program pinCommand found (run by full path, with argv[0] kept as the program's own name).
+export function runWithSecrets({ argv, file = null, cwd, env, secrets, placeholders, timeoutMs = LIMITS.timeoutDefault * 1000, maxOutput = LIMITS.output, onOut = () => {}, onErr = () => {}, signal }) {
   return new Promise(resolve => {
     // One replacer per stream: every form of every value becomes that value's own placeholder, longest values first.
     const table = Object.values(secrets).map(v => ({ forms: needlesFor([v]), ph: placeholders?.[v] ? `{{vault:${placeholders[v]}}}` : '{{vault}}' })).filter(p => p.forms.length).sort((a, b) => b.forms[0].length - a.forms[0].length);
@@ -695,7 +785,7 @@ export function runWithSecrets({ argv, cwd, env, secrets, placeholders, timeoutM
     const abort = () => { if (!child?.pid || aborted || done) return; aborted = true; group('SIGTERM'); setTimeout(() => group('SIGKILL'), 5000).unref(); };
     const timer = setTimeout(() => { timedOut = true; abort(); }, timeoutMs);
     signal?.addEventListener?.('abort', abort);
-    try { child = spawn(argv[0], argv.slice(1), { cwd, env: { ...env, ...secrets }, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, detached: true }); }
+    try { child = spawn(file || argv[0], argv.slice(1), { cwd, env: { ...env, ...secrets }, ...(file ? { argv0: argv[0] } : {}), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, detached: true }); }
     catch (e) { return finish(null, null, e.message); }
     child.on('error', e => finish(null, null, e.message));
     const emit = (fn, text) => { if (!text) return; total += text.length; if (total > maxOutput) { if (!truncated) { truncated = true; fn(text.slice(0, Math.max(0, text.length - (total - maxOutput)))); abort(); } return; } fn(text); };

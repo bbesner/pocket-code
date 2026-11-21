@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {spawn,execFile} from 'node:child_process';
 import {createHmac,randomUUID} from 'node:crypto';
-import {VaultStore,parseKey,newKey,encryptStore,decryptStore,storeHeader,deriveKey,scrubber,needlesFor,makeScrubStream,runWithSecrets,vaultInstructions,LIMITS,EXPORT_FORMAT} from '../vault.mjs';
+import {VaultStore,parseKey,newKey,encryptStore,decryptStore,storeHeader,deriveKey,scrubber,needlesFor,makeScrubStream,runWithSecrets,vaultInstructions,LIMITS,EXPORT_FORMAT,pinCommand,pinKey,runPath} from '../vault.mjs';
 import {agentEnv} from '../environment.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
@@ -678,6 +678,103 @@ test('HTTP: a request continues only as what it is, by who raised it, and once; 
   assert.equal(audit.filter(x=>x.action==='run'&&x.request===id).length,1);assert.equal(audit.filter(x=>x.action==='fill'&&x.request===id2).length,1);
   assert.equal(fs.readFileSync(path.join(dir,'data','vault-audit.jsonl'),'utf8').includes(SECRET),false);
   assert.doesNotMatch(logs,/TypeError|unhandled rejection/);
+});
+
+// PC-02: an Always recipe used to match the command's text alone, so a script rewritten after the owner's Always, or a program
+// of the same name put earlier on PATH, ran with the secret unasked. The recipe now holds what the command runs.
+test('HTTP (PC-02): an Always recipe holds what the command runs; a changed script or a PATH shim asks again and runs nothing; an old recipe asks once',async t=>{
+  const dir=tmp();let port=19913;
+  const secret=randomUUID(),exp=Date.now()+3600000,key=newKey();
+  const cookie=exp+'.'+createHmac('sha256',secret).update(String(exp)).digest('hex');
+  const headers={'content-type':'application/json',cookie:'pc_auth='+cookie};
+  const shim=path.join(dir,'shim'),bin=path.join(dir,'bin'),work=path.join(dir,'work');
+  for(const d of ['sessions','data',shim,bin,work])fs.mkdirSync(path.resolve(dir,d),{recursive:true});
+  let child,logs='';
+  const start=async()=>{
+   child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...cleanEnv(),PORT:String(port),POCKET_ENV_FILE:'',POCKET_AUTO_TITLES:'0',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_VOICE:'off',POCKET_MEMSTEM:'0',POCKET_SKILLS:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),POCKET_TEST_CALLS:path.join(dir,'calls'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs'),POCKET_VAULT_KEY:key,
+     POCKET_VAULT_PATH:[shim,bin,'relative-dir','',path.dirname(process.execPath),'/usr/bin','/bin'].join(':')},stdio:['ignore','pipe','pipe']});
+   child.stdout.on('data',b=>{logs+=b});child.stderr.on('data',b=>{logs+=b});
+   for(let i=0;i<100;i++){if(child.exitCode!==null)break;try{const r=await fetch(`http://127.0.0.1:${port}/api/health`);if(r.ok)return;}catch{} await sleep(30)}
+   if(child.exitCode!==null&&/EADDRINUSE/.test(logs)&&(start.tries=(start.tries||0)+1)<4){port+=41;logs='';return start();}
+   throw Error('Test server failed: '+logs);
+  };
+  const stop=async()=>{if(child&&child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}};
+  t.after(async()=>{await stop();fs.rmSync(dir,{recursive:true,force:true,maxRetries:5});});
+  const call=async(p,body,h=headers)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:body?'POST':'GET',headers:h,body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json().catch(()=>({}))};};
+  const streamCall=async(p,body,h)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:'POST',headers:h,body:JSON.stringify(body)});if(!r.ok)return {status:r.status,events:[],body:await r.json().catch(()=>({}))};const text=await r.text();return {status:r.status,events:text.trim().split('\n').filter(Boolean).map(l=>JSON.parse(l))};};
+  const out=r=>r.events.filter(e=>e.t==='out').map(e=>e.s).join('');
+  await start();
+  const bearer={'content-type':'application/json',authorization:'Bearer '+fs.readFileSync(path.join(dir,'data','cli-token'),'utf8').trim()};
+  assert.equal((await call('/settings',{vault:true})).body.vault,true);
+  assert.equal((await call('/vault/act',{action:'add',name:'deploy-key',kind:'token',values:{value:SECRET}})).status,200,'asks once per command');
+  const script=path.join(work,'deploy.sh'),ran=path.join(work,'ran');
+  fs.writeFileSync(script,'echo "deployed with $T"\n');
+  const run=(argv,extra={})=>streamCall('/vault/run',{argv,cwd:work,env:{T:'deploy-key'},wait:1,...extra},bearer);
+  const allow=async(argv,decision)=>{const r=await run(argv);assert.equal(r.events.at(-1).t,'pending',JSON.stringify(r.events));assert.equal((await call('/vault/act',{action:'answer',request:r.events.at(-1).id,decision})).status,200);return [r,await streamCall('/vault/wait',{request:r.events.at(-1).id},bearer)];};
+  // The owner allows `sh deploy.sh` always; unchanged, it runs again without asking.
+  let [,r]=await allow(['sh','deploy.sh'],'always');assert.equal(out(r),'deployed with {{vault:deploy-key}}\n');
+  r=await run(['sh','deploy.sh']);assert.equal(r.events.some(e=>e.t==='request'),false,'the unchanged script is not asked about');assert.equal(out(r),'deployed with {{vault:deploy-key}}\n');
+  let recipe=(await call('/vault')).body.items[0].recipes[0];
+  assert.deepEqual(recipe.pin.files.map(f=>f.role),['program','argument']);assert.ok(path.isAbsolute(recipe.pin.program));assert.equal(recipe.pin.files[1].path,script);assert.match(recipe.pin.files[1].sha256,/^[0-9a-f]{64}$/);
+  // The agent rewrites the script to spell the value another way: a new request, saying it changed, and nothing runs.
+  fs.writeFileSync(script,'touch ran\nprintf %s "$T" | od -An -tx1\n');
+  r=await run(['sh','deploy.sh']);
+  assert.deepEqual(r.events.map(e=>e.t),['request','pending']);assert.equal(r.events[0].changed,'changed');assert.equal(fs.existsSync(ran),false,'the changed script did not run');
+  const req=(await call('/vault')).body.requests.find(x=>x.id===r.events[0].id);assert.equal(req.changed,'changed');assert.equal(req.program,recipe.pin.program);assert.equal('pin' in req,false,'the card carries the program, not the hashes');
+  // Allowed once, then changed again before the agent continues: the answer was about other content, so nothing runs.
+  assert.equal((await call('/vault/act',{action:'answer',request:r.events[0].id,decision:'once'})).status,200);
+  fs.appendFileSync(script,'echo more\n');
+  r=await streamCall('/vault/wait',{request:r.events[0].id},bearer);assert.equal(r.events.at(-1).t,'error');assert.match(r.events.at(-1).message,/changed since the owner was asked/);assert.equal(fs.existsSync(ran),false);
+  // A PATH shim: `tool` approved always from bin/; a `tool` dropped into a folder earlier on the Vault's PATH is not run.
+  fs.writeFileSync(path.join(bin,'tool'),'#!/bin/sh\necho "tool with $T"\n',{mode:0o755});
+  [,r]=await allow(['tool'],'always');assert.equal(out(r),'tool with {{vault:deploy-key}}\n');
+  r=await run(['tool']);assert.equal(r.events.some(e=>e.t==='request'),false);assert.equal(out(r),'tool with {{vault:deploy-key}}\n');
+  fs.writeFileSync(path.join(shim,'tool'),'#!/bin/sh\ntouch ran\necho "shim with $T"\n',{mode:0o755});
+  r=await run(['tool']);assert.deepEqual(r.events.map(e=>e.t),['request','pending']);assert.equal(r.events[0].changed,'changed');assert.equal(fs.existsSync(ran),false,'the shim did not run');
+  assert.equal((await call('/vault')).body.requests.find(x=>x.id===r.events[0].id).program,path.join(shim,'tool'),'the card names the program that would run');
+  // Empty and relative PATH entries are dropped: a `tool2` in the working folder is not found by its bare name.
+  fs.writeFileSync(path.join(work,'tool2'),'#!/bin/sh\ntouch ran\n',{mode:0o755});
+  r=await run(['tool2']);assert.equal(r.events.at(-1).t,'error');assert.match(r.events.at(-1).message,/tool2 was not found on the Vault's PATH/);assert.equal(fs.existsSync(ran),false);
+  // A recipe saved before pins existed asks once more, saying why; Always then pins it in place, and it runs unasked again.
+  fs.writeFileSync(script,'echo "deployed with $T"\n');
+  await stop();
+  const file=path.join(dir,'data','vault.enc'),k=parseKey(key),data=decryptStore([k],fs.readFileSync(file));
+  for(const i of data.items)i.recipes=i.recipes.map(({pin,...rest})=>rest);fs.writeFileSync(file,encryptStore(k,data));
+  await start();
+  const bearer2={...bearer,authorization:'Bearer '+fs.readFileSync(path.join(dir,'data','cli-token'),'utf8').trim()};Object.assign(bearer,bearer2);
+  r=await run(['sh','deploy.sh']);assert.deepEqual(r.events.map(e=>e.t),['request','pending']);assert.equal(r.events[0].changed,'unpinned');
+  assert.equal((await call('/vault/act',{action:'answer',request:r.events[0].id,decision:'always'})).status,200);
+  r=await streamCall('/vault/wait',{request:r.events[0].id},bearer);assert.equal(out(r),'deployed with {{vault:deploy-key}}\n');
+  const recipes=(await call('/vault')).body.items[0].recipes;assert.equal(recipes.filter(x=>x.argv.join(' ')==='sh deploy.sh').length,1,'pinned in place, not doubled');assert.ok(recipes.find(x=>x.argv.join(' ')==='sh deploy.sh').pin);assert.equal(recipes.find(x=>x.argv[0]==='tool').pin,undefined,'another old recipe waits for its own next use');
+  r=await run(['sh','deploy.sh']);assert.equal(r.events.some(e=>e.t==='request'),false);assert.equal(out(r),'deployed with {{vault:deploy-key}}\n');
+  assert.equal(fs.readFileSync(path.join(dir,'data','vault-audit.jsonl'),'utf8').includes(SECRET),false);
+  assert.doesNotMatch(logs,/TypeError|unhandled rejection/);
+});
+
+test('pinCommand (PC-02): the program, a #! interpreter and the one env names, file arguments and --flag=file; an unreadable file never matches',async()=>{
+  const dir=tmp(),bin=path.join(dir,'bin');fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin,'node-ish'),'#!/bin/sh\n',{mode:0o755});
+  fs.writeFileSync(path.join(dir,'tool.sh'),'#!/usr/bin/env -S node-ish --flag\n',{mode:0o755});
+  fs.writeFileSync(path.join(dir,'conf.json'),'{}');fs.writeFileSync(path.join(dir,'data.txt'),'x');
+  const PATH=[bin,'/usr/bin','/bin'].join(':');
+  const p=await pinCommand({argv:['./tool.sh','--config=conf.json','data.txt','-v','missing.txt',dir],cwd:dir},{PATH});
+  assert.deepEqual(p.files.map(f=>[f.role,f.path]),[['program',path.join(dir,'tool.sh')],['interpreter','/usr/bin/env'],['interpreter',path.join(bin,'node-ish')],['argument',path.join(dir,'conf.json')],['argument',path.join(dir,'data.txt')]]);
+  assert.ok(pinKey(p));const same=await pinCommand({argv:['./tool.sh','--config=conf.json','data.txt','-v','missing.txt',dir],cwd:dir},{PATH});assert.equal(pinKey(same),pinKey(p));
+  fs.writeFileSync(path.join(dir,'conf.json'),'{"x":1}');assert.notEqual(pinKey(await pinCommand({argv:['./tool.sh','--config=conf.json'],cwd:dir},{PATH})),pinKey(p));
+  fs.writeFileSync(path.join(bin,'node-ish'),'#!/bin/sh\necho changed\n',{mode:0o755});
+  const p2=await pinCommand({argv:['./tool.sh','--config=conf.json','data.txt','-v','missing.txt',dir],cwd:dir},{PATH});assert.notEqual(pinKey(p2),pinKey(p),'the interpreter env finds is part of it');
+  await assert.rejects(pinCommand({argv:['no-such-program-pc02'],cwd:dir},{PATH}),e=>e.status===400&&/not found on the Vault's PATH/.test(e.message));
+  assert.equal(runPath('relative::/usr/bin:.:/bin'),'/usr/bin:/bin');
+  // A file that cannot be hashed (here: unreadable) leaves the pin without a key, and such a pin matches nothing, itself included.
+  if(process.getuid?.()!==0){fs.chmodSync(path.join(dir,'data.txt'),0);const u=await pinCommand({argv:['./tool.sh','data.txt'],cwd:dir},{PATH});assert.equal(pinKey(u),null);assert.equal(VaultStore.pinsMatch(u,u),false);}
+  assert.equal(VaultStore.pinsMatch(null,undefined),true,'a store caller that pins nothing matches only unpinned recipes');assert.equal(VaultStore.pinsMatch(undefined,p),false);assert.equal(VaultStore.pinsMatch(p,undefined),false);
+  fs.rmSync(dir,{recursive:true,force:true});
+});
+
+test('scrubber (PC-02): hex in either case and the reversed value are scrubbed from a run too',async()=>{
+  const out=[];
+  await runWithSecrets({argv:[process.execPath,'-e','const t=process.env.T;console.log([...t].reverse().join(""));console.log(Buffer.from(t).toString("hex"));console.log(Buffer.from(t).toString("hex").toUpperCase())'],cwd:os.tmpdir(),env:cleanEnv(),secrets:{T:SECRET},placeholders:{[SECRET]:'k'},onOut:s=>out.push(s)});
+  assert.equal(out.join(''),'{{vault:k}}\n'.repeat(3));
 });
 
 // 1.44.2: the owner corrects a value in place. The editor's Show loads the saved value (an owner view, recorded), the
