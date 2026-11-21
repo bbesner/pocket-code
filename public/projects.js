@@ -165,7 +165,7 @@ document.addEventListener('click',e=>{
 // What a start from a Conductor project carries to New: the mode, each agent's lead, Solo's model and the effort.
 const conductorStartFields=p=>p.mode==='conductor'&&!assistantMode()?{mode:'conductor',conductor:{...conductorLeads()},solo:{...(boardSnap?.conductorStart?.solo||{})},effort:{...(boardSnap?.conductorStart?.effort||{})}}:{};
 // The lead a start from this card gets on the agent New will pick (the last conversation's, else the one last used); null where none.
-function startLeadFor(p){const last=p.sessions[p.sessions.length-1];let eng='claude';try{eng=last?(last.startsWith('cx:')?'codex':last.startsWith('acp:')?'acp':'claude'):localStorage.getItem('pc-provider')||'claude';}catch{}return conductorLeads()[eng]||null;}
+function startLeadFor(p){const last=p.sessions[p.sessions.length-1];let eng='claude';try{eng=last?window.PocketEngines.providerOf(last):localStorage.getItem('pc-provider')||'claude';}catch{}return conductorLeads()[eng]||null;}
 const CONDUCTOR_NONE='Needs a top model (Fable or GPT Astra) offered on this server.';
 function projectModeHTML(p,field){
  const on=p.mode==='conductor',works=Array.isArray(p.worksIn)?p.worksIn:[];
@@ -266,7 +266,7 @@ function projectBriefing(p){
  if(notes.length)lines.push('','Recent notes:',...notes.map(h=>`- ${fmtDue(h.at)}: ${h.detail}`));
  if(p.reminders.length)lines.push('','Reminders:',...p.reminders.map(r=>`- ${r.label} (${r.due?'due ':''}${fmtDue(r.dueAt)})`));
  if(p.link)lines.push('','Link: '+p.link);
- if(sessions.length)lines.push('','Earlier conversations on this project, newest last:',...sessions.map(id=>`- ${sessionName(id)} (${id.startsWith('cx:')?'Codex':id.startsWith('acp:')?'OpenRouter':'Claude'} conversation ${id})`));
+ if(sessions.length)lines.push('','Earlier conversations on this project, newest last:',...sessions.map(id=>`- ${sessionName(id)} (${window.PocketEngines.label(window.PocketEngines.providerOf(id))} conversation ${id})`));
  lines.push('',projectNote(p.id));
  return lines.join('\n');
 }
@@ -275,7 +275,7 @@ function startProject(p){
  // 1.106: a Conductor project's start carries the mode and the lead per agent, so New offers Conductor or Solo without a fetch.
  writeLocal('pc-new-start',{project:p.id,projectName:p.name,cwd:p.directory||'',...(p.mode==='conductor'?conductorStartFields({mode:'conductor'}):{})});
  const last=p.sessions[p.sessions.length-1];
- try{if(p.directory)localStorage.setItem('pc-lastproj',p.directory);if(last)localStorage.setItem('pc-provider',last.startsWith('cx:')?'codex':last.startsWith('acp:')?'acp':'claude');}catch{}
+ try{if(p.directory)localStorage.setItem('pc-lastproj',p.directory);if(last)localStorage.setItem('pc-provider',window.PocketEngines.providerOf(last));}catch{}
  showNew();
 }
 function reminderOptions(project,id){

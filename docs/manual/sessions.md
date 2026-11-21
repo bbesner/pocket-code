@@ -1,6 +1,6 @@
 <!-- manual
-checked: 1.119.0
-sources: checkbacks.mjs, prompts.mjs, starts.mjs, project-mode.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, claude-catalog.mjs, codex.mjs, session-state.mjs, acp.mjs, openrouter.mjs
+checked: 1.120.0
+sources: checkbacks.mjs, prompts.mjs, starts.mjs, project-mode.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, claude-catalog.mjs, codex.mjs, session-state.mjs, acp.mjs, openrouter.mjs, engines.mjs
 -->
 # Conversations (sessions)
 
@@ -8,8 +8,9 @@ A conversation is one Claude Code or Codex session that Pocket Code runs on your
 from **New conversation**, follow it from any device, and come back to it later from the conversation
 list. Pocket drives the installed `claude` and `codex` command-line tools and reads their own session
 stores, so a session started in a terminal or code-server is in the list too. Conversations are always
-on; Codex appears when the `codex` CLI is installed. A third agent, **OpenRouter**, appears only when
-the server turns it on (see [OpenRouter models](#openrouter-models)).
+on; Codex appears when the `codex` CLI is installed. Two more agents appear only when the server turns
+them on: **OpenRouter** (see [OpenRouter models](#openrouter-models)) and **Antigravity** (see
+[Antigravity](#antigravity-google-models-on-your-google-plan)).
 
 The app says *conversation* and *reply* where the code and the CLIs say *session* and *turn*. This page
 uses the app's words.
@@ -28,12 +29,12 @@ box a conversation uses.
    work (a name, Conductor mode on or off in Developer mode, and optionally what done means) and links the conversation
    you are about to start to it. See [Track a project](projects.md#track-a-project).
 2. To change the agent or workspace, tap **Edit setup** (it becomes **Close setup**):
-   - **Agent**: **Claude Code**, **Codex** or, when the server has it on, **OpenRouter**. The choice is
-     remembered on this browser.
+   - **Agent**: **Claude Code**, **Codex** or, when the server has them on, **OpenRouter** and **Antigravity**.
+     The choice is remembered on this browser.
    - **Start**: only when you came from **Start conversation** on a project in
      [Conductor mode](projects.md#conductor-mode). **Conductor** (the default) has the agent's top model lead at high
      effort and hand out the work; **Solo** has one model do the work itself, for a small task. The setup card shows
-     the choice as **Start**. An agent without a top model here, or OpenRouter, starts as usual and the setup says so.
+     the choice as **Start**. An agent without a top model here, or OpenRouter or Antigravity, starts as usual and the setup says so.
      While the choice shows, the model and effort chips start on **Default**, so the start picks its own model; a model
      or effort you choose on this screen is still used. If the server starts the conversation but cannot link it (the
      project already has its 50 conversations, say), a notice says **Started, but not linked to *project*:** and why;
@@ -362,31 +363,107 @@ capture. After setup, verify both directions: ask an OpenRouter session to searc
 a known memory and load a skill, then find a substantive new conversation in
 MemStem and check its model tags.
 
-## Claude Code, Codex and OpenRouter in Pocket
+### Antigravity (Google models on your Google plan)
 
-Since 1.86 every feature is built for all three agents, and since 1.87 Codex has what it lacked against Claude Code.
-What still differs is what an agent itself cannot do; Pocket hides those on its conversations.
+Antigravity is a fourth agent. It runs Google's own command-line tool, the Antigravity CLI (`agy`), signed
+in with your Google account, so replies use the Gemini models and the usage your Google AI plan includes
+(Pro or Ultra) instead of a per-token key. Pocket talks to it the way an editor would, with
+`agy acp` (the Agent Client Protocol), and never reads or copies the sign-in. It is off until the person
+who runs Pocket turns it on.
 
-| | Claude Code | Codex | OpenRouter |
-|---|---|---|---|
-| Where conversations live | Transcripts in `~/.claude/projects/<folder>/<id>.jsonl` | Codex's own store under `CODEX_HOME` (`~/.codex`), read through `codex app-server` | OpenCode's own store, read through `opencode acp` |
-| Id in Pocket links | The session UUID (`#/chat/<uuid>`) | `cx:` plus the thread id | `acp:` plus OpenCode's session id |
-| Process kept between replies | One `claude` process | One app-server, which holds the thread's writer lock | One `opencode acp`, closed after 20 minutes idle |
-| Same conversation open elsewhere | Pocket refuses to send for 45 seconds after another app wrote to it | Pocket cannot send while code-server or a terminal holds the thread; release it there first | — |
-| Models | Pocket's catalog, narrowed by Settings, `POCKET_CLAUDE_MODELS` and the managed policy | The CLI's own list | OpenRouter's live catalog of models that use tools |
-| Plan first | Not offered | Offered | Offered (OpenCode's plan mode) |
-| Automatic model choice (Assistant mode) | Yes | No | No |
-| Auto-continue after a usage limit | Yes | Yes (1.87) | Yes, for OpenRouter's rate limits (1.87) |
-| Under each reply | Its cost and time | Tokens used and time (Codex is billed by plan, not per token) | Its cost, time and cache share |
-| Changed files | Before and after for each edit | Each edit's diff (1.87) | Before and after for each edit (1.87) |
-| Plan checklist | From TodoWrite | From Codex's plan updates, when it sends them (Codex 0.156 does not) | From OpenCode's plan |
-| `/` commands | Claude Code's (compact, context, recap, init, code review…) | compact, review, recap, context (1.87) | OpenCode's own commands and skills |
-| Steer, Side chat, Branch, While you were away, Subagents | Yes | Yes | No |
-| Skill line inserted by the spark | `Use the /name skill.` | `Use the $name skill at <path>.` | `/name` |
-| Rename with name sync on | Written to the transcript as Claude Code's own rename record | Set as the thread's name | Pocket's name only |
+**Read this before turning it on.** Google's Antigravity documentation says any ACP client can launch
+the CLI, and its plan FAQ says wrapping `agy` in a third-party app is not supported under consumer plans.
+Pocket is your own app on your own server, driving the CLI for you alone, and it is built to stay on the
+personal-use side of that line (see [What Pocket will not do with it](#what-pocket-will-not-do-with-it)).
+Google can still change what it allows, and the choice to turn it on is yours.
+
+To set it up, on the server and as the user Pocket runs as:
+
+1. Install the Antigravity CLI (1.5 or newer) so `agy` is on the path. Set `POCKET_AGY_CMD` if it is
+   somewhere unusual.
+2. Sign in once: run `agy acp --login`, open the link it prints, approve it in your browser and paste the
+   code back. The sign-in is the CLI's own and stays in its folder.
+3. Put `POCKET_AGY_ENABLE=1` in Pocket's environment and restart Pocket.
+
+With it on, **Antigravity** joins **Agent** in the setup card.
+
+- **Model.** The menu is what your plan lists when Pocket asks the CLI (at start-up, then every six
+  hours): Gemini models and whatever else the plan includes. **Default** is `POCKET_AGY_MODEL` when the
+  plan lists it, otherwise the CLI's own default. A model that needs a higher plan appears after you
+  upgrade, with no Pocket update.
+- **Reasoning effort.** Only the thinking levels the chosen model has. **Default** names the level that
+  model starts on, and a model with no levels has no chip. Changing to a model without the chosen level
+  sets it back to **Default**.
+- **Permissions.** **Review actions** shows each command and file edit as an approval card; reading and
+  searching files run without asking. **Full access** answers the CLI at once. Pocket never starts the CLI
+  with its skip-all-permissions switch.
+- **Plan first** uses the CLI's plan mode.
+
+If nobody is signed in, the setup card says so under the agents, names the command to run on the server,
+and **Check again** reads the sign-in afresh. The model menu says **Not signed in**, and a reply that
+finds the sign-in gone ends with the same instruction.
+
+What works the same as the other agents: your message shows as you send it; the reply streams with its
+thinking, commands and file edits as ledger lines; questions arrive as question cards; attachments
+(images are sent as images), Stop, the context meter, Results, Search, the Git panel and changes, reply
+buttons, and the `/` list with Pocket's actions and the CLI's own commands. Pocket's instructions reach
+it like the others. The MCP servers listed in the CLI's own settings
+(`~/.gemini/config/mcp_config.json`, or the file in `POCKET_AGY_MCP_CONFIG`) are passed to each
+conversation, so it has the tools your terminal has. Under each reply Pocket shows tokens and time, not a
+cost: the plan is billed by Google, not per token.
+
+A message sent while a reply runs goes into that reply, as **Steer** does elsewhere. When the CLI leaves
+a command running in the background, the reply stays open until the command reports back or goes quiet.
+
+#### What Pocket will not do with it
+
+Antigravity is attended only: every message is one a person sent.
+
+- No queue. There is no **After this reply** and no **Queue** panel on its conversations.
+- No automatic retry after a usage limit. The reply ends with the reason and you send again later.
+- Check-backs, jobs, Inbox Watch and coordination wakes never start an Antigravity reply, and a handoff
+  to Antigravity starts only when you press **Start**.
+- One Google account, the one signed in on the server. Pocket has no account switching for it.
+- No API keys: Pocket removes `GEMINI_API_KEY`, `GOOGLE_API_KEY` and the Vertex switch from the CLI's
+  environment so a reply cannot fall through to paid API billing.
+- Extra arguments in `POCKET_AGY_ARGS` are passed to `agy acp`, except the two that would change who the
+  client says it is or skip permissions, which Pocket drops and logs.
+
+It also lacks what OpenRouter lacks: **Side chat**, **Branch**, **While you were away**, the
+**Subagents** panel, the Gmail, Calendar and Drive connectors, Conductor starts, and picking up a reply
+that was running when Pocket restarted. **Pause all** stops a running Antigravity reply like any other.
+
+Google does not report how much of the plan is left, so Pocket's usage panel has no Antigravity meter;
+when the plan's limit is reached the reply says so.
+
+## Claude Code, Codex, OpenRouter and Antigravity in Pocket
+
+Since 1.86 every feature is built for every agent, and since 1.87 Codex has what it lacked against Claude Code.
+What still differs is what an agent itself cannot do, or what Pocket holds back on purpose (Antigravity's
+unattended work); Pocket hides those on its conversations.
+
+| | Claude Code | Codex | OpenRouter | Antigravity |
+|---|---|---|---|---|
+| Where conversations live | Transcripts in `~/.claude/projects/<folder>/<id>.jsonl` | Codex's own store under `CODEX_HOME` (`~/.codex`), read through `codex app-server` | OpenCode's own store, read through `opencode acp` | The Antigravity CLI's own store, read through `agy acp` |
+| Id in Pocket links | The session UUID (`#/chat/<uuid>`) | `cx:` plus the thread id | `acp:` plus OpenCode's session id | `agy:` plus the CLI's session id |
+| Process kept between replies | One `claude` process | One app-server, which holds the thread's writer lock | One `opencode acp`, closed after 20 minutes idle | One `agy acp`, closed after 20 minutes idle |
+| Same conversation open elsewhere | Pocket refuses to send for 45 seconds after another app wrote to it | Pocket cannot send while code-server or a terminal holds the thread; release it there first | — | — |
+| Models | Pocket's catalog, narrowed by Settings, `POCKET_CLAUDE_MODELS` and the managed policy | The CLI's own list | OpenRouter's live catalog of models that use tools | What your Google plan lists |
+| Plan first | Not offered | Offered | Offered (OpenCode's plan mode) | Offered (the CLI's plan mode) |
+| Automatic model choice (Assistant mode) | Yes | No | No | No |
+| Auto-continue after a usage limit | Yes | Yes (1.87) | Yes, for OpenRouter's rate limits (1.87) | No: you send again |
+| Under each reply | Its cost and time | Tokens used and time (Codex is billed by plan, not per token) | Its cost, time and cache share | Tokens used and time |
+| Changed files | Before and after for each edit | Each edit's diff (1.87) | Before and after for each edit (1.87) | Before and after for each edit |
+| Plan checklist | From TodoWrite | From Codex's plan updates, when it sends them (Codex 0.156 does not) | From OpenCode's plan | From the CLI's plan |
+| `/` commands | Claude Code's (compact, context, recap, init, code review…) | compact, review, recap, context (1.87) | OpenCode's own commands and skills | The CLI's own commands |
+| Steer | Yes | Yes | No | Yes |
+| Side chat, Branch, While you were away, Subagents | Yes | Yes | No | No |
+| Queue, check-backs, jobs and other unattended starts | Yes | Yes | Yes | No |
+| Skill line inserted by the spark | `Use the /name skill.` | `Use the $name skill at <path>.` | `/name` | `/name` |
+| Rename with name sync on | Written to the transcript as Claude Code's own rename record | Set as the thread's name | Pocket's name only | Pocket's name only |
 
 Questions, approvals, trusted read-only actions (Review actions), attachments, the context meter, search,
-titles, Results and file cards work for all three.
+titles, Results and file cards work for all four.
 
 ## How it works
 

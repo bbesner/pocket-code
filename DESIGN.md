@@ -1261,6 +1261,24 @@ closing toast carries **Undo** as a clay text button with a 44px target; a toast
 box (190px) because it stays ten seconds. Rendered 1440px and 390px screenshots in light and dark, axe scans and the
 impeccable detector reviewed: no finding on the new elements.
 
+## Antigravity as a fourth agent (1.120)
+
+Pinned Operate refinement (design-studio → impeccable): variance 2, motion 2, density 6; existing rows, chips, sheets
+and tokens, no new colour or motion. Read: someone who already picks between Claude Code, Codex and OpenRouter gets one
+more row that behaves like the others, and is told plainly when it cannot run. **Antigravity** is a fourth `.row` in the
+Agent radio group with the same terminal icon, shown only where the server has it on (`.projlist .row[hidden]` now hides
+a row; the last row that shows drops its hairline). Its model and effort sheets are the existing ones: **Default** names
+the model or level it resolves to, a model with no levels has no effort chip, and a pick the plan no longer lists goes
+back to Default. Signed out, `.agent-note` sits under the Agent rows: one `.title-note` sentence in `--dim` with the
+command in the mono ledger face on `--raised` (it is a command to type, so mono is earned), and **Check again** as an
+ordinary chip; the setup card opens so the note is seen, and the model sheet's only row reads **Not signed in**. No
+`--warn` or `--err`: it is a fact with one recovery, not a failure. A saved pick is kept while signed out and shows its
+id. Where a person sends each message there is no **Steer now / After this reply** group and no **Queue** in the header
+or the side panel; the placeholder stays *Add to what it's doing…*.
+
+Rendered checks at 390px and 1440px (New, New signed out, a reply waiting on an approval): the detector reports only the
+app-shell baseline (the radio dot's radial fill) and the custom-path placeholder's contrast, both from before this change.
+
 ## Pause all and Automation (1.117)
 
 Pinned Operate refinement (design-studio → impeccable): variance 2, motion 1, density 7 in Settings; existing tokens,

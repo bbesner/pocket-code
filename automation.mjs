@@ -233,6 +233,9 @@ export function unattendedGate(info, ctx) {
   const origin = normOrigin(info?.origin), root = normRoot(info?.rootOrigin ?? (ROOT_ORIGINS.includes(origin) ? origin : 'owner'));
   if (origin === 'owner') return ctx.paused && ctx.ownBlocked ? { ok: false, reason: 'paused' } : { ok: true };
   if (ctx.paused) return { ok: false, reason: 'paused' };
+  // An engine where a person must send every message (engines.mjs unattended:false, Antigravity) takes no unattended
+  // start of any kind, whatever the limits say.
+  if (info?.attendedOnly) return { ok: false, reason: 'attended_only' };
   for (const f of ['checkback', 'job']) if ((origin === f || root === f) && !ctx.features?.[f]) return { ok: false, reason: 'feature_off', feature: f };
   if (ctx.busy) return { ok: false, reason: 'busy' };
   const lim = ctx.limits, apply = limitsApply(root, lim), now = ctx.now ?? Date.now();
@@ -249,7 +252,7 @@ export function unattendedGate(info, ctx) {
   }
   return { ok: true };
 }
-const ENGINE_LABEL = { claude: 'Claude Code', codex: 'Codex', acp: 'OpenRouter' };
+const ENGINE_LABEL = { claude: 'Claude Code', codex: 'Codex', acp: 'OpenRouter', antigravity: 'Antigravity' };
 // The once-a-day notice key and words for a refusal. `fmtTime` formats a reset time in the owner's zone.
 // The owner paused it themselves, so a refusal for pause (or a busy conversation, or a feature that is off) has no notice.
 export function noticeFor(r, fmtTime = ms => new Date(ms).toISOString()) {

@@ -3,7 +3,7 @@
 // Talks to the running Pocket Code server over loopback with the token it writes to <data dir>/cli-token.
 // Nothing starts until the owner opens the link and taps Start.
 //
-//   pocket-start add --text "…" | --file <path|->  [--dir <workspace>] [--provider claude|codex|acp] [--title "…"] [--ttl-days N] [--handoff] [--json]
+//   pocket-start add --text "…" | --file <path|->  [--dir <workspace>] [--provider claude|codex|acp|antigravity] [--title "…"] [--ttl-days N] [--handoff] [--json]
 //                                                  prints the URL (or the path, when Pocket does not know its public address)
 //                                                  --handoff: put the link on its own line in your reply and Pocket shows a card with
 //                                                  Start. The folder defaults to the one you are in, the agent to your own.
