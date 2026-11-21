@@ -260,6 +260,12 @@ transcript and the logs. It is not a wall against an agent that sets out to get 
   drives the page.
 - A command you approve receives the real value and can do anything with it: print it encoded, write it
   to a file, send it elsewhere.
+- A script that `node`, `python3` or another interpreter opens by its path can be swapped by an agent that
+  can write the script or its folder, timed to the moment the command starts; such a swap will usually
+  succeed. What protects a credential there is a script in a folder the agent's user cannot write, or
+  *Allow once* after reading the script. The request says when an agent can change the script.
+- A command Pocket cannot fully check (code given inline, the modules a script loads, a program's own
+  configuration) can still change what it does without the request changing; see **What it does not check**.
 - So use *Free rein* only for low-value keys, and give high-value items *Ask once per command*, *Ask every
   time* or *Only you*, and read what you approve.
 
@@ -288,49 +294,93 @@ own messages in that session count. Under Review actions the owner also approves
 is why asking is the default. Calls from a terminal or code-server session on the host follow
 the same rules and are recorded as `terminal`.
 
-**What an Always allow trusts.** A recipe holds the command's text (program, arguments, folder) and what it runs: the
-program found on the Vault's own `PATH` (`POCKET_VAULT_PATH`, or the daemon's `PATH` at start, absolute folders only;
-never the caller's); the interpreter named on its `#!` line (and the program `#!/usr/bin/env` finds); the program a
-known launcher starts (`env`, `timeout`, `nice`, `nohup`, `stdbuf`, `ionice`, `setsid`, `taskset`, `chrt`, `time`,
-`xargs`, `sudo`, `doas`), found on that `PATH` and passed to the launcher by full path; the script a known interpreter
-runs; every argument that names an existing regular file, including the value of a `--flag=file` argument; and, in code
-given inline, each word that names an existing file. Each file is recorded by absolute path and the SHA-256 of its
-content. A file Pocket cannot read, or one over 512 MB, is recorded by its size, modification time and change time
-instead (the change time cannot be set back by an ordinary user, so a replacement with the same size and dates still
-differs). A run matches a recipe only while all of that is unchanged; otherwise the request names what changed, and
-nothing runs. The owner can mark an argument file as data the command writes itself (an output, log or state file) when
-choosing *Always allow*; its content is then not compared.
+**What an Always allow trusts.** A recipe holds the command's text (program, arguments, folder), its variables and what
+it runs: the program found on the Vault's own `PATH` (`POCKET_VAULT_PATH`, or the daemon's `PATH` at start, absolute
+folders only; never the caller's); the interpreter named on its `#!` line (and the program `#!/usr/bin/env` finds); the
+program a known launcher starts (`env`, `timeout`, `nice`, `nohup`, `stdbuf`, `ionice`, `setsid`, `taskset`, `chrt`,
+`time`, `xargs`, `sudo`, `doas`, `flock`, `sshpass`), found on that `PATH` and passed to the launcher by full path; the
+script a known interpreter runs, found the way the interpreter finds it (`node job` runs `job`, else `job.js`, `job.json`
+or `job.node`; `python3 -m tool` runs `tool.py`, or `tool/__main__.py` with the package's `__init__.py` files, from the
+working folder); a file given by path to `node -r`, `--require`, `--import` or `--loader` (and bun's `--preload`); the
+makefile `make` reads (after `-C`, or the one `-f` names); every argument that names an existing regular file, including
+the value of a `--flag=file` or `NAME=file` argument; and, in code given inline, each word that names an existing file.
+Each file is recorded by absolute path and the SHA-256 of its content. A file Pocket cannot read, or one over 512 MB, is
+recorded by its size, modification time and change time instead (the change time cannot be set back by an ordinary
+user, so a replacement with the same size and dates still differs). A run matches a recipe only while all of that is
+unchanged; otherwise the request names what changed, and nothing runs. The owner can mark an argument file as data the
+command writes itself (an output, log or state file) when choosing *Always allow*; its content is then not compared.
+
+**Variables (1.117).** A recipe records which variable gets which item (and which field of a login or card), and a run
+matches only the same set: the same command run with the value under another name, with another item for a name, or
+with a variable added asks again, and the request shows each variable with the item it gets. Some names cannot be
+bound at all, because a program acts on them by itself, before or instead of anything the approved command does with
+the value: it runs, loads or parses the value as code, options or a command (so a part of the value can show in an
+error), creates a file or folder named after it, or sends it to another computer. They are Pocket's own (`POCKET_*`),
+`PATH` and `HOME`; the loader's (`LD_*`, `DYLD_*`); interpreter start-up (`NODE_*` except `NODE_AUTH_TOKEN`,
+`NPM_CONFIG_*`, `PYTHON*`, `PERL*`, `RUBY*`, `JAVA_TOOL_OPTIONS`, `_JAVA_OPTIONS`, `JDK_JAVA_OPTIONS`); the shell's
+(`BASH_ENV`, `ENV`, `IFS`, `PS0` to `PS9`, `PROMPT_COMMAND`, `SHELLOPTS`, `BASHOPTS`, `ZDOTDIR`, `SHELL`); git's
+(`GIT_*`, except `GIT_TOKEN`, `GIT_PASSWORD`, `GIT_USERNAME`, `GIT_CREDENTIALS` and `GIT_AUTH_TOKEN`, which git does not
+read); programs started by name (`PAGER`, `MANPAGER`, `EDITOR`, `VISUAL`, `BROWSER`, `LESS*`, `SSH_ASKPASS`,
+`SUDO_ASKPASS`, `MAKEFLAGS`, `MFLAGS`, `MAKEFILES`); files and folders a program creates (`TMPDIR`, `TMP`, `TEMP`,
+`TEMPDIR`, `XDG_*`, `SSLKEYLOGFILE`, `HISTFILE`, `GNUPGHOME`, `DOCKER_CONFIG`); and names sent along or shown in part
+(`LANG`, `LANGUAGE`, `LC_*`, which ssh passes to the other computer, and `TZ`). Ordinary credential names such as
+`GITHUB_TOKEN`, `AWS_SECRET_ACCESS_KEY`, `NPM_TOKEN` and `PGPASSWORD` are not affected. The list cannot name every
+variable every program reads; the variable line on the request is what shows the rest.
 
 **What runs is what was checked (1.117).** Every pinned file is opened once and hashed from that open file. On Linux, a
 native program is started from that same open file (`/proc/self/fd/N`), so a file renamed or rewritten after the check
 does not run; a setuid or setgid program is started by path. A shell script (one handed to `sh`, `dash`, `bash`, `ash`,
 `ksh` or `mksh`, or a program whose `#!` line names one) runs from a private, read-only copy of the bytes that were
 hashed, unless the script uses its own path (`$0`, `BASH_SOURCE`) or a launcher that cannot pass an open file (`sudo`,
-`doas`, `xargs`) comes first. Everything else, including a script run by `node`, `python3` or another interpreter, is
-read again in the same step just before the start, after the Vault's bookkeeping; a difference stops the run and the
-history records *Run stopped*. What is left is the moment between the start and the moment such an interpreter opens its
-script by path: an agent that swaps the file at exactly that moment can still win. In a test that swapped an approved
-script at every delay from 0 to 20 ms after the request, 15 tries each, `sh job.sh` and `./job.sh` never ran the swapped
-content (before this change about half of the tries did); `node job.js`, swapped at delays from 0 to 80 ms, still ran it
-in about a quarter of the tries, all in a band around 10 to 40 ms.
+`doas`, `xargs`, `flock`, `sshpass`) comes first. Everything else, including a script run by `node`, `python3` or another
+interpreter, and a makefile, is read again in the same step just before the start; a difference stops the run and the
+history records *Run stopped*. The interpreter then opens the script by its path, and an agent that can write the script
+or its folder and swaps it at that moment will usually succeed: in a test that swapped an approved script repeatedly
+around the start, `node job.js` and `python3 job.py` ran the swapped content almost every time, while `sh job.sh` never
+did. Interpreters were not moved to the checked bytes: `node` given an open file opens the script by its path again, and
+`python3` given one reports the open file as the script's own path, which breaks scripts that find files beside
+themselves; the modules a script imports would stay unchecked in any case. So the request notes when an agent can change
+such a script or a folder above it. What protects a credential is a script in a folder the agent's user cannot write
+(nor any folder above it), or *Allow once* after reading the script.
 
-**What it does not check.** Files a script reads or sources itself (`. ./lib.sh`, `require('./lib')`), modules and
-libraries an interpreter or program loads, `package.json` scripts behind `npm run`, a `Makefile`, and programs a script
-starts by name (those are looked up on the Vault's `PATH`, which is why Pocket logs a start-up warning for every folder on
-it this user can write to, or create or replace); a folder, pipe or device given as an argument (a script that is not a
-regular file is never allowed always, so it asks every time); code given inline beyond the files it names plainly (the request says so); what follows a launcher option
-Pocket does not know, such as `env -S`, `env PATH=…`, `sudo -i` or `sudo -s` (the request says Pocket cannot tell what
-it starts); and a process of the same user that changes a running command through `/proc` or a debugger. On systems
+**Commands Pocket does not offer Always allow (1.117).** When Pocket cannot tell what a command will run, the request
+says why in one sentence, and offers *Allow once* and *Deny* only: an interpreter with no script it can find (`node`
+with no file, `xargs … sh` reading names from a file, a `-r` path that does not exist, a module `python3 -m` would load
+from a partial package); a program that runs what it finds (`find -exec`, `-execdir`, `-ok`, `node --test`, `bun test`,
+`deno test`); a program that starts another command Pocket cannot follow (`parallel`, `watch`, `entr`, `nodemon`, `pm2`,
+`strace`, `gdb`, `chroot`, `unshare`, `su`, `runuser`, `script`, `systemd-run`, `tmux`, `screen`, `expect`, `cross-env`,
+`concurrently` and similar, or a launcher option Pocket does not know, such as `env -S` or `sudo -i`); a command run on
+another computer (`ssh` with a command, a `ProxyCommand`-style option, `rsync -e`, `scp -S`); scripts a project defines
+(`npm run`, `npm test`, `npm install`, `npm publish` and every other npm, pnpm or yarn command except a short list that
+runs nothing of the project's, such as `npm whoami` or `npm view`; `node --run`, `bun run`, `deno task`); packages
+fetched and run (`npx`, `pnpx`, `bunx`, `npm exec`, `deno x`); containers (`docker`, `podman` and `nerdctl` commands
+other than `login`, `logout`, `pull`, `push`, `search`, `version`, `info`, `images`, `ps`, `inspect` and `tag`); code
+from an address (`deno run https://…`, `npm:` or `jsr:` specifiers); and live reloading or debugging (`node --watch`,
+`--inspect`, `bun --hot`). A command Pocket refuses in this way, which was allowed always before, asks every time and
+says so.
+
+**What it does not check.** Pocket pins what a command names; it does not read what a program does next. Not checked:
+files a script reads, sources or includes itself (`. ./lib.sh`, `require('./lib')`, `import`, a makefile's `include`);
+modules and libraries an interpreter loads, including a preload given by package name (`node -r dotenv/config`,
+`ruby -r json`), a module `python3 -m` finds outside the working folder (the interpreter's library, installed packages,
+the user's own site folder) and the compiled copy Python keeps in `__pycache__`; code given inline (`sh -c`, `bash -c`,
+`python3 -c`, `perl -e`, `node -e`, `make --eval`) beyond its text and the files it names plainly (the request says so);
+a program's own configuration and hooks (git hooks and `.git/config`, `.npmrc`, `~/.ssh/config`, a tool's config file in
+the working folder); what a program installs or builds and then runs (`pip install`, `cargo run`, `go run`); and a
+program Pocket does not know as an interpreter (`tsx`, `ts-node` and the like), whose script is checked as a named file
+but whose imports are not. Programs a script starts by name are looked up on the Vault's `PATH`, which is why Pocket
+logs a start-up warning for every folder on it this user can write to, or create or replace. A folder, pipe or device
+given as an argument is not checked (a script that is not a regular file is never allowed always, so it asks every
+time); nor is a process of the same user that changes a running command through `/proc` or a debugger. On systems
 without `/proc` every file is only checked again before the start. Agents run as the same user as Pocket, so none of
 this is a wall: it stops a tricked agent from quietly changing what an approved command runs. For a credential that
 matters, use *Ask every time*, set `POCKET_VAULT_PATH` to folders this user cannot write, and allow always only commands
 whose whole behaviour sits in files the agent cannot write.
 
-**Recipes saved before 1.117.** A recipe with no content recorded asks once more, saying it was allowed before Pocket
-checked what a command runs; *Always allow* keeps the same entry and records the content. A recipe recorded by the first
-form of this check (program, interpreter and named files) still runs while what it recorded is unchanged and nothing new
-needs recording; if this check now records more (the program a launcher starts, a file that could not be read), it asks
-once in the same way.
+**Recipes saved before 1.117.** Every command allowed always before 1.117 asks once more, because none recorded which
+variable gets which item: the request says so and shows the variables, and *Always allow* keeps the same entry and
+records them, with the content as it is checked now. A recipe with no content recorded says it was allowed before
+Pocket checked what a command runs. A command that Pocket now refuses as above asks every time.
 
 **Requests are bound (1.73.4).** A pending request belongs to the kind of use it was raised for (a
 command run, or a browser fill) and to the session that raised it: `pocket-vault wait` or the relay's

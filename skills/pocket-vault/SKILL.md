@@ -99,6 +99,17 @@ pocket-vault run --env SSH_KEY=deploy-key.text -- sh -c 'umask 077; f=$(mktemp);
   names the file that changed. Pocket finds the program on its own `PATH`, not yours; give a
   full path for a program outside it. Put what varies in a data file the command reads, not in
   the script.
+- **Keep variable names stable too.** The approval covers which variable gets which secret
+  (`--env TOKEN=billing-api`); another name, another secret or an extra `--env` asks the owner
+  again. Use plain names such as `API_TOKEN`. Names a program acts on by itself are refused
+  with "… cannot be bound." (`PATH`, `HOME`, `NODE_*`, `PYTHON*`, `GIT_*` other than
+  `GIT_TOKEN`/`GIT_PASSWORD`, `LD_*`, `TMPDIR`, `LANG`, `LC_*`, `EDITOR`, `PAGER` and others);
+  pick another name rather than working around it.
+- **Run the script, not a runner.** The owner is never offered *Always allow* for a command
+  whose real work Pocket cannot see before it starts: `npm run`, `npm test`, `npx`, `docker run`,
+  `find … -exec`, `xargs … sh`, `ssh host command`, `parallel`, `watch`, `node --watch` and the
+  like. Each such run asks the owner. Where you can, call the script or program directly
+  (`node scripts/deploy.mjs` rather than `npm run deploy`) so the owner can approve it once.
 - **Prefer a script file to inline code.** For `sh -c`, `node -e`, `python3 -c` and the like,
   the owner is told Pocket cannot check everything the code runs. A script the owner can read
   and approve once is easier to trust.
