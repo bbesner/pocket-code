@@ -333,7 +333,8 @@ test('request binding (1.73.4): action, caller, one use, the policy as it is now
   item.recipes=[{id:'legacy',argv:['pocket-fill','browser','type'],cwd:fill.cwd,created:'2026-01-01T00:00:00.000Z'}];
   assert.equal(s.decide(s.resolveBindings({V0:'alpha-renamed'}),fill).length,0,'a legacy fill recipe is a fill');
   assert.equal(s.decide(s.resolveBindings({V0:'alpha-renamed'}),{...fill,action:'run'}).length,1);
-  item.recipes=[{id:'legacy2',argv:['true'],cwd:run.cwd,created:'2026-01-01T00:00:00.000Z'}];
+  // (A run recipe also records its variables now; one without them asks once more, which vault-pin-followups covers.)
+  item.recipes=[{id:'legacy2',argv:['true'],cwd:run.cwd,created:'2026-01-01T00:00:00.000Z',bindings:VaultStore.bindingsOf(s.resolveBindings({V0:'alpha-renamed'}))}];
   assert.equal(s.decide(s.resolveBindings({V0:'alpha-renamed'}),run).length,0,'a legacy run recipe is a run');
   assert.equal(s.decide(s.resolveBindings({V0:'alpha-renamed'}),{...run,action:'fill'}).length,1);
   // Expiry is swept on answer and wait, not only on the next snapshot.

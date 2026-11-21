@@ -21,10 +21,26 @@
 //   too, and the request says the rest cannot be checked (D-4).
 // Not covered, and said so in SECURITY.md: files a script reads or sources itself, modules an interpreter loads, programs a
 // script starts by name, and a process of the same user that reads or changes a running command through /proc.
+//
+// Second review (its problems 4 and 5):
+// - A script node, python or another interpreter opens by its path can be swapped at the moment of the start, and a helper
+//   that watches /proc for the new process wins nearly every time. Running such a script from the checked bytes was tried
+//   and is not done: node, handed /proc/self/fd/N, resolves the link and opens the script by its path again (no gain), and
+//   with --preserve-symlinks-main it reads the checked bytes but import.meta.url, __dirname and relative imports then name
+//   /proc/self/fd; python3 reads the checked bytes but __file__ and sys.argv[0] become /proc/self/fd/N, which breaks every
+//   script that finds files next to itself. A loader or wrapper would change stack traces and execArgv and still leave the
+//   modules the script imports unpinned. So the pin marks such a script `writable` when the user Pocket runs as (the
+//   agents' user) can change it or a folder above it, and the request says what that means.
+// - What Pocket cannot pin is no longer offered Always allow: an interpreter whose script it cannot resolve to a regular file
+//   it hashed, and programs that are not launchers but decide what to run themselves (find -exec, parallel, ssh with a
+//   command, npm run, npx, docker run, node --watch, …). The pin's `refuse` says why. Where the rule is simple it resolves
+//   instead: `node job` is the file node loads (job, job.js, job.json, job.node), `python3 -m mod` the module file in the
+//   working folder, `node -r ./x` the file it preloads, and `make` its makefile.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 
 const fail = (message, status = 400, extra = {}) => Object.assign(new Error(message), { status, ...extra });
 
@@ -132,7 +148,132 @@ const LAUNCHERS = {
   sudo: { flags: 'AbEHknPS', valued: 'ughprtCDTUR', stop: 'elvVK', chdir: ['D', 'chdir'], assignments: true, fdUnsafe: true, unknown: { i: 'sudo -i', s: 'sudo -s', login: 'sudo -i', shell: 'sudo -s' },
     long: { askpass: 0, background: 0, 'preserve-env': 0, 'set-home': 0, 'non-interactive': 0, 'preserve-groups': 0, stdin: 0, user: 1, group: 1, host: 1, prompt: 1, role: 1, type: 1, 'close-from': 1, chdir: 1, 'command-timeout': 1, 'other-user': 1, chroot: 1, edit: -1, list: -1, validate: -1, version: -1, 'remove-timestamp': -1 } },
   doas: { flags: 'n', valued: 'uC', stop: 'L', fdUnsafe: true, unknown: { s: 'doas -s' } },
+  // flock takes a lock file (or a descriptor, with no command) and then the program; -c hands it a shell command line.
+  flock: { flags: 'sxenuoFv', valued: 'wE', positional: 1, fdUnsafe: true, unknown: { c: 'flock -c', command: 'flock -c' },
+    long: { shared: 0, exclusive: 0, nonblock: 0, unlock: 0, close: 0, 'no-fork': 0, verbose: 0, timeout: 1, wait: 1, 'conflict-exit-code': 1, help: -1, version: -1 } },
+  sshpass: { flags: 'ev', valued: 'pfdP', stop: 'hV', fdUnsafe: true },
 };
+// Programs that are not launchers Pocket follows but start another program, or decide what to run as they run. A request
+// whose program is one of these (in the form described) is never allowed always: `refuse` says why.
+//   starts:  a program from its own arguments that Pocket does not follow (a tracer, a sandbox, a session or job runner)
+//   finds:   programs or files it looks for as it runs (find -exec)
+//   remote:  a command on another computer (ssh host command)
+//   scripts: the project's own scripts (package.json, deno.json), with the project's programs first on PATH
+//   package: a package by name, fetched or from the project (npx)
+//   image:   a container image (docker run): a tag can be pointed at another image at any time
+const STARTS = new Set(['parallel', 'sem', 'watch', 'entr', 'nodemon', 'pm2', 'strace', 'ltrace', 'gdb', 'lldb', 'valgrind', 'perf', 'chroot', 'unshare', 'nsenter',
+  'runuser', 'su', 'script', 'systemd-run', 'firejail', 'bwrap', 'proxychains', 'proxychains4', 'torsocks', 'faketime', 'setpriv', 'prlimit', 'capsh', 'busybox',
+  'expect', 'unbuffer', 'tmux', 'screen', 'dbus-run-session', 'xvfb-run', 'sg', 'at', 'batch', 'chpst', 'daemonize', 'start-stop-daemon', 'catchsegv', 'tini',
+  'dumb-init', 'gosu', 'su-exec', 'fakeroot', 'env-cmd', 'dotenv', 'cross-env', 'concurrently']);
+// npm, pnpm and yarn run the project's scripts (and dependencies' install scripts) for most commands, with
+// node_modules/.bin first on PATH; these commands run none of them.
+const PKG_SAFE = new Set(['whoami', 'view', 'info', 'show', 'v', 'search', 's', 'ping', 'token', 'access', 'owner', 'dist-tag', 'dist-tags', 'deprecate',
+  'unpublish', 'outdated', 'ls', 'list', 'help', 'login', 'logout', 'adduser', 'profile', 'team', 'org', 'docs', 'bugs', 'repo']);
+const PKG_RUNS = new Set(['exec', 'x', 'dlx']);
+// docker and podman commands that start no container and build nothing.
+const DOCKER_SAFE = new Set(['login', 'logout', 'pull', 'push', 'search', 'version', 'info', 'images', 'ps', 'inspect', 'tag']);
+const firstWord = (args, valued = []) => { for (let i = 0; i < args.length; i++) { const a = args[i]; if (a === '--') return args[i + 1] ?? null; if (a.startsWith('-')) { if (valued.includes(a)) i++; continue; } return a; } return null; };
+const SSH_FLAGS = '46AaCfGgKkMNnqsTtVvXxYy', SSH_VALUED = 'BbcDEeFIiJLlmOoPpQRSWw';
+function sshRefuse(args) {
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--') return i + 2 < args.length ? { why: 'remote', how: 'ssh' } : null;
+    if (a.startsWith('-') && a.length > 1) {
+      for (let j = 1; j < a.length; j++) {
+        const ch = a[j];
+        if (SSH_VALUED.includes(ch)) { const v = a.slice(j + 1) || args[++i] || ''; if (ch === 'o' && /^\s*(ProxyCommand|LocalCommand|PermitLocalCommand|KnownHostsCommand)\b/i.test(v)) return { why: 'starts', how: 'ssh -o ' + v.trim().split(/[\s=]/)[0] }; break; }
+        if (!SSH_FLAGS.includes(ch)) return { why: 'starts', how: `ssh -${ch}` }; // an option Pocket does not know
+      }
+      continue;
+    }
+    return i + 1 < args.length ? { why: 'remote', how: 'ssh' } : null; // the destination, then a command
+  }
+  return null;
+}
+// What a program that is not an interpreter will start, when Pocket cannot pin it: { why, how } or null.
+function startsOther(name, args) {
+  if (STARTS.has(name)) return { why: 'starts', how: name };
+  if (name === 'find' && args.some(a => /^-(exec|execdir|ok|okdir)$/.test(a))) return { why: 'finds', how: 'find -exec' };
+  if (name === 'ssh') return sshRefuse(args);
+  if ((name === 'rsync' || name === 'scp') && args.some(a => /^(-e|--rsh(=.*)?|-S|--rsync-path(=.*)?)$/s.test(a) || /^-e./.test(a))) return { why: 'starts', how: `${name} ${name === 'scp' ? '-S' : '-e'}` };
+  if (['npx', 'pnpx', 'bunx'].includes(name)) return { why: 'package', how: name };
+  if (['npm', 'pnpm', 'yarn'].includes(name)) {
+    const sub = firstWord(args, ['--prefix', '-C', '-w', '--workspace', '--registry', '--userconfig', '--cwd']);
+    if (sub && PKG_RUNS.has(sub)) return { why: 'package', how: `${name} ${sub}` };
+    if (!sub || !PKG_SAFE.has(sub)) return { why: 'scripts', how: sub ? `${name} ${sub}` : name };
+    return null;
+  }
+  if (['docker', 'podman', 'nerdctl'].includes(name)) {
+    const sub = firstWord(args, ['-H', '--host', '-c', '--context', '--config', '-l', '--log-level', '--tlscacert', '--tlscert', '--tlskey']);
+    return sub && DOCKER_SAFE.has(sub) ? null : { why: 'image', how: sub ? `${name} ${sub}` : name };
+  }
+  return null;
+}
+// make reads its makefile by path: the -f files, or the first of GNUmakefile, makefile and Makefile, in the folder -C names
+// (every -C applies before any makefile is read). Files the makefile includes are not followed.
+function makefiles(args, dir) {
+  const named = []; let code = null;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--') break;
+    const m = /^--(directory|file|makefile|eval)(?:=(.*))?$/s.exec(a);
+    if (m) { const v = m[2] ?? args[++i] ?? ''; if (m[1] === 'directory') dir = path.resolve(dir, v); else if (m[1] === 'eval') code = v; else named.push(v); continue; }
+    if (a.startsWith('--') || !a.startsWith('-') || a.length < 2) continue;
+    for (let j = 1; j < a.length; j++) {
+      const ch = a[j], rest = a.slice(j + 1);
+      if ('CfIoW'.includes(ch)) { const v = rest || args[++i] || ''; if (ch === 'C') dir = path.resolve(dir, v); if (ch === 'f') named.push(v); break; }
+      if ('jlO'.includes(ch)) { if (!rest && /^\d+(\.\d+)?$/.test(args[i + 1] || '')) i++; break; }
+    }
+  }
+  const files = named.length ? named.filter(f => f !== '-').map(f => path.resolve(dir, f)) : ['GNUmakefile', 'makefile', 'Makefile'].map(f => path.join(dir, f)).filter(isFile).slice(0, 1);
+  return { files, code };
+}
+const isFile = p => { try { return fs.statSync(p).isFile(); } catch { return false; } };
+const isDir = p => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
+// The file node loads for its main script or a -r preload: the path as given, then with .js, .json or .node added (node's
+// own order, checked before a folder of that name). A folder (index.js, package.json "main") is not resolved: null.
+const nodeFile = p => isFile(p) ? p : ['.js', '.json', '.node'].map(x => p + x).find(isFile) || null;
+// python3 -m: the module, when the working folder (sys.path[0] for -m) has it. The plain rule only: a package is a folder
+// with __init__.py (it wins over a .py of the same name), a module is name.py; anything else Python could load under that
+// name there (a compiled or extension module, a namespace folder, another kind of __init__) makes it uncertain. A name the
+// folder does not have comes from the interpreter's own library folders, a module like any other it loads: { lib }.
+const IMPORTABLE = /\.(py|pyc|pyw|so|pyd)$/;
+function pyModule(dir, mod) {
+  if (!/^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$/.test(mod)) return { unsure: true };
+  const parts = mod.split('.'), inits = [];
+  let here = dir;
+  for (let n = 0; n < parts.length; n++) {
+    const part = parts[n], last = n === parts.length - 1;
+    let names; try { names = fs.readdirSync(here); } catch { return n ? { unsure: true } : { lib: true }; }
+    const clash = names.some(x => x.startsWith(part + '.') && x !== part + '.py' && IMPORTABLE.test(x));
+    const asDir = names.includes(part) && isDir(path.join(here, part)), asFile = names.includes(part + '.py') && isFile(path.join(here, part + '.py'));
+    if (!n && !asDir && !asFile && !clash) return { lib: true };
+    if (clash) return { unsure: true };
+    if (asDir) {
+      const pkg = path.join(here, part); let inner; try { inner = fs.readdirSync(pkg); } catch { return { unsure: true }; }
+      const plain = base => inner.includes(base + '.py') && isFile(path.join(pkg, base + '.py')) && !inner.some(x => x.startsWith(base + '.') && x !== base + '.py' && IMPORTABLE.test(x));
+      if (!plain('__init__')) return { unsure: true };
+      inits.push(path.join(pkg, '__init__.py'));
+      if (last) return plain('__main__') ? { file: path.join(pkg, '__main__.py'), inits } : { unsure: true };
+      here = pkg; continue;
+    }
+    return asFile && last ? { file: path.join(here, part + '.py'), inits } : { unsure: true };
+  }
+  return { unsure: true };
+}
+// Whether the user Pocket runs as (and so an agent) can change this file, or replace it by renaming a folder above it: the
+// file is writable, or a folder on its path is (a sticky folder such as /tmp only when this user owns what is below).
+export function replaceable(p, uid = process.getuid?.()) {
+  try { fs.accessSync(p, fs.constants.W_OK); return true; } catch { }
+  let below; try { below = fs.statSync(p); } catch { return false; }
+  for (let d = path.dirname(p); ; d = path.dirname(d)) {
+    let st; try { st = fs.statSync(d); } catch { return false; }
+    let w = false; try { fs.accessSync(d, fs.constants.W_OK); w = true; } catch { }
+    if (w && (!(st.mode & 0o1000) || below.uid === uid)) return true;
+    below = st;
+    if (path.dirname(d) === d) return false;
+  }
+}
 function stepOver(name, spec, args) {
   let i = 0, chdir = null;
   for (; i < args.length; i++) {
@@ -189,8 +330,13 @@ const familyOf = name => {
   return null;
 };
 const NODE_VALUED = new Set(['-r', '--require', '--import', '--loader', '--experimental-loader', '-C', '--conditions', '--input-type', '--env-file', '--env-file-if-exists', '--inspect-port', '--debug-port', '--title', '--redirect-warnings', '--openssl-config', '--icu-data-dir', '--disable-warning', '--watch-path', '--test-name-pattern', '--test-reporter', '--test-reporter-destination', '--experimental-config-file']);
-// → { script } (an index into args), { code, how } (inline code), or {}.
+// → { script } (an index into args), { code, how } (inline code), { module, safe } (python3 -m), { refuse } (a form Pocket
+// cannot pin), or {} (no script: the interpreter reads standard input, which is empty in the Vault, or what a launcher such
+// as xargs appends). Node's `preload` lists the -r/--import values: { k } (an index into args) or { v }, and `cjs`.
 function interpreterArgs(fam, name, args) {
+  const preload = [], withPre = r => fam === 'node' ? { ...r, preload } : r;
+  let safe = false, sub = null;
+  const live = a => /^--(watch|watch-path|watch-preserve-output|watch-hmr|hot|inspect|inspect-brk|inspect-wait)(=|$)/.test(a);
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (fam === 'shell') {
@@ -213,7 +359,8 @@ function interpreterArgs(fam, name, args) {
         for (let j = 1; j < a.length; j++) {
           const ch = a[j], rest = a.slice(j + 1);
           if (ch === 'c') return { code: rest || args[i + 1] || '', how: `${name} -c` };
-          if (ch === 'm') return {}; // a module by name: loaded like any other module, not checked
+          if (ch === 'I' || ch === 'P') safe = true; // the working folder is not searched for modules
+          if (ch === 'm') return { module: rest || args[i + 1] || '', safe };
           if (ch === 'W' || ch === 'X') { if (!rest) i++; break; }
         }
         continue;
@@ -221,13 +368,24 @@ function interpreterArgs(fam, name, args) {
       return { script: i };
     }
     if (fam === 'node') {
-      if (name === 'bun' && i === 0 && a === 'run') continue;
-      if (a === '-') return {};
-      if (a === '--') return i + 1 < args.length ? { script: i + 1 } : {};
-      if (/^(-e|--eval|-p|--print|-pe|-ep)$/.test(a)) return { code: args[i + 1] || '', how: `${name} ${a}` };
-      const m = /^--(eval|print)=(.*)$/s.exec(a); if (m) return { code: m[2], how: `${name} --${m[1]}` };
+      if (live(a)) return { refuse: { why: 'live', how: `${name} ${a.split('=')[0]}` } };
+      if (name === 'bun') {
+        // bun run <file>, bun <file>; any other word is a package.json script, a package's program or a bun command.
+        if (!sub && a === 'run') { sub = a; continue; }
+        if (!sub && a === 'test') return { refuse: { why: 'finds', how: 'bun test' } };
+        if (!sub && a === 'x') return { refuse: { why: 'package', how: 'bun x' } };
+        if (a === '--cwd' || a.startsWith('--cwd=')) return { refuse: { why: 'script', how: 'bun --cwd' } };
+      }
+      if (a === '-') return withPre({});
+      if (a === '--') return withPre(i + 1 < args.length ? { script: i + 1 } : {});
+      if (/^(-e|--eval|-p|--print|-pe|-ep)$/.test(a)) return withPre({ code: args[i + 1] || '', how: `${name} ${a}` });
+      const m = /^--(eval|print)=(.*)$/s.exec(a); if (m) return withPre({ code: m[2], how: `${name} --${m[1]}` });
+      if (a === '--test' || a.startsWith('--test=')) return { refuse: { why: 'finds', how: `${name} --test` } };
+      if (a === '--run' || a.startsWith('--run=')) return { refuse: { why: 'scripts', how: `${name} --run` } };
+      if (/^(-r|--require|--import|--loader|--experimental-loader|--preload)$/.test(a)) { preload.push({ k: i + 1, cjs: (a === '-r' || a === '--require') && name !== 'bun', flag: a }); i++; continue; }
+      const pm = /^--(require|import|loader|experimental-loader|preload)=(.*)$/s.exec(a); if (pm) { preload.push({ v: pm[2], cjs: pm[1] === 'require' && name !== 'bun', flag: `--${pm[1]}` }); continue; }
       if (a.startsWith('-')) { if (NODE_VALUED.has(a)) i++; continue; }
-      return { script: i };
+      return withPre({ script: i });
     }
     if (fam === 'perl') {
       if (a === '--') return i + 1 < args.length ? { script: i + 1 } : {};
@@ -268,10 +426,21 @@ function interpreterArgs(fam, name, args) {
       if (a.startsWith('-')) continue;
       return { script: i };
     }
-    if (fam === 'deno') return a === 'eval' ? { code: args[i + 1] || '', how: 'deno eval' } : {};
+    if (fam === 'deno') {
+      // deno run|serve [options] <script>, deno <script>, deno eval <code>; other commands run tasks, tests or packages.
+      if (live(a)) return { refuse: { why: 'live', how: `deno ${a.split('=')[0]}` } };
+      if (a.startsWith('-')) { if (sub && ['-c', '--config', '--import-map', '--cert', '--location', '--seed', '--ext', '-L', '--log-level'].includes(a)) i++; continue; }
+      if (sub) return { script: i };
+      if (a === 'eval') return { code: args[i + 1] || '', how: 'deno eval' };
+      if (a === 'run' || a === 'serve') { sub = a; continue; }
+      if (a === 'task') return { refuse: { why: 'scripts', how: 'deno task' } };
+      if (a === 'x') return { refuse: { why: 'package', how: 'deno x' } };
+      if (a === 'test' || a === 'bench') return { refuse: { why: 'finds', how: `deno ${a}` } };
+      return /[./]/.test(a) ? { script: i } : { refuse: { why: 'script', how: `deno ${a}` } };
+    }
     if (fam === 'eflag') { if (a === '-e') return { code: args[i + 1] || '', how: `${name} -e` }; if (a.startsWith('-')) continue; return { script: i }; }
   }
-  return {};
+  return withPre({});
 }
 // Words of inline code that might name a file in the working folder (`sh deploy.sh` inside `sh -c`).
 const codeWords = code => String(code).split(/[\s;|&()<>`"'{}$=,]+/).filter(t => t && !t.startsWith('-') && t.length <= 4096).slice(0, PIN_LIMITS.tokens);
@@ -328,27 +497,64 @@ export async function prepareRun({ argv, cwd }, { PATH, forRun = false, tmpDir =
       if (!argv[k].includes('/') || spec === LAUNCHERS.sudo || spec === LAUNCHERS.doas) rewrite.set(k, found);
       skip.add(k); rec = await add('launched', found); at = k; cur = found;
     }
-    // The program that finally runs: a #! script, or an interpreter with a script or inline code.
-    let script = null, scriptFam = null, scriptBang = null;
+    // The program that finally runs: a #! script, or an interpreter with a script, a module or inline code. What Pocket
+    // cannot pin becomes `refuse`: such a command is never allowed always, and the request says why.
+    let script = null, scriptFam = null, scriptBang = null, refuse = null;
+    const makes = [];
     if (cur && !unknown && at < argv.length) {
+      const name = path.basename(cur), args = argv.slice(at + 1);
       const b = await bang(rec, dir);
       if (b) { script = { index: at, rec }; scriptFam = familyOf(b.name); scriptBang = b; }
-      const fam = familyOf(path.basename(cur)), args = argv.slice(at + 1);
-      const r = b ? {} : fam ? interpreterArgs(fam, path.basename(cur), args) : {};
-      if (r.code !== undefined) {
+      refuse = startsOther(name, args);
+      const fam = familyOf(name);
+      const r = refuse || b || !fam ? {} : interpreterArgs(fam, name, args);
+      if (r.refuse) refuse = r.refuse;
+      else if (r.code !== undefined) {
         inline = r.how;
         for (const w of codeWords(r.code)) { const p = path.resolve(dir, w); if (!seen.has(p)) await add('argument', p); }
+      } else if (r.module !== undefined) {
+        // python3 -m: the module file from the working folder; one from the interpreter's library is not pinned.
+        const m = r.safe ? { lib: true } : pyModule(dir, r.module);
+        if (m.unsure) refuse = { why: 'script', how: `${name} -m ${r.module}`.trim() };
+        else if (m.file) { script = { index: -1, rec: await add('script', m.file) }; scriptFam = fam; for (const f of m.inits) await add('module', f); }
       } else if (r.script !== undefined) {
-        const k = at + 1 + r.script, p = path.resolve(dir, argv[k]);
-        skip.add(k); script = { index: k, rec: await add('script', p, { nonRegular: true }) }; scriptFam = fam;
+        const k = at + 1 + r.script, given = argv[k];
+        let p = path.resolve(dir, given);
+        if (fam === 'node' && name !== 'bun') p = nodeFile(p) || p; // `node job` loads job.js when there is no file named job
+        skip.add(k);
+        if (/^[a-z][a-z0-9+.-]+:/i.test(given)) refuse = { why: 'web', how: name }; // a web address, npm:, jsr:, data:
+        else {
+          script = { index: k, rec: await add('script', p, { nonRegular: true }) }; scriptFam = fam;
+          if (!script.rec && !seen.has(p)) refuse = name === 'bun' ? { why: 'scripts', how: `bun ${given}` } : { why: 'script', how: name };
+        }
+      } else if (fam && !b && !refuse) refuse = { why: 'script', how: name }; // no script it names: it would read one Pocket cannot see
+      // Node's -r/--import (bun's --preload): a file given by path is pinned (a -r path as node resolves it); a package by name
+      // is a module node loads, like an import inside the script.
+      for (const pre of r.preload || []) {
+        const v = pre.v ?? argv[at + 1 + pre.k] ?? '';
+        if (pre.k !== undefined) skip.add(at + 1 + pre.k);
+        if (!/^(\.{0,2}\/|file:)/.test(v)) continue;
+        const p = v.startsWith('file:') ? (() => { try { return fileURLToPath(v); } catch { return ''; } })() : path.resolve(dir, v);
+        const f = p && (pre.cjs ? nodeFile(p) : isFile(p) ? p : null);
+        if (f) await add('module', f); else refuse = refuse || { why: 'script', how: `${name} ${pre.flag}` };
+      }
+      if (!refuse && (name === 'make' || name === 'gmake')) {
+        const mk = makefiles(args, dir);
+        if (mk.code !== null) inline = `${name} --eval`;
+        for (const f of mk.files) { const rec2 = await add('script', f, { nonRegular: true }); if (rec2?.entry) makes.push(rec2.entry); }
       }
     }
-    // Every other argument that names an existing regular file, wherever it is, and the value of a --flag=file argument.
+    // Every other argument that names an existing regular file, wherever it is, and the value of a --flag=file or a
+    // NAME=file argument (make SHELL=./x, git -c core.sshCommand=./x).
     for (let k = 1; k < argv.length; k++) {
       if (skip.has(k)) continue;
-      for (const x of [argv[k], /^--?[\w-]+=(.+)$/s.exec(argv[k])?.[1]]) if (x && !x.startsWith('-')) await add('argument', path.resolve(k > at ? dir : cwd, x));
+      for (const x of [argv[k], /^--?[\w-]+=(.+)$/s.exec(argv[k])?.[1], /^[A-Za-z_][\w.-]*=(.+)$/s.exec(argv[k])?.[1]]) if (x && !x.startsWith('-')) await add('argument', path.resolve(k > at ? dir : cwd, x));
     }
-    plan.pin = { v: PIN_VERSION, program, files, ...(inline ? { inline } : {}), ...(unknown ? { unknown } : {}) };
+    // A shell script runs from a private copy of the checked bytes (below). Any other script, and a makefile, is opened by
+    // its path as the command starts: the card says so when an agent could change it or a folder above it.
+    const copied = Boolean(FD_RUN && fdSafe && script?.rec?.bytes && COPY_SHELLS.test(scriptBang ? scriptBang.name : path.basename(cur || '')) && !SELF_REF.test(script.rec.bytes.toString('latin1')));
+    for (const e of [...(script?.rec?.entry && !copied ? [script.rec.entry] : []), ...makes]) if (!e.kind && replaceable(e.path)) e.writable = true;
+    plan.pin = { v: PIN_VERSION, program, files, ...(inline ? { inline } : {}), ...(unknown ? { unknown } : {}), ...(refuse ? { refuse } : {}) };
     if (!forRun) return plan;
     // How to start it. Linux only; elsewhere every file is checked again just before the start instead.
     const out = [...argv];
@@ -360,7 +566,7 @@ export async function prepareRun({ argv, cwd }, { PATH, forRun = false, tmpDir =
       try { fs.writeFileSync(f, bytes, { mode: 0o400, flag: 'wx' }); const fd = { fd: fs.openSync(f, 'r'), copy: true }; fds.push(fd); return fdPath(fd); }
       finally { fs.rmSync(f, { force: true }); fs.rmSync(d, { recursive: true, force: true }); }
     };
-    if (FD_RUN && fdSafe && script?.rec?.bytes && COPY_SHELLS.test(scriptBang ? scriptBang.name : path.basename(cur || '')) && !SELF_REF.test(script.rec.bytes.toString('latin1'))) {
+    if (copied) {
       if (scriptBang) {
         // The program is a shell script: start its interpreter as the kernel would, with the copy as the script.
         const copy = copyOf(script.rec.bytes), parts = [scriptBang.interp, ...(scriptBang.arg ? [scriptBang.arg] : []), copy];
@@ -418,11 +624,11 @@ export function withData(pin, paths) {
   for (const p of want) if (!files.some(f => f.path === p)) files.push({ role: 'argument', path: p, data: true });
   return { ...pin, files };
 }
-// What the owner's card needs about a pin: the files checked (no hashes), what cannot be checked, and the program a
-// launcher starts.
+// What the owner's card needs about a pin: the files checked (no hashes), what cannot be checked, the program a launcher
+// starts, why Always allow is not offered, and which script an agent could swap as the command starts.
 export function pinView(pin) {
   if (!pin || !Array.isArray(pin.files)) return {};
-  const files = pin.files.map(f => ({ path: f.path, role: f.role, ...(f.why ? { why: f.why } : {}), ...(f.kind ? { kind: f.kind } : {}), ...(f.data ? { data: true } : {}) }));
+  const files = pin.files.map(f => ({ path: f.path, role: f.role, ...(f.why ? { why: f.why } : {}), ...(f.kind ? { kind: f.kind } : {}), ...(f.data ? { data: true } : {}), ...(f.writable ? { writable: true } : {}) }));
   const launched = pin.files.filter(f => f.role === 'launched').map(f => f.path);
-  return { files, ...(launched.length ? { runs: launched.at(-1) } : {}), ...(pin.inline ? { inline: pin.inline } : {}), ...(pin.unknown ? { unknown: pin.unknown } : {}) };
+  return { files, ...(launched.length ? { runs: launched.at(-1) } : {}), ...(pin.inline ? { inline: pin.inline } : {}), ...(pin.unknown ? { unknown: pin.unknown } : {}), ...(pin.refuse ? { refuse: { why: pin.refuse.why, how: pin.refuse.how } } : {}) };
 }

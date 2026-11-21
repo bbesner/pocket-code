@@ -281,6 +281,9 @@ test('recipes saved before 1.117: no pin asks once, a matching earlier pin runs,
   await s.start();
   const expect=async(argv,want)=>{const r=await s.run(argv);const q=s.asked(r);if(want==='runs'){assert.equal(q,undefined,argv.join(' ')+' runs unasked');assert.equal(s.out(r),'job with {{vault:deploy-key}}\n');return null;}assert.ok(q,argv.join(' ')+' asks');assert.equal(q.changed,want,argv.join(' '));return q;};
   let q=await expect(['sh','job.sh'],'unpinned');assert.equal((await s.answer(q.id,'deny')).status,200);
+  // A matching earlier pin still has no record of which variable gets which item: it asks once more, then runs.
+  q=await expect(['sh','-e','job.sh'],'unbound');
+  assert.equal((await s.answer(q.id,'always')).status,200);assert.equal(s.out(await s.stream('/vault/wait',{request:q.id})),'job with {{vault:deploy-key}}\n');
   await expect(['sh','-e','job.sh'],'runs');
   q=await expect(['env','sh','job.sh'],'unpinned');
   // Always on that request records the current form in place; the next run is unasked.
@@ -290,9 +293,9 @@ test('recipes saved before 1.117: no pin asks once, a matching earlier pin runs,
   assert.equal(recipes.filter(r=>r.argv.join(' ')==='env sh job.sh').length,1,'recorded in place, not doubled');
   assert.equal(recipes.find(r=>r.argv.join(' ')==='env sh job.sh').pin.v,V.PIN_VERSION);
   q=await expect(['sh','job.sh','locked.txt'],'unpinned');await s.answer(q.id,'deny');
-  // An earlier-form recipe whose script has changed since asks too, and nothing runs.
+  // A recipe whose script has changed since asks too, and nothing runs.
   fs.writeFileSync(job,'touch ran\necho "job with $T"\n');
-  q=await expect(['sh','-e','job.sh'],'unpinned');assert.equal(fs.existsSync(path.join(s.work,'ran')),false);
+  q=await expect(['sh','-e','job.sh'],'changed');assert.equal(fs.existsSync(path.join(s.work,'ran')),false);
 });
 
 test('a script that is not a regular file (a pipe here) has no content to compare: Always allow is not offered or saved',{skip:!LINUX},async()=>{
