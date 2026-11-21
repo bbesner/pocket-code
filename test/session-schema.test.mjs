@@ -9,8 +9,8 @@ const throws = fn => { try { fn(); return false; } catch { return true; } };
 
 test('migrateSmeta stamps version, preserves existing records byte-for-byte', () => {
   const legacy = {
-    '2ee47581-4c30-4c72-9e01-17639db22d71': { outcome: { kind: 'finished' }, seen: 123 },
-    'cx:01a103cc-9457-79e3-b9be-a96480ea3802': { name: 'Codex session', pin: true, pinOrder: 2 },
+    '3c1d5e7a-0b2f-4a68-9d14-5e6f7a8b9c01': { outcome: { kind: 'finished' }, seen: 123 },
+    'cx:01a0aaaa-bbbb-7ccc-8ddd-eeeeffff0001': { name: 'Codex session', pin: true, pinOrder: 2 },
   };
   const m = migrateSmeta(legacy);
   assert.equal(m[VERSION_KEY], SMETA_SCHEMA);

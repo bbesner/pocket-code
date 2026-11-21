@@ -64,7 +64,7 @@ alert entry it links to, and the line follows.
 
 ```bash
 pocket-inbox act <id> alert --item a317
-pocket-inbox act <id> not_useful --item a296 --note "Steve texts me anyway"
+pocket-inbox act <id> not_useful --item a296 --note "Taylor texts me anyway"
 ```
 
 **Act only when the user asks**, in words that name the decision: "mark the Northside alert

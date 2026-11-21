@@ -302,7 +302,7 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/inbox/news-fixture'){ // an alert this conversation started from, then later mail on its story
    const sid=url.searchParams.get('session'),n=Number(url.searchParams.get('n')||1),start=url.searchParams.get('start')||'0123456789ff';
    if(!inboxStore.entries.some(e=>e.story==='harbor-gate-'+start)){inboxStore.add({kind:'alert',title:'Harbor HOA gate down',text:'The gate controller is offline.',story:'harbor-gate-'+start,source:'inbox-monitor',url:'/#/start/'+start},{actor:'cli'});inboxStore.linkStart(start,sid);}
-   for(let i=0;i<n;i++)inboxStore.add({kind:'alert',title:i?'Harbor gate: fixed':'Harbor gate: tech on site at 2 pm',text:i?'Mike says it is fixed.':'Mike is on site at 2 pm. [Mike](msg:19b03)',story:'harbor-gate-'+start,source:'inbox-monitor',gmail:'https://mail.google.com/mail/u/0/#all/19b000000000000'+i},{actor:'cli'});
+   for(let i=0;i<n;i++)inboxStore.add({kind:'alert',title:i?'Harbor gate: fixed':'Harbor gate: tech on site at 2 pm',text:i?'Kai says it is fixed.':'Kai is on site at 2 pm. [Kai](msg:19b03)',story:'harbor-gate-'+start,source:'inbox-monitor',gmail:'https://mail.google.com/mail/u/0/#all/19b000000000000'+i},{actor:'cli'});
    return json({ok:true});}
   if(url.pathname==='/api/inbox/check-done'){const k=inboxStore.watchSource(),p=inboxStore.profiles[k].profile;p.status={...p.status,checkRequestDone:inboxStore.checks[k]?.at};inboxStore.add({kind:'alert',title:'Added in Gmail: quote request',text:'Pat asks for a quote by Friday.',source:k},{actor:'cli'});return json({ok:true});} // the watcher reports it done, with what it found
   if(url.pathname==='/api/inbox/watch'){ // 1.70
