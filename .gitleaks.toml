@@ -1,0 +1,18 @@
+title = "Pocket Code gitleaks configuration"
+
+[extend]
+useDefault = true
+
+# These test files hold fake fixture keys for the secret-detection and Vault tests.
+# None of them is a real credential; they exist so the detectors and redaction have
+# something realistic to catch.
+[[allowlists]]
+description = "Fake fixture keys used by the secret-detection and Vault tests"
+paths = [
+  '''^test/browser\.mjs$''',
+  '''^test/mcp-proxy\.test\.mjs$''',
+  '''^test/secret-detect\.test\.mjs$''',
+  '''^test/ui-regressions\.mjs$''',
+  '''^test/vault\.test\.mjs$''',
+  '''^test/results-queue\.test\.mjs$''',
+]
