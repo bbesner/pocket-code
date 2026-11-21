@@ -22,7 +22,9 @@ const checkDirectory = dir => { if (!dir) return ''; if (!path.isAbsolute(dir)) 
 // The agent's instructions while Tasks is on. A task is created only when the user asks (typed or spoken) or accepts
 // the agent's offer of one. 1.37: at a natural follow-up point the agent may offer once, as a suggested-reply button when
 // Pocket shows them, and an accepted offer is filed with the session, a summary the agent writes and any agreed time.
-export function taskInstructions(cli, sessionId, { choices = true } = {}) {
+// 1.119: with check-backs on for this conversation's engine, a follow-up the conversation itself will do is offered as a
+// check-back instead (checkbacks.mjs); a task stays right for what the user has to do.
+export function taskInstructions(cli, sessionId, { choices = true, checkbacks = false } = {}) {
   cli = shellArg(cli); // 1.73.8: one shell word even with a space in the install path
   const sid = sessionId ? ` --session ${sessionId}` : ' --dir "<working directory>"';
   const offer = choices
@@ -31,7 +33,7 @@ export function taskInstructions(cli, sessionId, { choices = true } = {}) {
   return [
     'This Pocket Code keeps tasks (to-dos).',
     'Create a task only when the user asks (create a task, add a to-do, remind me, note something for later; typed or spoken) or accepts your offer of one. Never create one the user did not ask for or accept.',
-    `Before you finish each reply, check whether the work now needs the user to come back to it later: waiting on time (propagation, data building up, a scheduled date), a test or measurement still to run, another person's reply or action, a step the user chose to put off, or a date they mentioned. If it does and no task or reminder already covers it, ${offer} This applies even when the user only asked for a recap or a short answer. Do not offer for work you are about to do in this session or for trivial errands, and do not repeat an offer the user passed on.`,
+    `Before you finish each reply, check whether the work now needs the user to come back to it later: waiting on time (propagation, data building up, a scheduled date), a test or measurement still to run, another person's reply or action, a step the user chose to put off, or a date they mentioned. If it does and no task or reminder already covers it, ${offer} This applies even when the user only asked for a recap or a short answer. Do not offer for work you are about to do in this session or for trivial errands, and do not repeat an offer the user passed on.${checkbacks ? ' When the follow-up is this conversation looking again itself (re-checking a page, a deploy, a result), offer a check-back instead of a task (pocket-checkback); keep the task for what the user has to do themselves.' : ''}`,
     `When the user asks or accepts, run \`node ${cli} add "<text>"${sid} --summary "…" [--due "YYYY-MM-DDTHH:MM"]\`. The text is one clear sentence of what to do. Write the summary yourself (always for an accepted offer, and whenever the task depends on this session): two to four plain sentences on what is being worked on, where it stands and what finishing the task needs (files, decisions, blockers). Give --due only for a date or time the user named or agreed; a time without an offset is the user's time zone, the one the command prints times in. ${sessionId ? "Pocket adds the session's title and workspace, so Start opens the task in the right place." : 'Pass the working directory so Start opens the task in the right place.'} Then confirm in one sentence with the task and its due time.`,
     `\`list\` shows the open tasks and \`done <id>\` finishes one. The pocket-tasks skill (\`${path.join(path.dirname(cli), '..', 'skills', 'pocket-tasks', 'SKILL.md')}\`) has the procedure.`,
   ].join(' ');

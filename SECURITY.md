@@ -153,6 +153,45 @@ Changing `POCKET_SECRET` or `POCKET_PASSWORD` signs everyone out (the password s
 - **Origins are set by the server.** Who started a reply (the owner, the queue, a retry, a coordination wake)
   is decided inside Pocket and never read from a request body, so a message can't claim to be the owner's.
 
+## Check-backs (1.119)
+
+A check-back lets an agent, asked by the owner, start one more reply in its own conversation at a later time. It is
+off until the owner turns it on in **Settings → Automation → Check-backs**. This is what it adds.
+
+- **Who may set one is enforced by the server.** `POST /api/checkbacks/agent/add` succeeds only while the conversation's
+  current reply is one the owner started (origin `owner`), or a check-back's own reply with its chain under the **Chain
+  limit**, which may set one follow-up and no more. A reply started by the queue, a usage-limit retry, a coordination wake or a job, or one the agent
+  began itself after a background job or as a permission stand-in, is refused with the reason. The origin is decided
+  inside Pocket and never read from a request. So an emailed alert, a pager message or a coordination wake that reaches
+  an agent in a reply the owner did not start can't set one from that reply. In Codex it also needs Full access.
+- **Runner token required.** The command carries the CLI token and the conversation's runner token (`x-pocket-runner`).
+  The conversation always comes from the runner token, never from the request: an agent can't set, list or cancel a
+  check-back in another conversation. A command with no runner token (a terminal, code-server, a side chat) is refused,
+  and so is an OpenRouter conversation. The owner's sign-in is refused on the agent routes, and the CLI token is refused
+  on the owner's (`GET /api/checkbacks`, `POST /api/checkbacks/cancel` and `cancel-all`), so an agent can't cancel
+  another conversation's check-back or change a setting.
+- **What an injected instruction could do.** If text an agent reads (a web page, a file, a mail) tells it to set a
+  check-back during a reply the owner started, the agent could set one. That is deferred work with that reply's own
+  power, not new power. The note is text the agent wrote and may repeat what it read. The later reply is no more powerful than the one
+  that set it: it has the same permission mode, lowered to Review actions when the owner chose **Always Review actions**
+  or the server disallows Full access, and under Review actions every action still asks the owner. It is bounded by
+  the count limits, the time range, the chain limit, the daily and plan limits and the longest-reply limit, it is held
+  by Pause all, and the owner sees a card in the conversation, a row in Tasks (while Tasks shows check-backs), and a push when it runs, and can cancel it.
+- **What it could not do.** Set one from a reply the owner did not start (but see the runner token under *Limits*). Set one in another conversation, or raise its
+  permissions, limits or the chain limit. Change the owner's settings. Make a check-back run without a card and an audit
+  line. Run more than once (a check-back is saved as running before anything starts, and a crash marks it missed or
+  cut off, never runs it again). Start a check-back while Pocket is paused.
+- **Owner only.** The owner's routes and the settings take the sign-in only; the two `POST` routes also need a JSON body
+  and refuse a cross-site request.
+- **The audit file holds no note and no reply.** Each check-back event (set, cancelled, held, started, finished, missed)
+  is one line in `automation-audit.jsonl` with the id, conversation, engine and chain depth. `checkbacks.json` itself holds
+  each note, so keep the data directory private, as above. It is written with mode `0600`.
+- **Limits of this protection.** The runner token is in the environment of the conversation's process, so a program the
+  agent starts there has it, the same as it has the other things that process can reach. The token lasts as long as that
+  process, and the origin rule looks at the reply running when the call arrives: a command left running by a reply the
+  owner did not start is refused then, but accepted if it calls again while a later reply the owner started is running. An agent running as the same OS user
+  could edit `checkbacks.json` or `pocket-settings.json` by hand; the boundary is the routes, not the files.
+
 ## Projects, Files, Tasks and the Vault
 
 These libraries are off until the owner switches them on in Settings. Turning one on adds

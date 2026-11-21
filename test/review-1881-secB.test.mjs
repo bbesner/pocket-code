@@ -9,6 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {spawn,execFileSync} from 'node:child_process';
 import {createHmac,randomUUID} from 'node:crypto';
+import {killStrays} from './stray-runners.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
 const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|CODEX)_/.test(k)));
@@ -29,7 +30,7 @@ async function server(t,port,env={}){
     throw Error('Test server failed: '+logs);
   };
   const stop=async()=>{if(child&&child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}};
-  t.after(async()=>{await stop();fs.rmSync(dir,{recursive:true,force:true,maxRetries:5});});
+  t.after(async()=>{await stop();killStrays(path.join(dir,'data'));fs.rmSync(dir,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
   await start();
   const call=async(p,body,h=headers)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:body?'POST':'GET',headers:h,body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json().catch(()=>null)};};
   const raw=(p,h=headers)=>fetch(`http://127.0.0.1:${port}/api${p}`,{headers:h});

@@ -15,6 +15,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { createHmac, createECDH, randomBytes } from 'node:crypto';
 import webpush from 'web-push';
 import ece from 'http_ece';
+import { killStrays } from './stray-runners.mjs';
 
 const repo = path.resolve(import.meta.dirname, '..');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -40,6 +41,7 @@ async function boot(t, port, { dir = null, env = {} } = {}) {
   const exited = new Promise(r => child.once('exit', r));
   const stop = async () => { try { child.kill('SIGKILL'); } catch { } await exited; };
   t.after(stop);
+  t.after(async () => { await exited; killStrays(data); }); // after the server is dead; a restart on this dir leaves its runners to the final teardown
   for (let i = 0; ; i++) { try { if ((await fetch(`http://127.0.0.1:${port}/api/health`)).ok) break; } catch { } if (i > 300) throw new Error('server did not start: ' + logs); await sleep(30); }
   const call = async (p, body, headers = { cookie }, method) => {
     const r = await fetch(`http://127.0.0.1:${port}/api${p}`, { method: method || (body ? 'POST' : 'GET'), headers: { 'content-type': 'application/json', ...headers }, body: body ? JSON.stringify(body) : undefined });
@@ -167,7 +169,7 @@ test('Pause all stops every engine, holds a usage-limit retry, keeps the queue s
   // Resume re-arms the held retry; the queue stays as it is until the owner starts it
   assert.equal((await s.call('/resume', {}, { cookie: '', ...s.bearer() })).status, 401, 'the CLI token cannot resume');
   const r = await s.call('/resume', {});
-  assert.deepEqual(r.body, { ok: true, paused: null, rearmed: 1, inboxWatch: null });
+  assert.deepEqual(r.body, { ok: true, paused: null, rearmed: 1, inboxWatch: null, checkbacks: { run: 0, missed: 0 } });
   assert.deepEqual((await s.call('/me')).body.paused, null);
   await s.until(() => s.claudeCalls().some(c => /interrupted by an API rate limit/.test(c.text || '')), 15000, 'the retry to run after Resume');
   await s.idle(limited);
@@ -190,11 +192,12 @@ test('Blocked own messages, coordination wakes while paused, and the Automation 
 
   // ---- the settings route ----
   let a = (await s.call('/automation')).body;
-  assert.deepEqual(a.groups.map(g => g.key), ['pause', 'limits']);
+  assert.deepEqual(a.groups.map(g => g.key), ['pause', 'limits', 'checkbacks']);
   const L = key => a.groups[1].settings.find(x => x.key === key);
   assert.deepEqual([L('dailyReplies').value, L('dailyReplies').preset, L('dailyReplies').saved, L('dailyReplies').default], [1, true, false, 40], 'the env preset sets the starting value');
   assert.deepEqual([L('claudeWeekly').value, L('codexWeekly').value], [60, 60]);
-  assert.deepEqual(Object.keys(a).sort(), ['groups', 'notices', 'paused', 'usage', 'warnings']);
+  assert.deepEqual(Object.keys(a).sort(), ['checkbacks', 'groups', 'notices', 'paused', 'usage', 'warnings']);
+  assert.deepEqual(a.checkbacks, { on: false, pending: 0, running: 0 }, '1.119: off by default');
   assert.equal(a.usage.days.length, 7);
   for (const [p, body] of [['/automation/settings', { group: 'limits', values: { dailyReplies: 5 } }], ['/pause', {}], ['/resume', {}]]) {
     assert.equal((await s.call(p, body, s.bearer())).status, 401, `${p}: the CLI token is refused`);
@@ -219,10 +222,10 @@ test('Blocked own messages, coordination wakes while paused, and the Automation 
   await ownerControlRefuses(s, 18945);
   assert.equal((await s.call('/automation')).body.groups[1].settings.find(x => x.key === 'dailyReplies').value, 2, 'the refused saves changed nothing');
   // reset: the table values, or this install's presets
-  for (const group of ['pause', 'limits']) assert.equal((await s.call('/automation/settings', { group, reset: true })).status, 200);
+  for (const group of ['pause', 'limits', 'checkbacks']) assert.equal((await s.call('/automation/settings', { group, reset: true })).status, 200);
   a = (await s.call('/automation')).body;
   assert.ok(a.groups.every(g => g.settings.every(x => !x.saved)));
-  assert.deepEqual(a.groups[0].settings.map(x => [x.key, x.value]), [['ownMessages', 'run'], ['inboxWatch', true], ['backgroundJobs', true], ['rearmRetries', true], ['confirm', true]]);
+  assert.deepEqual(a.groups[0].settings.map(x => [x.key, x.value]), [['ownMessages', 'run'], ['inboxWatch', true], ['backgroundJobs', true], ['rearmRetries', true], ['runOverdue', true], ['confirm', true]]);
   assert.equal(a.groups[1].settings.find(x => x.key === 'dailyReplies').value, 1, 'back to the preset');
   assert.equal(a.groups[1].settings.find(x => x.key === 'longestReply').value, 60);
   assert.ok(s.audit().some(x => x.action === 'settings' && x.group === 'limits' && x.reset === true));

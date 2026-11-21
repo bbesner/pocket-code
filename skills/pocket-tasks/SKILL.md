@@ -42,6 +42,11 @@ reply or action, a step the user chose to put off, or a date they mentioned.
 - **Without buttons**, ask in one short line and wait.
 - **Don't offer** for work you are about to do in this session, for trivial errands, or a
   second time after the user passed. Never add the task before the user says yes.
+- **A check-back, not a task,** when the later step is this conversation looking again
+  itself (re-checking a page, a deploy, a job's result) and Pocket's session instructions
+  say this Pocket can check back (the pocket-checkback skill is installed only then).
+  Offer it the same way: `Check back in 15 minutes`. Keep the task for what the user has
+  to do themselves.
 
 An accepted offer is filed with the full context (below): the session, a summary you write,
 and the date or time from the offer.

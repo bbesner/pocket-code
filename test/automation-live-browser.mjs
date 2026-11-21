@@ -154,7 +154,7 @@ try {
   await p.click('#listmore'); await p.waitForSelector('.more-menu [data-pause-toggle]');
   await shot('more-1440-dark');
   await p.click('.more-menu [data-pause-toggle]'); await p.waitForSelector('.pause-sheet [data-pause-would]');
-  assert.equal(await p.$eval('[data-pause-would]', e => e.textContent), 'This stops 2 replies running (2 Claude), 1 usage-limit retry.');
+  assert.equal(await p.$eval('[data-pause-would]', e => e.textContent), 'This stops 2 replies running (2 Claude). It holds 1 usage-limit retry.');
   assert.match(await p.$eval('.pause-sheet .sheet-help', e => e.textContent), /^Your own messages still run\./);
   await shot('confirm-1440-dark');
   await p.click('[data-pause-go]'); await p.waitForSelector('.pause-banner');

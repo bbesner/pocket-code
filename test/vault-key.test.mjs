@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {createHmac,randomUUID} from 'node:crypto';
+import {killStrays} from './stray-runners.mjs';
 import {VaultStore,parseKey,decryptStore,newKey} from '../vault.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
@@ -28,7 +29,7 @@ test('HTTP: the Vault creates its key on first switch-on, survives a restart, ro
    throw Error('Test server failed: '+logs);
   };
   const stop=async()=>{if(child&&child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}};
-  t.after(async()=>{await stop();fs.rmSync(dir,{recursive:true,force:true,maxRetries:5});});
+  t.after(async()=>{await stop();killStrays(path.join(dir,'data'));fs.rmSync(dir,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
   const call=async(p,body,h=headers)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:body?'POST':'GET',headers:h,body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json().catch(()=>({}))};};
   await start();
   // Nothing yet: switching on is allowed and creates the key.
@@ -110,7 +111,7 @@ test('HTTP: a Vault key set in the process environment is not rotated',async t=>
    if(child.exitCode!==null&&/EADDRINUSE/.test(logs)&&(start.tries=(start.tries||0)+1)<4){port+=41;logs='';return start();}
    throw Error('Test server failed: '+logs);
   };
-  t.after(async()=>{if(child&&child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}fs.rmSync(dir,{recursive:true,force:true,maxRetries:5});});
+  t.after(async()=>{if(child&&child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}killStrays(path.join(dir,'data'));fs.rmSync(dir,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
   const call=async(p,body)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:body?'POST':'GET',headers,body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json().catch(()=>({}))};};
   await start();
   assert.equal((await call('/settings',{vault:true})).body.vault,true);
@@ -136,7 +137,7 @@ test('HTTP: switching the Vault on returns the new key even when its audit row c
    if(child.exitCode!==null&&/EADDRINUSE/.test(logs)&&(start.tries=(start.tries||0)+1)<4){port+=41;logs='';return start();}
    throw Error('Test server failed: '+logs);
   };
-  t.after(async()=>{if(child&&child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}fs.rmSync(dir,{recursive:true,force:true,maxRetries:5});});
+  t.after(async()=>{if(child&&child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}killStrays(path.join(dir,'data'));fs.rmSync(dir,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
   await start();
   const r=await fetch(`http://127.0.0.1:${port}/api/settings`,{method:'POST',headers,body:JSON.stringify({vault:true})});const body=await r.json();
   assert.equal(r.status,200,JSON.stringify(body));assert.equal(body.vault,true);assert.equal(parseKey(body.recoveryKey).length,32);
@@ -163,7 +164,7 @@ test('HTTP: an unfinished rotation is rolled back at start, so a passphrase set 
    throw Error('Test server failed: '+logs);
   };
   const stop=async()=>{if(child&&child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}};
-  t.after(async()=>{await stop();fs.rmSync(dir,{recursive:true,force:true,maxRetries:5});});
+  t.after(async()=>{await stop();killStrays(path.join(dir,'data'));fs.rmSync(dir,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
   const call=async(p,body)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:'POST',headers,body:JSON.stringify(body)});return {status:r.status,body:await r.json().catch(()=>({}))};};
   const phrase='correct horse battery';
   await start();

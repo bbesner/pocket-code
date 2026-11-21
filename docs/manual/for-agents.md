@@ -1,6 +1,6 @@
 <!-- manual
-checked: 1.118.0
-sources: skills.mjs, project-mode.mjs, choices.mjs, approvals.mjs, skills/, scripts/pocket-start.mjs, scripts/pocket-notify.mjs, scripts/pocket-mcp-proxy.mjs
+checked: 1.119.0
+sources: skills.mjs, tasks.mjs, checkbacks.mjs, project-mode.mjs, choices.mjs, approvals.mjs, skills/, scripts/pocket-checkback.mjs, scripts/pocket-start.mjs, scripts/pocket-notify.mjs, scripts/pocket-mcp-proxy.mjs
 -->
 # For agents
 
@@ -28,7 +28,7 @@ The pages:
 | [Files](files.md) | The Files library and `pocket-docs` |
 | [Tasks](tasks.md) | To-dos and `pocket-tasks` |
 | [Coordination](coordination.md) | Holds on shared things and `pocket-coord` |
-| [Automation](automation.md) | Pause all and limits on unattended work |
+| [Automation](automation.md) | Pause all, check-backs, and limits on unattended work |
 | [Inbox Watch](inbox-watch.md) | Mail alerts and `pocket-inbox` |
 | [Gmail, Calendar and Drive](google.md) | Google through each agent's connectors |
 | [Vault](vault.md) | Credentials used by name, and `pocket-vault` |
@@ -71,7 +71,7 @@ Pocket's lines reach Codex as the thread's `developerInstructions`. If Codex's `
 
 ## The instructions Pocket appends
 
-Pocket adds a set of plain-language lines to your instructions when it starts your process (`--append-system-prompt` for Claude Code, `developerInstructions` for Codex). They are fixed for the life of that process. Turning the Vault on or off closes idle processes so the next message picks up the change; the other switches take effect when a conversation's process next starts.
+Pocket adds a set of plain-language lines to your instructions when it starts your process (`--append-system-prompt` for Claude Code, `developerInstructions` for Codex). They are fixed for the life of that process. Turning the Vault or check-backs on or off (or a check-back engine switch) closes idle processes so the next message picks up the change; the other switches take effect when a conversation's process next starts.
 
 | Line | When | What it tells you |
 |---|---|---|
@@ -81,6 +81,7 @@ Pocket adds a set of plain-language lines to your instructions when it starts yo
 | Conductor mode | The conversation is in a project's [Conductor mode](projects.md#conductor-mode) (started, handed off or linked there after the switch went on, and not started Solo); Claude Code and Codex. Ends at the next reply when the mode is switched off, the project is finished or the conversation is unlinked | You are the lead: plan, hand the work to subagents and judge what comes back. Before handing out work, record what done means and a pass/fail check per step on the card (`update --done-when`, `task add --check`), and ask every decision you need in one message. Pick each subagent's model and effort by the step; start one only for parallel work or work that would fill your context. Check every result yourself, have a fresh reviewer on your own model check the whole change, work freely only in the card's directory and **Works in** places, keep the card current, and end with a report for someone who did not watch. |
 | Files | **Files** is on | "Files", "my files", "documents", "my documents" and "docs" mean Pocket's Files library. Keep deliverables for the user to read (HTML report, PDF, image, Markdown, CSV or spreadsheet) with `add`, linked to this conversation. Files are private; share only when asked. Sharing or publishing waits for the user's Allow: on `pending <id>`, say so and run `wait <id>`. Mention a file by its title, not its server path. |
 | Tasks | **Tasks** is on | Create a task only when the user asks or accepts your offer. Before finishing each reply, check whether the work needs the user to come back later; if so and nothing covers it, offer a task once (as a suggested reply when those are on). Give `--due` only for a time the user named or agreed. |
+| Check-backs | **Check-backs** is on in **Settings → Automation**, and its switch for this engine (Claude Code; Codex). Never in OpenRouter | This Pocket can check back. Set one only when the user asked in this conversation or accepted your offer; then run `add --at … --note …`, say when, and end the reply. When a later look would help and the user didn't ask, offer it once as a suggested reply that names when. A task is still right when the user has to act. In Codex: only under Full access. With check-backs on, the Tasks line also says to offer a check-back rather than a task when the follow-up is this conversation looking again. |
 | Inbox Watch | **Inbox Watch** is on | `list`, `show` and `act`; record a decision (`act`) only when the user asks. In a conversation started from an alert, `merge` folds a same-story duplicate into it unasked (1.113). `split` makes the latest mail an entry of its own, only when the user says it is a separate subject (1.115). Which alerts push is the `push` setting, changed only when asked. |
 | Vault | The Vault is on and its store loaded (a locked Vault counts) | Use secrets by name with `pocket-vault run`; never print, write or ask for a value; on `pending`, say so and offer Allow and Deny; on refusal, stop; store any secret you meet with `put`; ask someone outside for a credential with a one-time `request` link, never by email, chat or phone; `{{vault:name.field}}` in browser fill tools; a `{{vault:name}}` in a message is the user handing you a stored secret. |
 | Google | Always | Use this agent's Gmail, Google Calendar and Google Drive connectors from **Settings → Agents & instance → Connectors**; check once whose account it is; write every email as a draft and show it first; send when the user says so and never refuse a send they ask for; ask before sending calendar invitations to other people. |
@@ -99,11 +100,12 @@ Pocket ships agent skills in the `skills/` folder of the Pocket Code directory a
 | `pocket-tasks` | **Tasks** is on | `pocket-tasks` | [Tasks](tasks.md) |
 | `pocket-coord` | **Coordination** is on and Assistant mode is off | `pocket-coord` | [Coordination](coordination.md) |
 | `pocket-inbox` | **Inbox Watch** is on | `pocket-inbox` | [Inbox Watch](inbox-watch.md) |
+| `pocket-checkback` | **Check-backs** is on in **Settings → Automation** | `pocket-checkback` | [Automation](automation.md) |
 | `pocket-vault` | The Vault is on and its store loaded (a locked Vault counts) | `pocket-vault` | [Vault](vault.md) |
 | `pocket-google` | Always (`SKILL.claude.md` for Claude Code, `SKILL.codex.md` for Codex) | none | [Gmail, Calendar and Drive](google.md) |
 
 - **Where:** `~/.claude/skills/<name>/` (or `$CLAUDE_CONFIG_DIR/skills/`), and `$CODEX_HOME/skills/<name>/` (default `~/.codex/skills/`) when that Codex folder exists.
-- **When:** at every daemon start, and whenever one of those switches changes in **Settings → Projects, files, tasks & vault**. Turning a feature off removes its skill.
+- **When:** at every daemon start, and whenever one of those switches changes in **Settings → Projects, files, tasks & vault** (for `pocket-checkback`, the Check-backs group in **Settings → Automation**). Turning a feature off removes its skill.
 - **The marker:** Pocket writes a `.pocket-managed` file in each folder it installs, and only writes or removes folders carrying it. A skill of your own with the same name is left alone (and logged).
 - **The installed copy** says how to run its command on this server ("On this server, run `pocket-board` as `node …`") and where its manual page is. Edit the copy in the Pocket Code directory, not the installed one; Pocket rewrites it.
 - **`POCKET_SKILLS=0`** turns installation (and removal) off entirely. The appended lines still reach Pocket's own conversations, and they name each skill file in the Pocket Code directory.
@@ -119,6 +121,7 @@ All of these talk to the running Pocket daemon over loopback. Each reads the dae
 | `pocket-tasks` | `scripts/pocket-tasks.mjs` | **Tasks** is on | [Tasks](tasks.md) |
 | `pocket-coord` | `scripts/pocket-coord.mjs` | **Coordination** is on and Assistant mode is off | [Coordination](coordination.md) |
 | `pocket-inbox` | `scripts/pocket-inbox.mjs` | **Inbox Watch** is on | [Inbox Watch](inbox-watch.md) |
+| `pocket-checkback` | `scripts/pocket-checkback.mjs` | **Check-backs** is on, inside a Pocket conversation | [Check back later](#check-back-later) |
 | `pocket-vault` | `scripts/pocket-vault.mjs` | The Vault is on | [Vault](vault.md#for-agents) |
 | `pocket-start` | `scripts/pocket-start.mjs` | Always | [Start links](#hand-the-user-a-briefing-with-a-start-link) |
 | `pocket-notify` | `scripts/pocket-notify.mjs` | Always | [Notifications](#send-the-user-a-notification) |
@@ -127,7 +130,7 @@ All of these talk to the running Pocket daemon over loopback. Each reads the dae
 
 - **Inside a Pocket conversation:** use the exact `node …/scripts/pocket-*.mjs` path your instructions name.
 - **With an installed skill:** its commands block names the path on this server.
-- **From a terminal in the Pocket Code directory:** `node scripts/pocket-board.mjs …`. The first five also run as `npx pocket-board` (and so on) from that directory; `pocket-start` and `pocket-notify` run only as `node scripts/…`.
+- **From a terminal in the Pocket Code directory:** `node scripts/pocket-board.mjs …`. The first five, and `pocket-checkback`, also run as `npx pocket-board` (and so on) from that directory; `pocket-start` and `pocket-notify` run only as `node scripts/…`.
 - `<command> help` (or `--help`) prints the usage.
 
 ### How a command finds the daemon
@@ -176,6 +179,23 @@ pocket-notify --title "…" (--body "…" | --file <path|->) [--url </#/start/<i
 - It prints `push=<devices|off> mail=<yes|no|off|failed>`. `mail=off` means email is not set up (`POCKET_SMTP_URL` and an address in Settings). Exit code 2 means Pocket is not running here or refused the token.
 - Send one only when the user or the job you are running asks for it.
 
+### Check back later
+
+With **Check-backs** on in **Settings → Automation**, a conversation can take one more turn later, at a time the user asked for. Pocket starts it, and tells the user the result with a push.
+
+```text
+pocket-checkback add --at "+15m" --note "what to check and what done looks like"
+pocket-checkback list [--all] [--json]
+pocket-checkback cancel <id>
+```
+
+- **Who may set one** is Pocket's rule, not only the instructions': the reply running now must be one the user started, or a check-back's own reply while its chain is under the limit (**Settings → Automation → Check-backs**, 5 by default; 0 means a check-back can't set another). A check-back's reply may set **one** follow-up: a second is refused (`one_more`, *This check-back reply already set its one follow-up (at 2:45 PM). Cancel it first to change the time.*); cancel the first to set it at another time. A reply started by the queue, a retry, a coordination wake, or by you after a background job is refused; so is a terminal or code-server (no runner token), a side chat and an OpenRouter conversation. In Codex it works only under Full access (Codex's Review sandbox can't reach Pocket). Offer it as a suggested reply instead; the user's reply can set it.
+- **`--at`** takes `+15m`, `+2h`, `+1d` (also `+15 min`, `+2 hours`), or a date and time such as `2026-11-22 09:00` in the owner's time zone, or an ISO time with an offset. It must be between the soonest and furthest the owner allows (1 minute and 90 days by default). Day names aren't read: give the date. A time outside that range, or a note that is empty or too long, is refused with the range.
+- **`--note`** is all the later turn is told, so make it complete. It may be up to 1,000 characters by default.
+- **Limits** (settings): 10 waiting per conversation and 50 per Pocket by default; the note is up to 1,000 characters. `list` shows this conversation's waiting check-backs (`--all` adds finished ones) and `cancel <id>` cancels one that has not started. The owner can cancel any of them in Pocket. How it all works for the owner is in [Automation](automation.md#check-backs).
+- **When it runs,** the reply starts with `[Pocket check-back · set at <time> at your request · 1 of 6]`, then `What to check:` and the note, and the time now (and how late, if Pocket was down or held). It runs with the permissions of the reply that set it, lowered to Review actions when the owner chose that or Full access is not allowed on the server. Pause all, a plan ceiling and the daily limit in **Settings → Automation** hold it; a conversation with a reply running, or waiting for a usage limit to reset, makes it wait. Lead your reply with the result: its first line is what the push shows.
+- Exit codes: 0 done, 1 refused or failed, 2 a limit or no reply running (HTTP 409), 4 the token was refused, 5 check-backs are off.
+
 ### Use the browser with stored logins
 
 `scripts/pocket-mcp-proxy.mjs` is a relay that sits between you and an MCP server such as the Playwright browser tools. It passes every call through untouched, except that a fill tool call naming `{{vault:name.field}}` gets the real value from the Vault on the way to the browser, and the value is replaced by the placeholder in everything that comes back.
@@ -191,6 +211,7 @@ The owner registers the browser tool through it once, for example `claude mcp ad
 These come from Pocket's instructions and skills. Follow them in Pocket and outside it.
 
 - **Projects only on request.** Create or track a project only when the user says so ("track this", "make it a project", "add this to my projects"). Never infer it from work being unfinished. See [Projects](projects.md).
+- **Check-backs only on request or acceptance.** Offer one once when this conversation will need to look again later; set it only when the user asks or accepts. Pocket refuses one from a reply the user didn't start.
 - **Tasks only on request or acceptance.** Offer a task once when the work needs a later follow-up; create it only when the user asks or accepts. See [Tasks](tasks.md).
 - **Files stay private.** Keep deliverables in Files; share or publish only when the user asks, and expect the user to be asked to allow it (`pending <id>`, then `wait <id>`). Pocket shows a share link's address only once, in the answer that made it. See [Files](files.md).
 - **Never look at or print a secret.** Use credentials by name through `pocket-vault`. Never print, echo, log, decode or write a value, never put one in arguments, never ask the user to paste one into the chat, and never look for another way to a value after a refusal. Store a secret you meet at once and tell the user it was seen. Keep an approved command, and the files it names, unchanged: Pocket checks their content, and a change asks the user again. Pocket finds the program on the Vault's own `PATH`, so give a full path for one outside it. See [Vault](vault.md#for-agents).

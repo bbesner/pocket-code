@@ -1,6 +1,6 @@
 <!-- manual
-checked: 1.118.0
-sources: context-policy.mjs, cli-updates.mjs, public/cli-updates.js, public/app.js, public/workspace.js, public/theme.js, public/voice.js, server.mjs, router.mjs, access.mjs
+checked: 1.119.0
+sources: context-policy.mjs, automation.mjs, cli-updates.mjs, public/cli-updates.js, public/app.js, public/workspace.js, public/theme.js, public/voice.js, server.mjs, router.mjs, access.mjs
 -->
 # Settings
 
@@ -174,13 +174,14 @@ Settings, with no **Open Settings** button.
 
 ## Automation
 
-The same in both modes, and everything here applies to the whole install (**This instance · all devices**). The category reads *Pause all, and limits on unattended work: plan ceilings, a daily count and the longest reply* (in Assistant mode, *Pause all, and limits on work that runs without you*). [Automation](automation.md) explains each setting.
+The same in both modes, and everything here applies to the whole install (**This instance · all devices**). The category reads *Pause all, check-backs, and limits on unattended work: plan ceilings, a daily count and the longest reply* (in Assistant mode, *Pause all, check-backs, and limits on work that runs without you*). [Automation](automation.md) explains each setting.
 
 | Control | What it does | Default | Stored |
 |---|---|---|---|
 | **Pause all** / **Resume** | The first row. Stops every running reply (side chats included) and Claude's background jobs, and holds everything automatic; reads **Resume** while Pocket is paused. It is also in the **More** (**⋯**) menu beside the conversation list and in **Switch conversation** (Ctrl/⌘ K). It can't be hidden or turned off | Running normally | Server (`paused`) |
-| **Pause all** group | **Your own messages while paused**, **Pause all also pauses Inbox Watch**, **Pause all also stops background jobs**, **On Resume, re-arm held usage-limit retries** and **Show what will stop before pausing** | Own messages run; the others On | Server (`automation`) |
+| **Pause all** group | **Your own messages while paused**, **Pause all also pauses Inbox Watch**, **Pause all also stops background jobs**, **On Resume, re-arm held usage-limit retries**, **On Resume, run overdue check-backs** and **Show what will stop before pausing** | Own messages run; the others On | Server (`automation`) |
 | **Limits on unattended work** group | The plan ceilings (weekly and 5-hour, for Claude Code and Codex), **Unattended replies per day**, **OpenRouter spend per day (unattended)**, **Longest unattended reply**, the two switches that extend limits to work you asked for, **Notice when a limit is reached**, and under **Advanced** the stale-reading age. A **No limit** button sits beside each number | 80%, 90%, 40 a day, $5 a day, 60 min | Server (`automation`) |
+| **Check-backs** group | The **Check-backs** switch first, then **Permissions for a check-back**, a switch for Claude Code and one for Codex, **Push the result when the conversation is muted**, **Show check-backs in the Tasks list**, the limits on how many may wait and how far ahead, the note length and the catch-up window, and under **Advanced** the busy wait and the spacing. While the switch is off the rest of the group is dimmed under *These apply when Check-backs is on.*, and can still be changed. Under it, *N waiting* and **Cancel all** while the switch is on and any are waiting | **Check-backs** Off; the rest as in [Automation](automation.md#settings) | Server (`automation`) |
 | **Unattended replies** | **Today** and **Last 7 days**: replies, tokens and cost, and **Limits reached today** | | Server (`automation-state.json`) |
 
 Each group has **Reset to defaults**. A value is checked when it is saved: out of range, it is refused with a message that names the range. While any limit is set to No limit, a warning shows at the top of the page. A change applies to the next start, never to a reply already running.
@@ -194,16 +195,17 @@ Each group has **Reset to defaults**. A value is checked when it is saved: out o
 | **Finished replies** | Push when a conversation finishes a reply, unless the conversation is muted or open in a browser, or you stopped the reply | On when push is turned on | Server, per device |
 | **Due tasks and reminders** | Push once when each comes due; **Tomorrow** and **Done** on the notification answer without opening Pocket | On when push is turned on | Server, per device |
 | **Vault requests** | Push when an agent needs a secret, or wants to share or publish a file, and you have to allow it, with **Allow** and **Deny** | On when push is turned on | Server, per device |
-| **Inbox alerts** | Push for an alert from Inbox Watch or another job on the server, and the **Unattended work held** notice when an [Automation limit](automation.md#one-notice-per-reason-per-day) holds work. Which Inbox Watch alerts push is chosen in its schedule sheet ([Push notifications](inbox-watch.md#push-notifications)) | On when push is turned on | Server, per device |
+| **Inbox alerts** | Push for an alert from Inbox Watch or another job on the server. Which Inbox Watch alerts push is chosen in its schedule sheet ([Push notifications](inbox-watch.md#push-notifications)) | On when push is turned on | Server, per device |
+| **Check-backs and job results** | Push when a [check-back](automation.md#check-backs) has run (*Checked back · …*) or was missed, and the **Unattended work held** notice when an [Automation limit](automation.md#one-notice-per-reason-per-day) holds work. Shown whether check-backs are on or off, because of that notice. Job results come with a later release | On when push is turned on | Server, per device |
 | **Count on the app icon** | How many tasks and reminders are due, on the installed app's icon. Disabled in browsers without app-badge support | On | This browser, and with its push subscription |
 | **Voice (beta)** | Voice preferences for this device; see below | | This browser |
 | **Notice a day before** | A second notice 24 hours before a dated task or reminder comes due, the same way as the due one | Off | Server |
 | **Email due tasks and reminders to** | An address that gets each due task and reminder by email. **Save**, then **Send a test**. Needs `POCKET_SMTP_URL` on the server; without it the field is disabled and the note says what to set | Empty | Server |
 
-The four push kinds are disabled until **Push to this device** is on. Push needs HTTPS, the
+The five push kinds are disabled until **Push to this device** is on. Push needs HTTPS, the
 server's `VAPID_PUBLIC` and `VAPID_PRIVATE`, and the browser's permission. Due reminders, Vault
 requests and Inbox alerts are sent as urgent, so a phone gets them while idle; finished replies
-are sent at normal priority. Links in reminder emails use `POCKET_PUBLIC_URL`, or the address you
+and check-back results are sent at normal priority. Links in reminder emails use `POCKET_PUBLIC_URL`, or the address you
 last signed in from.
 
 `POCKET_SMTP_URL` is an SMTP address with its login, for example
@@ -298,7 +300,8 @@ defaults to the Pocket Code directory:
 | File | What it holds |
 |---|---|
 | `pocket-settings.json` | Every **Server** setting above, including whether Pocket is paused and the values you saved under Automation, plus two values Pocket learns: your browser's time zone and the public address you sign in through |
-| `automation-state.json`, `automation-audit.jsonl` | The day's counts and limit notices, and a line for each pause, resume, settings change and unattended reply (never message text) |
+| `automation-state.json`, `automation-audit.jsonl` | The day's counts and limit notices, and a line for each pause, resume, settings change, check-back event and unattended reply (never message text) |
+| `checkbacks.json` | The check-backs: each one's conversation, note, time and state, for the cards, the list and Tasks |
 | `push-subs.json` | One entry per device with push on, with its choice of kinds and icon count. A subscription the push service reports as gone is removed |
 | `router-key` | The key saved under **Automatic model choice** (mode `0600`) |
 | `auth-state.json` | The sign-in generation that **Sign out everywhere** moves on, and a keyed hash of the password (mode `0600`, 1.118). Never the password itself |

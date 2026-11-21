@@ -2314,3 +2314,43 @@ html.pocket-paused .frame header.bar { padding-top: 10px; } /* the banner takes 
 .automation-notices li { padding: 6px 0; border-bottom: 1px solid var(--line); }
 .automation-when { color: var(--dim); font-variant-numeric: tabular-nums; margin-right: 8px; }
 @media (max-width: 420px) { .automation-number { grid-template-columns: minmax(0, 1fr) auto; } .automation-number > .automation-label { grid-column: 1 / -1; } }
+
+/* ---------- 1.119: check-backs ----------
+   Pinned Operate refinement: variance 2, motion 1, density 7; existing tokens, no new colour. A check-back reports where
+   the conversation will stand later, so it is the app's own surface with a hairline (the reply buttons' 10px shape, not
+   their clay), a --dim clock, the line in --text and what holds it in --dim. Always the same height with or without
+   Cancel, so a change of state never moves the transcript: on a phone what holds it may take a second line, and two
+   lines fit inside the card's 44/52px (more ends in an ellipsis; the whole line is in the title). Cards sit 10px under
+   the reply and 6px apart (the transcript's 18px gap pulled in). No motion: the card repaints with the transcript, and
+   an entrance would replay. */
+.checkback-card { display: flex; align-self: flex-start; align-items: center; gap: 10px; max-width: 100%; min-height: 52px; margin: -8px 0 0; padding: 3px 3px 3px 12px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--dim); font-size: 14.5px; line-height: 1.3; }
+.checkback-card + .checkback-card { margin-top: -12px; }
+.checkback-card:not(:has(.checkback-cancel)) { padding-right: 14px; }
+.checkback-card:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
+.checkback-mark { display: grid; place-items: center; flex: none; color: var(--dim); }
+.checkback-mark svg.i { width: 17px; height: 17px; }
+.checkback-text { flex: 1; min-width: 0; margin: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.checkback-lead { color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.checkback-card .checkback-cancel { flex: none; margin-left: auto; min-height: 44px; padding-inline: 16px; font-size: 14px; }
+@media (pointer: fine) { .checkback-card { min-height: 44px; } .checkback-card .checkback-cancel { min-height: 36px; } }
+/* A phone: the words take the clock's room, so the longest hold ("waiting for the conversation to finish") stays within two lines. */
+@media (max-width: 520px) { .checkback-card { padding-left: 14px; font-size: 14px; } .checkback-mark { display: none; } .checkback-card .checkback-cancel { padding-inline: 12px; } }
+/* The list row's clock: a 14px --dim mark at the end of the state line while one waits or runs; its label is the words. */
+.checkback-clock { display: inline-grid; place-items: center; color: var(--dim); }
+.checkback-clock svg.i { width: 14px; height: 14px; stroke-width: 2; }
+/* Tasks: a read-only group; the clock takes the check's 44px slot, Cancel sits where the options button would. */
+.checkback-item { align-items: center; }
+.checkback-item .checkback-slot { flex: none; align-self: stretch; width: 44px; display: grid; place-items: center; color: var(--dim); }
+.checkback-item .checkback-slot .i { width: 18px; height: 18px; }
+.checkback-item .row { color: inherit; text-decoration: none; }
+.checkback-item .session-status { display: block; line-height: 1.5; } /* time · conversation · what holds it wraps as one line of text, not one fact per line */
+.checkback-item .session-status > [aria-hidden] { margin-inline: 6px; }
+.checkback-item .checkback-cancel { flex: none; margin-right: 10px; min-height: 44px; padding-inline: 16px; font-size: 14px; }
+/* Settings → Automation: a feature's group leads with its switch; while it is off the rest reads --dim (still editable).
+   Under Check-backs, how many wait and Cancel all. */
+.automation-group-off .automation-dependent :is(.automation-label, .voice-field, .opt.automation-bool) { color: var(--dim); }
+.automation-group-off .automation-dependent .opt .dot.on { border-color: var(--dim); background: radial-gradient(circle, var(--dim) 45%, transparent 50%); }
+.automation-dependent > .automation-inactive-note { margin: 0 0 2px; }
+.automation-waiting { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0 4px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 15px; color: var(--text); }
+.automation-waiting .chip { min-height: 44px; padding-inline: 16px; font-size: 14px; }

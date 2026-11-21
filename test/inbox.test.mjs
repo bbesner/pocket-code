@@ -372,7 +372,7 @@ test('HTTP: Inbox is off until Settings turns it on; token and cookie, tunnel re
   assert.equal((await call('/inbox?state=bogus')).body.code,'bad_state');
   // 1.69: alerts is a push kind a device can turn off.
   r=await call('/push/subscribe',{subscription:{endpoint:'https://push.example.test/a',keys:{p256dh:'k',auth:'a'}},prefs:{kinds:{alerts:false}}});
-  assert.deepEqual(r.body.prefs.kinds,{turns:true,reminders:true,vault:true,alerts:false});
+  assert.deepEqual(r.body.prefs.kinds,{turns:true,reminders:true,vault:true,alerts:false,automation:true});
   // The CLI.
   const cli=(args,input,extra={})=>new Promise(res=>{const c=execFile(process.execPath,[path.join(repo,'scripts/pocket-inbox.mjs'),...args],{cwd:dir,env:{...cleanEnv(),PORT:String(port),POCKET_ENV_FILE:'',POCKET_DATA_DIR:path.join(dir,'data'),...extra}},(err,stdout,stderr)=>res({code:err?err.code:0,stdout,stderr}));if(input!==undefined)c.stdin.end(input);});
   let out=await cli(['add','--title','Birchwood invoice question','--file','-','--story','Birchwood billing','--priority','critical','--gmail',GMAIL],'Their AP asks for the W-9 [AP](msg:abc).\n');

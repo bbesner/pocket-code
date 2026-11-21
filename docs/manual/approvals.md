@@ -1,6 +1,6 @@
 <!-- manual
-checked: 1.117.0
-sources: approvals.mjs, trusted.mjs, questions.mjs, subagents.mjs, public/approvals.js, public/workspace.js
+checked: 1.119.0
+sources: approvals.mjs, checkbacks.mjs, trusted.mjs, questions.mjs, subagents.mjs, public/approvals.js, public/workspace.js
 -->
 # Questions and approvals
 
@@ -165,9 +165,9 @@ Nothing is decided for you. The reply waits until you answer:
 
 ### Replies you did not start
 
-A reply Pocket starts without you (a queued message, a usage-limit retry, a conversation woken from [Coordination](coordination.md)) asks for approval exactly as one you started does. It runs with the permissions the work was set up with: a queued message with the mode it was queued with, a coordination wake with the mode it asked with. A usage-limit retry carries on with the mode of the reply it continues. When Full access has since been turned off for the install, a queued message that needed it does not start (see Troubleshooting).
+A reply Pocket starts without you (a queued message, a usage-limit retry, a conversation woken from [Coordination](coordination.md), a [check-back](automation.md#check-backs)) asks for approval exactly as one you started does. It runs with the permissions the work was set up with: a queued message with the mode it was queued with, a coordination wake with the mode it asked with, and a check-back with the mode of the reply that set it (**Always Review actions** in **Settings → Automation → Check-backs** lowers it to Review actions; a server with Full access turned off does the same; it is never raised). A usage-limit retry carries on with the mode of the reply it continues. When Full access has since been turned off for the install, a queued message that needed it does not start (see Troubleshooting).
 
-Nobody may be looking when such a reply asks, and it waits for you like any other: it does not expire. The conversation reads **Needs approval**, and the push goes out as usual.
+Nobody may be looking when such a reply asks, and it waits for you like any other: it does not expire. (On a check-back's reply, the time it waits for you doesn't count toward **Longest unattended reply** unless you switch that on.) The conversation reads **Needs approval**, and the push goes out as usual.
 
 **Pause all** ([Automation](automation.md#pause-all)) stops every running reply, so a card waiting for you is withdrawn, the way **Stop** withdraws it. While Pocket is paused none of these replies starts, so none can ask. Your own messages still run, and ask as usual, unless you chose **Blocked until you resume**.
 
