@@ -285,21 +285,45 @@ function vaultRequestHTML(r,where='main'){
 const vaultShortPath=(p,cwd)=>cwd&&p.startsWith(cwd.replace(/\/$/,'')+'/')?p.slice(cwd.replace(/\/$/,'').length+1):projShort(p);
 const VAULT_PIN_WHY={unreadable:p=>`Pocket cannot read ${p}, so it checks only its size and dates.`,large:p=>`${p} is too large to read on every run, so Pocket checks only its size and dates.`};
 const VAULT_PIN_KIND={folder:'a folder',pipe:'a pipe',socket:'a socket',device:'a device',other:'not a plain file'};
+// Each variable with the secret it gets (and the field, for a login or card), as the owner approves it: an Always allow
+// matches only the same variables getting the same secrets.
+const vaultVarOne=b=>`<span class="vault-path">${esc(b.v)}</span> gets <span class="vault-name">${esc(b.name||'a secret')}</span>${b.field&&!/^(value|text)$/.test(b.field)?` (${esc(b.field)})`:''}`;
+const vaultVarsText=list=>(Array.isArray(list)?list:[]).map(vaultVarOne).join(', ');
+// One span per variable, so a pair wraps as a unit on a phone, with the dot the folder line uses between them.
+const vaultVarsHTML=r=>Array.isArray(r.variables)&&r.variables.length?`<p class="vault-request-where vault-request-runs vault-request-vars"><span>Variables</span>${r.variables.map(b=>`<span>${vaultVarOne(b)}</span>`).join('<span aria-hidden="true">·</span>')}</p>`:'';
 function vaultChangedHTML(r){
- if(r.changed==='unpinned')return '<p class="vault-request-changed">You allowed this command always before Pocket checked what a command runs. Allow it once more to keep it.</p>';
+ if(r.changed==='unpinned')return '<p class="vault-request-changed">You allowed this command always before Pocket checked what a command runs and which variable gets which secret. Allow it once more to keep it.</p>';
+ if(r.changed==='unbound')return '<p class="vault-request-changed">You allowed this command always before Pocket recorded which variable gets which secret. Check the variables below, then allow it once more to keep it.</p>';
+ if(r.changed==='variables')return `<p class="vault-request-changed">You allowed this command always${Array.isArray(r.was)&&r.was.length?` with ${vaultVarsText(r.was)}`:''}, but its variables have changed. Check them before you allow it again.</p>`;
+ if(r.changed==='refused')return '<p class="vault-request-changed">You allowed this command always before, but Pocket can no longer check what it runs, so it asks every time. The note below says why.</p>';
  if(r.changed!=='changed')return '';
  const files=Array.isArray(r.changedFiles)?r.changedFiles:[],prog=files.find(f=>f.how==='program');
  const named=files.filter(f=>f.how!=='program').slice(0,3).map(f=>`<span class="vault-path">${esc(vaultShortPath(f.path,r.cwd))}</span>${f.how==='new'?' (new)':f.how==='gone'?' (gone)':''}`);
  const more=files.filter(f=>f.how!=='program').length-named.length;
  const what=[prog?`the program is now <span class="vault-path">${esc(prog.path)}</span>`:'',named.length?named.join(', ')+(more>0?` and ${more} more`:'')+(named.length+more>1?' have':' has')+' changed':''].filter(Boolean).join(', and ');
- return `<p class="vault-request-changed">You allowed this command always, but ${what||'the program or a file it names has changed'} since. Check it before you allow it again.</p>`;
+ return `<p class="vault-request-changed">You allowed this command always, but ${what||'the program or a file it names has changed'} since${Array.isArray(r.was)&&r.was.length?', and so have its variables':''}. Check it before you allow it again.</p>`;
 }
-const vaultRunsHTML=r=>r.runs||r.program?`<p class="vault-request-where vault-request-runs"><span>Runs</span><span class="vault-path">${esc(r.runs||r.program)}</span></p>`:'';
+const vaultRunsHTML=r=>(r.runs||r.program?`<p class="vault-request-where vault-request-runs"><span>Runs</span><span class="vault-path">${esc(r.runs||r.program)}</span></p>`:'')+vaultVarsHTML(r);
+// Why Pocket does not offer Always allow for a command: what it runs is decided after the start, elsewhere, or by something
+// Pocket does not read. Allow once and Deny stay.
+const VAULT_REFUSE={
+ script:h=>`Pocket cannot find the script ${h} runs, so it cannot check it.`,
+ starts:h=>`Pocket cannot tell what ${h} starts.`,
+ finds:h=>`${h} picks what it runs from the files it finds, so Pocket cannot check it in advance.`,
+ remote:h=>`${h} runs a command on another computer, which Pocket cannot check.`,
+ scripts:h=>`${h} runs a script the project defines (in package.json or a task file), which Pocket does not check.`,
+ package:h=>`${h} fetches or runs a package Pocket does not check.`,
+ image:h=>`${h} runs a container, which Pocket does not check.`,
+ web:h=>`${h} loads code from an address, not a file Pocket can check.`,
+ live:h=>`${h} can run changed code or take commands after it starts.`,
+};
 function vaultPinHTML(r,hid){
  const files=Array.isArray(r.files)?r.files:[],notes=[];
  if(r.inline)notes.push(`The command gives code inline (<span class="vault-path">${esc(r.inline)}</span>). Pocket matches its text and checks files it names plainly, but not everything it runs.`);
- if(r.unknown)notes.push(`Pocket cannot tell what <span class="vault-path">${esc(r.unknown)}</span> starts, so only the command text and its first program are checked.`);
+ if(r.refuse)notes.push(`${(VAULT_REFUSE[r.refuse.why]||VAULT_REFUSE.starts)(`<span class="vault-path">${esc(r.refuse.how||'This command')}</span>`)} Always allow is not offered.`);
+ else if(r.unknown)notes.push(`Pocket cannot tell what <span class="vault-path">${esc(r.unknown)}</span> starts. Always allow is not offered.`);
  for(const f of files){
+  if(f.writable&&!f.why&&!f.kind&&r.allowAlways!==false)notes.push(`An agent can change <span class="vault-path">${esc(vaultShortPath(f.path,r.cwd))}</span> or its folder, and it is read again as the command starts. Always allow asks again after a change, but a change timed to the start can run without asking. Allow once is safer here.`);
   if(f.why)notes.push((VAULT_PIN_WHY[f.why]||VAULT_PIN_WHY.unreadable)(`<span class="vault-path">${esc(vaultShortPath(f.path,r.cwd))}</span>`));
   else if(f.kind)notes.push(`<span class="vault-path">${esc(vaultShortPath(f.path,r.cwd))}</span> is ${esc(VAULT_PIN_KIND[f.kind]||'not a plain file')}, so its contents are not checked.${f.role==='script'?' Always allow is not offered for it.':''}`);
  }
@@ -407,7 +431,7 @@ function vaultListHTML(){
  if(vaultSnap.ready===false)return `<div class="session-home-head vault-list-head"><h2>Vault</h2></div><p class="sheet-help project-empty">The Vault cannot be opened. Check that POCKET_VAULT_KEY in .env is the key it was saved with, then restart Pocket Code.</p>`;
  const reqs=vaultRequests(),items=vaultSnap.items,trash=vaultSnap.trash;
  return `<div class="session-home-head vault-list-head"><h2>Vault</h2><span class="project-head-actions"><button class="chip" id="vt-ask" title="Send someone a one-time link to type a secret into">${VIC.link}Ask someone</button><button class="chip" id="vt-add">${IC.plus}Add secret</button></span></div>
-  ${reqs.length?`<section class="session-group project-group vault-requests" id="vault-requests"><h2 tabindex="-1">Requests <span>${reqs.length} waiting</span></h2><p class="sheet-help vault-requests-help">An agent wants to run a command with a secret.${reqs.some(r=>r.allowAlways!==false)?' Always allow remembers this exact command and folder for that secret, and the content of the program and files it names: if any of them changes, you are asked again.':''}</p>${reqs.map(r=>vaultRequestHTML(r)).join('')}</section>`:''}
+  ${reqs.length?`<section class="session-group project-group vault-requests" id="vault-requests"><h2 tabindex="-1">Requests <span>${reqs.length} waiting</span></h2><p class="sheet-help vault-requests-help">An agent wants to run a command with a secret.${reqs.some(r=>r.allowAlways!==false)?' Always allow remembers this exact command and folder for that secret, its variables, and the content of the program and files it names: if any of them changes, you are asked again.':''}</p>${reqs.map(r=>vaultRequestHTML(r)).join('')}</section>`:''}
   ${vaultNotice?`<p class="vault-notice" role="status" tabindex="-1">${esc(vaultNotice)}</p>`:''}
   ${vaultIntakesHTML()}
   ${items.length?`<div class="documents-tools vault-tools"><div class="session-search">${IC.search}<input type="search" id="vault-query" placeholder="Search secrets" aria-label="Search secrets by name, kind, tag or website" value="${esc(vaultQuery)}" autocomplete="off" spellcheck="false" enterkeyhint="search"></div>

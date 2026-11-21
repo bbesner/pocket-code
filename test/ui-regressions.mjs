@@ -2026,6 +2026,23 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     assert.deepEqual(await page.$$eval('#vault-main .vault-request[data-request="fixture-every"] [data-answer]',bs=>bs.map(b=>b.dataset.answer)),['deny','once']);
     assert.ok(await page.$('#vault-main .vault-request:not([data-request="fixture-every"]) [data-answer="always"]'),'a request that may be remembered keeps Always allow');
     await scan('vault-request-every');
+    // Second review: the card shows each variable with the secret it gets; a command allowed with other variables says so
+    // and names them; a script an agent can change gets a note; a command Pocket cannot pin says why and offers no Always allow.
+    const fx=(id,extra)=>({id,items:['fixture'],itemNames:['reports-api'],cwd:'/workspaces/reports',session:rows[0].id,sessionTitle:rows[0].title,created:new Date().toISOString(),expiresAt:new Date(Date.now()+15*60000).toISOString(),answer:null,...extra});
+    vaultFixture.extraRequests=[...vaultFixture.extraRequests,
+     fx('fixture-vars',{argv:['node','scripts/stock-report.mjs'],program:'/usr/local/bin/node',variables:[{v:'REPORTS_TOKEN',name:'reports-api',field:'value'},{v:'MAIL_PASS',name:'mail-login',field:'password'}],changed:'variables',was:[{v:'REPORTS_TOKEN',name:'reports-api',field:'value'}],files:[{path:'/usr/local/bin/node',role:'program'},{path:'/workspaces/reports/scripts/stock-report.mjs',role:'script',writable:true}],allowAlways:true}),
+     fx('fixture-refuse',{argv:['npm','run','deploy'],program:'/usr/local/bin/npm',variables:[{v:'REPORTS_TOKEN',name:'reports-api',field:'value'}],files:[{path:'/usr/local/bin/npm',role:'program'}],refuse:{why:'scripts',how:'npm run'},allowAlways:false}),
+    ];
+    await page.reload();await page.waitForSelector('#vault-main .vault-request[data-request="fixture-refuse"]');
+    const vars=await page.$eval('#vault-main .vault-request[data-request="fixture-vars"]',c=>({vars:[...c.querySelectorAll('.vault-request-vars > span:not([aria-hidden])')].map(e=>e.textContent.replace(/\s+/g,' ').trim()),changed:c.querySelector('.vault-request-changed')?.textContent.replace(/\s+/g,' ').trim(),notes:[...c.querySelectorAll('.vault-request-note')].map(n=>n.textContent.replace(/\s+/g,' ').trim()),answers:[...c.querySelectorAll('[data-answer]')].map(b=>b.dataset.answer)}));
+    assert.deepEqual(vars.vars,['Variables','REPORTS_TOKEN gets reports-api','MAIL_PASS gets mail-login (password)']);
+    assert.equal(vars.changed,'You allowed this command always with REPORTS_TOKEN gets reports-api, but its variables have changed. Check them before you allow it again.');
+    assert.ok(vars.notes.some(n=>/^An agent can change scripts\/stock-report\.mjs or its folder/.test(n)),JSON.stringify(vars.notes));
+    assert.deepEqual(vars.answers,['deny','always','once']);
+    const ref=await page.$eval('#vault-main .vault-request[data-request="fixture-refuse"]',c=>({notes:[...c.querySelectorAll('.vault-request-note')].map(n=>n.textContent.replace(/\s+/g,' ').trim()),answers:[...c.querySelectorAll('[data-answer]')].map(b=>b.dataset.answer)}));
+    assert.deepEqual(ref.notes,['npm run runs a script the project defines (in package.json or a task file), which Pocket does not check. Always allow is not offered.']);
+    assert.deepEqual(ref.answers,['deny','once']);
+    await scan('vault-request-variables');
     // The phone: Settings → Vault and the requests fit at 390.
     await page.setViewport({width:390,height:844});await page.reload();await page.waitForSelector('#vault-main .vault-request[data-request="fixture-every"]');
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'no horizontal overflow at 390');

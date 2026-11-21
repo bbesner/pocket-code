@@ -420,6 +420,17 @@ default, with one dim line of help: untick a file the command writes. The border
 names the file that changed, in mono, instead of "the program or a file". Rendered checks: no horizontal overflow at 390
 and 1280; the detector reports only the app-shell baseline (flat type hierarchy).
 
+**Variables and what is never allowed always (1.117).** Same pinned refinement (variance 2, motion 1,
+density unchanged), existing classes only. Under **Runs**, a dim **Variables** line in the same `.vault-request-where`
+pattern gives each variable in `.vault-path` mono and the secret it gets in the `.vault-name` mono ("`TOKEN` gets
+reports-api", a login or card field in brackets), one span per variable so a pair wraps whole on a phone, separated by
+the folder line's dim dot. The bordered `--warn` notice covers three more cases in plain sentences: the variables changed
+(naming what was allowed before), allowed before the variables were recorded, and no longer offered Always allow. Two
+more `.vault-request-note` sentences: when Pocket cannot pin a command, one sentence says why and ends "Always allow is
+not offered." (the chip is then absent, leaving Deny and Allow once at 44px); when an agent can change a script an
+interpreter opens by its path, one says so and that Allow once is safer. Rendered checks at 390 and 1280, light and
+dark: no overflow, every answer button 44px tall, and the detector reports nothing on the Vault page.
+
 ## Appearance modes (1.38)
 
 Pinned Operate refinement: variance 3, motion 2, density 7. Preserve layouts, native type,
