@@ -10,6 +10,26 @@ acknowledgment, and a fix or an explanation, as soon as it can be looked at.
 
 The latest release is supported; fixes go into the next release.
 
+## What an install trusts
+
+`install.sh` clones this repository over HTTPS and checks out the newest `v*` release tag (or the
+one `POCKET_RELEASE` names), then runs `npm ci` against the lockfile. Nothing in that chain is
+checked against a signature: release tags are not signed, and the installer does not verify the
+tag, the commit or itself. An install therefore trusts GitHub and everyone who can push a tag or
+a commit to this repository. A tag pushed by someone who took over a maintainer's account would
+be installed by the next new install. This is a known limit, accepted for now.
+
+To depend on it less:
+
+- Download `install.sh` and read it before you run it, instead of piping it into a shell.
+- Set `POCKET_RELEASE` to a tag you chose, and compare the commit it checks out with the one the
+  release page on GitHub shows.
+- Or clone the repository yourself, check out a commit you have reviewed, and follow
+  `docs/install.md` from there.
+
+An existing install is never updated by the installer or by a new release; upgrades are a
+deliberate step (`docs/operations.md`).
+
 ## Security model
 
 Pocket Code runs AI coding agents on your server as the user the service runs as. New
