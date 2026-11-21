@@ -1900,12 +1900,12 @@ function paintSessionPanels() {
 }
 // 1.19: send the last list's ETag; an unchanged list comes back as 304 with the server's check time in a
 // header, which proves a fresh authenticated check just as a full response does.
-let sessionsEtag = '', sessionsHome = ''; // 1.20.1: rows in the default workspace show only the agent
+let sessionsEtag = '', sessionsHome = '', sessionsPause = null; // 1.20.1: rows in the default workspace show only the agent; 1.117: the Pause banner's state
 async function fetchSessionList() {
   const r = await fetch('/api/sessions?limit=200&statusCheck=' + Date.now(), { cache: 'no-store', signal: AbortSignal.timeout(8000),
     headers: sessionsEtag && allSessions.length ? { 'if-none-match': sessionsEtag } : {} });
   if (r.status === 401) { sessionsEtag = ''; renderLogin(); throw new Error('login'); }
-  if (r.status === 304) return { sessions: allSessions, held: coordHeld, warnings: sessionWarnings, home: sessionsHome, checkedAt: Number(r.headers.get('x-pocket-checked-at')) };
+  if (r.status === 304) return { sessions: allSessions, held: coordHeld, warnings: sessionWarnings, home: sessionsHome, pause: sessionsPause, checkedAt: Number(r.headers.get('x-pocket-checked-at')) };
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { sessionsEtag = ''; throw new Error(j.error || r.statusText); }
   sessionsEtag = r.headers.get('etag') || '';
@@ -1931,9 +1931,9 @@ function paintChatOrigin(s) {
 async function refreshSessions() {
   if (sessionFetch) return sessionFetch;
   sessionFetch = (async () => {
-    try { const d = await fetchSessionList(); allSessions = d.sessions; coordHeld = d.held || []; sessionsHome = d.home || ''; sessionWarnings = d.warnings || []; if(!Number.isFinite(d.checkedAt)||d.checkedAt<=0||d.checkedAt<=sessionCheckedAt)throw new Error('No fresh server confirmation');sessionCheckedAt = d.checkedAt;serverSkew = d.checkedAt - Date.now();sessionProofReceivedAt=performance.now();sessionProofReceivedWallAt=Date.now(); sessionsStale = false; syncSeen(); const current = allSessions.find(s => s.id === chatId); if (current) markRead(chatId, current.state); }
+    try { const d = await fetchSessionList(); allSessions = d.sessions; coordHeld = d.held || []; sessionsHome = d.home || ''; sessionWarnings = d.warnings || []; sessionsPause = d.pause || null; if(!Number.isFinite(d.checkedAt)||d.checkedAt<=0||d.checkedAt<=sessionCheckedAt)throw new Error('No fresh server confirmation');sessionCheckedAt = d.checkedAt;serverSkew = d.checkedAt - Date.now();sessionProofReceivedAt=performance.now();sessionProofReceivedWallAt=Date.now(); sessionsStale = false; syncSeen(); const current = allSessions.find(s => s.id === chatId); if (current) markRead(chatId, current.state); }
     catch { sessionsStale = true; }
-    finally { sessionFetch = null; paintSessionPanels(); followChatTitle(); if (!sessionsStale) Voice.onSessions(allSessions); Automation.poll(); } // 1.117: a second device sees Pause all too
+    finally { sessionFetch = null; paintSessionPanels(); followChatTitle(); if (!sessionsStale) Voice.onSessions(allSessions); if (!sessionsStale && sessionsPause) Automation.fromList(sessionsPause); else Automation.poll(); } // 1.117: a second device sees Pause all too, from the list itself
   })();
   return sessionFetch;
 }

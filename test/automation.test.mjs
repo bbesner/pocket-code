@@ -28,7 +28,7 @@ test('origins and their labels', () => {
 
 test('the defaults are the spec tables, and the groups are data', () => {
   assert.deepEqual(auto.GROUPS.map(g => g.key), ['pause', 'limits']);
-  assert.deepEqual(auto.groupValues({}, 'pause', {}), { ownMessages: 'run', inboxWatch: true, rearmRetries: true, confirm: true });
+  assert.deepEqual(auto.groupValues({}, 'pause', {}), { ownMessages: 'run', inboxWatch: true, backgroundJobs: true, rearmRetries: true, confirm: true });
   assert.deepEqual(auto.groupValues({}, 'limits', {}), { claudeWeekly: 80, claudeFiveHour: 90, codexWeekly: 80, codexFiveHour: 90, dailyReplies: 40, countOwnerWork: false,
     ceilingsHoldOwnerWork: false, openrouterDaily: 5, longestReply: 60, countWaiting: false, notice: 'push', staleHours: 6 });
   const stale = auto.GROUPS[1].settings.find(s => s.key === 'staleHours');
@@ -36,10 +36,10 @@ test('the defaults are the spec tables, and the groups are data', () => {
 });
 
 test('every setting saves a value in range, refuses one out of range by naming the range, and resets to its default', () => {
-  const good = { ownMessages: 'blocked', inboxWatch: false, rearmRetries: false, confirm: false,
+  const good = { ownMessages: 'blocked', inboxWatch: false, backgroundJobs: false, rearmRetries: false, confirm: false,
     claudeWeekly: 60, claudeFiveHour: 70, codexWeekly: 55, codexFiveHour: 65, dailyReplies: 1000, countOwnerWork: true, ceilingsHoldOwnerWork: true,
     openrouterDaily: 0.5, longestReply: 480, countWaiting: true, notice: 'settings', staleHours: 24 };
-  const bad = { ownMessages: 'maybe', inboxWatch: 'yes', rearmRetries: 1, confirm: 'on',
+  const bad = { ownMessages: 'maybe', inboxWatch: 'yes', backgroundJobs: 'no', rearmRetries: 1, confirm: 'on',
     claudeWeekly: 9, claudeFiveHour: 101, codexWeekly: 50.5, codexFiveHour: 'lots', dailyReplies: 1001, countOwnerWork: 'off', ceilingsHoldOwnerWork: 0,
     openrouterDaily: 0.49, longestReply: 4, countWaiting: 'true', notice: 'email', staleHours: 'off' };
   const ranges = { claudeWeekly: /must be 10% to 100%, or No limit\.$/, claudeFiveHour: /10% to 100%, or No limit/, dailyReplies: /1 to 1,000, or No limit/,
@@ -104,7 +104,7 @@ test('an env preset sets the default for this install, and a saved value wins ov
 test('a saved value or preset for a key the schema does not have is ignored without an error', () => {
   const saved = { pause: { overdueCheckbacks: false, confirm: false }, jobs: { anything: 1 } };
   const env = { POCKET_AUTOMATION_OVERDUE_CHECKBACKS: '0', POCKET_AUTOMATION_NOT_A_SETTING: 'x' };
-  assert.deepEqual(auto.groupValues(saved, 'pause', env), { ownMessages: 'run', inboxWatch: true, rearmRetries: true, confirm: false });
+  assert.deepEqual(auto.groupValues(saved, 'pause', env), { ownMessages: 'run', inboxWatch: true, backgroundJobs: true, rearmRetries: true, confirm: false });
   const d = auto.describe(saved, env);
   assert.deepEqual(d.warnings, []);
   assert.ok(!d.groups[0].settings.some(s => s.key === 'overdueCheckbacks'));
@@ -193,6 +193,22 @@ test('one notice per reason per day, kept with the day, and a new day starts fre
   assert.equal(u.days.length, 7); assert.equal(u.days.at(-1).date, '2026-11-22'); assert.deepEqual(u.days.at(-2), { date: '2026-11-21', replies: 1, cost: 0.25, tokens: 0 });
   assert.deepEqual(u.today, { replies: 0, cost: 0, tokens: 0 });
   assert.equal(auto.nextDayStart(NOW, 'America/New_York'), Date.parse('2026-11-22T05:00:00Z'));
+});
+
+test('the day only rolls forward: a zone moved west, or a clock stepped back, keeps today\'s count', () => {
+  let now = Date.parse('2026-11-22T01:00:00Z'), zone = 'Asia/Tokyo'; // 10:00 on the 22nd in Tokyo, 20:00 on the 21st in New York
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'auto-')), 'automation-state.json');
+  const st = new auto.AutomationState(file, { now: () => now, zone: () => zone });
+  st.recordStart({ rootOrigin: 'job' }); st.recordFinish({ rootOrigin: 'job', engine: 'claude', cost: 0.5 });
+  assert.equal(st.counts().day, '2026-11-22');
+  zone = 'America/New_York'; // the owner's browser now reports New York: that day key is the 21st
+  assert.deepEqual([st.counts().day, st.counts().startedRoot, st.counts().replies], ['2026-11-22', 1, 1], 'the count is not reset early');
+  assert.deepEqual(st.usage().days.filter(d => d.replies), [{ date: '2026-11-22', replies: 1, cost: 0.5, tokens: 0 }], 'and no day is filed twice');
+  now -= 3600_000; zone = 'Asia/Tokyo'; // a clock stepped back an hour, still the 22nd
+  assert.equal(st.counts().startedRoot, 1);
+  now = Date.parse('2026-11-23T05:30:00Z'); zone = 'America/New_York'; // the 23rd in New York: a new day starts
+  assert.deepEqual([st.counts().day, st.counts().startedRoot], ['2026-11-23', 0]);
+  assert.deepEqual(new auto.AutomationState(file, { now: () => now, zone: () => zone }).usage().days.at(-2), { date: '2026-11-22', replies: 1, cost: 0.5, tokens: 0 });
 });
 
 test('the longest unattended reply: check-back and job replies only, waiting time left out unless counted', () => {

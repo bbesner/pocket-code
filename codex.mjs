@@ -1028,6 +1028,10 @@ function onSessionNotify(s, method, params) {
   if (!s.turn && method === 'turn/started' && s.threadId) { // Codex started a turn by itself
     makeTurn(s, { text: '', hooks: s.hooks, autonomous: true });
     log(`codex turn start (started by the agent) thread=${s.threadId}`);
+    onTurnNotify(s.turn, method, params); // its turn id first, so the daemon's hook can stop it (1.117: paused)
+    writeSessionMeta(s);
+    try { s.hooks?.onAutonomous?.(s.turn); } catch (e) { log(`onAutonomous threw thread=${s.threadId}: ${e.message}`); }
+    return;
   }
   if (s.turn) {
     onTurnNotify(s.turn, method, params);
@@ -1137,10 +1141,12 @@ async function openCodexSession({ threadId, forkFrom, cwd, model, approvalMode, 
   return s;
 }
 
-export async function startCodexTurn({ threadId, forkFrom, cwd, text, model, effort, executionMode = 'work', approvalMode='review', attachments, action = null, emit, onFinish, onQuestion, onApproval, auditApproval, onForked, launch = null, origin, originRef, rootOrigin }) {
+// `mayStart` (1.117): called just before the turn exists, after any wait to open the process; it throws to refuse (Pocket
+// was paused meanwhile). The process opened for it stays, idle, as after a finished reply.
+export async function startCodexTurn({ threadId, forkFrom, cwd, text, model, effort, executionMode = 'work', approvalMode='review', attachments, action = null, emit, onFinish, onQuestion, onApproval, auditApproval, onAutonomous, onForked, launch = null, origin, originRef, rootOrigin, mayStart = null }) {
   const existing = threadId && codexTurns.get(threadId);
   if (existing) throw Object.assign(new Error('busy'), { code: 409 });
-  const hooks = { emit, onFinish, onQuestion, onApproval, auditApproval };
+  const hooks = { emit, onFinish, onQuestion, onApproval, auditApproval, onAutonomous };
   let s = threadId && codexSessions.get(threadId);
   // Permissions ride on thread/resume, so a change needs a fresh process (after the old
   // one has let go of the writer lock).
@@ -1153,6 +1159,7 @@ export async function startCodexTurn({ threadId, forkFrom, cwd, text, model, eff
   if (!s) s = await openCodexSession({ threadId, forkFrom: threadId ? undefined : forkFrom, cwd, model, approvalMode, hooks, onForked, launch });
   s.hooks = hooks;
   if (codexTurns.get(s.threadId)) throw Object.assign(new Error('busy'), { code: 409 });
+  if (mayStart) { try { mayStart(); } catch (e) { if (!s.turn) scheduleIdle(s); throw e; } }
   const turn = makeTurn(s, { text, model, effort, executionMode, hooks, origin, originRef, rootOrigin }); // 1.117: origin
   turn.emit({ type: 'user', msg: { role: 'user', text, ts: new Date().toISOString() } });
 

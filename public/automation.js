@@ -1,6 +1,7 @@
 /* Pocket Code — 1.117: Pause all, the paused banner, origin labels and Settings → Automation.
    Server contract: GET/POST /api/pause, POST /api/resume, GET /api/automation, POST /api/automation/settings;
-   /api/me carries paused and features.automation; a list row carries lastOrigin/lastOriginRef. Loaded before app.js:
+   /api/me carries paused and features.automation; /api/sessions carries `pause` (the banner's state); a list row carries
+   lastOrigin/lastOriginRef. Loaded before app.js:
    everything here runs only when called, so app.js's helpers (api, esc, toast, mountSheet) are there by then. */
 const Automation = (() => {
   const PAUSE_ICON = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="5.5" width="3.2" height="13" rx="1"/><rect x="13.8" y="5.5" width="3.2" height="13" rx="1"/></svg>';
@@ -23,12 +24,13 @@ const Automation = (() => {
   // and origin on a running non-owner reply's state (list rows, the session) or turn (the status route).
   const originOf = s => originLabel(s?.lastOrigin ?? s?.state?.origin ?? s?.turn?.origin, s?.lastOriginRef ?? s?.state?.originRef ?? s?.turn?.originRef);
 
-  // "3 replies running (2 Claude, 1 Codex), 1 usage-limit retry, Inbox Watch."
+  // "3 replies running (2 Claude, 1 Codex), 2 background jobs, 1 usage-limit retry, Inbox Watch."
   function wouldText(w) {
     if (!w) return '';
     const r = w.replies || {}, engines = [['claude', 'Claude'], ['codex', 'Codex'], ['openrouter', 'OpenRouter']].filter(([k]) => r[k] > 0);
     const replies = engines.reduce((n, [k]) => n + r[k], 0), parts = [];
     if (replies) parts.push(`${plural(replies, 'reply', 'replies')} running (${engines.map(([k, l]) => `${r[k]} ${l}`).join(', ')})`);
+    if (w.background > 0) parts.push(plural(w.background, 'background job', 'background jobs'));
     if (w.retries > 0) parts.push(plural(w.retries, 'usage-limit retry', 'usage-limit retries'));
     if (w.checkbacks > 0) parts.push(plural(w.checkbacks, 'check-back', 'check-backs'));
     if (w.inboxWatch) parts.push('Inbox Watch');
@@ -38,7 +40,7 @@ const Automation = (() => {
 
   /* ---------- state ---------- */
   // What the page shows of the state. A refresh that leaves it the same touches nothing: no banner, header, control or
-  // list repaint (the regular list refresh and the return to the tab both bring a /api/pause; see test/automation-browser.mjs).
+  // list repaint (the regular list refresh brings the list's `pause`, the return to the tab a /api/pause; see test/automation-browser.mjs).
   const shown = () => JSON.stringify([state.paused?.at || null, state.ownMessages, state.held?.retries || 0, on()]);
   let lastShown = null;
   function apply(d) {
@@ -61,8 +63,17 @@ const Automation = (() => {
     if (me && 'paused' in me) apply({ paused: me.paused ? { ...state.paused, ...me.paused } : null });
     poll((state.paused?.at || null) !== was);
   }
-  // On the app's regular list refresh (every 5 s while visible) and on return to the tab, so a second device
-  // shows the banner too. One request at a time; a failure leaves the last known state.
+  // The app's regular list refresh (every 5 s while visible) carries the banner's state (/api/sessions `pause`), so a second
+  // device shows the banner too without a request of its own. A server without it (older) is asked as before.
+  function fromList(p) {
+    if (!p || typeof p !== 'object' || !('paused' in p)) return poll();
+    if (!on()) return Promise.resolve();
+    lastPoll = Date.now();
+    apply(p);
+    return Promise.resolve();
+  }
+  // GET /api/pause: on return to the tab, at once when /api/me shows a change, and for the confirmation (pauseAll).
+  // One request at a time; a failure leaves the last known state.
   function poll(force = false) {
     if (!on() || document.querySelector('.login')) return Promise.resolve();
     if (polling) return polling;
@@ -154,8 +165,9 @@ const Automation = (() => {
     try {
       const r = await api('/pause', { method: 'POST', body: '{}' });
       apply({ paused: r.paused || { at: new Date().toISOString() } });
-      // Replies stop; retries and check-backs are held, not stopped: "Paused. Stopped 2 replies running (2 Claude). Held 1 usage-limit retry."
-      const s = r.stopped || {}, stopped = wouldText({ replies: s.replies });
+      // Replies and background jobs stop; retries and check-backs are held, not stopped:
+      // "Paused. Stopped 2 replies running (2 Claude), 1 background job. Held 1 usage-limit retry."
+      const s = r.stopped || {}, stopped = wouldText({ replies: s.replies, background: s.background });
       const held = wouldText({ retries: s.retries, checkbacks: s.checkbacks });
       toast(['Paused.', stopped && 'Stopped ' + stopped, held && 'Held ' + held].filter(Boolean).join(' '));
       poll(true); if (typeof refreshSessions === 'function') refreshSessions();
@@ -170,7 +182,9 @@ const Automation = (() => {
     try {
       const r = await api('/resume', { method: 'POST', body: '{}' });
       apply({ paused: null, held: null });
-      toast(r.rearmed > 0 ? `Resumed. ${plural(r.rearmed, 'held retry runs', 'held retries run')} again.` : 'Resumed.');
+      // Pause all paused Inbox Watch, and its settings were changed while paused: they are left as they are, still paused.
+      toast([r.rearmed > 0 ? `Resumed. ${plural(r.rearmed, 'held retry runs', 'held retries run')} again.` : 'Resumed.',
+        r.inboxWatch === 'left_paused' && 'Inbox Watch was changed while paused and is still paused.'].filter(Boolean).join(' '));
       poll(true); if (typeof refreshSessions === 'function') refreshSessions();
       // Focus would be lost with the banner; the message box or the page heading takes it.
       if (button?.closest('.pause-banner')) (document.querySelector('#box:not([readonly])') || document.querySelector('#first') || document.querySelector('header.bar h1'))?.focus?.({ preventScroll: true });
@@ -314,6 +328,6 @@ const Automation = (() => {
   // The Pause all row in an open Settings follows the state.
   listeners.push(() => { if (host?.isConnected) paintControls(); });
 
-  return { on, isPaused, apply, fromMe, poll, paint, pauseAll, resume, refused, moreMenu, toggleHTML, bindToggles,
+  return { on, isPaused, apply, fromMe, fromList, poll, paint, pauseAll, resume, refused, moreMenu, toggleHTML, bindToggles,
     originLabel, originOf, wouldText, settingsHTML, bindSettings, onChange: fn => listeners.push(fn) };
 })();

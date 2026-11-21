@@ -177,8 +177,8 @@ The same in both modes, and everything here applies to the whole install (**This
 
 | Control | What it does | Default | Stored |
 |---|---|---|---|
-| **Pause all** / **Resume** | The first row. Stops every running reply and holds everything automatic; reads **Resume** while Pocket is paused. It is also in the **More** (**⋯**) menu beside the conversation list and in **Switch conversation** (Ctrl/⌘ K). It can't be hidden or turned off | Running normally | Server (`paused`) |
-| **Pause all** group | **Your own messages while paused**, **Pause all also pauses Inbox Watch**, **On Resume, re-arm held usage-limit retries** and **Show what will stop before pausing** | Own messages run; the others On | Server (`automation`) |
+| **Pause all** / **Resume** | The first row. Stops every running reply (side chats included) and Claude's background jobs, and holds everything automatic; reads **Resume** while Pocket is paused. It is also in the **More** (**⋯**) menu beside the conversation list and in **Switch conversation** (Ctrl/⌘ K). It can't be hidden or turned off | Running normally | Server (`paused`) |
+| **Pause all** group | **Your own messages while paused**, **Pause all also pauses Inbox Watch**, **Pause all also stops background jobs**, **On Resume, re-arm held usage-limit retries** and **Show what will stop before pausing** | Own messages run; the others On | Server (`automation`) |
 | **Limits on unattended work** group | The plan ceilings (weekly and 5-hour, for Claude Code and Codex), **Unattended replies per day**, **OpenRouter spend per day (unattended)**, **Longest unattended reply**, the two switches that extend limits to work you asked for, **Notice when a limit is reached**, and under **Advanced** the stale-reading age. A **No limit** button sits beside each number | 80%, 90%, 40 a day, $5 a day, 60 min | Server (`automation`) |
 | **Unattended replies** | **Today** and **Last 7 days**: replies, tokens and cost, and **Limits reached today** | | Server (`automation-state.json`) |
 

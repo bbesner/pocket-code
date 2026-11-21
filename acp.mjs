@@ -436,11 +436,12 @@ export async function probeAcpEfforts({ cmd, args, env, cwd }) {
 
 // Start (or continue/resume) a turn. hooks mirror startCodexTurn: {emit, onFinish, onApproval,
 // auditApproval}. Returns the turn; the reply streams through turn.emit / turn.approvals.
-export async function startAcpTurn({ sessionId, cwd, text, prompt = null, images = [], model, effort, approvalMode, executionMode, costBaseline = null, cmd, args = [], env, instructionsFile = null, askKey = null, resume = false, hooks = {}, origin, originRef, rootOrigin }) {
+export async function startAcpTurn({ sessionId, cwd, text, prompt = null, images = [], model, effort, approvalMode, executionMode, costBaseline = null, cmd, args = [], env, instructionsFile = null, askKey = null, resume = false, hooks = {}, origin, originRef, rootOrigin, mayStart = null }) {
   const bare = sessionId ? bareAcpId(sessionId) : null;
   let session = bare && acpSessions.get(bare);
   if (session && acpTurns.has(session.sessionId)) throw Object.assign(new Error('busy'), { code: 409 });
   if (!session) { session = await openAcpSession({ sessionId: bare, cwd, model, cmd, args, env, resume, instructionsFile, askKey }); session.costTotal = resume ? costBaseline : 0; }
+  mayStart?.(); // 1.117: refused just before the turn exists (Pocket was paused meanwhile); the opened process idles out as usual
   const turn = makeAcpTurn(session, { text, model, approvalMode, executionMode, hooks, origin, originRef, rootOrigin }); // 1.117: origin
   turn.effort = effort && effort !== 'default' ? effort : null;
   wireTurnHandlers(turn);

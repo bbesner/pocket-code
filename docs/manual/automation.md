@@ -1,6 +1,6 @@
 <!-- manual
 checked: 1.117.0
-sources: automation.mjs, public/automation.js, server.mjs, queue.mjs, coordination.mjs, usage.mjs, inbox-runner.mjs, public/voice-text.js
+sources: automation.mjs, public/automation.js, server.mjs, queue.mjs, codex.mjs, acp.mjs, sidechat.mjs, coordination.mjs, usage.mjs, inbox-runner.mjs, public/voice-text.js
 -->
 # Automation: Pause all and limits on unattended work
 
@@ -12,15 +12,16 @@ Pause all is always available. Nothing else changes until you set it: with the d
 
 ### What it does
 
-- **Stops** every running reply, on Claude Code, Codex and OpenRouter. It stops them the way **Stop** does ([Stop a reply](conversation.md#stop-a-reply)): work already done stays done.
-- **Holds** every pending usage-limit retry. The retry is kept, not cancelled.
+- **Stops** every running reply, on Claude Code, Codex and OpenRouter, side chats included. It stops them the way **Stop** does ([Stop a reply](conversation.md#stop-a-reply)): work already done stays done.
+- **Stops background jobs** in Claude conversations that show **Working in background** (a build or a watcher the agent left running), the way **Stop background jobs** does. The reply the agent would start when a job finishes never comes. If you turn off **Pause all also stops background jobs**, the jobs keep running and only that reply is stopped.
+- **Stops a reply the agent starts by itself** while paused (Claude after a background job, Codex after a background terminal) as soon as it begins, with no notification. Pocket doesn't stop Codex's background terminals themselves; it doesn't track them.
+- **Holds** every pending usage-limit retry. The retry is kept, not cancelled. A reply that hits a usage limit while paused has its retry held at once, and its notification says *The retry is held until you resume* (or *send a message to carry on* when **On Resume, re-arm held usage-limit retries** is off).
 - **Pauses Inbox Watch** (its checks, digests and look-aheads), unless you turned that off in the settings below.
 - **Keeps the follow-up queue still.** Queued messages stay in their queue and show **Queue paused**.
 - **Lets a coordination wake add its message** to the waiting conversation's queue without starting it.
-- **Does not stop your own messages.** A banner says so. You can change this to **Blocked until you resume** in the settings below.
-- **Does not stop** a background job an agent started itself (a build or a watcher). Pocket doesn't track those.
+- **Does not stop your own messages.** A banner says so. Your own messages are the ones you send, a side chat, **Run next instruction**, and a message Pocket held for background jobs still on the earlier Claude login after you switched accounts (it starts when those jobs end). You can change this to **Blocked until you resume** in the settings below; then all of these wait.
 
-Pausing twice is fine. Pause all can't be hidden or turned off: it is the emergency stop.
+Pausing again while paused changes nothing. Pause all can't be hidden or turned off: it is the emergency stop.
 
 ### Where the control is
 
@@ -33,7 +34,7 @@ While Pocket is paused every one of these reads **Resume**.
 
 ### Confirm what will stop
 
-**Pause all** opens a sheet that lists what the pause will stop, for example *This stops 3 replies running (2 Claude, 1 Codex), 1 usage-limit retry, Inbox Watch.* It also says whether your own messages still run. **Pause all** confirms and **Keep running** closes the sheet. When nothing is running or waiting it says so and still offers the pause, which then holds anything automatic that comes up.
+**Pause all** opens a sheet that lists what the pause will stop, for example *This stops 3 replies running (2 Claude, 1 Codex), 2 background jobs, 1 usage-limit retry, Inbox Watch.* It also says whether your own messages still run. **Pause all** confirms and **Keep running** closes the sheet. When nothing is running or waiting it says so and still offers the pause, which then holds anything automatic that comes up.
 
 If you turn off **Show what will stop before pausing**, one tap pauses.
 
@@ -41,14 +42,15 @@ If you turn off **Show what will stop before pausing**, one tap pauses.
 
 While Pocket is paused a banner runs across the top of every screen: *Pocket is paused. Your own messages still run.* When held retries are waiting it adds how many. **Resume** is in the banner. Another device you are signed in on shows the banner within a few seconds.
 
-When your own messages are **Blocked**, the banner reads *Your own messages wait until you resume.* A message you send is refused with *Not sent: Pocket is paused, and your own messages wait until you resume. Your message is kept here.* The draft stays in the message box, and **Resume** is in the banner. You can still add a message to a conversation's queue, because that starts nothing.
+When your own messages are **Blocked**, the banner reads *Your own messages wait until you resume.* A message you send is refused with *Not sent: Pocket is paused, and your own messages wait until you resume. Your message is kept here.* The draft stays in the message box, and **Resume** is in the banner. A side chat message is refused the same way. You can still add a message to a conversation's queue, because that starts nothing.
 
 ### Resume
 
 **Resume** lifts the pause.
 
 - **Held usage-limit retries** are armed again, at least 5 seconds out. None is dropped. If **On Resume, re-arm held usage-limit retries** is off, they stay held (also across a restart) until your next message in that conversation.
-- **Inbox Watch** resumes only if Pause all paused it and you have not changed it since. If you paused Inbox Watch yourself, Resume leaves it paused.
+- **Inbox Watch** resumes only if Pause all paused it and you have not changed it since. If you changed it while paused, Resume leaves it as you set it, still paused, and says so: *Inbox Watch was changed while paused and is still paused.* If you paused Inbox Watch yourself, Resume leaves it paused.
+- **Background jobs** Pause all stopped don't start again.
 - **Queued messages** stay paused until you start them with **Run next instruction**, as after **Stop**.
 - **Replies that were stopped** don't start again. Send a message to carry on.
 
@@ -64,6 +66,7 @@ The pause is saved. After Pocket restarts it is still paused, and a retry that w
 |---|---|---|
 | **Your own messages while paused** | **Run, with a banner** | **Run, with a banner** or **Blocked until you resume** |
 | **Pause all also pauses Inbox Watch** | On | On or Off |
+| **Pause all also stops background jobs** | On | On, or Off (they keep running; the reply they would start is stopped) |
 | **On Resume, re-arm held usage-limit retries** | On | On, or Off (they stay held until your next message) |
 | **Show what will stop before pausing** | On | On, or Off (pause on one tap) |
 
@@ -94,7 +97,7 @@ Pocket judges a reply by who asked for the work in the first place. Work that ca
 - **Count queue drains, retries and coordination wakes toward the daily limit**
 - **Plan ceilings also hold queued messages, retries and coordination wakes**
 
-Both are off by default. So today, with nothing switched on, the limits hold nothing. The settings are saved and ready.
+Both are off by default. So today, with nothing switched on, the limits hold nothing. The settings are saved and ready. The first also decides whether that work counts toward **OpenRouter spend per day**.
 
 ### The settings
 
@@ -111,8 +114,8 @@ Both are off by default. So today, with nothing switched on, the limits hold not
 | **Notice when a limit is reached** | **Push and Settings, once per reason per day** | That, or **Settings only** |
 | **Treat a plan reading older than this as stale** (under **Advanced**) | 6 h | 1 to 24 h |
 
-- **Plan ceilings** hold work on an engine whose weekly or 5-hour window is at or over the ceiling. Held work goes ahead after the reset: a retry is tried again then, or at the next minute, whichever is later.
-- **The daily count** is in your time zone. **OpenRouter spend** is real money; unattended OpenRouter replies stop starting at the limit.
+- **Plan ceilings** hold work on an engine whose weekly or 5-hour window is at or over the ceiling. Held work goes ahead after the reset: a retry is tried again then, or at the next minute, whichever is later, and the conversation shows that time.
+- **The daily count** is in your time zone. **OpenRouter spend** is real money; unattended OpenRouter replies stop starting at the limit. With **Count queue drains, retries and coordination wakes toward the daily limit** off, the work you asked for yourself neither counts toward nor is held by the spend limit.
 - **The longest-reply limit** stops a running reply, and applies only to check-back and job replies. Time spent waiting on an approval or question doesn't count unless you switch that on.
 - A value you enter outside its range is refused with a message that names the range, and the old value stays. A change applies to the next start, never to a reply already running.
 - **Reset to defaults** in the group puts every value back. Your saved values are kept when a feature is off.
@@ -135,7 +138,7 @@ When a limit holds work, Pocket tells you once per reason per day, not once per 
 
 ## The audit file
 
-`automation-audit.jsonl` in `POCKET_DATA_DIR` records, one line each, every pause and resume, every change to these settings, every limit notice and every finished unattended reply (its origin, engine, model, duration, cost or tokens and how it ended). It never holds message text. It is yours to read or rotate; Pocket only appends to it.
+`automation-audit.jsonl` in `POCKET_DATA_DIR` records, one line each, every pause (what it stopped and held) and resume (what it re-armed, and whether Inbox Watch resumed), every change to these settings, every limit notice and every finished unattended reply (its origin, engine, model, duration, cost or tokens and how it ended). It never holds message text. It is yours to read or rotate; Pocket only appends to it.
 
 ## Presets for an install
 
@@ -151,7 +154,7 @@ Restart Pocket after changing `.env`. A bad value is ignored and named in the pa
 | Variable (after `POCKET_AUTOMATION_`) | Sets |
 |---|---|
 | `OWN_MESSAGES` | `run` or `blocked` |
-| `INBOX_WATCH`, `REARM_RETRIES`, `CONFIRM`, `COUNT_OWNER_WORK`, `CEILINGS_HOLD_OWNER_WORK`, `COUNT_WAITING` | On or off (`1`/`0`, `yes`/`no`, `on`/`off`, `true`/`false`) |
+| `INBOX_WATCH`, `BACKGROUND_JOBS`, `REARM_RETRIES`, `CONFIRM`, `COUNT_OWNER_WORK`, `CEILINGS_HOLD_OWNER_WORK`, `COUNT_WAITING` | On or off (`1`/`0`, `yes`/`no`, `on`/`off`, `true`/`false`) |
 | `CLAUDE_WEEKLY`, `CLAUDE_FIVE_HOUR`, `CODEX_WEEKLY`, `CODEX_FIVE_HOUR` | A percentage, or `off`. `CLAUDE_WEEKLY_CEILING` also works |
 | `WEEKLY_CEILING`, `FIVE_HOUR_CEILING` | Both engines at once; an engine's own name wins |
 | `DAILY_REPLIES`, `OPENROUTER_DAILY` (dollars), `LONGEST_REPLY` (minutes) | A number, or `off` |
@@ -166,6 +169,7 @@ Two features that start work for you are planned for later releases, each off un
 ## For agents
 
 - **Pocket can be paused.** If a message you were waiting on, a retry or a queued follow-up doesn't run, the owner may have paused Pocket. Don't try to get round it. The banner and **Settings → Automation** say.
+- **Background work stops too.** Pause all stops your background jobs on Claude, and a reply you start by yourself while paused (when a background job or terminal finishes) is stopped as it begins. Say what was left unfinished when the owner next writes.
 - **A queued follow-up or a wake may wait.** When Pocket is paused, or a limit holds work, it starts later or when the owner resumes it. Don't re-send it.
 - **You can't pause, resume or change these settings.** They need the owner's own sign-in; the command token is refused, so no agent can raise its own limits or lift a pause. Tell the user the path: **Settings → Automation**.
 - **The owner's messages still reach you while paused**, unless they chose **Blocked**. Then their send is refused with *Pocket is paused. Resume to send.* and waits in their message box.
@@ -177,7 +181,7 @@ See [For agents](for-agents.md).
 - **Data.** The pause and the saved settings are in `pocket-settings.json` (`paused` and `automation`). The day's counts and notices are in `automation-state.json`; the audit is `automation-audit.jsonl`. A `.retry.json` marker for a held retry gains `held: true`. Older versions ignore the new keys.
 - **Routes.** `GET` and `POST /api/pause`, `POST /api/resume`, `GET /api/automation` and `POST /api/automation/settings` take the owner's sign-in only. See [SECURITY.md](../../SECURITY.md).
 - **Upgrade.** Nothing to migrate.
-- **Rolling back to 1.116.** The extra keys are ignored, a held retry is armed again at start (held retries run), and a paused install becomes unpaused. If Pause all had paused Inbox Watch, it stays paused until you resume it in [Inbox Watch](inbox-watch.md#change-the-schedule-rules-and-models).
+- **Rolling back to 1.116.** The extra keys are ignored, so the install runs as if unpaused, and a held retry is armed again at start (held retries run). 1.116 keeps the saved pause in `pocket-settings.json` without reading it, so upgrading to 1.117 again comes back paused: resume before rolling back, or press **Resume** after upgrading again. If Pause all had paused Inbox Watch, it stays paused under 1.116 until you resume it in [Inbox Watch](inbox-watch.md#change-the-schedule-rules-and-models).
 
 ## Troubleshooting
 
@@ -188,5 +192,7 @@ See [For agents](for-agents.md).
 **A limit is blocking work I want to run.** Raise it, or choose **No limit**, in **Settings → Automation**, or start the work yourself: your own messages and **Run next instruction** are not held.
 
 **The page says *This server does not offer automation settings yet.*** The server is on an older version.
+
+**A build or watcher stopped when I paused.** Pause all stops background jobs. Turn off **Pause all also stops background jobs** to leave them running; the reply they would start is still stopped while paused.
 
 **My own message was refused.** **Your own messages while paused** is **Blocked until you resume**. Tap **Resume**, then send again, or change the setting.

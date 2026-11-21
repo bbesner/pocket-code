@@ -8,8 +8,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
-import { createHmac } from 'node:crypto';
+import https from 'node:https';
+import { spawn, execFileSync } from 'node:child_process';
+import { createHmac, createECDH, randomBytes } from 'node:crypto';
+import webpush from 'web-push';
+import ece from 'http_ece';
 
 const repo = path.resolve(import.meta.dirname, '..');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -47,7 +50,52 @@ async function boot(t, port, { dir = null, env = {} } = {}) {
   const claudeCalls = () => { try { return fs.readFileSync(path.join(dir, 'calls'), 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l)); } catch { return []; } };
   const audit = () => { try { return fs.readFileSync(path.join(data, 'automation-audit.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l)); } catch { return []; } };
   const bearer = () => ({ authorization: 'Bearer ' + fs.readFileSync(path.join(data, 'cli-token'), 'utf8').trim() });
-  return { dir, data, cwd, call, e, until, start, session, running, idle, claudeCalls, audit, bearer, stop, logs: () => logs };
+  // What each engine's fake was asked (every prompt's text), and the per-conversation records Pocket keeps.
+  const lines = f => { try { return fs.readFileSync(f, 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l)); } catch { return []; } };
+  const prompts = engine => engine === 'claude' ? claudeCalls().map(c => c.text)
+    : engine === 'codex' ? lines(path.join(dir, 'calls.codex')).map(c => c.text)
+      : (() => { try { return fs.readdirSync(path.join(dir, 'acp-store')).flatMap(f => { try { return JSON.parse(fs.readFileSync(path.join(dir, 'acp-store', f), 'utf8')).prompts || []; } catch { return []; } }); } catch { return []; } })();
+  const smeta = () => { try { return JSON.parse(fs.readFileSync(path.join(data, 'session-meta.json'), 'utf8')); } catch { return {}; } };
+  const queue = id => call(`/session/${e(id)}/queue`).then(r => r.body);
+  return { dir, data, cwd, cookie, call, e, until, start, session, running, idle, claudeCalls, prompts, smeta, queue, lines, audit, bearer, stop, logs: () => logs };
+}
+const tmpDir = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pause-')));
+// A push service on this machine, so a test can read what each push said. web-push speaks only HTTPS, so it serves a
+// throwaway self-signed certificate (the server under test runs with NODE_TLS_REJECT_UNAUTHORIZED=0), and every push is
+// decrypted with the one subscribed device's keys. seed() writes that device into a data folder before the server boots.
+async function pushService(t) {
+  const dir = tmpDir(), key = path.join(dir, 'key.pem'), cert = path.join(dir, 'cert.pem');
+  execFileSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-keyout', key, '-out', cert, '-days', '1', '-subj', '/CN=127.0.0.1'], { stdio: 'ignore' });
+  const device = createECDH('prime256v1'); device.generateKeys();
+  const auth = randomBytes(16).toString('base64url'), got = [];
+  const server = https.createServer({ key: fs.readFileSync(key), cert: fs.readFileSync(cert) }, (req, res) => {
+    const chunks = []; req.on('data', c => chunks.push(c));
+    req.on('end', () => {
+      try { got.push(JSON.parse(ece.decrypt(Buffer.concat(chunks), { version: 'aes128gcm', privateKey: device, authSecret: auth }).toString('utf8'))); }
+      catch (err) { got.push({ error: err.message }); }
+      res.writeHead(201); res.end();
+    });
+  });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  t.after(() => new Promise(r => server.close(r)));
+  const vapid = webpush.generateVAPIDKeys();
+  return {
+    env: { VAPID_PUBLIC: vapid.publicKey, VAPID_PRIVATE: vapid.privateKey, NODE_TLS_REJECT_UNAUTHORIZED: '0' },
+    seed: data => { fs.mkdirSync(data, { recursive: true }); fs.writeFileSync(path.join(data, 'push-subs.json'), JSON.stringify([{ endpoint: `https://127.0.0.1:${server.address().port}/push/device`, keys: { p256dh: device.getPublicKey('base64url'), auth } }])); },
+    for: id => got.filter(m => m.tag === id).map(m => m.body),
+    all: got,
+  };
+}
+// The owner-only controls refuse a request that carries the valid cookie but is not same-site JSON: a form post
+// (text/plain) and a cross-site fetch both get 403, whatever the route would have done.
+async function ownerControlRefuses(s, port) {
+  for (const [p, body] of [['/pause', {}], ['/resume', {}], ['/automation/settings', { group: 'limits', values: { dailyReplies: 3 } }]]) {
+    const plain = await fetch(`http://127.0.0.1:${port}/api${p}`, { method: 'POST', headers: { cookie: s.cookie, 'content-type': 'text/plain' }, body: JSON.stringify(body) });
+    assert.equal(plain.status, 403, `${p}: text/plain with the cookie`);
+    const cross = await s.call(p, body, { cookie: s.cookie, 'sec-fetch-site': 'cross-site' });
+    assert.equal(cross.status, 403, `${p}: cross-site with the cookie`);
+    assert.deepEqual(cross.body, { error: 'Open this control from Pocket Code.' });
+  }
 }
 
 test('Pause all stops every engine, holds a usage-limit retry, keeps the queue still, survives a restart, and Resume re-arms', { timeout: 120_000 }, async t => {
@@ -62,13 +110,13 @@ test('Pause all stops every engine, holds a usage-limit retry, keeps the queue s
 
   const before = (await s.call('/pause')).body;
   assert.deepEqual(before.paused, null);
-  assert.deepEqual(before.would, { replies: { claude: 1, codex: 1, openrouter: 1 }, retries: 1, checkbacks: 0, inboxWatch: false });
+  assert.deepEqual(before.would, { replies: { claude: 1, codex: 1, openrouter: 1 }, background: 0, retries: 1, checkbacks: 0, inboxWatch: false });
   assert.deepEqual([before.ownMessages, before.confirm], ['run', true]);
 
   // same-site JSON only, the cookie only
   assert.equal((await s.call('/pause', {}, { cookie: '', ...s.bearer() })).status, 401, 'the CLI token is refused');
-  const cross = await fetch(`http://127.0.0.1:18943/api/pause`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: '{}' });
-  assert.ok([401, 403].includes(cross.status));
+  await ownerControlRefuses(s, 18943);
+  assert.equal((await s.call('/me')).body.paused, null, 'the refused calls paused nothing');
 
   const p = await s.call('/pause', {});
   assert.equal(p.status, 200); assert.equal(p.body.ok, true); assert.ok(Date.parse(p.body.paused.at)); assert.equal(p.body.paused.by, 'owner');
@@ -79,7 +127,12 @@ test('Pause all stops every engine, holds a usage-limit retry, keeps the queue s
   const held = await s.session(limited);
   assert.deepEqual([held.state.kind, held.state.label, held.state.held], ['waiting', 'Retry held', true]);
   assert.deepEqual((await s.call('/pause')).body.held, { retries: 1, checkbacks: 0 });
-  assert.equal((await s.call('/pause', {})).status, 200, 'pausing twice is fine');
+  // the list carries the banner's part, so the app reads it with the list instead of a request of its own
+  assert.deepEqual((await s.call('/sessions')).body.pause, { paused: p.body.paused, held: { retries: 1, checkbacks: 0 }, ownMessages: 'run', confirm: true });
+  const twice = await s.call('/pause', {});
+  assert.equal(twice.status, 200, 'pausing twice is fine');
+  assert.deepEqual(twice.body.stopped, { replies: { claude: 0, codex: 0, openrouter: 0 }, background: 0, retries: 0, checkbacks: 0, inboxWatch: false }, 'and changes nothing');
+  assert.equal(s.audit().filter(x => x.action === 'pause').length, 1, 'one audit line for one pause');
   assert.equal((await s.call('/me')).body.paused.at, p.body.paused.at, 'the first pause time stands');
   await sleep(6000); // past the retry's time: held, it does not run
   assert.ok(!s.claudeCalls().some(c => /interrupted by an API rate limit/.test(c.text || '')), 'the held retry did not run');
@@ -110,7 +163,7 @@ test('Pause all stops every engine, holds a usage-limit retry, keeps the queue s
   // Resume re-arms the held retry; the queue stays as it is until the owner starts it
   assert.equal((await s.call('/resume', {}, { cookie: '', ...s.bearer() })).status, 401, 'the CLI token cannot resume');
   const r = await s.call('/resume', {});
-  assert.deepEqual(r.body, { ok: true, paused: null, rearmed: 1 });
+  assert.deepEqual(r.body, { ok: true, paused: null, rearmed: 1, inboxWatch: null });
   assert.deepEqual((await s.call('/me')).body.paused, null);
   await s.until(() => s.claudeCalls().some(c => /interrupted by an API rate limit/.test(c.text || '')), 15000, 'the retry to run after Resume');
   await s.idle(limited);
@@ -124,6 +177,7 @@ test('Pause all stops every engine, holds a usage-limit retry, keeps the queue s
   assert.ok(log.some(x => x.action === 'pause' && x.replies?.claude === 1 && x.retries === 1));
   assert.ok(log.some(x => x.action === 'resume' && x.rearmed === 1));
   assert.ok(log.some(x => x.action === 'reply' && x.origin === 'retry' && x.engine === 'claude'), 'the finished unattended reply is recorded');
+  assert.equal(log.find(x => x.action === 'reply' && x.origin === 'retry').model, 'claude-opus-5-5', 'with the model it ran on (the conversation is on the default)');
   assert.ok(!JSON.stringify(log).includes('pause limit'), 'never message text');
 });
 
@@ -143,7 +197,7 @@ test('Blocked own messages, coordination wakes while paused, and the Automation 
   }
   assert.equal((await s.call('/automation', null, s.bearer())).status, 401);
   // every setting saves and is refused out of range (all or nothing)
-  const good = { pause: { ownMessages: 'blocked', inboxWatch: false, rearmRetries: false, confirm: false },
+  const good = { pause: { ownMessages: 'blocked', inboxWatch: false, backgroundJobs: false, rearmRetries: false, confirm: false },
     limits: { claudeWeekly: 70, claudeFiveHour: 'off', codexWeekly: 75, codexFiveHour: 95, dailyReplies: 2, countOwnerWork: true, ceilingsHoldOwnerWork: true, openrouterDaily: 12.5,
       longestReply: 30, countWaiting: true, notice: 'settings', staleHours: 12 } };
   for (const [group, values] of Object.entries(good)) {
@@ -158,11 +212,13 @@ test('Blocked own messages, coordination wakes while paused, and the Automation 
   assert.equal((await s.call('/automation')).body.groups[1].settings.find(x => x.key === 'dailyReplies').value, 2, 'nothing saved');
   for (const v of [0, 1001, 'many', 2.5]) assert.equal((await s.call('/automation/settings', { group: 'limits', values: { dailyReplies: v } })).status, 400, String(v));
   assert.equal((await s.call('/automation/settings', { group: 'limits', values: { dailyReplies: 3 } }, { 'sec-fetch-site': 'cross-site', cookie: '' })).status, 401);
+  await ownerControlRefuses(s, 18945);
+  assert.equal((await s.call('/automation')).body.groups[1].settings.find(x => x.key === 'dailyReplies').value, 2, 'the refused saves changed nothing');
   // reset: the table values, or this install's presets
   for (const group of ['pause', 'limits']) assert.equal((await s.call('/automation/settings', { group, reset: true })).status, 200);
   a = (await s.call('/automation')).body;
   assert.ok(a.groups.every(g => g.settings.every(x => !x.saved)));
-  assert.deepEqual(a.groups[0].settings.map(x => x.value), ['run', true, true, true]);
+  assert.deepEqual(a.groups[0].settings.map(x => [x.key, x.value]), [['ownMessages', 'run'], ['inboxWatch', true], ['backgroundJobs', true], ['rearmRetries', true], ['confirm', true]]);
   assert.equal(a.groups[1].settings.find(x => x.key === 'dailyReplies').value, 1, 'back to the preset');
   assert.equal(a.groups[1].settings.find(x => x.key === 'longestReply').value, 60);
   assert.ok(s.audit().some(x => x.action === 'settings' && x.group === 'limits' && x.reset === true));
@@ -205,12 +261,15 @@ test('Blocked own messages, coordination wakes while paused, and the Automation 
   let pz = await s.call('/pause', {});
   assert.equal(pz.body.stopped.inboxWatch, true);
   assert.equal((await s.call('/inbox/watch')).body.settings.paused, true);
-  assert.equal((await s.call('/resume', {})).status, 200);
+  let rz = await s.call('/resume', {});
+  assert.equal(rz.status, 200); assert.equal(rz.body.inboxWatch, 'resumed');
   assert.equal((await s.call('/inbox/watch')).body.settings, null, 'back to the config file, as before the pause');
   pz = await s.call('/pause', {});
   const mine = { ...(await s.call('/inbox/watch')).body.settings, paused: true, every: 30 };
   assert.equal((await s.call('/inbox/watch', { settings: mine })).status, 200, 'the owner changes Inbox Watch while paused');
-  assert.equal((await s.call('/resume', {})).status, 200);
+  rz = await s.call('/resume', {});
+  assert.equal(rz.status, 200); assert.equal(rz.body.inboxWatch, 'left_paused', 'Resume says Inbox Watch was left paused');
+  assert.ok(s.audit().some(x => x.action === 'resume' && x.inboxWatch === 'left_paused'));
   assert.equal((await s.call('/inbox/watch')).body.settings.paused, true, 'Resume leaves a pause the owner set alone');
   assert.equal((await s.call('/inbox/watch', { settings: null })).status, 200);
   assert.equal((await s.call('/automation/settings', { group: 'pause', values: { inboxWatch: false } })).status, 200);
@@ -234,4 +293,221 @@ test('Blocked own messages, coordination wakes while paused, and the Automation 
   await sleep(800);
   assert.equal(woke.active, false); assert.ok(!s.claudeCalls().some(x => /^\[Pocket coordination\]/.test(x.text || '')), 'the wake did not start while paused');
   assert.equal((await s.call('/resume', {})).body.ok, true);
+});
+
+// A server with one subscribed device on a local push service (pushService above).
+async function bootWithPush(t, port, env = {}) {
+  const push = await pushService(t), dir = tmpDir();
+  push.seed(path.join(dir, 'data'));
+  return { push, s: await boot(t, port, { dir, env: { ...push.env, ...env } }) };
+}
+const RETRIED = /interrupted by an API rate limit/;
+
+test('Background jobs and replies the agent starts: Pause all stops them on Claude and Codex, with no push', { timeout: 120_000 }, async t => {
+  const { s, push } = await bootWithPush(t, 18946, { POCKET_TEST_BG_MS: '2500', POCKET_TEST_AUTOTURN_MS: '1500' });
+  // A Claude conversation Working in background: Pause all stops its job, so the reply the CLI starts when it ends never comes
+  const bg = await s.start('claude', 'bg job __BG__');
+  const would = await s.until(async () => { const w = (await s.call('/pause')).body.would; return w.background === 1 ? w : null; }, 10000, 'the background job to count');
+  assert.deepEqual(would.replies, { claude: 0, codex: 0, openrouter: 0 }, 'the reply itself has ended');
+  const p = await s.call('/pause', {});
+  assert.equal(p.body.stopped.background, 1);
+  assert.match(s.logs(), /stopping 1 background job\(s\) \(Pause all\) session=/);
+  assert.equal(s.audit().find(x => x.action === 'pause').background, 1);
+  await sleep(3500); // past the job's end
+  assert.ok(!s.logs().includes(`turn start (started by the agent) session=${bg}`), 'the CLI started no reply');
+  assert.deepEqual(push.for(bg), [], 'and nothing was pushed');
+  assert.equal((await s.call('/resume', {})).status, 200);
+
+  // Off: the job keeps running, and the reply it starts is stopped at once. It is nobody's queue row, so lastOrigin clears.
+  assert.equal((await s.call('/automation/settings', { group: 'pause', values: { backgroundJobs: false } })).status, 200);
+  const host = await s.start('claude', 'bg host __SLOW__');
+  assert.equal((await s.call(`/session/${s.e(host)}/message`, { text: 'bg queued __BG__', mode: 'queue', approvalMode: 'full' })).status, 202);
+  await s.until(() => s.prompts('claude').includes('bg queued __BG__'), 10000, 'the queued message to start');
+  await s.idle(host); await sleep(300);
+  assert.equal(s.smeta()[host].lastOrigin, 'queue');
+  const p2 = await s.call('/pause', {});
+  assert.deepEqual([p2.body.stopped.background, p2.body.stopped.replies.claude], [0, 0], 'Off: nothing stopped now');
+  await s.until(() => s.logs().includes(`stop requested (paused; the agent started a reply) session=${host}`), 8000, 'the reply the job started to be stopped');
+  await s.idle(host); await sleep(500);
+  assert.ok(!s.smeta()[host].lastOrigin, 'a reply the agent started is not the queue\'s');
+  assert.deepEqual(push.for(host), [], 'no push for the stopped reply (the queued one before it left a job running)');
+
+  // Codex starts a turn by itself (a background terminal finished) while paused: interrupted at once, with no push
+  assert.equal((await s.call('/resume', {})).status, 200);
+  const cx = await s.start('codex', 'cx auto __AUTOTURN__');
+  await s.until(() => push.for(cx).length === 1, 10000, 'the Codex reply\'s push');
+  assert.equal((await s.call('/pause', {})).status, 200);
+  await s.until(() => /stop requested \(paused; the agent started a reply\) thread=/.test(s.logs()), 8000, 'the turn Codex started to be stopped');
+  await s.idle(cx); await sleep(800);
+  assert.ok(!fs.existsSync(path.join(s.dir, 'calls.autoturns')), 'the turn was interrupted before it finished');
+  assert.equal(push.for(cx).length, 1, 'no push for it');
+  assert.ok(!s.smeta()[cx]?.lastOrigin);
+});
+
+test('Paused while a queued message or a retry reopens its Codex conversation: nothing starts, the row stays and the retry is held', { timeout: 120_000 }, async t => {
+  const dirSlow = tmpDir(), slow = path.join(dirSlow, 'slow-resume');
+  const { s, push } = await bootWithPush(t, 18947, { FAKE_CODEX_SLOW_RESUME: slow, POCKET_IDLE_CLOSE_MS: '1500' });
+  const resumes = () => s.lines(path.join(s.dir, 'calls.resumes')).length;
+  fs.writeFileSync(slow, ''); // every reopen answers 1.5 s late, so Pause all lands after the gate and before the turn
+
+  // a queued message that needs a fresh process (Review actions; the reply before it ran with Full access)
+  const q = await s.start('codex', 'gap host __SLOW__');
+  assert.equal((await s.call(`/session/${s.e(q)}/message`, { text: 'gap queued', mode: 'queue', approvalMode: 'review' })).status, 202);
+  let n = resumes();
+  await s.until(() => resumes() > n, 15000, 'the queued message to reopen the conversation');
+  assert.equal((await s.call('/pause', {})).status, 200);
+  await sleep(2500);
+  assert.ok(!s.prompts('codex').includes('gap queued'), 'the queued message did not start');
+  assert.deepEqual((await s.queue(q)).items.map(i => [i.text, i.status]), [['gap queued', 'pending']], 'its row is back to pending');
+  assert.equal((await s.session(q)).state.label, 'Queue paused');
+  assert.match(s.logs(), /queue start held \(paused\) session=/);
+  assert.equal(push.for(q).length, 1, 'nothing started after the reply, so its own push went out');
+  assert.equal((await s.call('/resume', {})).status, 200);
+
+  // a usage-limit retry that reopens the conversation (closed while it waited)
+  const lim = await s.start('codex', 'gap limit __LIMIT__');
+  await s.until(async () => (await s.session(lim))?.state?.label === 'Waiting for usage reset', 10000, 'the retry to be armed');
+  n = resumes();
+  await s.until(() => resumes() > n, 20000, 'the retry to reopen the conversation');
+  assert.equal((await s.call('/pause', {})).status, 200);
+  await sleep(2500);
+  assert.ok(!s.prompts('codex').some(x => RETRIED.test(x)), 'the retry did not start');
+  const st = (await s.session(lim)).state;
+  assert.deepEqual([st.label, st.held], ['Retry held', true]);
+  assert.deepEqual((await s.call('/pause')).body.held, { retries: 1, checkbacks: 0 });
+  fs.unlinkSync(slow);
+  assert.equal((await s.call('/resume', {})).body.rearmed, 1);
+  await s.until(() => s.prompts('codex').some(x => RETRIED.test(x)), 15000, 'the retry after Resume');
+});
+
+test('A queued message the daily limit holds: the reply before it is still pushed, on all three engines', { timeout: 120_000 }, async t => {
+  const { s, push } = await bootWithPush(t, 18948, { POCKET_AUTOMATION_DAILY_REPLIES: '1', POCKET_AUTOMATION_COUNT_OWNER_WORK: 'on' });
+  // the day's one unattended reply is the first drain on Claude; the second is held, and the reply before it is pushed
+  const c = await s.start('claude', 'daily host __SLOW__');
+  for (const text of ['daily drain one', 'daily drain two']) assert.equal((await s.call(`/session/${s.e(c)}/message`, { text, mode: 'queue', approvalMode: 'full' })).status, 202);
+  await s.until(() => s.prompts('claude').includes('daily drain one'), 15000, 'the first drain');
+  await s.idle(c);
+  await s.until(() => push.for(c).length, 5000, 'the push for the reply before the held row');
+  const ids = { claude: c };
+  for (const engine of ['codex', 'acp']) {
+    const id = ids[engine] = await s.start(engine, `daily host ${engine} __SLOW__`);
+    assert.equal((await s.call(`/session/${s.e(id)}/message`, { text: `daily drain ${engine}`, mode: 'queue', approvalMode: 'full' })).status, 202);
+    await s.idle(id);
+    await s.until(() => push.for(id).length, 5000, `the ${engine} reply's push`);
+  }
+  await sleep(1000);
+  assert.ok(!s.prompts('claude').includes('daily drain two'));
+  for (const engine of ['codex', 'acp']) assert.ok(!s.prompts(engine).includes(`daily drain ${engine}`), `${engine}: held`);
+  for (const [engine, id] of Object.entries(ids)) {
+    assert.equal(push.for(id).length, 1, `${engine}: one push`);
+    assert.equal((await s.session(id)).state.label, 'Queue paused', engine);
+  }
+  assert.deepEqual((await s.call('/automation')).body.notices.map(x => x.reason), ['daily_limit']);
+});
+
+test('Paused on Codex and OpenRouter: the owner\'s message runs, the queue stays, a usage limit\'s retry is held and its push says so; Resume re-arms', { timeout: 120_000 }, async t => {
+  const { s, push } = await bootWithPush(t, 18949);
+  assert.equal((await s.call('/pause', {})).status, 200);
+  const limited = {};
+  for (const engine of ['codex', 'acp']) {
+    const id = await s.start(engine, `paused own ${engine} __SLOW__`);
+    assert.equal((await s.call(`/session/${s.e(id)}/message`, { text: `paused queued ${engine}`, mode: 'queue', approvalMode: 'full' })).status, 202);
+    await s.idle(id); await sleep(1000);
+    assert.ok(s.prompts(engine).includes(`paused own ${engine} __SLOW__`), `${engine}: the owner's message ran`);
+    assert.ok(!s.prompts(engine).includes(`paused queued ${engine}`), `${engine}: the queue did not drain`);
+    assert.equal((await s.session(id)).state.label, 'Queue paused', engine);
+    limited[engine] = await s.start(engine, `paused limit ${engine} __LIMIT__`);
+  }
+  await s.until(() => push.for(limited.codex).length && push.for(limited.acp).length, 10000, 'the Codex and OpenRouter limit pushes');
+  // Claude too, with Resume set not to re-arm: its push says a message carries on
+  assert.equal((await s.call('/automation/settings', { group: 'pause', values: { rearmRetries: false } })).status, 200);
+  limited.claude = await s.start('claude', 'paused limit claude __LIMIT__');
+  for (const [engine, id] of Object.entries(limited)) await s.until(async () => (await s.session(id))?.state?.label === 'Retry held', 10000, `${engine}: the retry held`);
+  await s.until(() => Object.values(limited).every(id => push.for(id).length), 5000, 'the limit pushes');
+  assert.deepEqual(push.for(limited.codex), ['Usage limit reached. The retry is held until you resume']);
+  assert.deepEqual(push.for(limited.acp), ['Rate limited. The retry is held until you resume']);
+  assert.deepEqual(push.for(limited.claude), ['Usage limit reached. The retry is held; send a message to carry on']);
+  assert.match(s.logs(), /auto-resume held \(paused\)/);
+  await sleep(6000); // past every retry's time
+  for (const engine of ['claude', 'codex', 'acp']) assert.ok(!s.prompts(engine).some(x => RETRIED.test(x)), `${engine}: the held retry did not run`);
+  assert.equal((await s.call('/automation/settings', { group: 'pause', values: { rearmRetries: true } })).status, 200);
+  assert.equal((await s.call('/resume', {})).body.rearmed, 3);
+  for (const engine of ['claude', 'codex', 'acp']) await s.until(() => s.prompts(engine).some(x => RETRIED.test(x)), 15000, `${engine}: the retry after Resume`);
+});
+
+test('Plan ceilings that hold owner work: a queue drain and a retry wait, with one notice each, and the retry shows its next try', { timeout: 120_000 }, async t => {
+  const dir = tmpDir(), data = path.join(dir, 'data'), now = Date.now(), reset = now + 3 * 86400_000;
+  fs.mkdirSync(data, { recursive: true });
+  // Claude's last reading: the weekly window at 93%, over a 90% ceiling, until it resets in 3 days
+  fs.writeFileSync(path.join(data, 'usage-state.json'), JSON.stringify({ account: { status: 'allowed', windows: { seven_day: { utilization: 0.93, resetsAt: reset }, five_hour: { utilization: 0.2, resetsAt: now + 3600_000 } }, overage: {}, observedAt: now }, sessions: {} }));
+  // Codex's 5-hour window reads 12% (the fake), over a 10% ceiling
+  const s = await boot(t, 18950, { dir, env: { POCKET_AUTOMATION_CEILINGS_HOLD_OWNER_WORK: 'on', POCKET_AUTOMATION_CLAUDE_WEEKLY_CEILING: '90', POCKET_AUTOMATION_CODEX_FIVE_HOUR_CEILING: '10', POCKET_AUTOMATION_TICK_MS: '2000' } });
+  for (const engine of ['claude', 'codex']) {
+    const id = await s.start(engine, `ceiling host ${engine} __SLOW__`);
+    assert.equal((await s.call(`/session/${s.e(id)}/message`, { text: `ceiling drain ${engine}`, mode: 'queue', approvalMode: 'full' })).status, 202);
+    await s.idle(id); await sleep(1000);
+    assert.ok(s.prompts(engine).includes(`ceiling host ${engine} __SLOW__`), `${engine}: the owner's own message is not held`);
+    assert.ok(!s.prompts(engine).includes(`ceiling drain ${engine}`), `${engine}: the drain is held`);
+    assert.equal((await s.session(id)).state.label, 'Queue paused');
+  }
+  const lim = await s.start('claude', 'ceiling limit __LIMIT__');
+  await s.until(async () => (await s.session(lim))?.state?.label === 'Waiting for usage reset', 10000, 'the retry to be armed');
+  await s.until(() => s.logs().includes(`auto-resume re-armed (plan_ceiling) session=${lim}`), 15000, 'the retry to meet the ceiling');
+  assert.ok(!s.prompts('claude').some(x => RETRIED.test(x)), 'the retry did not run');
+  const st = (await s.session(lim)).state;
+  assert.deepEqual([st.label, st.retryAt], ['Waiting for usage reset', reset], 'the conversation shows the re-armed time (the window\'s reset)');
+  const a = (await s.call('/automation')).body;
+  assert.deepEqual(a.notices.map(x => [x.reason, x.engine]).sort(), [['plan_ceiling', 'claude'], ['plan_ceiling', 'codex']], 'one notice for each window, however many starts it held');
+  assert.match(a.notices.find(x => x.engine === 'claude').text, /weekly window is at 93%, over the 90% ceiling/);
+  assert.equal(s.audit().filter(x => x.action === 'limit').length, 2);
+});
+
+test('Side chats: Pause all stops one that is answering, and Blocked refuses a new message', { timeout: 60_000 }, async t => {
+  const s = await boot(t, 18951);
+  const c = await s.start('claude', 'side parent'); await s.idle(c);
+  const side = await s.call(`/session/${s.e(c)}/side`, { text: 'side question __SIDEHANG__' });
+  assert.equal(side.status, 202, JSON.stringify(side.body));
+  const chat = () => s.call(`/session/${s.e(c)}/side`).then(r => r.body.chat);
+  await s.until(async () => (await chat())?.busy, 5000, 'the side chat to answer');
+  assert.deepEqual((await s.call('/pause')).body.would.replies, { claude: 1, codex: 0, openrouter: 0 }, 'counted with Claude\'s replies');
+  const p = await s.call('/pause', {});
+  assert.deepEqual(p.body.stopped.replies, { claude: 1, codex: 0, openrouter: 0 });
+  await s.until(async () => !(await chat())?.busy, 5000, 'the side chat to stop');
+  assert.match(s.logs(), /side chat stop requested \(Pause all\) session=/);
+  assert.equal((await s.call('/automation/settings', { group: 'pause', values: { ownMessages: 'blocked' } })).status, 200);
+  const refused = await s.call(`/session/${s.e(c)}/side`, { text: 'side while blocked', side: side.body.side });
+  assert.deepEqual([refused.status, refused.body], [409, { error: 'Pocket is paused. Resume to send.', paused: true }]);
+  assert.equal((await s.call('/resume', {})).status, 200);
+  assert.equal((await s.call(`/session/${s.e(c)}/side`, { text: 'side after resume', side: side.body.side })).status, 202);
+});
+
+test('A message the owner sent while background jobs held the earlier Claude login starts while paused, unless own messages are Blocked', { timeout: 120_000 }, async t => {
+  const dir = tmpDir(); fs.mkdirSync(path.join(dir, 'config'), { recursive: true });
+  const s = await boot(t, 18952, { dir, env: { POCKET_AFTER_JOBS_GRACE_MS: '50', CLAUDE_CONFIG_DIR: path.join(dir, 'config') } });
+  const a = await s.start('claude', 'jobs a __BG_LONG__'); await s.idle(a);
+  const b = await s.start('claude', 'jobs b __BG_LONG__'); await s.idle(b);
+  // a sign-in to another account: both processes keep the earlier login while their jobs run
+  const login = (await s.call('/claude/login/start', {})).body; assert.ok(login.id, JSON.stringify(login));
+  await s.until(async () => (await s.call('/claude/login')).body.status === 'waiting', 5000, 'the sign-in to wait for its code');
+  assert.equal((await s.call('/claude/login/code', { id: login.id, code: 'test-code#test-state' })).status, 200);
+  await s.until(async () => (await s.call('/claude/login')).body.status === 'success', 5000, 'the sign-in');
+  for (const [id, text] of [[a, 'after jobs a'], [b, 'after jobs b']]) {
+    const r = await s.call(`/session/${s.e(id)}/message`, { text, approvalMode: 'full' });
+    assert.equal(r.status, 202); assert.equal(r.body.afterJobs, true, 'held for the jobs');
+  }
+  assert.equal((await s.call('/automation/settings', { group: 'pause', values: { backgroundJobs: false } })).status, 200);
+  assert.equal((await s.call('/pause', {})).status, 200);
+  // a job ends (the CLI says so in its output): the message held for it starts, paused or not, as the owner's own
+  const jobEnds = id => { const d = path.join(s.data, 'turnlogs'); fs.appendFileSync(path.join(d, fs.readdirSync(d).find(f => f.startsWith(id) && f.endsWith('.out.ndjson'))), JSON.stringify({ type: 'system', subtype: 'background_tasks_changed', tasks: [] }) + '\n'); };
+  jobEnds(a);
+  await s.until(() => s.prompts('claude').includes('after jobs a'), 15000, 'the held message to start while paused');
+  await s.idle(a);
+  assert.deepEqual((await s.queue(a)).items, []);
+  assert.ok(!s.smeta()[a]?.lastOrigin, 'started as the owner\'s, not the queue\'s');
+  // Blocked: it stays held
+  assert.equal((await s.call('/automation/settings', { group: 'pause', values: { ownMessages: 'blocked' } })).status, 200);
+  jobEnds(b); await sleep(1500);
+  assert.ok(!s.prompts('claude').includes('after jobs b'), 'Blocked: it does not start');
+  assert.deepEqual((await s.queue(b)).items.map(i => [i.text, i.status]), [['after jobs b', 'pending']]);
+  assert.equal((await s.call('/resume', {})).status, 200);
 });

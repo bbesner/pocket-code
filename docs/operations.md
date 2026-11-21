@@ -335,9 +335,13 @@ describes scope and audit behavior.
 
 **Pause all** (1.117, [Automation](manual/automation.md#pause-all)) is saved in `pocket-settings.json`, so a restart does not
 lift it: the install comes back paused, with its queues still and any usage-limit retry still held (its `.retry.json`
-marker carries `held: true`). The owner resumes from the banner or **Settings → Automation**. Do not edit the file to
-resume while Pocket runs. Rolling back to 1.116 ignores the pause and arms held retries again at start; if Pause all had
-paused Inbox Watch, it stays paused until it is resumed in Inbox Watch's settings. `POCKET_AUTOMATION_<NAME>` variables in
+marker carries `held: true`). Background jobs Pause all stopped stay stopped. The owner resumes from the banner or
+**Settings → Automation**. Do not edit the file to resume while Pocket runs.
+
+Rolling back to 1.116 ignores the pause and arms held retries again at start. 1.116 keeps `paused` in
+`pocket-settings.json` without reading it, so a later upgrade to 1.117 comes back paused: resume before rolling back, or
+resume after the upgrade. If Pause all had paused Inbox Watch, it stays paused under 1.116 until it is resumed in Inbox
+Watch's settings. `POCKET_AUTOMATION_<NAME>` variables in
 `.env` preset the Automation defaults for an install; a value the owner saved wins.
 
 ## Delivery and queue recovery

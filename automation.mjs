@@ -32,6 +32,8 @@ export const GROUPS = [
       { key: 'ownMessages', label: 'Your own messages while paused', type: 'choice', default: 'run',
         choices: [{ value: 'run', label: 'Run, with a banner' }, { value: 'blocked', label: 'Blocked until you resume' }] },
       { key: 'inboxWatch', label: 'Pause all also pauses Inbox Watch', type: 'bool', default: true },
+      { key: 'backgroundJobs', label: 'Pause all also stops background jobs', type: 'bool', default: true,
+        help: 'Off leaves them running; the reply they would start is stopped.' },
       { key: 'rearmRetries', label: 'On Resume, re-arm held usage-limit retries', type: 'bool', default: true,
         help: 'Off: they stay held until you start them.' },
       { key: 'confirm', label: 'Show what will stop before pausing', type: 'bool', default: true,
@@ -47,7 +49,7 @@ export const GROUPS = [
       { key: 'dailyReplies', label: 'Unattended replies per day', type: 'number', default: 40, min: 1, max: 1000, step: 1, unit: '', integer: true, offAllowed: true,
         help: 'Counted in your time zone. Check-back and job replies always count.' },
       { key: 'countOwnerWork', label: 'Count queue drains, retries and coordination wakes toward the daily limit', type: 'bool', default: false,
-        help: 'Off: work you asked for yourself does not use up the daily limit.' },
+        help: 'Off: work you asked for yourself does not use up the daily limit or the OpenRouter spend per day.' },
       { key: 'ceilingsHoldOwnerWork', label: 'Plan ceilings also hold queued messages, retries and coordination wakes', type: 'bool', default: false,
         help: 'Off: the ceilings hold only check-backs and jobs.' },
       { key: 'openrouterDaily', label: 'OpenRouter spend per day (unattended)', type: 'number', default: 5, min: 0.5, max: 500, step: 0.5, unit: '$', offAllowed: true },
@@ -267,10 +269,11 @@ export class AutomationState {
     this.state = s && typeof s === 'object' && typeof s.today?.day === 'string' ? { today: { ...EMPTY_DAY(s.today.day), ...s.today }, days: Array.isArray(s.days) ? s.days : [] } : { today: EMPTY_DAY(dayKey(this.now(), this.zone())), days: [] };
   }
   save() { try { this.write(this.file, this.state); } catch { /* counts are best effort */ } }
-  // A new day starts fresh counts; yesterday's totals go into the 7-day history.
+  // A new day starts fresh counts; yesterday's totals go into the 7-day history. Only forward: a time zone moved
+  // west (or a clock stepped back) gives an earlier day key, and that must not reset today's count early.
   rollover() {
     const day = dayKey(this.now(), this.zone()), t = this.state.today;
-    if (t.day === day) return t;
+    if (day <= t.day) return t;
     if (t.replies || t.cost || t.tokens) this.state.days = [...this.state.days.filter(d => d.date !== t.day), { date: t.day, replies: t.replies, cost: t.cost, tokens: t.tokens }].slice(-14);
     this.state.today = EMPTY_DAY(day);
     this.save();

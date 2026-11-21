@@ -16,12 +16,14 @@ const DAY=86400000;
 // from the server. One env preset stands in for an install's own default (POCKET_AUTOMATION_LONGEST_REPLY).
 const ENV={POCKET_AUTOMATION_LONGEST_REPLY:'60'};
 export const automationFixture={
- paused:null,saved:{},posts:[],
- would:{replies:{claude:2,codex:1,openrouter:0},retries:1,checkbacks:0,inboxWatch:true},
- reset(){this.paused=null;this.saved={};this.posts=[];},
+ paused:null,saved:{},posts:[],resumeInbox:null,
+ would:{replies:{claude:2,codex:1,openrouter:0},background:2,retries:1,checkbacks:0,inboxWatch:true},
+ reset(){this.paused=null;this.saved={};this.posts=[];this.resumeInbox=null;},
  value(group,key){return auto.groupValues(this.saved,group,ENV)[key];},
  me(){return this.paused?{at:this.paused.at}:null;},
- pause(){return {paused:this.paused,would:this.would,held:this.paused?{retries:1,checkbacks:0}:{retries:0,checkbacks:0},ownMessages:this.value('pause','ownMessages'),confirm:this.value('pause','confirm')};},
+ // GET /api/pause; banner() is the part /api/sessions carries (test/browser.mjs), as the server builds both
+ banner(){return {paused:this.paused,held:this.paused?{retries:1,checkbacks:0}:{retries:0,checkbacks:0},ownMessages:this.value('pause','ownMessages'),confirm:this.value('pause','confirm')};},
+ pause(){const b=this.banner();return {paused:b.paused,would:this.would,held:b.held,ownMessages:b.ownMessages,confirm:b.confirm};},
  automation(){
   const now=Date.now(),d=auto.describe(this.saved,ENV);
   const days=Array.from({length:7},(_,i)=>({date:new Date(now-(6-i)*DAY).toISOString().slice(0,10),replies:[0,1,8,2,0,5,3][i],cost:[0,0.05,1.2,0.31,0,0.88,0.42][i],tokens:[0,12000,410000,90000,0,260000,120000][i]}));
@@ -37,7 +39,7 @@ export async function automationRoute(req,url,json){
  const f=automationFixture,body=async()=>{let raw='';for await(const c of req)raw+=c;return JSON.parse(raw||'{}');};
  if(url.pathname==='/api/pause'&&req.method==='GET'){json(f.pause());return true;}
  if(url.pathname==='/api/pause'&&req.method==='POST'){await body();f.posts.push('pause');f.paused=f.paused||{at:new Date().toISOString(),by:'owner'};json({ok:true,paused:f.paused,stopped:f.would});return true;}
- if(url.pathname==='/api/resume'&&req.method==='POST'){await body();f.posts.push('resume');f.paused=null;json({ok:true,paused:null,rearmed:1});return true;}
+ if(url.pathname==='/api/resume'&&req.method==='POST'){await body();f.posts.push('resume');f.paused=null;json({ok:true,paused:null,rearmed:1,inboxWatch:f.resumeInbox});return true;}
  if(url.pathname==='/api/automation'){json(f.automation());return true;}
  if(url.pathname==='/api/automation/settings'){const b=await body();f.posts.push(b);const r=f.save(b);json(r.status===200?f.automation():r.body,r.status);return true;}
  return false;
@@ -57,24 +59,34 @@ export async function runAutomationRegressions({p,base,out,repo,rows,settings,sc
  const openAutomation=async()=>{await clickControl(p,'#settings');await p.waitForSelector('.settings-sheet [data-settings-category="automation"]');await p.click('[data-settings-category="automation"]');await p.waitForSelector('[data-auto-group="limits"] [data-auto-key="claudeWeekly"]');};
  const input=key=>`[data-auto-key="${key}"]`;
  const setNumber=async(key,v)=>{await p.$eval(input(key),(e,v)=>{e.focus();e.value=String(v);e.dispatchEvent(new Event('change'));},v);};
- // The pause check (on the regular list refresh and on return to the tab) with nothing changed: the list rows, the
- // banner, the header and the Pause all controls stay the same nodes, nothing in the page is written, and the only
- // request is GET /api/pause. The app's own 5-second list refresh is held still for the window, so only the check runs.
+ // The pause check with nothing changed, both ways it comes: the list refresh's own `pause` (no request) and the return
+ // to the tab (GET /api/pause). The list rows, the banner, the header and the Pause all controls stay the same nodes,
+ // nothing in the page is written, and the only requests are the three GET /api/pause. The app's own 5-second list
+ // refresh is held still for the window, so only the checks run.
  const quietRefresh=()=>p.evaluate(async()=>{
   if(sessionFetch)await sessionFetch;
-  const realRefresh=window.refreshSessions,realFetch=window.fetch,urls=[];
+  const realRefresh=window.refreshSessions,realFetch=window.fetch,urls=[],listPause=sessionsPause;
   window.refreshSessions=async()=>{};window.fetch=(u,...a)=>{urls.push(new URL(String(u),location.href).pathname);return realFetch(u,...a);};
   const nodes=[...document.querySelectorAll('[data-item], [data-item] *, .pause-banner, .pause-banner *, header.bar, header.bar *, [data-pause-toggle], [data-pause-toggle] *')];
   const records=[],mo=new MutationObserver(r=>records.push(...r));
   mo.observe(document.documentElement,{subtree:true,childList:true,attributes:true,characterData:true});
-  try{for(let i=0;i<3;i++)await Automation.poll(true);await new Promise(r=>setTimeout(r,60));records.push(...mo.takeRecords());}
+  try{for(let i=0;i<3;i++){await Automation.fromList(listPause);await Automation.poll(true);}await new Promise(r=>setTimeout(r,60));records.push(...mo.takeRecords());}
   finally{mo.disconnect();window.fetch=realFetch;window.refreshSessions=realRefresh;}
   const ticking=n=>(n.nodeType===1?n:n.parentElement)?.closest?.('[data-run-age]');   // a running row's age ticks on its own
-  return {nodes:nodes.length,kept:nodes.every(n=>n.isConnected),urls,
+  return {nodes:nodes.length,kept:nodes.every(n=>n.isConnected),urls,listPause,
    writes:records.filter(r=>!ticking(r.target)).map(r=>`${r.type} ${r.target.nodeName}${r.target.id?'#'+r.target.id:''}${r.attributeName?' @'+r.attributeName:''}`)};
  });
  const assertQuiet=async(where)=>{const q=await quietRefresh();assert.ok(q.nodes>0,where);assert.equal(q.kept,true,`${where}: the same nodes stay`);
-  assert.deepEqual(q.writes,[],`${where}: nothing written`);assert.deepEqual(q.urls,['/api/pause','/api/pause','/api/pause'],`${where}: one request per check, and no list or summary fetch`);};
+  assert.ok(q.listPause&&'paused' in q.listPause,`${where}: the list carried the pause state`);
+  assert.deepEqual(q.writes,[],`${where}: nothing written`);assert.deepEqual(q.urls,['/api/pause','/api/pause','/api/pause'],`${where}: one request per return to the tab, none from the list, and no list or summary fetch`);};
+ // The app's real list refresh asks for the list only: the banner's state comes with it, not from GET /api/pause.
+ // (It waits out the 4.5 s a /api/pause check is held back for, so a refresh that still asked would show here.)
+ const listOnlyRefresh=async(where)=>{
+  await new Promise(r=>setTimeout(r,4600));
+  const urls=await p.evaluate(async()=>{if(sessionFetch)await sessionFetch;const realFetch=window.fetch,urls=[];
+   window.fetch=(u,...a)=>{urls.push(new URL(String(u),location.href).pathname);return realFetch(u,...a);};
+   try{await refreshSessions();await new Promise(r=>setTimeout(r,100));}finally{window.fetch=realFetch;}return urls;});
+  assert.ok(urls.includes('/api/sessions'),`${where}: the list was fetched`);assert.ok(!urls.includes('/api/pause'),`${where}: no separate pause request (${urls.join(', ')})`);};
  await p.setViewport({width:1440,height:900,isMobile:false,hasTouch:false});await home();
  const themeBefore=await p.evaluate(()=>PocketTheme.preference);await theme(p,'dark');
 
@@ -134,14 +146,14 @@ export async function runAutomationRegressions({p,base,out,repo,rows,settings,sc
  assert.equal(await p.$eval('#origin-line',e=>e.textContent),'Continued after a usage limit');
 
  // --- A pause check with nothing changed touches nothing (the list, then with the More menu open) ---
- await home();await p.waitForSelector('[data-item]');await assertQuiet('the list, not paused');
+ await home();await p.waitForSelector('[data-item]');await assertQuiet('the list, not paused');await listOnlyRefresh('the list, not paused');
 
  // --- Pause all from the More menu: the confirmation lists what will stop; Keep running returns focus ---
  f.posts.length=0;await home();
  await p.click('#listmore');await p.waitForSelector('.more-menu [data-pause-toggle]');
  await assertQuiet('the More menu, not paused');
  await p.click('.more-menu [data-pause-toggle]');await p.waitForSelector('.pause-sheet [data-pause-would]');
- assert.equal(await p.$eval('[data-pause-would]',e=>e.textContent),'This stops 3 replies running (2 Claude, 1 Codex), 1 usage-limit retry, Inbox Watch.');
+ assert.equal(await p.$eval('[data-pause-would]',e=>e.textContent),'This stops 3 replies running (2 Claude, 1 Codex), 2 background jobs, 1 usage-limit retry, Inbox Watch.');
  assert.match(await p.$eval('.pause-sheet .sheet-help',e=>e.textContent),/^Your own messages still run\./);
  assert.equal(await p.evaluate(()=>document.activeElement?.dataset.pauseGo!==undefined),true,'Pause all has focus');
  await shot('confirm-1440-dark');await axeCheck(p,repo,'.pause-sheet');
@@ -157,6 +169,7 @@ export async function runAutomationRegressions({p,base,out,repo,rows,settings,sc
  await p.click('.session-switcher [data-pause-toggle]');await p.waitForSelector('[data-pause-go]');
  await p.click('[data-pause-go]');await p.waitForSelector('.pause-banner');
  assert.deepEqual(f.posts,['pause']);
+ await p.waitForFunction(()=>document.querySelector('#toast')?.textContent==='Paused. Stopped 3 replies running (2 Claude, 1 Codex), 2 background jobs. Held 1 usage-limit retry.');
  assert.equal(await p.$eval('.pause-banner .pause-text',e=>e.textContent),'Pocket is paused. Your own messages still run. 1 usage-limit retry is held.');
  assert.equal(await p.$eval('.composerwrap',e=>e.getBoundingClientRect().bottom),composerBefore,'the composer stays put');
  assert.ok(await p.$eval('.pause-resume',e=>e.getBoundingClientRect().height>=44));
@@ -166,9 +179,13 @@ export async function runAutomationRegressions({p,base,out,repo,rows,settings,sc
  await p.keyboard.down('Control');await p.keyboard.press('k');await p.keyboard.up('Control');
  await p.waitForSelector('.session-switcher [data-pause-toggle]');assert.match(await p.$eval('.session-switcher [data-pause-toggle]',e=>e.textContent),/^Resume/);
  await p.keyboard.press('Escape');
- // Resume from the banner: it goes, and the server was told.
+ // Resume from the banner: it goes, and the server was told. Inbox Watch was changed while paused, so the toast says it
+ // is still paused.
+ f.resumeInbox='left_paused';
  await p.click('.pause-banner [data-resume]');await p.waitForFunction(()=>!document.querySelector('.pause-banner'));
  assert.deepEqual(f.posts,['pause','resume']);assert.equal(f.paused,null);
+ await p.waitForFunction(()=>document.querySelector('#toast')?.textContent==='Resumed. 1 held retry runs again. Inbox Watch was changed while paused and is still paused.');
+ await shot('resume-inbox-1440-dark');f.resumeInbox=null;
  // A second device paused it: this one catches up on its next check (return to the tab here).
  f.paused={at:new Date().toISOString(),by:'owner'};
  await p.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await p.waitForSelector('.pause-banner');
@@ -177,6 +194,10 @@ export async function runAutomationRegressions({p,base,out,repo,rows,settings,sc
  await p.keyboard.down('Control');await p.keyboard.press('k');await p.keyboard.up('Control');
  await p.waitForSelector('.session-switcher [data-pause-toggle]');await p.waitForSelector('.session-switcher [data-item]');
  await assertQuiet('the switcher, paused');await p.keyboard.press('Escape');await p.waitForFunction(()=>!document.querySelector('.session-switcher'));
+ // The list refresh alone brings a second device's Resume and Pause all (no return to the tab, no /api/pause).
+ await listOnlyRefresh('paused');
+ const pausedAt=f.paused;f.paused=null;await p.evaluate(()=>refreshSessions());await p.waitForFunction(()=>!document.querySelector('.pause-banner'));
+ f.paused=pausedAt;await p.evaluate(()=>refreshSessions());await p.waitForSelector('.pause-banner');
  // Own messages Blocked: the banner says so, a send is refused with a clear message and the draft is kept.
  f.saved={...f.saved,pause:{...f.saved.pause,ownMessages:'blocked'}};await p.evaluate(()=>Automation.poll(true));
  await p.waitForFunction(()=>/wait until you resume/.test(document.querySelector('.pause-banner .pause-text')?.textContent||''));

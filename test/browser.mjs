@@ -250,7 +250,7 @@ const server=http.createServer(async(req,res)=>{
   if(stale)return json({error:'Fixture offline'},503);
   // Like the live server (1.19): an unchanged list answers 304 with the check time in a header.
   const coordHeld=fixtureSettings.coordination&&!fixtureSettings.assistantMode?coordFixture.holds.map(h=>({name:h.name,title:h.holder.title})):[];
-  const payload={sessions:[...rows].sort((a,b)=>pinKey(a)-pinKey(b)),warnings:[],home:'/workspaces/purchasing',...(coordHeld.length?{held:coordHeld}:{})},checkedAt=Date.now();
+  const payload={sessions:[...rows].sort((a,b)=>pinKey(a)-pinKey(b)),warnings:[],home:'/workspaces/purchasing',...(coordHeld.length?{held:coordHeld}:{}),pause:automationFixture.banner()},checkedAt=Date.now(); // 1.117: pause, the banner's state
   const etag='"'+createHash('sha1').update(JSON.stringify(payload)).digest('base64url')+'"';
   if(req.headers['if-none-match']===etag){uiModes.notModified=(uiModes.notModified||0)+1;res.writeHead(304,{etag,'x-pocket-checked-at':String(checkedAt)});res.end();return;}
   res.writeHead(200,{'content-type':'application/json',etag,'x-pocket-checked-at':String(checkedAt)});res.end(JSON.stringify({...payload,checkedAt}));return;

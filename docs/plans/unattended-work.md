@@ -104,7 +104,7 @@ follow-up queue or coordination wakes. Nothing records a paused state, so a rest
   - **The owner's own messages run normally.** A banner across the top reads "Pocket is paused. Your own
     messages still run. Resume". Pause stops what runs without the owner, not the owner.
 - **Resuming** (`POST /api/resume`):
-  - Held retries re-arm, using the existing re-arm rules (minimum 5 s delay, 12 h maximum lateness).
+  - Held retries re-arm, using the existing re-arm rules (minimum 5 s delay; none are dropped).
   - Overdue check-backs follow the catch-up rule in 2.4.
   - Inbox Watch resumes if Pause all paused it.
   - Queue rows stay paused until the owner starts them, which is today's behaviour after Stop.
@@ -517,6 +517,7 @@ above are these defaults, not fixed numbers.
 |---|---|---|
 | Your own messages while paused | Run, with a banner | Run · Blocked until you resume |
 | Pause all also pauses Inbox Watch | On | On · Off |
+| Pause all also stops background jobs | On | On · Off (they keep running; the reply they would start is stopped) |
 | On Resume, re-arm held usage-limit retries | On | On · Off (they stay held until you start them) |
 | On Resume, run overdue check-backs | On, using the catch-up window | On · Off (mark them missed) |
 | Show what will stop before pausing | On | On · Off (pause on one tap) |
