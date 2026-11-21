@@ -297,7 +297,7 @@ function vaultChangedHTML(r){
 const vaultRunsHTML=r=>r.runs||r.program?`<p class="vault-request-where vault-request-runs"><span>Runs</span><span class="vault-path">${esc(r.runs||r.program)}</span></p>`:'';
 function vaultPinHTML(r,hid){
  const files=Array.isArray(r.files)?r.files:[],notes=[];
- if(r.inline)notes.push(`The command gives code inline (${esc(r.inline)}). Pocket matches its text and checks files it names plainly, but not everything it runs.`);
+ if(r.inline)notes.push(`The command gives code inline (<span class="vault-path">${esc(r.inline)}</span>). Pocket matches its text and checks files it names plainly, but not everything it runs.`);
  if(r.unknown)notes.push(`Pocket cannot tell what <span class="vault-path">${esc(r.unknown)}</span> starts, so only the command text and its first program are checked.`);
  for(const f of files){
   if(f.why)notes.push((VAULT_PIN_WHY[f.why]||VAULT_PIN_WHY.unreadable)(`<span class="vault-path">${esc(vaultShortPath(f.path,r.cwd))}</span>`));
