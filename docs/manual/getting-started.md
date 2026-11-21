@@ -39,7 +39,7 @@ Open the HTTPS address. The sign-in screen asks for one thing, the **Password**,
   `grep '^POCKET_PASSWORD=' ~/pocket-code/.env`.
 - A successful sign-in keeps that browser signed in for 90 days, until you sign it out in
   [Settings → Agents & instance → Sign out](settings.md#agents--instance) (**Accounts** in
-  Assistant mode; 1.117), choose **Sign out everywhere**, or change the password.
+  Assistant mode; 1.118), choose **Sign out everywhere**, or change the password.
 - After 20 sign-in attempts from one address within an hour, further attempts get **Too many
   attempts — wait an hour.** When many addresses fail at once, Pocket checks sign-ins one at a
   time and may answer **Too many sign-in attempts right now. Try again in a minute.** A browser
@@ -195,9 +195,9 @@ When a user asks you to set up or explain Pocket Code:
 |---|---|---|
 | The password is accepted but you land back on the sign-in screen | The sign-in cookie is marked `Secure`; over plain HTTP on a network address the browser drops it | Open Pocket through its HTTPS address |
 | **Too many attempts — wait an hour.** | More than 20 sign-in attempts from one address within an hour | Wait an hour, and check the password in `.env` |
-| You changed `POCKET_PASSWORD` but other browsers are still signed in | Pocket reads the password at start, so the change takes effect at the next restart (before 1.117 a new password did not sign anyone out) | Restart Pocket; every browser has to sign in again. **Sign out everywhere** in Settings does the same without a restart |
+| You changed `POCKET_PASSWORD` but other browsers are still signed in | Pocket reads the password at start, so the change takes effect at the next restart (before 1.118 a new password did not sign anyone out) | Restart Pocket; every browser has to sign in again. **Sign out everywhere** in Settings does the same without a restart |
 | **Too many sign-in attempts right now. Try again in a minute.** | Many wrong passwords from many addresses within an hour, so Pocket checks sign-ins one at a time | Wait a minute; a browser that has signed in before is let through |
-| Every browser had to sign in again after an upgrade | The first start of 1.117 begins a new sign-in generation, once | Sign in again; it does not repeat |
+| Every browser had to sign in again after an upgrade | The first start of 1.118 begins a new sign-in generation, once | Sign in again; it does not repeat |
 | **Push not configured on server** when you tap the bell | `VAPID_PUBLIC` and `VAPID_PRIVATE` are not set | Run `node scripts/pocket-init.mjs` again (it adds missing keys) or set them by hand, then restart |
 | **Notifications blocked** | The browser's notification permission for the site is off | Allow notifications in the browser's site settings, then turn push on again |
 | No **Projects, files, tasks & vault** in Settings | You are in Assistant mode | Use **Settings → Features**, or switch to Developer mode in **Settings → Appearance → Mode** |

@@ -1,4 +1,4 @@
-// 1.117 (PC-02, independent review D-1 to D-4): what a Vault run executes is what was checked. The swap race, files Pocket
+// 1.118 (PC-02, independent review D-1 to D-4): what a Vault run executes is what was checked. The swap race, files Pocket
 // cannot hash, a file the command writes, launchers, inline code, the Vault PATH warning, an item edited while a large file
 // is hashed, and recipes saved before this change. The module is read through a namespace so each check fails on its own
 // against a store that lacks a function, instead of the whole file failing to load.
@@ -59,7 +59,7 @@ async function vaultServer(t,{port=19981,vaultPath,policy}={}){
 }
 
 // The reviewer's D-1 scenario: an approved script is swapped for another while the run is being checked, at every delay from
-// 0 to 20 ms after the run is asked for, 15 tries each. Before 1.117 about half of the tries ran the swapped script with the
+// 0 to 20 ms after the run is asked for, 15 tries each. Before 1.118 about half of the tries ran the swapped script with the
 // secret. Now none may: each try runs the approved script, asks the owner, or is refused.
 const SWAPPER=`const {parentPort,workerData}=require('node:worker_threads');const fs=require('node:fs');const path=require('node:path');
 parentPort.on('message',({delay})=>{const t0=performance.now();while(performance.now()-t0<delay){}
@@ -261,7 +261,7 @@ test('D-4: an item edited or removed while a large file is hashed is not used wi
 });
 
 // Recipes saved before this change: none of them runs something that was not checked the way it is now.
-test('recipes saved before 1.117: no pin asks once, a matching earlier pin runs, a narrower or unhashed one asks once; Always records the new form',async t=>{
+test('recipes saved before 1.118: no pin asks once, a matching earlier pin runs, a narrower or unhashed one asks once; Always records the new form',async t=>{
   const s=await vaultServer(t,{port:20431});
   s.file('job.sh','echo "job with $T"\n');s.file('locked.txt','x');
   const sh=V.findProgram('sh',s.work,[s.shim,s.bin,'/usr/bin','/bin'].join(':')),job=path.join(s.work,'job.sh');

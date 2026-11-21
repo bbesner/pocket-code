@@ -1,4 +1,4 @@
-// 1.117 security review: PC-05 (share links are stored only as a hash; the address is handed out once) and PC-04 (an agent
+// 1.118 security review: PC-05 (share links are stored only as a hash; the address is handed out once) and PC-04 (an agent
 // holding the CLI token cannot make a file more exposed without the owner's Allow). Scratch folders, fake CLI only.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -57,7 +57,7 @@ test('PC-05 store: a minted link is in the answer only; documents.json holds the
   fs.rmSync(dir,{recursive:true,force:true});
 });
 
-test('PC-05 store: a pre-1.117 record loses its stored address on load, keeps its hash, and its link still opens; one with no hash gets it from the address',()=>{
+test('PC-05 store: a pre-1.118 record loses its stored address on load, keeps its hash, and its link still opens; one with no hash gets it from the address',()=>{
   const dir=tmp(),docsDir=path.join(dir,'documents'),meta=path.join(dir,'documents.json');fs.mkdirSync(docsDir,{recursive:true});
   fs.writeFileSync(path.join(docsDir,'a.md'),'# A');fs.writeFileSync(path.join(docsDir,'b.md'),'# B');fs.writeFileSync(path.join(docsDir,'c.md'),'# C');
   const rec=(id,file,extra)=>({id,file,title:file,kind:'md',size:3,added:'2026-10-01T00:00:00Z',addedBy:'cli',updated:'2026-10-01T00:00:00Z',session:null,project:null,visibility:'link',trashedAt:null,...extra});

@@ -44,7 +44,7 @@ const die = (msg, code = 1) => { console.error(msg); process.exit(code); };
 if (!cmd || cmd === 'help' || cmd === '--help') { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 19).map(l => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(0); }
 let token = '';
 try { token = fs.readFileSync(path.join(dataDir, 'cli-token'), 'utf8').trim(); } catch { die(`No CLI token at ${path.join(dataDir, 'cli-token')}. Is Pocket Code running from this checkout? (POCKET_DATA_DIR=${dataDir})`); }
-// 1.117 (PC-04): how long a share or publish waits for the owner's answer before printing `pending <id>`.
+// 1.118 (PC-04): how long a share or publish waits for the owner's answer before printing `pending <id>`.
 const waitFor = (() => { if (opts.wait === undefined) return 90; const n = Number(opts.wait); if (!Number.isInteger(n) || n < 0 || n > 300) die('--wait takes a number of seconds from 0 to 300'); return n; })();
 // The session's runner token tells Pocket which conversation asked, so the owner's card names it and only it can continue.
 const headers = { authorization: 'Bearer ' + token, 'content-type': 'application/json', ...(process.env.POCKET_RUNNER_TOKEN ? { 'x-pocket-runner': process.env.POCKET_RUNNER_TOKEN } : {}) };
@@ -74,7 +74,7 @@ function card(d, token) {
   const out = [line(d)];
   if (d.session) out.push(`  Session: ${d.session}`);
   if (d.visibility === 'public') out.push(`  Public URL: ${abs(d.url)}`);
-  // 1.117 (PC-05): Pocket keeps only a hash of a share link, so the address is printed only by the command that made it.
+  // 1.118 (PC-05): Pocket keeps only a hash of a share link, so the address is printed only by the command that made it.
   // Later the card says a link exists and when it expires; `share` would make a new one and break the one already given out.
   const expires = d.share?.expiresAt ? `expires ${when(d.share.expiresAt)}` : 'no expiry';
   if (d.visibility === 'link') out.push(token ? `  Share URL: ${abs('/share/' + token)}  (${expires}; shown this once, Pocket keeps only a fingerprint of it)` : `  Shared by link (${expires}). Pocket cannot show the address again; ask the user for the one they were given. pocket-docs share ${d.id} makes a new link and the old one stops working.`);

@@ -410,7 +410,7 @@ request already ended, is a bordered `--warn` line, never a toast. A secret a co
 stored gets a file card (`.vault-card`) with the kind icon in the thumbnail slot and "In the
 Vault" where Files says "In Files".
 
-**What Always allow checks (1.117).** Pinned Operate refinement: variance 2, motion 1, density unchanged; existing
+**What Always allow checks (1.118).** Pinned Operate refinement: variance 2, motion 1, density unchanged; existing
 tokens and classes only. A run request gains, under the command, a dim **Runs** line with the program's full path in
 `.vault-path` mono (for a launcher, the program it starts). A note in body colour at 13.5px (`.vault-request-note`, no
 border) says what Pocket cannot check: inline code, a launcher option it does not know, a file checked only by size and
@@ -420,7 +420,7 @@ default, with one dim line of help: untick a file the command writes. The border
 names the file that changed, in mono, instead of "the program or a file". Rendered checks: no horizontal overflow at 390
 and 1280; the detector reports only the app-shell baseline (flat type hierarchy).
 
-**Variables and what is never allowed always (1.117).** Same pinned refinement (variance 2, motion 1,
+**Variables and what is never allowed always (1.118).** Same pinned refinement (variance 2, motion 1,
 density unchanged), existing classes only. Under **Runs**, a dim **Variables** line in the same `.vault-request-where`
 pattern gives each variable in `.vault-path` mono and the secret it gets in the `.vault-name` mono ("`TOKEN` gets
 reports-api", a login or card field in brackets), one span per variable so a pair wraps whole on a phone, separated by

@@ -1,4 +1,4 @@
-// Follow-ups to the 1.117 sign-in hardening (the independent review's D-5, D-6 and D-7), against the real daemon.
+// Follow-ups to the 1.118 sign-in hardening (the independent review's D-5, D-6 and D-7), against the real daemon.
 // D-5: a missing or older state file never revives a signed-out cookie; a password changed with the upgrade ends the old
 // cookies; signing out removes push subscriptions. D-6: a "known device" cookie lets the owner past a flood of wrong
 // passwords; the address key and the per-address limit hold. D-7: more proxy headers count as "came through a proxy".
@@ -12,7 +12,7 @@ import {createHmac,randomUUID} from 'node:crypto';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
 const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|CODEX)_/.test(k)));
-// A cookie in the form Pocket signed before 1.117 (the expiry alone).
+// A cookie in the form Pocket signed before 1.118 (the expiry alone).
 const legacyCookie=(secret,ms=3600000)=>{const exp=Date.now()+ms;return 'pc_auth='+exp+'.'+createHmac('sha256',secret).update(String(exp)).digest('hex');};
 const mark=(secret,password)=>createHmac('sha256',secret).update('pocket-password\0'+password).digest('hex');
 
@@ -48,7 +48,7 @@ async function server(t,port,env={}){
 test('D-5.1: a deleted, corrupt or earlier-build state file never brings back a signed-out or pre-upgrade cookie',async t=>{
   const s=await server(t,22601);
   const a=(await s.login()).cookie,legacy=legacyCookie(s.secret);
-  assert.equal(await s.me(a),true);assert.equal(await s.me(legacy),true,'a new install starts at generation 0, the pre-1.117 form');
+  assert.equal(await s.me(a),true);assert.equal(await s.me(legacy),true,'a new install starts at generation 0, the pre-1.118 form');
   // The file is removed with no sign-out at all: the next start fails closed.
   await s.stop();fs.unlinkSync(s.state);await s.start();
   assert.equal(await s.me(a),false,'a cookie from before the file went missing signs in no more');
@@ -60,7 +60,7 @@ test('D-5.1: a deleted, corrupt or earlier-build state file never brings back a 
   assert.equal(await s.me(b),false);
   await s.stop();fs.unlinkSync(s.state);await s.start();
   assert.equal(await s.me(b),false,'a cookie ended by Sign out everywhere is not revived by a missing file');
-  // A state file written by the 1.117 release candidate (an integer generation 0) counts as an earlier build.
+  // A state file written by the 1.118 release candidate (an integer generation 0) counts as an earlier build.
   const c=(await s.login()).cookie;
   await s.stop();fs.writeFileSync(s.state,JSON.stringify({generation:0,password:mark(s.secret,'test-only')}));await s.start();
   assert.equal(await s.me(c),false);assert.equal(await s.me(legacyCookie(s.secret)),false,'generation 0 does not come back');

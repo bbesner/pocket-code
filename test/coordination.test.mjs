@@ -56,7 +56,7 @@ test('close-name refusal, and --new records the name for next time',t=>{
   assert.throws(()=>s.hold('shop-livee',{reason:'x',holder:A}),e=>e.code==='close_name','a live hold counts as a known name');
 });
 
-// Seeds (1.117): a new install knows only pocket-main and learns the rest as they are held. An existing install keeps
+// Seeds (1.118): a new install knows only pocket-main and learns the rest as they are held. An existing install keeps
 // every name its file holds, and a name that used to be a seed but is not in the file is held without --new and saved.
 test('seeds: a new install knows only pocket-main and writes nothing until a change',t=>{
   const {s,file}=store(t);

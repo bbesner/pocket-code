@@ -34,7 +34,7 @@ Built in:
   uses up the 20 tries locks the owner's password page for the hour too (a signed-in browser
   is not affected). Set `POCKET_TRUSTED_PROXY=1` only when nothing but that proxy can reach the
   port: with it, anything that reaches the port directly can again choose its own address.
-  Since 1.117 an IPv6 address is counted by its /64 (one home or server network), so stepping
+  Since 1.118 an IPv6 address is counted by its /64 (one home or server network), so stepping
   through addresses in one block no longer buys fresh tries. The instance also keeps one budget
   across all addresses: after 30 wrong passwords in an hour, sign-ins are checked one at a time,
   1 second apart, the gap doubling every 20 more failures up to 10 seconds, and a try that would
@@ -49,21 +49,21 @@ Built in:
   flood lasts (a signed-in browser is not affected). Sign out everywhere or a new
   `POCKET_PASSWORD` ends every known-device cookie.
 - An HMAC-signed, `HttpOnly`, `Secure`, `SameSite=Lax` session cookie with a 90-day expiry.
-  Since 1.117, Settings has **Sign out** (this browser) and **Sign out everywhere**. Sign out
+  Since 1.118, Settings has **Sign out** (this browser) and **Sign out everywhere**. Sign out
   ends the sign-in in this browser only: a copy of the cookie taken earlier stays valid until
   Sign out everywhere or until it expires. Sign out everywhere, and a change of `POCKET_PASSWORD` noticed at the next start, move the instance to a
   new sign-in generation (kept in `auth-state.json` in the data directory, mode `0600`, holding a
   keyed hash of the password, never the password), and every cookie from an earlier generation
   stops working. A start that finds no usable `auth-state.json` in a data folder a daemon has
-  used before (the first start after upgrading to 1.117, or a deleted, unreadable or corrupt
+  used before (the first start after upgrading to 1.118, or a deleted, unreadable or corrupt
   file) begins a new generation: every browser signs in once after the upgrade, a password
   changed in the same restart ends the old cookies, and deleting the file signs everyone out
   rather than reviving an old cookie. "Used before" is read from the files every start leaves
   in the data folder (`cli-token`, `cli-url`, `auth-state.json`); a folder with none of them is
-  a new install, which starts with the pre-1.117 cookie form until the first Sign out
+  a new install, which starts with the pre-1.118 cookie form until the first Sign out
   everywhere. The limits: a data folder restored from a backup that holds an older
   `auth-state.json` brings that generation back, and the cookies it signed work again until they
-  expire; removing all three files makes the folder look new, so cookies in the pre-1.117 form
+  expire; removing all three files makes the folder look new, so cookies in the pre-1.118 form
   (from before the upgrade, at most 90 days old) work again. Choose Sign out everywhere after a
   restore. Anyone who can change the data folder runs as the service's user and can read
   `POCKET_SECRET` and make a cookie anyway, so these limits give such a caller nothing new. Two
@@ -74,9 +74,9 @@ Built in:
   Cloudflare Access and One sign-in in front, a signed-out browser is signed in again by Access
   without the password; to end those sessions too, revoke them in Cloudflare.
 - `Strict-Transport-Security: max-age=31536000` on responses to requests that reached the
-  tunnel or proxy over HTTPS (`X-Forwarded-Proto` or Cloudflare's `CF-Visitor`), since 1.117.
+  tunnel or proxy over HTTPS (`X-Forwarded-Proto` or Cloudflare's `CF-Visitor`), since 1.118.
 - `/api/health` tells a caller that is neither signed in nor a direct loopback connection only
-  `{"ok":true}` (since 1.117); the running counts and uptime are for the owner and the box itself.
+  `{"ok":true}` (since 1.118); the running counts and uptime are for the owner and the box itself.
 - **A reverse proxy must send `X-Forwarded-For`** (and `X-Forwarded-Proto`). Pocket tells a request
   made on the box from one that came through a proxy by the proxy's headers: `X-Forwarded-For`,
   `Forwarded`, `X-Real-IP` or Cloudflare's `CF-Connecting-IP`. A proxy that sends none of them,
@@ -85,7 +85,7 @@ Built in:
   `X-Forwarded-Proto` HSTS is not sent. Cloudflare Tunnel, Caddy and Tailscale Serve send
   `X-Forwarded-For` themselves; nginx needs the two `proxy_set_header` lines in
   `docs/install.md`.
-- Uploads are written mode `0600` in folders that are `0700` (since 1.117), whatever the umask.
+- Uploads are written mode `0600` in folders that are `0700` (since 1.118), whatever the umask.
 - A Content-Security-Policy on every response: same-origin scripts, styles and
   connections only, no remote images (so Markdown written by an agent cannot load an
   image from, and leak text to, an outside host), and `frame-ancestors 'self'` plus
@@ -103,7 +103,7 @@ Recommended:
 - An identity layer in front (for example Cloudflare Access) for a second factor.
 - Running as a user whose access you're comfortable handing to an agent.
 
-Changing `POCKET_SECRET` or `POCKET_PASSWORD` signs everyone out (the password since 1.117).
+Changing `POCKET_SECRET` or `POCKET_PASSWORD` signs everyone out (the password since 1.118).
 
 ## Pause all and Automation (1.117)
 
@@ -141,11 +141,11 @@ the following.
 **File visibility.** Each file in Files is one of three kinds, and new files are private.
 - *Private*: opened only behind Pocket's login.
 - *Link*: opened at `/share/<token>` by anyone who has the address. The token is
-  unguessable and the link can carry an expiry. Since 1.117 only a hash of the token is
+  unguessable and the link can carry an expiry. Since 1.118 only a hash of the token is
   kept: the address is handed out once, in the answer that made it, and neither the
   library nor `documents.json` can show it again. A lost address is replaced with a new
-  link, which stops the old one. A `documents.json` written before 1.117 also held each
-  address in plain text; the first start of 1.117 removes those (keeping each hash, or making
+  link, which stops the old one. A `documents.json` written before 1.118 also held each
+  address in plain text; the first start of 1.118 removes those (keeping each hash, or making
   it from the address when it was missing) and writes the file back, so links already handed
   out keep working. Copies of the old file in backups still hold the addresses: revoke or
   replace a link if a backup may have been read.
@@ -181,7 +181,7 @@ Since 1.89 an image's format is read from the file's first bytes and must be PNG
 WebP; ImageMagick is told that coder (`png:`, `jpeg:`, `gif:`, `webp:`), so a `.png` holding
 PostScript or SVG gets no picture instead of reaching Ghostscript or the SVG reader (which can
 read other local files into the picture). A JPEG or WebP saved as `.png` is pictured as what it is. You can also restrict ImageMagick's coders in its `policy.xml`.
-Since 1.117 an HTML file is pictured inside a sandboxed frame (no scripts, forms or plugins) under a
+Since 1.118 an HTML file is pictured inside a sandboxed frame (no scripts, forms or plugins) under a
 policy that allows only inline styles and `data:` images and fonts, from a folder holding nothing
 else, and Chrome runs with every host name unresolvable and every network request sent to a proxy
 that does not exist. A hostile page can no longer picture another local file or reach a server
@@ -201,7 +201,7 @@ includes a browser fill, which hands the value to the caller that asked for it: 
 holds the token can obtain any value an agent could have filled. Don't put the data directory
 on a shared path.
 
-**Agents and sharing (1.117).** Text an agent reads can try to trick it, so the token cannot make a
+**Agents and sharing (1.118).** Text an agent reads can try to trick it, so the token cannot make a
 file more exposed on its own. With the token an agent can keep files, edit their title, project and
 conversation, and make a file private or its link shorter-lived. Anything that exposes a file more
 (private to link or public, link to public, a new or replacement share link, a later expiry or none,
@@ -343,7 +343,7 @@ user, so a replacement with the same size and dates still differs). A run matche
 unchanged; otherwise the request names what changed, and nothing runs. The owner can mark an argument file as data the
 command writes itself (an output, log or state file) when choosing *Always allow*; its content is then not compared.
 
-**Variables (1.117).** A recipe records which variable gets which item (and which field of a login or card), and a run
+**Variables (1.118).** A recipe records which variable gets which item (and which field of a login or card), and a run
 matches only the same set: the same command run with the value under another name, with another item for a name, or
 with a variable added asks again, and the request shows each variable with the item it gets. Some names cannot be
 bound at all, because a program acts on them by itself, before or instead of anything the approved command does with
@@ -360,7 +360,7 @@ read); programs started by name (`PAGER`, `MANPAGER`, `EDITOR`, `VISUAL`, `BROWS
 `GITHUB_TOKEN`, `AWS_SECRET_ACCESS_KEY`, `NPM_TOKEN` and `PGPASSWORD` are not affected. The list cannot name every
 variable every program reads; the variable line on the request is what shows the rest.
 
-**What runs is what was checked (1.117).** Every pinned file is opened once and hashed from that open file. On Linux, a
+**What runs is what was checked (1.118).** Every pinned file is opened once and hashed from that open file. On Linux, a
 native program is started from that same open file (`/proc/self/fd/N`), so a file renamed or rewritten after the check
 does not run; a setuid or setgid program is started by path. A shell script (one handed to `sh`, `dash`, `bash`, `ash`,
 `ksh` or `mksh`, or a program whose `#!` line names one) runs from a private, read-only copy of the bytes that were
@@ -376,7 +376,7 @@ themselves; the modules a script imports would stay unchecked in any case. So th
 such a script or a folder above it. What protects a credential is a script in a folder the agent's user cannot write
 (nor any folder above it), or *Allow once* after reading the script.
 
-**Commands Pocket does not offer Always allow (1.117).** When Pocket cannot tell what a command will run, the request
+**Commands Pocket does not offer Always allow (1.118).** When Pocket cannot tell what a command will run, the request
 says why in one sentence, and offers *Allow once* and *Deny* only: an interpreter with no script it can find (`node`
 with no file, `xargs … sh` reading names from a file, a `-r` path that does not exist, a module `python3 -m` would load
 from a partial package); a program that runs what it finds (`find -exec`, `-execdir`, `-ok`, `node --test`, `bun test`,
@@ -410,7 +410,7 @@ this is a wall: it stops a tricked agent from quietly changing what an approved 
 matters, use *Ask every time*, set `POCKET_VAULT_PATH` to folders this user cannot write, and allow always only commands
 whose whole behaviour sits in files the agent cannot write.
 
-**Recipes saved before 1.117.** Every command allowed always before 1.117 asks once more, because none recorded which
+**Recipes saved before 1.118.** Every command allowed always before 1.118 asks once more, because none recorded which
 variable gets which item: the request says so and shows the variables, and *Always allow* keeps the same entry and
 records them, with the content as it is checked now. A recipe with no content recorded says it was allowed before
 Pocket checked what a command runs. A command that Pocket now refuses as above asks every time.
@@ -456,7 +456,7 @@ the name each one will fill is reserved until it ends. The page shows the link's
 the fields, never another item, name or value. It is sent `no-store`, `noindex`, with `Referrer-Policy: same-origin`,
 `X-Frame-Options: DENY` and a CSP of `default-src 'none'` with same-origin script, style and form action only; the page
 has no inline code. A post needs the link's own form nonce, and a post another site makes is refused by `Origin` or
-`Sec-Fetch-Site`. The per-address limits apply only to an address Pocket can place (since 1.117): a `cf-connecting-ip` it
+`Sec-Fetch-Site`. The per-address limits apply only to an address Pocket can place (since 1.118): a `cf-connecting-ip` it
 trusts (by the rules above), or the connection's own address when the request came through no proxy, an IPv6 address
 counted by its /64. Such an address gets 60 page loads and 15 posts per ten minutes and 20 unknown tokens an hour. A
 caller behind a tunnel or proxy that Pocket cannot place is not counted per address, so a stranger's wrong links cannot

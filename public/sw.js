@@ -57,7 +57,7 @@ const answerVault = (request, action, url) => {
     body: JSON.stringify({ action: 'answer', request, decision: action === 'allow' ? 'once' : 'deny' }),
   }).then(r => { if (!r.ok) return missed(missedWhy(r.status)); }, () => missed('offline'));
 };
-// 1.117 (PC-04): an agent's share or publish of a file is answered the same way; if the answer does not land (signed out,
+// 1.118 (PC-04): an agent's share or publish of a file is answered the same way; if the answer does not land (signed out,
 // already answered, expired, the file changed, offline), Files opens with the request card.
 const answerDoc = (request, action) => fetch('/api/documents/requests/' + encodeURIComponent(request) + '/answer', {
   method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },

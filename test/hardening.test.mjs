@@ -1,4 +1,4 @@
-// 1.117 security hardening (the 2026-11-21 authentication review), checked against the real daemon with the fake CLIs.
+// 1.118 security hardening (the 2026-11-21 authentication review), checked against the real daemon with the fake CLIs.
 // PC-06 sign-out and revocation; PC-07 the login limit across addresses; PC-08 intake limits; PC-10 /api/health;
 // PC-11 HSTS; PC-12 the time zone by POST; PC-13 upload modes;
 // PC-09 the fixed dependency versions.
@@ -14,7 +14,7 @@ import {newKey} from '../vault.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
 const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|CODEX)_/.test(k)));
-// A cookie signed the way Pocket signed every cookie before 1.117 (generation 0: the expiry alone).
+// A cookie signed the way Pocket signed every cookie before 1.118 (generation 0: the expiry alone).
 const legacyCookie=(secret,ms=3600000)=>{const exp=Date.now()+ms;return 'pc_auth='+exp+'.'+createHmac('sha256',secret).update(String(exp)).digest('hex');};
 
 async function server(t,port,env={}){

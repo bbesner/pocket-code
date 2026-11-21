@@ -617,7 +617,7 @@ export class VaultStore {
     let id = shortId(); for (let n = 0; this.requests.has(id); n++) { if (n >= 8) throw fail('Could not number the request; try again.', 500); id = shortId(); } // never over an existing row
     // PC-02: the row keeps the pin of what was asked about (an Always saves it, a continuation must still match it) and says
     // when an approved command asks again because what it runs changed, or because it was approved before content was checked.
-    // 1.117 (D-3): it also names the files that changed, and carries the arguments an earlier Always marked as data.
+    // 1.118 (D-3): it also names the files that changed, and carries the arguments an earlier Always marked as data.
     cmd = VaultStore.withBindings(cmd, bound);
     const change = VaultStore.recipeChange(need, cmd), data = cmd.pin ? VaultStore.dataPaths(need, cmd) : [];
     const r = { id, action: VaultStore.actionOf(cmd), items: need.map(i => i.id), itemNames: need.map(i => i.name), argv: cmd.argv, cwd: cmd.cwd, env, session, sessionTitle, by, created: iso(now), expiresAt: iso(now + LIMITS.requestTtlMs), answer: null, consumed: false, waiters: [], allowAlways: need.every(i => this.effective(i) !== 'every') && !VaultStore.unpinnable(cmd.pin),
@@ -666,7 +666,7 @@ export class VaultStore {
     r.consumed = true;
     return { request: r, bound, cmd };
   }
-  // 1.117 (D-3): `data` lists arguments the owner says the command writes itself (an output, log or state file); an
+  // 1.118 (D-3): `data` lists arguments the owner says the command writes itself (an output, log or state file); an
   // Always saves them unchecked. Only a file the command names as a plain argument can be marked (never the program, an
   // interpreter, a launched program or the script); left out, the marks an earlier Always made for this command stay.
   answer(id, decision, { data } = {}) {
@@ -809,7 +809,7 @@ export function scrubber(values, placeholder = '{{vault}}') { return makeScrubSt
 // KILL after five seconds), and so does the command's own exit: whatever it started and left running is ended, so a run
 // cannot leave a daemon behind holding the values or the output pipes. The run resolves within about two seconds of the
 // command's exit even if something outside the group still holds a pipe.
-// PC-02: `file` is the program pinCommand found (run by full path, with argv[0] kept as the program's own name). 1.117:
+// PC-02: `file` is the program pinCommand found (run by full path, with argv[0] kept as the program's own name). 1.118:
 // `plan` (prepareRun) says how to start what was checked: the file (a /proc/self/fd path when the program runs from the
 // handle that was hashed), the arguments (a shell script's replaced by its private copy), argv[0], and the handles the
 // child gets as fd 3 and up. The caller checks the plan (plan.verify()) immediately before this call; the spawn happens

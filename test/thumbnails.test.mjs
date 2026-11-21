@@ -119,7 +119,7 @@ test('HTTP: /thumb needs the login, says which kinds it can picture, serves the 
   assert.ok(fs.existsSync(path.join(docsDir,'.thumbs')));
   const again=await (await fetch(base+'/api/documents',{headers:auth})).json();assert.equal(again.documents.length,2,'the .thumbs folder is not adopted as documents');
 });
-// 1.117 (PC-03): Chrome rendered an HTML document as a file:// page with script and network on, so a document from outside
+// 1.118 (PC-03): Chrome rendered an HTML document as a file:// page with script and network on, so a document from outside
 // (an email attachment, a downloaded page) could frame another local file into its picture or make requests from the server.
 // Real Chrome and ImageMagick: each hostile document paints red and tries to show a green local file, or to reach a local
 // HTTP server that answers green; the picture's centre must stay red and the server must hear nothing.

@@ -260,7 +260,7 @@ Pocket-owned persistent state includes:
   neither holds a readable value, and `vault.enc` is useless without its key;
 - the documents folder (`POCKET_DOCUMENTS_DIR`, default `documents/`), holding the stored
   files, a `.trash/` folder of removed files, and a `.thumbs/` cache of preview pictures;
-- `auth-state.json` (mode `0600`, since 1.117), the sign-in generation and a keyed hash of the
+- `auth-state.json` (mode `0600`, since 1.118), the sign-in generation and a keyed hash of the
   password (never the password). Sign out everywhere writes a new generation here. Restoring an
   older copy brings back the cookies of that generation, and deleting it signs every browser out
   at the next start; after a restore, use **Sign out everywhere**;
@@ -440,7 +440,7 @@ sessions together, after which every unlock and key restore waits out the hour a
 `vault: 50 wrong passphrases or keys within the hour across all sessions`. See `docs/install.md`
 and `SECURITY.md`.
 
-Since 1.117 an IPv6 caller counts by its /64, and the login also keeps one budget across all
+Since 1.118 an IPv6 caller counts by its /64, and the login also keeps one budget across all
 addresses: past 30 wrong passwords in an hour, sign-ins are checked one at a time with a pause that
 starts at 1 second and grows to 10, and a try that would wait more than 20 seconds is told to try
 again in a minute (`busy`). A browser that signed in before carries a known-device cookie
@@ -540,7 +540,7 @@ checked with the filtered agent environment (that `PATH`) plus the bound values,
 piped back through a filter that replaces each value (and its base64, URL-encoded, hex and reversed
 forms) with `{{vault:name}}`. On Linux a native program is started from the file it hashed
 (`/proc/self/fd`) and a shell script from a private copy of what was hashed; anything else is hashed
-again just before the start (since 1.117). An *Always allow* recipe matches only while those hashes are
+again just before the start (since 1.118). An *Always allow* recipe matches only while those hashes are
 unchanged; a recipe saved before they were recorded asks once more. At start, with the Vault on, the
 log warns about each folder on that `PATH` this user can write to, create or replace. Output is capped at 1 MB and a run is stopped after 10 minutes by default.
 Since 1.73.7 the command leads its own process group, and its exit, the timeout, the cap or a

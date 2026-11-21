@@ -766,7 +766,7 @@ test('pinCommand (PC-02): the program, a #! interpreter and the one env names, f
   const p2=await pinCommand({argv:['./tool.sh','--config=conf.json','data.txt','-v','missing.txt',dir],cwd:dir},{PATH});assert.notEqual(pinKey(p2),pinKey(p),'the interpreter env finds is part of it');
   await assert.rejects(pinCommand({argv:['no-such-program-pc02'],cwd:dir},{PATH}),e=>e.status===400&&/not found on the Vault's PATH/.test(e.message));
   assert.equal(runPath('relative::/usr/bin:.:/bin'),'/usr/bin:/bin');
-  // 1.117 (D-2): a file that cannot be hashed (here: unreadable) is recorded by its size and times, so the same file matches
+  // 1.118 (D-2): a file that cannot be hashed (here: unreadable) is recorded by its size and times, so the same file matches
   // (an Allow once can run it) and a replaced one does not.
   if(process.getuid?.()!==0){fs.chmodSync(path.join(dir,'data.txt'),0);const u=await pinCommand({argv:['./tool.sh','data.txt'],cwd:dir},{PATH});const f=u.files.find(x=>x.path===path.join(dir,'data.txt'));assert.equal(f.why,'unreadable');assert.equal(f.sha256,undefined);assert.equal(f.stamp.size,'1');assert.equal(VaultStore.pinsMatch(u,u),true);
    fs.rmSync(path.join(dir,'data.txt'));fs.writeFileSync(path.join(dir,'data.txt'),'y',{mode:0});assert.equal(VaultStore.pinsMatch(u,await pinCommand({argv:['./tool.sh','data.txt'],cwd:dir},{PATH})),false,'a replacement of the same size is a new file');}

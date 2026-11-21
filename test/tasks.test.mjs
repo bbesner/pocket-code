@@ -173,7 +173,7 @@ test('HTTP: tasks are off until Settings turns them on, the loopback token serve
   await cli(['remove',JSON.parse(out.stdout).id]);
   // 1.81 (#178): once the owner's browser reports a zone, the CLI prints in it and an offsetless --due is read in it too, so the
   // printed time passed back is the same time. The daemon's POCKET_TZ is America/New_York, six hours behind Berlin.
-  assert.equal((await call('/timezone',{tz:'Europe/Berlin'})).status,200); // 1.117: a POST, no longer GET /api/me?tz=
+  assert.equal((await call('/timezone',{tz:'Europe/Berlin'})).status,200); // 1.118: a POST, no longer GET /api/me?tz=
   out=await cli(['add','Zone check','--due','2027-03-10T09:00']);assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/due Mar 10, 2027, 9:00\s?AM GMT\+1/);
   const zid=/\(([0-9a-f]{12})\)/.exec(out.stdout)[1];assert.equal(JSON.parse((await cli(['show',zid,'--json'])).stdout).dueAt,'2027-03-10T08:00:00Z');
   out=await cli(['edit',zid,'--due','2027-03-10T09:00-05:00']);assert.match(out.stdout,/due Mar 10, 2027, 3:00\s?PM GMT\+1/,'an explicit offset is taken as written');

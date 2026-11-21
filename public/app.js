@@ -690,7 +690,7 @@ function renderUnreachable(e) {
   clearTimeout(renderUnreachable.timer);
   renderUnreachable.timer = setTimeout(() => { if (document.querySelector('[data-offline]')) route(); }, 10000);
 }
-// 1.117: the owner's time zone (Inbox Watch, quiet hours, due times) goes to the server with a POST once per page load.
+// 1.118: the owner's time zone (Inbox Watch, quiet hours, due times) goes to the server with a POST once per page load.
 let zoneReported = false;
 function reportTimezone() {
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; if (zoneReported || !tz) return; zoneReported = true;
@@ -1206,7 +1206,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
   sh.querySelector('#s-access-form').onsubmit = e => { e.preventDefault(); saveAccess({ team: sh.querySelector('#s-access-team').value, aud: sh.querySelector('#s-access-aud').value, emails: sh.querySelector('#s-access-emails').value }, 'One sign-in saved'); };
   sh.querySelector('#s-access-off').onclick = () => confirmSheet('Turn off one sign-in?', 'Pocket asks for its own password again after Cloudflare Access. Browsers already signed in stay signed in for up to a day.', 'Turn off', () => saveAccess({ enabled: false }, 'One sign-in is off'));
   sh.querySelector('#s-access-reset').onclick = () => saveAccess(null, 'Using the server\'s values');
-  // 1.117: sign out this browser, or every browser (the server ends every earlier cookie); either way the sign-in page follows.
+  // 1.118: sign out this browser, or every browser (the server ends every earlier cookie); either way the sign-in page follows.
   // D-5.3: the server forgets this browser's push subscription (Sign out everywhere forgets them all) and the browser drops it.
   const signOut = async everywhere => {
     const err = sh.querySelector('#s-signout-error'); err.textContent = '';

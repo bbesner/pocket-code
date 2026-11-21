@@ -24,7 +24,7 @@ function mergeDoc(d){
  (d.trashedAt?docsSnap.trash:docsSnap.documents).unshift(d);
  docsSnap.documents.sort((a,b)=>Date.parse(b.added)-Date.parse(a.added));
 }
-// 1.117 (PC-05): a new link's token goes back to the caller (the share sheet shows it once), never into the snapshot.
+// 1.118 (PC-05): a new link's token goes back to the caller (the share sheet shows it once), never into the snapshot.
 async function docAct(id,body,done){
  try{const d=await api('/documents/'+encodeURIComponent(id),{method:'POST',body:JSON.stringify(body)});const {token,...kept}=d;mergeDoc(kept);if(done)toast(done);paintDocumentsView();paintRailDocuments();if(typeof paintProjectsView==='function')paintProjectsView();return d;}
  catch(e){toast(e.message||'Could not update the file');return null;}
@@ -47,7 +47,7 @@ const KIND_GROUPS=[['html','HTML reports'],['pdf','PDFs'],['image','Images'],['t
 const visWord={private:'Private',link:'Link',public:'Public'};
 const visLong={private:'Private',link:'Anyone with the link',public:'Public'};
 const docRawUrl=(d,download)=>'/api/documents/'+encodeURIComponent(d.id)+'/raw'+(download?'?download=1':'');
-// 1.117 (PC-05): only a public file has an address to copy later. A link's address is shown once, when it is made: the
+// 1.118 (PC-05): only a public file has an address to copy later. A link's address is shown once, when it is made: the
 // server keeps a hash of it, so the library can say a link exists and when it expires, and offer a new one.
 const docShareUrl=d=>d.visibility==='public'&&d.url?location.origin+d.url:'';
 const docAppUrl=d=>location.origin+'/#/documents/'+d.id; // the in-app address: needs the Pocket login
@@ -150,7 +150,7 @@ function docTrashHTML(){
   <div class="doc-trash-head"><p class="sheet-help">Removed files stay here for ${docsSnap.limits?.trashDays||30} days, then are deleted. Delete forever frees the space now.</p><button class="chip doc-danger" id="doc-empty-trash">Empty trash</button></div>
   ${t.map(d=>`<div class="session-item document-item" data-item="${esc(d.id)}"><span class="row"><span class="body"><span class="title"><span class="doc-kind">${KIND_WORD[d.kind]||'FILE'}</span>${esc(d.title)}</span><span class="meta">Removed ${esc(rel(Date.parse(d.trashedAt)))} · ${esc(fmtSize(d.size))}</span></span></span><button class="chip doc-restore" data-restore="${esc(d.id)}">Restore</button><button class="session-more icon" data-document-more="${esc(d.id)}" aria-label="Options for ${esc(d.title)} in the trash">${IC.more}</button></div>`).join('')}</details>`;
 }
-/* ---------- 1.117 (PC-04): an agent's share or publish waits for the owner ---------- */
+/* ---------- 1.118 (PC-04): an agent's share or publish waits for the owner ---------- */
 // The Vault's request card, for a file: who asks, the file, the exact change, where the file came from, and Allow or Deny. The
 // server makes exactly that change on Allow, once, and only if the file and its sharing are still what this card shows.
 const docRequests=()=>docsSnap?.requests||[];
@@ -328,7 +328,7 @@ function documentOptions(id){
  sh.querySelector('[data-trash]')?.addEventListener('click',()=>{close();confirmSheet('Remove this file?',`It moves to the trash for ${docsSnap?.limits?.trashDays||30} days and any share or public link stops working. Restore it from the library's Trash.`,'Remove',async()=>{const r=await docAct(id,{action:'trash'},'Moved to the trash');if(r&&docView==='documents/'+id)location.hash=viewHref('documents');});});
  mountSheet(scrim,sh);
 }
-// 1.117 (PC-05): `fresh` is the token of a link this device has just made; its address is shown this once, with Copy. A link
+// 1.118 (PC-05): `fresh` is the token of a link this device has just made; its address is shown this once, with Copy. A link
 // made earlier shows only that it is open and when it expires, with Make a new link (the old one stops) and Revoke link.
 function shareSheet(id,fresh){
  const d=docById(id);if(!d)return;

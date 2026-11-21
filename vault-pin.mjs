@@ -5,7 +5,7 @@
 // that names an existing regular file, each by absolute path and SHA-256 of its content. A recipe matches only while all
 // of that is unchanged.
 //
-// 1.117 (independent review, D-1 to D-4):
+// 1.118 (independent review, D-1 to D-4):
 // - What was hashed is what runs, as far as Linux allows: every pinned file is opened once and hashed from that handle.
 //   The program, when it is a native binary, is started from that very handle (/proc/self/fd/N); a shell script (the
 //   script handed to sh, dash, bash, ash, ksh or mksh, or a program whose #! line names one) runs from a private copy of

@@ -90,7 +90,7 @@ Every file starts **Private**. Click **Share** (in the toolbar or the file's opt
 
 When you make a link, the sheet shows its address once, with **Copy**. Copy it then: Pocket keeps only a fingerprint (a hash) of the address, so it cannot show it again. Afterwards the sheet says a link is open and when it expires, with **Make a new link** and **Revoke link**. **Make a new link** shows a new address once and the old one stops working at once; **Revoke link** makes the file private. **Expires** sets **Never**, **In 7 days** or **In 30 days**. Switching away from **Anyone with the link** also ends the old link; switching back makes a new one. Public files have **Copy link** in the toolbar, the options and on their row or card, since their address is fixed.
 
-Links made before 1.117 keep working after the upgrade, but their addresses are no longer stored, so Pocket cannot show them; use the address you sent, or make a new link.
+Links made before 1.118 keep working after the upgrade, but their addresses are no longer stored, so Pocket cannot show them; use the address you sent, or make a new link.
 
 ### When an agent asks to share
 
@@ -149,7 +149,7 @@ Each variable takes a path; an empty value turns that tool off. Without a tool f
 
 Since 1.89 the tool reads a private copy of the file as Pocket opened and checked it, never the file by its name, and an image's format is read from the file's first bytes and must be PNG, JPEG, GIF or WebP. A JPEG or WebP saved under a `.png` name still gets its picture. Any other file, such as a `.png` that holds SVG or PostScript, gets no picture; the card shows the kind's name and the daemon log says `thumbnail failed … not a PNG, JPEG, GIF or WebP picture`.
 
-Since 1.117 an HTML file's picture is drawn with its scripts off and the network shut: Chrome cannot look up any host, and the page cannot load another local file. A report's own text, inline styles and `data:` images appear; its remote images, web fonts and charts drawn by script do not. Opening the file shows everything as before.
+Since 1.118 an HTML file's picture is drawn with its scripts off and the network shut: Chrome cannot look up any host, and the page cannot load another local file. A report's own text, inline styles and `data:` images appear; its remote images, web fonts and charts drawn by script do not. Opening the file shows everything as before.
 
 ### Limits
 
@@ -249,7 +249,7 @@ pocket-docs set 9c1e5b7d4e8f --visibility private
 | A row says **(file missing)** | The stored file was deleted or moved on the server. Its links return 404. | Put the file back in the folder under the same name, or remove the record. |
 | No preview pictures | The server has no tool for that kind, or the tool failed. | Install Chrome or Chromium, poppler or ImageMagick, or point `POCKET_CHROME`, `POCKET_PDFTOPPM` or `POCKET_CONVERT` at it. Failures are in the server log. |
 | A share link stopped working | The file was made private, given a new link, removed, its link expired, or Files was turned off. | Share it again. |
-| Pocket does not show a link you made earlier | Pocket keeps only a hash of a share link's address, so it shows it once, when it is made (since 1.117). | Use the address you copied or sent, or **Make a new link** (the old one stops working). |
+| Pocket does not show a link you made earlier | Pocket keeps only a hash of a share link's address, so it shows it once, when it is made (since 1.118). | Use the address you copied or sent, or **Make a new link** (the old one stops working). |
 | An agent says its share is `pending` | Sharing or publishing waits for your **Allow**. | Answer the card at the top of Files, or the notification. |
 | **Allow** says the file changed | The file's content, name or sharing changed after the agent asked, so nothing was shared. | Ask the agent to ask again if you still want it shared. |
 | A share request is refused: *That file is not a regular file inside the library* | The stored file was replaced by a link or something other than a plain file, so Pocket will not share it. | Put the real file back in the library's folder, or keep it again with `pocket-docs add`. |

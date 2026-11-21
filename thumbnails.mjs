@@ -141,7 +141,7 @@ export class Thumbnailer {
       return null;
     } finally { file.close(); await fsp.rm(work, { recursive: true, force: true }); }
   }
-  // 1.117 (PC-03): no network at all. Every host name fails to resolve, and every request, an IP address or loopback
+  // 1.118 (PC-03): no network at all. Every host name fails to resolve, and every request, an IP address or loopback
   // included, is sent to a proxy whose own name does not resolve, so the page can neither reach the internet, this box's
   // other services nor the cloud metadata address, nor tell anyone it was rendered. (Script is off in the document's own
   // frame, see htmlPage; Chrome's --blink-settings=scriptEnabled=false would also stop --screenshot itself.)
@@ -152,7 +152,7 @@ export class Thumbnailer {
       `--window-size=${THUMB.width * 2},${THUMB.height * 2}`, '--force-device-scale-factor=0.5', '--virtual-time-budget=4000', '--screenshot=' + out, url], { timeout: this.timeoutMs, cwd: work });
     return fs.existsSync(out) ? out : null;
   }
-  // 1.117 (PC-03): an HTML document is pictured inside a page of ours, never opened as a file:// page itself (which could
+  // 1.118 (PC-03): an HTML document is pictured inside a page of ours, never opened as a file:// page itself (which could
   // frame, embed or redirect to any other local file, and the picture would show it). The document goes into a sandboxed
   // srcdoc frame: an opaque origin with no script, no top navigation and nothing from file://. The outer page's policy, which
   // the frame inherits and which is also put at the top of the document, allows only inline styles and data: images and

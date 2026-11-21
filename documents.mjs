@@ -6,8 +6,8 @@
 // Removing a document moves it to .trash for 30 days, then purges it; since 1.45 the owner can also delete a
 // trashed file at once (Delete forever, Empty trash), which takes its file, its thumbnails and its record. HTML is
 // served sandboxed, never under the app origin's authority.
-// 1.117 (PC-05): a share link's token is never stored, only its hash; the address is handed out once, when it is made.
-// 1.117 (PC-04): an agent (the CLI token) may keep and edit private files, and make a file less exposed, but a change that
+// 1.118 (PC-05): a share link's token is never stored, only its hash; the address is handed out once, when it is made.
+// 1.118 (PC-04): an agent (the CLI token) may keep and edit private files, and make a file less exposed, but a change that
 // exposes a file more (a link, a new or longer-lived link, a public address) waits for the owner's Allow, the way a Vault
 // request does: one request per document and change, answered once by the owner, and carried out only if the file's content
 // and its sharing are still what the owner was shown.
@@ -66,7 +66,7 @@ export class DocumentStore {
     this.requests = new Map(); // PC-04: id -> a request for the owner; memory only, so a restart drops it and changes nothing
     this.migrated = this.dropStoredLinks();
   }
-  // PC-05: records written before 1.117 kept the share address (`share.url`, the token in plain text) beside its hash. The
+  // PC-05: records written before 1.118 kept the share address (`share.url`, the token in plain text) beside its hash. The
   // address goes and the hash stays, so links already handed out keep working; a record with an address and no hash gets the
   // hash of the address's token first. The file is written back at once so the tokens leave the disk. Returns how many changed.
   dropStoredLinks() {
@@ -153,7 +153,7 @@ export class DocumentStore {
   }
   addFromBuffer(name, buffer, opts = {}) {
     const safe = safeName(name); if (!safe) throw fail('That file type cannot be kept in Files.');
-    if (!Buffer.isBuffer(buffer) || !buffer.length) throw fail('The upload is empty.'); // 1.117: a JSON body arrives parsed (an array has a length too)
+    if (!Buffer.isBuffer(buffer) || !buffer.length) throw fail('The upload is empty.'); // 1.118: a JSON body arrives parsed (an array has a length too)
     this.check(opts);
     const file = this.uniqueFile(safe), at = iso(this.now()), dest = path.join(this.dir, file);
     fs.writeFileSync(dest, buffer, { mode: 0o600 });

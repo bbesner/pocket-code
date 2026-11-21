@@ -2470,7 +2470,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    const shareUrl=await page.$eval('#share-url',e=>e.value);assert.match(shareUrl,new RegExp('^'+base.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'/share/[A-Za-z0-9_-]{40,}$'));
    const shared=await page.goto(shareUrl);assert.equal(shared.status(),200);assert.match(shared.headers()['content-security-policy'],/frame-ancestors 'none'/);
    await back();await clickControl(page,'.doc-tools [data-share]');await page.waitForSelector('.share-sheet [data-reshare]');
-   // 1.117 (PC-05): a link made earlier is not shown again; the sheet says it is open, with Make a new link and Revoke link.
+   // 1.118 (PC-05): a link made earlier is not shown again; the sheet says it is open, with Make a new link and Revoke link.
    assert.equal(await page.$('.share-sheet #share-url'),null,'an existing link is not shown again');assert.ok(await page.$('.share-sheet [data-revoke]'),'Revoke link is offered');
    assert.equal(await page.$('.doc-tools [data-copy-link]'),null,'no Copy link for a link the library cannot show');
    await clickControl(page,'.share-sheet [data-reshare]');await page.waitForSelector('.share-sheet #share-url');const shareUrl2=await page.$eval('#share-url',e=>e.value);assert.notEqual(shareUrl2,shareUrl);
@@ -2479,7 +2479,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    const pubUrl=await page.$eval('#share-url',e=>e.value);assert.match(pubUrl,/\/files\/ops-dashboard\.html$/);assert.equal((await page.goto(pubUrl)).status(),200);await back();
    await clickControl(page,'.doc-tools [data-share]');await page.waitForSelector('.share-sheet');await clickControl(page,'.share-sheet [data-v="private"]');await page.waitForFunction(()=>!document.querySelector('.share-sheet'));
    assert.equal((await page.goto(pubUrl)).status(),404,'private again');await back();
-   // 1.117 (PC-04): an agent's publish waits for the owner: the Vault's request card at the top of Files, the exact change,
+   // 1.118 (PC-04): an agent's publish waits for the owner: the Vault's request card at the top of Files, the exact change,
    // and Allow or Deny. Allow does exactly that change; Deny leaves the file as it was.
    const dashId=await page.evaluate(()=>docsSnap.documents.find(d=>d.kind==='html').id);
    const seed=change=>page.evaluate(async(doc,change)=>(await fetch('/api/documents/requests/seed',{method:'POST',body:JSON.stringify({doc,change})})).json(),dashId,change);

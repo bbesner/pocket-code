@@ -446,7 +446,7 @@ const BOARD_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-board.mjs');
 // the board serves pocket-docs on /api/documents* only.
 const DOCS_DIR = process.env.POCKET_DOCUMENTS_DIR || path.join(DATA_DIR, 'documents');
 const docs = new DocumentStore(DOCS_DIR, path.join(DATA_DIR, 'documents.json'));
-if (docs.migrated) log(docs.migrateError ? `documents: ${docs.migrated} share address(es) could not be removed from documents.json yet: ${docs.migrateError}` : `documents: removed ${docs.migrated} stored share address(es) from documents.json; their links keep working`); // 1.117 (PC-05)
+if (docs.migrated) log(docs.migrateError ? `documents: ${docs.migrated} share address(es) could not be removed from documents.json yet: ${docs.migrateError}` : `documents: removed ${docs.migrated} stored share address(es) from documents.json; their links keep working`); // 1.118 (PC-05)
 const thumbs = new Thumbnailer(docs, { log }); // 1.32: pictures for the library's grid, cached in <documents dir>/.thumbs
 // 1.61: pictures for file cards in a conversation (PDF pages and images only), cached under the data directory.
 const artifactThumbs = new Thumbnailer({ dir: path.join(DATA_DIR, 'artifact-thumbs'), filePath: r => r.file }, { log });
@@ -498,7 +498,7 @@ const VAULT_FILE = path.join(DATA_DIR, 'vault.enc');
 // PC-02: the PATH a Vault run is resolved and started with, fixed at start (POCKET_VAULT_PATH, or the daemon's own PATH),
 // never the caller's; absolute folders only.
 const VAULT_PATH = runPath(process.env.POCKET_VAULT_PATH || process.env.PATH);
-// 1.117 (D-4): a folder on that PATH the service's user can change lets an agent put a program there, and an approved script
+// 1.118 (D-4): a folder on that PATH the service's user can change lets an agent put a program there, and an approved script
 // that starts a program by name would run it. One warning per such folder, once, when the Vault is on (at start, or when
 // it is turned on).
 let vaultPathWarned = false;
@@ -900,11 +900,11 @@ async function pushRaw(title, body, { tag, url, kind = 'turns', badge, ...extra 
 }
 
 // ---------- auth ----------
-// 1.117 (PC-06): a sign-in generation, kept in <data dir>/auth-state.json (0600) with a keyed mark of the password, is mixed
+// 1.118 (PC-06): a sign-in generation, kept in <data dir>/auth-state.json (0600) with a keyed mark of the password, is mixed
 // into every cookie's signature. "Sign out everywhere" replaces it, and so does a start with a different POCKET_PASSWORD, and
 // every cookie signed before stops working.
 // D-5: a new install (a data folder no daemon has used: DATA_USED_BEFORE) starts at generation 0, which signs the expiry
-// alone as before 1.117; nobody holds a cookie yet, and it stays 0 until the first Sign out everywhere or password change.
+// alone as before 1.118; nobody holds a cookie yet, and it stays 0 until the first Sign out everywhere or password change.
 // Every later generation is 128 random bits. A start in a used data folder that finds no usable state file (missing,
 // unreadable, corrupt, or written by an earlier build) begins a new one, and every browser signs in again: so a deleted file,
 // or a data folder restored from a copy taken before the upgrade, never makes a signed-out or pre-upgrade cookie valid again,
@@ -932,7 +932,7 @@ authState.password = PASSWORD_MARK; saveAuthState();
 function sign(exp) {
   return createHmac('sha256', SECRET).update(authState.generation ? `${exp}.${authState.generation}` : String(exp)).digest('hex');
 }
-// D-6 (1.117): a "known device" cookie, set at each sign-in and sent back only to /api/login. A sign-in that carries a valid
+// D-6 (1.118): a "known device" cookie, set at each sign-in and sent back only to /api/login. A sign-in that carries a valid
 // one skips the queue across all addresses (it still counts against its own address's 20), so a flood of wrong passwords from
 // many addresses cannot keep the owner out on a browser that has signed in before. It never signs anything in by itself: no
 // other route reads it, and its signature is in its own domain, so it is not a pc_auth value either. It is bound to the
@@ -984,7 +984,7 @@ function loginFailed(ip) {
   if (!rec || rec.resetAt < now) loginAttempts.set(ip, { n: 1, resetAt: now + 3600_000 }); else rec.n++;
   if (loginGlobal.resetAt < now) Object.assign(loginGlobal, { n: 1, resetAt: now + 3600_000 }); else loginGlobal.n++;
 }
-// 1.117 (PC-07): a budget across all addresses, so a guesser with many addresses (an IPv6 range, a botnet) is slowed too.
+// 1.118 (PC-07): a budget across all addresses, so a guesser with many addresses (an IPv6 range, a botnet) is slowed too.
 // The first 30 wrong passwords in an hour cost nothing. Past that, passwords are checked one at a time with a gap between
 // checks that starts at POCKET_LOGIN_BACKOFF_MS (1 s) and doubles every 20 more wrong ones, up to ten times that; a
 // request waits for its turn, and one that would wait more than twenty gaps is answered 429 `busy` at once, unchecked.
@@ -1003,7 +1003,7 @@ function loginTurn() { // ms this attempt waits before its check, or -1: the que
   loginGlobal.nextAt = at + Math.min(LOGIN_GLOBAL.capMs, LOGIN_BACKOFF_MS * 2 ** Math.floor(excess / LOGIN_GLOBAL.step));
   return at - now;
 }
-// 1.117 (PC-07): the key an address counts under. An IPv6 caller can use any address of its /64 (usually the whole of one
+// 1.118 (PC-07): the key an address counts under. An IPv6 caller can use any address of its /64 (usually the whole of one
 // home or server), so it counts as the /64; an IPv4-mapped address counts as the IPv4 one.
 // D-6: the mapped form is read whichever way it is written (::ffff:1.2.3.4, ::ffff:102:304, 0:0:0:0:0:ffff:…), and ::1
 // counts on its own rather than under the all-zero /64 the mapped addresses fall in.
@@ -2698,7 +2698,7 @@ for (const verb of ['get', 'post', 'patch', 'delete']) {
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'same-origin');
-  // 1.117 (PC-11): HSTS when the request reached the tunnel or proxy over HTTPS (it says so in X-Forwarded-Proto, or
+  // 1.118 (PC-11): HSTS when the request reached the tunnel or proxy over HTTPS (it says so in X-Forwarded-Proto, or
   // Cloudflare's CF-Visitor). A browser only honours it over HTTPS, so plain loopback HTTP never gets it. No includeSubDomains:
   // other names under the owner's domain are not Pocket's to decide.
   if (viaHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
@@ -2725,10 +2725,10 @@ app.use(express.static(path.join(import.meta.dirname, 'public'), { index: 'index
 }));
 
 app.post('/api/login', async (req, res) => {
-  const ip = await clientAddress(req), key = addressKey(ip); // 1.89 (S-6); 1.117 an IPv6 /64 counts once
+  const ip = await clientAddress(req), key = addressKey(ip); // 1.89 (S-6); 1.118 an IPv6 /64 counts once
   if (rateLimited(key)) return res.status(429).json({ error: 'too many attempts' });
   const device = knownDevice(getCookie(req, 'pc_device')); // D-6: a browser that signed in before skips the queue
-  const wait = device ? 0 : loginTurn(); // 1.117 (PC-07)
+  const wait = device ? 0 : loginTurn(); // 1.118 (PC-07)
   if (wait < 0) return res.status(429).set('Retry-After', String(Math.ceil(LOGIN_GLOBAL.maxWaitMs / 1000))).json({ error: 'too many sign-in attempts right now', code: 'busy' });
   if (wait) {
     await new Promise(r => setTimeout(r, wait));
@@ -2746,7 +2746,7 @@ app.post('/api/login', async (req, res) => {
   log(`login FAIL from ${ip}`);
   res.status(403).json({ error: 'wrong password' });
 });
-// 1.117 (PC-06): sign out this browser, or every browser. Only from Pocket's own page: JSON, not cross-site, and an Origin
+// 1.118 (PC-06): sign out this browser, or every browser. Only from Pocket's own page: JSON, not cross-site, and an Origin
 // (when one is sent) naming this host, as for the CLI updates and stop-all controls. Behind Cloudflare Access with One
 // sign-in on, the next visit through Access signs in again; remove the person in Access to keep them out.
 const ownPageJson = (req, res, next) => {
@@ -2951,7 +2951,7 @@ function withPendingUser(messages, turn) {
 }
 
 app.get('/api/session/:id', requireAuth, async (req, res) => {
-  if (!anyId(req.params.id)) return res.status(400).json({ error: 'Invalid conversation' }); // 1.117: a Codex id reaches a lock-file path below
+  if (!anyId(req.params.id)) return res.status(400).json({ error: 'Invalid conversation' }); // 1.118: a Codex id reaches a lock-file path below
   if (isAcpId(req.params.id)) { // OpenRouter (ACP): history from OpenCode's session/load; a live turn streams the rest
     const id = req.params.id, turn = acp.ownedAcpTurn(id);
     if (!ACP_ON) return res.status(404).json({ error: 'not found' });
@@ -4409,9 +4409,9 @@ app.post('/api/session/:id/branch', requireAuth, ownerSendGate, validateApproval
 app.post('/api/upload', requireAuth, express.raw({ type: () => true, limit: '30mb' }), (req, res) => {
   const raw = String(req.headers['x-filename'] || 'file.bin');
   const safe = path.basename(raw).replace(/[^\w.\-]+/g, '_').slice(-80) || 'file.bin';
-  if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: 'empty upload' }); // 1.117: a JSON body arrives parsed, not raw
+  if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: 'empty upload' }); // 1.118: a JSON body arrives parsed, not raw
   const dir = path.join(UPLOAD_DIR, new Date().toISOString().slice(0, 7));
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); // 1.117 (PC-13): the owner's alone, whatever the umask
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); // 1.118 (PC-13): the owner's alone, whatever the umask
   for (const d of [UPLOAD_DIR, dir]) try { fs.chmodSync(d, 0o700); } catch { }
   const dest = path.join(dir, `${Date.now().toString(36)}-${safe}`);
   fs.writeFileSync(dest, req.body, { mode: 0o600 });
@@ -4657,7 +4657,7 @@ function learnTimezone(tz) {
   try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); } catch { return; }
   settings.ownerTimezone = tz; saveSettings(); log(`owner time zone: ${tz}`);
 }
-// 1.117 (PC-12): the browser reports its zone with a POST from Pocket's own page; GET /api/me?tz= used to store it, and a
+// 1.118 (PC-12): the browser reports its zone with a POST from Pocket's own page; GET /api/me?tz= used to store it, and a
 // link on another site could set it, since the cookie rides along on a top-level GET.
 app.post('/api/timezone', ownPageJson, requireAuth, (req, res) => { learnTimezone(req.body?.tz); res.json({ ok: true }); });
 // ---------- 1.69: inbox routes ----------
@@ -5110,7 +5110,7 @@ async function vaultRun(req, res, { argv, cwd, env, timeout, wait, request: exis
     } else {
       bound = vault.resolveBindings(env); cmd = { ...vault.checkCommand(argv, cwd), action: 'run' };
       plan = await prepareRun(cmd, { PATH: VAULT_PATH, forRun: true }); cmd.pin = plan.pin; // PC-02: what will run, by path and content; a recipe matches only this
-      bound = vault.rebind(bound); // 1.117 (D-4): the items as they are after the hashing, not as they were before it
+      bound = vault.rebind(bound); // 1.118 (D-4): the items as they are after the hashing, not as they were before it
       const need = vault.decide(bound, cmd);
       if (need.length) {
         plan.close(); plan = null; // the run is prepared again after the owner answers
@@ -5132,7 +5132,7 @@ async function vaultRun(req, res, { argv, cwd, env, timeout, wait, request: exis
     // 1.73.4: rebinds by item id, re-decides, marks the row used, all in one synchronous step. PC-02: with what the command
     // runs now, which must be what the owner was asked about.
     if (reqRow) { plan = await prepareRun(reqRow, { PATH: VAULT_PATH, forRun: true }); ({ bound, cmd } = vault.claim(reqRow.id, { action: 'run', caller: c, pin: plan.pin })); }
-    plan.verify(); // 1.117 (D-1): nothing changed since the hashing, checked before the record is written…
+    plan.verify(); // 1.118 (D-1): nothing changed since the hashing, checked before the record is written…
     const secrets = vault.release(bound, cmd, { session: c.session, sessionTitle: c.sessionTitle, by: c.actor, request: reqRow?.id || null });
     const placeholders = {}; for (const b of bound) placeholders[b.item.values[b.field]] = b.item.name;
     const timeoutMs = Math.min(VAULT_LIMITS.timeoutMax, Math.max(1, Number(timeout) || VAULT_LIMITS.timeoutDefault)) * 1000;
@@ -5366,7 +5366,7 @@ app.post('/api/documents/:id', requireBoardAuth, docsOn, async (req, res) => {
     log(`document ${action || 'updated'} ${req.params.id} by ${req.boardActor || 'ui'}`); res.json(r);
   } catch (e) { docError(res, e); }
 });
-// ---------- 1.117 (PC-04): an agent's share or publish waits for the owner ----------
+// ---------- 1.118 (PC-04): an agent's share or publish waits for the owner ----------
 // The Vault's request flow for Files: the call answers `pending <id>` (202) unless the owner answers within `wait` seconds
 // (at most the Vault's wait); the owner gets a push with Allow and Deny (the Vault requests kind) and a card at the top of
 // Files; the agent continues with POST /api/documents/requests/<id>/wait. Only the owner answers, with the cookie, from
@@ -5440,7 +5440,7 @@ function intakeCount(key, max, windowMs) {
 }
 const intakeOver = (key, max) => { const rec = intakeHits.get(key); return Boolean(rec && rec.resetAt > Date.now() && rec.n >= max); };
 const INTAKE_LIMIT = { get: [60, 600_000], post: [15, 600_000], miss: [20, 3600_000], missAll: [300, 3600_000] };
-// 1.117 (PC-08): the per-address counts apply only to an address Pocket knows: the caller's cf-connecting-ip when it can be
+// 1.118 (PC-08): the per-address counts apply only to an address Pocket knows: the caller's cf-connecting-ip when it can be
 // trusted (clientAddress), or the socket's own address when the request came through no proxy. A tunnelled caller Pocket
 // cannot place (every one of them is the tunnel's 127.0.0.1) is not counted per address, so a stranger's wrong links no
 // longer close the page for everyone. The instance-wide count of wrong links never refuses anything: past 300 an hour, each
@@ -5471,7 +5471,7 @@ app.get('/intake/logo', (_req, res) => {
 });
 app.get('/intake/done', (_req, res) => sendIntake(res, 200, intakePage('received')));
 app.get('/intake/:token', async (req, res) => {
-  const ip = await intakeAddress(req); // 1.117 (PC-08): null for a tunnelled caller Pocket cannot place
+  const ip = await intakeAddress(req); // 1.118 (PC-08): null for a tunnelled caller Pocket cannot place
   if (intakeBusy(ip, 'get')) return sendIntake(res, 429, intakePage('busy'));
   if (!settings.vault || !vault || vault.locked) { intakeLockedPush(); return sendIntake(res, 503, intakePage('unavailable')); }
   const hit = vault.resolveIntake(req.params.token);
@@ -5597,7 +5597,7 @@ app.get('/api/file', requireAuth, (req, res) => {
   res.sendFile(real);
 });
 
-// 1.117 (PC-10): the counts (what is running, for how long) go to the signed-in owner and to a request made on this box
+// 1.118 (PC-10): the counts (what is running, for how long) go to the signed-in owner and to a request made on this box
 // straight to the port (pocket-init, deploy scripts: curl localhost:3610/api/health). Anyone else, a caller through the
 // tunnel included, learns only that Pocket answers.
 app.get('/api/health', (req, res) => {
@@ -5693,7 +5693,7 @@ function binVersion(bin) {
   const hit = verCache.get(bin);
   if (hit && hit.stamp === stamp) return hit.v;
   let v = null;
-  try { v = execFileSync(bin, ['--version'], { timeout: 5000 }).toString().trim(); } catch { } // 1.117: no shell between the path and the CLI
+  try { v = execFileSync(bin, ['--version'], { timeout: 5000 }).toString().trim(); } catch { } // 1.118: no shell between the path and the CLI
   verCache.set(bin, { stamp, v });
   return v;
 }

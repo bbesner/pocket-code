@@ -46,7 +46,7 @@ inbox-watch-data/
 saved-prompts.json*
 /documents/
 
-# More daemon runtime state in the default data folder: the sign-in generation (1.117), the saved
+# More daemon runtime state in the default data folder: the sign-in generation (1.118), the saved
 # router key, Coordination, the Claude model list, removed worktrees, document thumbnails and the
 # OpenRouter engine's run folders
 auth-state.json*

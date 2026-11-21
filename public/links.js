@@ -39,7 +39,7 @@ function openIdPreferred(id,prefKey){
  }
  if(!here)location.hash=tabHref(id);
 }
-// A public link of one of your own files is that file. 1.117 (PC-05): a share link is no longer matched, since the library
+// A public link of one of your own files is that file. 1.118 (PC-05): a share link is no longer matched, since the library
 // keeps only a hash of its address; it opens as the link it is.
 async function resolveSharedLink(u){
  try{const s=await loadDocs();return (s?.documents||[]).find(d=>d.url&&d.url===u.pathname)?.id||null;}catch{return null;}

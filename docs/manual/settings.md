@@ -87,7 +87,7 @@ Everything here applies to the whole install.
 | **Actions that run without asking** | Read-only actions Claude Code, Codex and OpenRouter run without an approval card in **Review actions** (Codex and OpenRouter since 1.87, for commands). Type a rule (`Bash(command:*)`, `Bash(exact command)`, `mcp__server__tool`, `mcp__server__*`, `WebSearch`) and press **Add**; **Remove** takes one off. Edit and Write always ask; Codex is not covered. **Use the server's list** goes back to `POCKET_TRUSTED_ACTIONS` |
 | **Automatic model choice** | In Assistant mode, sends a request typed from scratch to a small decision model that picks one of four levels; see below. Assistant mode shows only its switch, under **Features** |
 | **One sign-in** | Lets a Cloudflare Access sign-in replace Pocket's password; see below |
-| **Sign out** | 1.117. **Sign out** signs this browser out and turns off its notifications. **Sign out everywhere** asks first, then signs out every browser and phone, this one included, and turns off notifications on all of them; turn **Push to this device** on again on the ones you keep. Conversations and replies in progress carry on. Changing `POCKET_PASSWORD` and restarting signs every browser out too. With **One sign-in** on, a signed-out browser is let back in by Cloudflare Access, so revoke Access sessions in Cloudflare as well |
+| **Sign out** | 1.118. **Sign out** signs this browser out and turns off its notifications. **Sign out everywhere** asks first, then signs out every browser and phone, this one included, and turns off notifications on all of them; turn **Push to this device** on again on the ones you keep. Conversations and replies in progress carry on. Changing `POCKET_PASSWORD` and restarting signs every browser out too. With **One sign-in** on, a signed-out browser is let back in by Cloudflare Access, so revoke Access sessions in Cloudflare as well |
 
 **Defaults.** The picker offers every Claude model, or the list in `POCKET_CLAUDE_MODELS`. No
 action runs without asking, unless `POCKET_TRUSTED_ACTIONS` lists some. A list saved in Settings
@@ -301,7 +301,7 @@ defaults to the Pocket Code directory:
 | `automation-state.json`, `automation-audit.jsonl` | The day's counts and limit notices, and a line for each pause, resume, settings change and unattended reply (never message text) |
 | `push-subs.json` | One entry per device with push on, with its choice of kinds and icon count. A subscription the push service reports as gone is removed |
 | `router-key` | The key saved under **Automatic model choice** (mode `0600`) |
-| `auth-state.json` | The sign-in generation that **Sign out everywhere** moves on, and a keyed hash of the password (mode `0600`, 1.117). Never the password itself |
+| `auth-state.json` | The sign-in generation that **Sign out everywhere** moves on, and a keyed hash of the password (mode `0600`, 1.118). Never the password itself |
 | `mutes.json`, `session-meta.json` | Per-conversation mutes, and pins and names (not part of Settings, the same on every device) |
 
 The Vault's key is saved in `.env` in the Pocket Code directory, not in the data directory.
