@@ -13,7 +13,7 @@ Stacked, CI-tested, opt-in (engine OFF unless `POCKET_ACP_ENABLE` + an OpenCode 
 
 **The ONLY remaining piece: the frontend engine-picker UI** (offer "OpenRouter" + a model menu in the New-session screen, send `provider:'acp'`). Customer-facing, so per the repo design rule it should go through design-studio/impeccable. The engine is fully usable via the API today.
 
-**Open decisions for Brad (non-blocking):** credential posture (env key now vs. a dedicated capped key vs. the broker); the choice-button gap (OpenCode sends questions as text — v1 ships that); data-routing/retention pins; whether to enable in your own install first.
+**Open decisions for the owner (non-blocking):** credential posture (env key now vs. a dedicated capped key vs. the broker); the choice-button gap (OpenCode sends questions as text — v1 ships that); data-routing/retention pins; whether to enable in your own install first.
 
 ---
 **Decision record:** Council tasks #178, #179 + live probes this session.
@@ -142,7 +142,7 @@ Document the gap in the engine's capability disclosure so the UI doesn't promise
 ## 8. MemStem
 
 - **Search (read): free.** Register MemStem's MCP (OpenCode advertises `mcpCapabilities:{http,sse}`) — subject to the §5 per-engine read-scoping.
-- **Ingest (write): a new adapter**, watching OpenCode's session store and parsing its transcript format, writing provenance `opencode/<model>` (not `codex`). **Keep this optional and out of the core public repo** — MemStem is Brad-specific infra; it belongs in his deployment or the MemStem repo, not a hard dependency every forker inherits. Don't claim parity until a *resumed* OpenCode session is searchable.
+- **Ingest (write): a new adapter**, watching OpenCode's session store and parsing its transcript format, writing provenance `opencode/<model>` (not `codex`). **Keep this optional and out of the core public repo** — MemStem is owner-specific infra; it belongs in his deployment or the MemStem repo, not a hard dependency every forker inherits. Don't claim parity until a *resumed* OpenCode session is searchable.
 - Pin awareness: the on-disk session format is OpenCode's; it can change across releases — the ingest adapter rests on it, so version-gate it.
 
 ---
@@ -168,6 +168,6 @@ Document the gap in the engine's capability disclosure so the UI doesn't promise
 
 ## Appendix — verified facts & probe commands (this session)
 - `opencode-ai@1.19.4`, MIT, bin `opencode`; `opencode acp` = ACP server over stdio; `opencode serve` = HTTP/OpenAPI/SDK alt.
-- ACP `initialize` result captured live (§1). Approvals/tools/breadth/cancel/resume all passed; elicitation did not fire. Probe scripts: `/tmp/acp-probe/acp-*.mjs`. Total live spend ~5–8¢ OpenRouter credit (Ari's key).
+- ACP `initialize` result captured live (§1). Approvals/tools/breadth/cancel/resume all passed; elicitation did not fire. Probe scripts: `/tmp/acp-probe/acp-*.mjs`. Total live spend ~5–8¢ OpenRouter credit (the assistant's key).
 - Codex is Responses-API-only (`wire_api="chat"` removed) — the reason A is not the clean path.
 - Pocket touchpoints: `server.mjs:2610` (provider), `:3983` (ANTHROPIC_AUTH_TOKEN refusal), `~:180` (validateModel), `environment.mjs` (`DAEMON_SECRETS`/`agentEnv`), `codex.mjs:795` (`spawnTransport`), `:34` (`CODEX_HOME`), `:82` (elicitation cancelled today), `models.mjs` (claude-* ids).

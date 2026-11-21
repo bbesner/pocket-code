@@ -1,6 +1,6 @@
 # Inbox Watch in Pocket: plan
 
-**Prepared:** October 19, 2026 · **Status:** shipped: the Inbox library in 1.69.0 (October 19) and its schedule, models, first pass and cost settings in 1.70.0 (October 20); inbox-monitor 0.2 and 0.3 on Brad's instance · **Built against:** Pocket Code 1.68.1 (build 133) and inbox-monitor 0.1.0
+**Prepared:** October 19, 2026 · **Status:** shipped: the Inbox library in 1.69.0 (October 19) and its schedule, models, first pass and cost settings in 1.70.0 (October 20); inbox-monitor 0.2 and 0.3 on the owner's instance · **Built against:** Pocket Code 1.68.1 (build 133) and inbox-monitor 0.1.0
 
 ## What it is
 
@@ -13,7 +13,7 @@ Vault, built the way Tasks was: a small store on the server, a few routes, a vie
 agents and jobs, and a Settings switch. The worker stays outside Pocket on its timer; Pocket is
 where the owner reads and answers.
 
-**The test it has to pass:** Brad opens Inbox on his phone, sees this morning's Oakridge alert and
+**The test it has to pass:** The owner opens Inbox on his phone, sees this morning's Oakridge alert and
 the 8 a.m. look-ahead in one list, taps X on a notice he never wants again, and the next morning's
 digest does not mention that kind of notice. On a seat, an account manager sees the same list with
 no file path, model name or dollar figure anywhere.
@@ -113,7 +113,7 @@ the rail reads at 360px with six entries and 44px targets, and the browser suite
   gives the entry, the push and the optional email) instead of calling `pocket-notify`. The entry
   carries the story key, priority, start link, Gmail thread, and the Files id for a digest.
 - At the start of every run the worker reads `/api/inbox/feedback`, applies it, and acks:
-  - **Resolved** → the story is marked resolved with a timeline event "Brad marked this resolved
+  - **Resolved** → the story is marked resolved with a timeline event "the owner marked this resolved
     in Pocket"; the judge sees it and stops following.
   - **Not useful** → one line appended to `preferences.md` ("Do not alert on: *title* — marked
     not useful on Oct 20"), which the judge reads every turn, and the story's priority drops to
@@ -133,12 +133,12 @@ toggle. Nothing in a conversation changes.
 
 Pocket 1.69 follows CONTRIBUTING.md: branch, unit and browser suites, PR, merge, deploy here,
 then tenants and seats with the guarded scripts, ledger entry. inbox-monitor 0.2 follows on
-Brad's instance first (his delivery is already `pocket`), then the first seat (one account manager's), two
+The owner's instance first (his delivery is already `pocket`), then the first seat (one account manager's), two
 working days, then the other three, logged in `AGENT-SEATS.md`. Each seat needs its own
 `config.toml` (service-account mail access, judge Sonnet/Opus, delivery `pocket`), a timer, and a
 `preferences.md` seeded with the role's standing preferences.
 
-## Decisions (Brad, October 19): the recommendations, all five
+## Decisions (the owner, October 19): the recommendations, all five
 
 1. **The rail name.** "Inbox" (recommended: one word like the others) or "Inbox Watch".
 2. **The rail at phone width.** Icons only below 480px with the pressed entry labelled

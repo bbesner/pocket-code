@@ -1,6 +1,6 @@
 # Plain Pocket and Assistant mode: plan
 
-**Prepared:** October 19, 2026 · **Revised:** October 19, 2026 after Brad's review · **Status:** approved, in build · **Built against:** Pocket Code 1.58.0 (build 119)
+**Prepared:** October 19, 2026 · **Revised:** October 19, 2026 after the owner's review · **Status:** approved, in build · **Built against:** Pocket Code 1.58.0 (build 119)
 
 ## What it is
 
@@ -18,7 +18,7 @@ taking anything away from people who want the full workbench.
    Tasks and Vault underneath.
 
 Each Pocket belongs to one person (one seat per employee), so nothing here is multi-user.
-Brad's own Pocket keeps the full workbench and gets the Plain Pocket improvements; the staff
+The owner's own Pocket keeps the full workbench and gets the Plain Pocket improvements; the staff
 seats switch to Assistant mode.
 
 **The test Assistant mode has to pass:** an account manager who has never seen Pocket opens it,
@@ -150,7 +150,7 @@ When a reply mentions a file Pocket can serve (pdf, docx, pptx, xlsx, csv, html,
 **Download** and **Keep in Files** (or **Kept · Open in Files**).
 
 - **Open** and a tap on the card follow **Settings → Open files and links** exactly as a link
-  does today: a tab, side by side, or a window. Brad's "side by side" keeps working.
+  does today: a tab, side by side, or a window. The owner's "side by side" keeps working.
 - Thumbnails reuse `thumbnails.mjs` (HTML via headless Chrome, PDF via pdftoppm, images), now
   for conversation artifacts too, cached by path and modified time. Office files (docx, pptx,
   xlsx) show a type tile until a LibreOffice → PDF step is available; the seats don't have
@@ -196,12 +196,12 @@ hides. Every Assistant-mode change sits behind `assistantMode()`.
 
 ## Rollout
 
-Each release follows CONTRIBUTING.md: branch, tests and browser suite, PR, Brad's merge and
+Each release follows CONTRIBUTING.md: branch, tests and browser suite, PR, the owner's merge and
 deploy on the maintainer's server, an entry in the operations log. Seats
-follow: Guy's seat for two working days, then the other three; seat changes logged in
+follow: one staff seat for two working days, then the other three; seat changes logged in
 the seat register.
 
-## Decisions (Brad, October 19)
+## Decisions (the owner, October 19)
 
 - Plain words, progress lines, approval cards, file cards and one sign-in go to every Pocket.
 - File cards open according to the **Open files and links** setting.
