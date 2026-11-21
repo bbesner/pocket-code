@@ -8,10 +8,15 @@
 // it), streams session/update events through turn.emit to SSE subscribers, and is tracked in
 // acpTurns so server.mjs's watch/approve endpoints find it. See docs/openrouter-acp-engine-spec.md.
 //
-// Elicitation (model questions) is declined for v1: OpenCode delivers questions as plain text
-// (verified live), so there is no structured question inbox to wire yet (spec §7). fs/terminal
+// OpenCode asks its questions through Pocket's ask tool (acp-ask-mcp.mjs), not ACP elicitation. fs/terminal
 // are NOT advertised, so the agent stays the executor under a client-gated permission policy and
 // Pocket stays the orchestrator (spec §6).
+//
+// A second runtime, Google's Antigravity CLI (`agy acp`), runs on the same adapter (RUNTIMES below): signed in on the
+// server with the owner's own Google plan, its questions arrive as ACP elicitation forms, a message sent during a reply
+// goes into it, and a reply that started a background command ends when that command does. Pocket only ever starts
+// `agy acp`: never `agy -p`, never a flag that skips approvals or names another program, and it never reads the
+// sign-in token (antigravityArgs, runtimeEnv).
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,12 +29,68 @@ import { textBlocks } from './choices.mjs';
 import { DEFAULT_CURATED } from './openrouter.mjs';
 
 const HOME = os.homedir();
+const POCKET_VERSION = (() => { try { return JSON.parse(fs.readFileSync(path.join(import.meta.dirname, 'package.json'), 'utf8')).version || '0'; } catch { return '0'; } })();
 
-// Session-id namespace: ACP sessions are prefixed so engineForSessionId() routes them, the
-// same way Codex ids carry 'cx:'. (engines.mjs already registers 'acp' with this prefix.)
-export const ACP = 'acp:';
-export const isAcpId = id => typeof id === 'string' && id.startsWith(ACP);
-export const bareAcpId = id => isAcpId(id) ? id.slice(ACP.length) : id;
+// ---------- runtimes ----------
+// The ACP engine drives more than one agent program. A runtime profile says what differs between them; everything
+// else in this file is ACP in general. Each runtime is its own engine in engines.mjs (its own agent in the app) with
+// its own session-id prefix, so a conversation always reopens on the program it started on.
+//   engine / prefix    the engines.mjs entry and the id prefix of its conversations
+//   name / label       the program ("OpenCode") and the agent the app shows ("OpenRouter")
+//   idRe               the shape of the ids the program mints
+//   options            its session config option ids: model, effort, mode, and the mode values for Plan first and work
+//   clientCapabilities what Pocket advertises at initialize; clientInfo names Pocket (never another program's name)
+//   questions          'tool' = Pocket's ask tool over MCP (acp-ask-mcp.mjs); 'elicitation' = ACP elicitation forms
+//   instructions       'file' = a file the program reads each request; 'meta' = appended to its system prompt when the
+//                      session is opened or reopened (systemAppend builds the _meta for session/new and session/load)
+//   steer              a prompt sent during a reply goes into that reply
+//   settle             a reply can go on after its prompt returns (a command moved to the background): wait for it
+//   cost               it reports what each reply cost (a runtime on a plan does not; its reply line shows tokens)
+//   signIn             the message shown when the program says nobody is signed in (it has no API key to check)
+//   dropEnv            variables removed from the program's environment
+//   hiddenCommands     commands of its own that Pocket does not list
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+export const RUNTIMES = {
+  opencode: {
+    id: 'opencode', engine: 'acp', prefix: 'acp:', name: 'OpenCode', label: 'OpenRouter',
+    idRe: /^ses_[0-9a-zA-Z-]{1,64}$/,
+    options: { model: 'model', effort: 'effort', mode: 'mode', plan: 'plan', work: 'build' },
+    clientCapabilities: {}, clientInfo: null,
+    questions: 'tool', instructions: 'file', steer: false, settle: false, cost: true, signIn: null, dropEnv: [], hiddenCommands: [],
+    untitled: /^New session - /, // OpenCode names a session "New session - <iso time>" until it titles it
+  },
+  // Google's Antigravity CLI (`agy acp`), signed in with the owner's own Google plan. Google says wrapping `agy` in
+  // other applications is not supported on consumer plans, so this runtime keeps to its documented ACP interface and
+  // to the rules in docs/manual/sessions.md: a person sends every message (engines.mjs unattended:false), the API
+  // keys that would bill another way are removed, and the flags in AGY_FORBIDDEN_ARGS are never passed.
+  antigravity: {
+    id: 'antigravity', engine: 'antigravity', prefix: 'agy:', name: 'Antigravity', label: 'Antigravity',
+    idRe: UUID_RE,
+    options: { model: 'model', effort: 'thought_level', mode: 'mode', plan: 'plan', work: 'default' },
+    clientCapabilities: { elicitation: { form: {} } }, clientInfo: { name: 'pocket-code', title: 'Pocket Code', version: POCKET_VERSION },
+    questions: 'elicitation', instructions: 'meta', steer: true, settle: true, cost: false,
+    systemAppend: text => ({ antigravity: { systemPrompt: { append: text } } }),
+    signIn: 'Antigravity is not signed in on this server. Run `agy acp --login` there as the user Pocket Code runs as, then send again.',
+    dropEnv: ['GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_GENAI_USE_VERTEXAI'], hiddenCommands: ['schedule'],
+    untitled: null,
+  },
+};
+const runtimeOf = r => (typeof r === 'string' ? RUNTIMES[r] : r) || RUNTIMES.opencode;
+// Session-id namespace: each runtime's sessions are prefixed so engineForSessionId() routes them, the same way Codex
+// ids carry 'cx:'. ACP is OpenCode's prefix; an id with any runtime's prefix is an ACP id.
+export const ACP = RUNTIMES.opencode.prefix;
+export const AGY = RUNTIMES.antigravity.prefix;
+export const runtimeForId = id => (typeof id === 'string' && Object.values(RUNTIMES).find(r => id.startsWith(r.prefix))) || null;
+export const isAcpId = id => Boolean(runtimeForId(id));
+export const bareAcpId = id => { const r = runtimeForId(id); return r ? id.slice(r.prefix.length) : id; };
+// A well-formed id of one of the runtimes (prefix and the shape that runtime mints).
+export const validAcpId = id => { const r = runtimeForId(id); return Boolean(r && r.idRe.test(id.slice(r.prefix.length))); };
+// The program's environment: Pocket's own, minus what the runtime must not see.
+export function runtimeEnv(runtime, env = process.env) {
+  const out = { ...env };
+  for (const k of runtimeOf(runtime).dropEnv) delete out[k];
+  return out;
+}
 
 const log = (...a) => console.log(new Date().toISOString(), '[acp]', ...a);
 
@@ -101,7 +162,7 @@ export class AcpClient {
     });
   }
   notify(method, params = {}) { this._write({ jsonrpc: '2.0', method, params }); }
-  initialize(clientCapabilities = CLIENT_CAPABILITIES) { return this.request('initialize', { protocolVersion: PROTOCOL_VERSION, clientCapabilities }); }
+  initialize(clientCapabilities = CLIENT_CAPABILITIES, clientInfo = null) { return this.request('initialize', { protocolVersion: PROTOCOL_VERSION, clientCapabilities, ...(clientInfo ? { clientInfo } : {}) }); }
   newSession(params) { return this.request('session/new', params); }
   loadSession(params) { return this.request('session/load', params); }
   listSessions() { return this.request('session/list', {}); }
@@ -142,6 +203,8 @@ export function normalizeUpdate(update) {
   if (u === 'user_message_chunk') return { type: 'user_chunk', text: update.content?.text ?? '', messageId: update.messageId };
   if (u === 'agent_message_chunk' || u === 'agent_message') return { type: 'delta', text: update.content?.text ?? '', messageId: update.messageId };
   if (u === 'agent_thought_chunk') return { type: 'reasoning', text: update.content?.text ?? '' };
+  // A question tool's own line says nothing the question card does not (Antigravity's ask_question, verified live).
+  if ((u === 'tool_call' || u === 'tool_call_update') && HIDDEN_TOOLS.has(update.name)) return null;
   // 1.87: an edit's ACP `diff` content (path, oldText, newText) rides along for the Changes view
   const diffs = Array.isArray(update.content) ? update.content.filter(c => c?.type === 'diff' && c.path).map(c => ({ path: c.path, old: c.oldText ?? null, new: c.newText ?? '' })) : [];
   if (u === 'tool_call') return { type: 'tool', id: update.toolCallId, title: update.title, kind: update.kind, status: update.status || 'pending', input: update.rawInput || null, path: update.locations?.[0]?.path || null, ...(diffs.length ? { diffs } : {}) };
@@ -158,14 +221,18 @@ export function normalizeUpdate(update) {
 // A tool call as one of the UI's ledger lines ({t:'tool', name, detail}), the same shape Codex's items take.
 const clip = (v, n = 140) => (v == null ? '' : String(v).replace(/\s+/g, ' ').trim().slice(0, n));
 const TOOL_NAMES = { execute: 'Bash', read: 'Read', edit: 'Edit', delete: 'Edit', move: 'Edit', search: 'Search', fetch: 'Web', think: 'Thinking' };
-const toolDetail = e => { const i = e.input || {}; return i.command || i.filePath || i.path || i.pattern || i.url || i.query || ''; };
+const HIDDEN_TOOLS = new Set(['ask_question']);
+// What a call did, from its input. OpenCode names its fields command, filePath and so on; Antigravity capitalizes
+// them (CommandLine, Path: verified live, 1.5.14) and always titles the call, which toolBlock falls back to.
+const toolDetail = e => { const i = e.input || {}; return i.command || i.CommandLine || i.filePath || i.path || i.Path || i.pattern || i.url || i.query || ''; };
+const toolFile = e => e.input?.filePath || e.input?.Path || e.path;
 export function toolBlock(e) {
   // a command's folder is not what it did: an execute call without its command falls back to the title, never the folder
   const detail = toolDetail(e) || (e.kind === 'execute' ? (e.title !== 'bash' ? e.title : '') : e.path || e.title) || '';
   const b = { t: 'tool', name: TOOL_NAMES[e.kind] || clip(e.title, 40) || 'Tool', detail: clip(detail) };
   // 1.87: an edit carries its full path(s) and, when OpenCode sent them, the before/after text (the Changes view's, never the phone's)
   if (Array.isArray(e.diffs) && e.diffs.length) { b.paths = [...new Set(e.diffs.map(d => d.path))]; b.changes = e.diffs.slice(0, 40).map(d => ({ path: d.path, kind: d.old == null ? 'add' : 'update', old: d.old == null ? null : String(d.old).slice(0, 40_000), new: String(d.new ?? '').slice(0, 40_000) })); }
-  else if (b.name === 'Edit' && (e.input?.filePath || e.path)) b.paths = [e.input?.filePath || e.path];
+  else if (b.name === 'Edit' && toolFile(e)) b.paths = [toolFile(e)];
   return b;
 }
 // What a message carries to the phone: the before/after text stays on the server for the Changes view.
@@ -174,9 +241,49 @@ export const forClient = msg => msg?.blocks?.some(b => b.changes) ? { ...msg, bl
 // app's approval card reads for Codex requests).
 export function approvalCard(params) {
   const call = params?.toolCall || {}, i = call.rawInput || {};
-  const files = [i.filePath, i.path, ...(call.locations || []).map(l => l?.path)].filter(Boolean);
+  const files = [i.filePath, i.path, i.Path, ...(call.locations || []).map(l => l?.path)].filter(Boolean);
   if (call.kind === 'edit' || call.kind === 'delete' || call.kind === 'move') return { kind: 'fileChange', details: { changes: [...new Set(files)].map(p => ({ path: p })), tool: call.title || null } };
-  return { kind: 'command', details: { command: i.command || call.title || null, tool: call.title || null } };
+  return { kind: 'command', details: { command: i.command || i.CommandLine || call.title || null, tool: call.title || null } };
+}
+// An ACP elicitation form (elicitation/create, mode form) as Pocket questions, and the way back: `content(answers)`
+// turns the inbox's answers ({questionId: {answers: [text]}}) into the form's content. One question per property; a
+// property named <other>_other beside a choice is that choice's free-text answer (Antigravity's ask_question sends
+// q1 with oneOf [{const, title}] and q1_other, verified live), so it is not a question of its own. Null when the
+// request is not a form Pocket can show.
+export function elicitationForm(params) {
+  const props = params?.requestedSchema?.properties;
+  if ((params?.mode && params.mode !== 'form') || !props || typeof props !== 'object') return null;
+  const names = Object.keys(props).filter(n => props[n] && typeof props[n] === 'object');
+  const otherOf = n => (props[n + '_other'] && n + '_other') || null;
+  const fields = names.filter(n => !(n.endsWith('_other') && names.includes(n.slice(0, -6)))).slice(0, 10).map(n => {
+    const p = props[n], items = p.type === 'array' ? p.items || {} : null, src = items || p;
+    const choices = (src.oneOf || src.anyOf || []).filter(o => o && o.const != null).map(o => ({ value: o.const, label: String(o.title ?? o.const) }));
+    if (!choices.length && Array.isArray(src.enum)) choices.push(...src.enum.map((v, i) => ({ value: v, label: String(src.enumNames?.[i] ?? v) })));
+    if (!choices.length && p.type === 'boolean') choices.push({ value: true, label: 'Yes' }, { value: false, label: 'No' });
+    return { name: n, multiple: Boolean(items), choices, number: p.type === 'number' || p.type === 'integer', other: otherOf(n),
+      question: String(p.title || p.description || n).slice(0, 20_000), detail: p.title && p.description && !otherOf(n) ? String(p.description) : '' };
+  });
+  if (!fields.length) return null;
+  const lead = typeof params.message === 'string' && fields.length > 1 ? params.message.trim() : '';
+  const questions = fields.map((f, i) => ({ id: f.name, header: i === 0 ? lead.slice(0, 60) : '', question: f.detail ? `${f.question}\n${f.detail}` : f.question,
+    options: f.choices.length ? f.choices.slice(0, 30).map(c => ({ label: c.label, description: '' })) : undefined, multiple: f.multiple }));
+  const content = answers => {
+    const out = {};
+    for (const f of fields) {
+      const given = (answers?.[f.name]?.answers || []).map(a => String(a));
+      if (!given.length) continue;
+      if (!f.choices.length) { out[f.name] = f.number && Number.isFinite(Number(given[0])) ? Number(given[0]) : given[0]; continue; }
+      const picked = given.map(a => f.choices.find(c => c.label === a)).filter(Boolean).map(c => c.value);
+      const typed = given.filter(a => !f.choices.some(c => c.label === a));
+      if (picked.length) out[f.name] = f.multiple ? picked : picked[0];
+      if (!typed.length) continue; // an answer of your own: the form's free-text field when it has one
+      if (f.other) out[f.other] = typed.join('\n');
+      else if (f.multiple) out[f.name] = [...picked, ...typed];
+      else if (!picked.length) out[f.name] = typed[0];
+    }
+    return out;
+  };
+  return { questions, content };
 }
 // Merge a tool call's events (by id): later fields win, an empty input never replaces a known one.
 const mergeTool = (a, e) => ({ ...a, ...Object.fromEntries(Object.entries(e).filter(([k, v]) => v != null && k !== 'update' && !(k === 'input' && !toolDetail(e) && toolDetail(a)))) });
@@ -227,9 +334,17 @@ export function messagesFromEvents(events) {
 export const acpSessions = new Map();
 let trustedMatch = null; // 1.87: (command, cwd) -> the trusted rule it matches, or null (server.mjs sets it)
 export const setTrustedMatcher = fn => { trustedMatch = fn; };
-// The commands (skills) OpenCode last listed for this machine, from any of its processes, for the / list.
-let knownCommands = [];
-export const acpCommands = () => knownCommands;
+// The commands (skills) each runtime last listed for this machine, from any of its processes, for the / list.
+const knownCommands = {};
+const noteCommands = (rt, commands) => { if (commands.length) knownCommands[rt.id] = commands.filter(c => !rt.hiddenCommands.includes(c.name)); };
+export const acpCommands = (runtime = 'opencode') => knownCommands[runtimeOf(runtime).id] || [];
+// A runtime's failure in words the owner can act on: nobody signed in is a sign-in message, not a failed reply.
+const SIGNED_OUT = /authentication required|not (?:logged|signed) in|unauthenticated/i;
+export function runtimeError(runtime, e) {
+  const rt = runtimeOf(runtime);
+  if (rt.signIn && SIGNED_OUT.test(e?.message || '')) return Object.assign(new Error(rt.signIn), { code: 'signin', status: 409, signIn: true });
+  return e;
+}
 // sessionId (bare) -> active turn. server.mjs's watch/approve/stop endpoints find turns here.
 export const acpTurns = new Map();
 
@@ -242,7 +357,8 @@ function makeAcpTurn(session, { text, model, approvalMode, executionMode, hooks,
   const { emit, onFinish, onApproval, onQuestion, auditApproval } = hooks;
   const client = session.client;
   const turn = {
-    sessionId: session.sessionId, cwd: session.cwd, startedAt: Date.now(), userText: text,
+    sessionId: session.sessionId, fullId: session.fullId, cwd: session.cwd, startedAt: Date.now(), userText: text,
+    openPrompts: 0, promptStarted: false, lastStop: null, settling: false, settleTimer: null, // steering and background commands (runPrompt, settleOrFinish)
     model, approvalMode: approvalMode === 'full' ? 'full' : 'review', events: [], subs: new Set(), done: false, turnId: randomUUID(),
     client, session, onFinish, text: '', thought: '', costStart: session.costTotal ?? null, costTotal: null, usage: null,
     executionMode: executionMode === 'plan' ? 'plan' : 'work', stopped: false, stopNote: null, lastActivityAt: Date.now(), context: null, asks: new Map(),
@@ -266,7 +382,7 @@ function makeAcpTurn(session, { text, model, approvalMode, executionMode, hooks,
     emit?.(ev);
   };
   turn.approvals = new ApprovalInbox({
-    sessionId: () => ACP + turn.sessionId, turnId: () => turn.turnId, audit: auditApproval || (() => { }),
+    sessionId: () => turn.fullId, turnId: () => turn.turnId, audit: auditApproval || (() => { }),
     write: (nativeId, result) => new Promise((resolve, reject) => {
       if (!client.writable()) return reject(new Error('Approval connection closed'));
       try { client.respond(nativeId, result); resolve(); } catch (e) { reject(e); }
@@ -302,37 +418,87 @@ export function askAcpQuestion(turn, questions) {
   return id;
 }
 export const askState = id => askStates.get(id) || { state: 'gone' };
-const endAsks = turn => { for (const [id] of turn.asks) askStates.set(id, { state: 'gone', at: Date.now() }); turn.asks.clear(); turn.questions?.clear(); };
+const endAsks = turn => { for (const [id, a] of turn.asks) { askStates.set(id, { state: 'gone', at: Date.now() }); try { a.cancel?.(); } catch { } } turn.asks.clear(); turn.questions?.clear(); };
+
+// A reply that goes on after its prompt returned (runtime.settle). Antigravity moves a command that runs longer than
+// about ten seconds to the background: session/prompt returns end_turn while the command still runs, and when it
+// finishes the agent carries on by itself, sending more session/update messages with no prompt open and no closing
+// message (verified live, 1.5.14). So the reply is over when no prompt is open, no tool call is still running, and the
+// model has reported the step after the last tool (usage_update, which ends every model step). Two timers keep a reply
+// from hanging: SETTLE_QUIET_MS with every tool finished and nothing more said, SETTLE_MAX_MS of silence while a tool
+// still runs (a server the agent started and left running); both end the reply without stopping anything.
+const SETTLE_QUIET_MS = Number(process.env.POCKET_ACP_SETTLE_QUIET_MS) || 120_000;
+const SETTLE_MAX_MS = Number(process.env.POCKET_ACP_SETTLE_MAX_MS) || 600_000;
+const TOOL_OVER = new Set(['completed', 'failed', 'cancelled']);
+const openTools = turn => [...turn.tools.values()].some(t => t.info.status && !TOOL_OVER.has(t.info.status));
+function armSettle(turn) {
+  clearTimeout(turn.settleTimer);
+  if (turn.done || !turn.settling) return;
+  turn.settleTimer = setTimeout(() => { if (!turn.done && turn.settling && turn.openPrompts === 0) finishAcpTurn(turn, { stopReason: turn.lastStop || 'end_turn' }); }, openTools(turn) ? SETTLE_MAX_MS : SETTLE_QUIET_MS);
+  turn.settleTimer.unref?.();
+}
+// Called when a prompt returns: finish, or wait for what is still running.
+function settleOrFinish(turn) {
+  if (turn.done || turn.openPrompts > 0) return;
+  if (turn.session.runtime.settle && !turn.stopped && turn.lastStop === 'end_turn' && openTools(turn)) { turn.settling = true; return armSettle(turn); }
+  finishAcpTurn(turn, { stopReason: turn.lastStop || 'end_turn', ...(turn.lastError ? { error: turn.lastError } : {}) });
+}
+// One session/prompt of a turn: the message that started it, or one steered into it. A turn ends after its last one.
+function runPrompt(turn, blocks) {
+  const session = turn.session;
+  turn.openPrompts++; turn.promptStarted = true; turn.settling = false; clearTimeout(turn.settleTimer);
+  return session.client.prompt({ sessionId: session.sessionId, prompt: blocks }, PROMPT_TIMEOUT_MS).then(r => {
+    turn.openPrompts--;
+    if (r?.usage) turn.usage = r.usage;
+    turn.lastStop = r?.stopReason || 'end_turn'; turn.lastError = null;
+    settleOrFinish(turn);
+  }, e => {
+    turn.openPrompts--;
+    if (turn.openPrompts > 0) return; // an earlier prompt a steered message replaced: the newer one decides
+    finishAcpTurn(turn, { stopReason: 'error', error: runtimeError(session.runtime, e).message });
+  });
+}
+const promptBlocks = (text, images = []) => [{ type: 'text', text }, ...images.filter(i => i?.data && i?.mimeType).map(i => ({ type: 'image', mimeType: i.mimeType, data: i.data }))];
 
 // Route a live session/update + server->client request onto the turn. Set as the client handlers
 // for the duration of the turn.
 function wireTurnHandlers(turn) {
-  const client = turn.client;
+  const client = turn.client, rt = turn.session.runtime;
+  // After the reply: what a finished reply's process still sends is not shown (it is in the history when the
+  // conversation is next opened), and nothing it asks for is allowed, since nobody is there to be asked.
+  const declined = method => method === 'elicitation/create' && rt.questions === 'elicitation' ? { action: 'cancel' } : declineFor(method);
   client.onNotify = (method, params) => {
+    if (turn.done) return;
     if (method === 'session/update' && params?.sessionId === turn.sessionId) {
       turn.lastActivityAt = Date.now();
       const ev = normalizeUpdate(params.update);
+      if (turn.settling) armSettle(turn); // still alive: the wait starts again
       if (!ev) return;
-      if (ev.type === 'acp_commands') { turn.session.commands = knownCommands = ev.commands; return; }
+      if (ev.type === 'acp_commands') { turn.session.commands = ev.commands; noteCommands(rt, ev.commands); return; }
       if (ev.type === 'plan') { turn.flush(); turn.emit({ type: 'assistant', msg: { role: 'assistant', text: '', blocks: [planBlock(ev.entries)], ts: new Date().toISOString() } }); return; }
       if (ev.type === 'delta') { turn.text += ev.text; turn.emit(ev); return; }
       if (ev.type === 'reasoning') { turn.thought += ev.text; return; }
       if (ev.type === 'acp_usage') {
         if (ev.cost != null) turn.costTotal = ev.cost;
         if (Number.isFinite(ev.used) && Number.isFinite(ev.size)) { turn.context = turn.session.context = { used: ev.used, size: ev.size }; turn.emit({ type: 'usage' }); }
+        // the model's step after the last background command: the reply is over (settleOrFinish)
+        if (turn.settling && turn.openPrompts === 0 && !openTools(turn)) finishAcpTurn(turn, { stopReason: turn.lastStop || 'end_turn' });
         return;
       }
       if (ev.type === 'tool') {
         const t = turn.tools.get(ev.id) || { info: {}, shown: false };
         t.info = mergeTool(t.info, ev); turn.tools.set(ev.id, t);
         if (!t.shown && (toolDetail(t.info) || (t.info.status && t.info.status !== 'pending'))) { t.shown = true; turn.showTool(t.info); }
+        if (turn.settling) armSettle(turn); // the wait is shorter once the last tool has finished
         return;
       }
       turn.emit(ev);
     }
   };
   client.onRequest = (method, params, id) => {
+    if (turn.done) return client.respond(id, declined(method));
     turn.lastActivityAt = Date.now();
+    if (turn.settling) armSettle(turn);
     if (method === 'session/request_permission') {
       const { allow, deny, canAllow } = permissionOutcomes(params.options);
       // Full access: allow at once, as Claude (bypassPermissions) and Codex (approval never) run without asking.
@@ -353,27 +519,47 @@ function wireTurnHandlers(turn) {
       if (!ok) client.respond(id, declineFor(method)); // couldn't register (closed/old turn) -> fail closed
       return; // the response is sent later by the inbox's write when the user decides
     }
-    if (method === 'elicitation/create') return client.respond(id, { outcome: 'cancelled' }); // v1: questions arrive as text
+    if (method === 'elicitation/create') {
+      if (rt.questions !== 'elicitation') return client.respond(id, { outcome: 'cancelled' }); // OpenCode: questions come through Pocket's ask tool
+      // A question form as a question card, in the inbox Claude's and Codex's questions use. Answered: accept with the
+      // form's content. Skipped (a message typed instead): decline. The reply ended or was stopped: cancel.
+      const form = elicitationForm(params), askId = 'elicit:' + id;
+      const ok = form && turn.questions.receive({ id: askId, method: 'item/tool/requestUserInput', params: { threadId: turn.sessionId, turnId: turn.turnId, isBlocking: true, questions: form.questions } }, turn.turnId);
+      if (!ok) return client.respond(id, { action: 'cancel' });
+      turn.asks.set(askId, {
+        done: r => client.respond(id, r.skipped || !Object.keys(r.answers || {}).length ? { action: 'decline' } : { action: 'accept', content: form.content(r.answers) }),
+        cancel: () => client.respond(id, { action: 'cancel' }),
+      });
+      return;
+    }
     client.respond(id, declineFor(method)); // fs/* terminal/* not advertised
   };
 }
 
 // Open (or resume) an ACP session: spawn the child, initialize, new/load the session.
-async function openAcpSession({ sessionId, cwd, model, cmd, args, env, resume, instructionsFile = null, askKey = null }) {
+async function openAcpSession({ sessionId, cwd, model, cmd, args, env, resume, runtime, mcpServers = [], instructions = null, instructionsFile = null, askKey = null }) {
+  const rt = runtimeOf(runtime);
   const client = new AcpClient({ cmd, args, cwd, env, name: sessionId || 'new' });
   try {
-    await client.initialize();
+    await client.initialize(rt.clientCapabilities, rt.clientInfo);
     let sid = sessionId;
+    // Instructions a runtime takes with the session (rt.instructions 'meta'): Pocket's, for this conversation. A new
+    // conversation has no id yet, so they name none; a reopened one gets them again with its id and today's settings.
+    const said = rt.instructions === 'meta' && instructions ? instructions(resume && sessionId ? rt.prefix + sessionId : null) : '';
+    const meta = said ? { _meta: rt.systemAppend(said) } : {};
     // session/load requires {sessionId, cwd, mcpServers} (cwd a string). On resume the caller may
     // not know the original cwd; recover it from session/list. (Verified against real OpenCode.)
     let opened;
-    if (resume && sessionId) { const c = cwd || await sessionCwd(client, sessionId); opened = await client.loadSession({ sessionId, cwd: c && !fs.existsSync(c) ? HOME : c || '/', mcpServers: [] }); } // 1.98: its folder may be gone
-    else { opened = await client.newSession({ cwd, mcpServers: [] }); sid = opened?.sessionId; }
+    if (resume && sessionId) { const c = cwd || await sessionCwd(client, sessionId); opened = await client.loadSession({ sessionId, cwd: c && !fs.existsSync(c) ? HOME : c || '/', mcpServers, ...meta }); } // 1.98: its folder may be gone
+    else { opened = await client.newSession({ cwd, mcpServers, ...meta }); sid = opened?.sessionId; }
     if (!sid) throw new Error('acp: no session id');
-    const session = { sessionId: sid, client, cwd, config: opened?.configOptions || [], turn: null, instructionsFile, askKey, runnerToken: env?.POCKET_RUNNER_TOKEN || null, lastActivityAt: Date.now(), commands: [], context: null };
+    const config = opened?.configOptions || [];
+    const session = { sessionId: sid, fullId: rt.prefix + sid, runtime: rt, client, cwd, config, turn: null, instructionsFile, askKey, runnerToken: env?.POCKET_RUNNER_TOKEN || null, lastActivityAt: Date.now(), commands: [], context: null,
+      // the level each model itself starts on, which Default goes back to: the session's first model here, the others as it switches to them
+      effortDefaults: { [config.find(o => o.id === rt.options.model)?.currentValue ?? '']: config.find(o => o.id === rt.options.effort)?.currentValue ?? null } };
     acpSessions.set(sid, session);
     return session;
-  } catch (e) { client.close(); throw e; }
+  } catch (e) { client.close(); throw runtimeError(rt, e); }
 }
 // 1.99: which conversation a command came from, as with Claude and Codex.
 const sameToken = (a, b) => Boolean(a && b) && timingSafeEqual(createHash('sha256').update(String(a)).digest(), createHash('sha256').update(String(b)).digest());
@@ -387,30 +573,37 @@ export function sessionForRunnerToken(token) {
 // own default model (before 1.84.1 every OpenRouter turn ran on that default, opencode/big-pickle).
 // Effort: the model's own levels; 'default' or a level the model lacks resets to the model's default.
 export async function applyAcpConfig(session, { model, effort, executionMode }) {
+  const rt = session.runtime || RUNTIMES.opencode, ids = rt.options;
   const opt = id => session.config.find(o => o.id === id);
-  if (!model) throw new Error('No OpenRouter model was chosen for this reply.');
+  if (!model) throw new Error(`No ${rt.label} model was chosen for this reply.`);
   // Set and confirm it every turn (one local call): nothing that resets the session between turns can
   // leave a reply on another model.
-  if (opt('model') && !(opt('model').options || []).some(o => o.value === model)) throw new Error(`OpenCode does not offer ${model}. Pick another model.`);
-  const r = await session.client.setConfigOption(session.sessionId, 'model', model);
+  if (opt(ids.model) && !(opt(ids.model).options || []).some(o => o.value === model)) throw new Error(`${rt.name} does not offer ${model}. Pick another model.`);
+  const before = opt(ids.model)?.currentValue;
+  const r = await session.client.setConfigOption(session.sessionId, ids.model, model);
   if (Array.isArray(r?.configOptions)) session.config = r.configOptions;
-  const now = opt('model')?.currentValue;
-  if (now !== model) throw new Error(`OpenCode did not switch to ${model}${now ? ` (it is on ${now})` : ''}, so the reply was not sent.`);
-  // Plan first: OpenCode's own plan mode (edits disallowed), set every turn since a reopened session starts in build.
-  const mode = opt('mode'), wantMode = executionMode === 'plan' ? 'plan' : 'build';
+  const now = opt(ids.model)?.currentValue;
+  const defaults = session.effortDefaults ||= {};
+  if (before !== model && now === model && !(model in defaults)) defaults[model] = opt(ids.effort)?.currentValue ?? null; // just switched: the model's own level
+  if (now !== model) throw new Error(`${rt.name} did not switch to ${model}${now ? ` (it is on ${now})` : ''}, so the reply was not sent.`);
+  // Plan first: the runtime's own plan mode (edits disallowed), set every turn since a reopened session starts in its work mode.
+  const mode = opt(ids.mode), wantMode = executionMode === 'plan' ? ids.plan : ids.work;
   if (mode && (mode.options || []).some(o => o.value === wantMode) && mode.currentValue !== wantMode) {
-    const r = await session.client.setConfigOption(session.sessionId, 'mode', wantMode);
+    const r = await session.client.setConfigOption(session.sessionId, ids.mode, wantMode);
     if (Array.isArray(r?.configOptions)) session.config = r.configOptions;
   }
-  const eff = opt('effort');
+  const eff = opt(ids.effort);
   if (!eff) return { model, effort: null };
   const levels = (eff.options || []).map(o => o.value);
-  const want = effort && effort !== 'default' && levels.includes(effort) ? effort : levels.includes('default') ? 'default' : null;
+  // Default: OpenCode has a level of that name; a runtime without one goes back to the level the model started on.
+  const dflt = levels.includes('default') ? 'default' : levels.includes(defaults[model]) ? defaults[model] : null;
+  const picked = effort && effort !== 'default' && levels.includes(effort) ? effort : null;
+  const want = picked || dflt;
   if (want && eff.currentValue !== want) {
-    const r = await session.client.setConfigOption(session.sessionId, 'effort', want);
+    const r = await session.client.setConfigOption(session.sessionId, ids.effort, want);
     if (Array.isArray(r?.configOptions)) session.config = r.configOptions;
   }
-  return { model, effort: want === 'default' ? null : want };
+  return { model, effort: picked };
 }
 
 // The reasoning-effort levels OpenCode offers for each OpenRouter model, read by pointing one throwaway
@@ -419,7 +612,7 @@ export async function applyAcpConfig(session, { model, effort, executionMode }) 
 // conversation list hides.
 export async function probeAcpEfforts({ cmd, args, env, cwd }) {
   const client = new AcpClient({ cmd, args, cwd, env, name: 'effort-probe' });
-  client.onNotify = (method, params) => { const ev = method === 'session/update' ? normalizeUpdate(params?.update) : null; if (ev?.type === 'acp_commands' && ev.commands.length) knownCommands = ev.commands; };
+  client.onNotify = (method, params) => { const ev = method === 'session/update' ? normalizeUpdate(params?.update) : null; if (ev?.type === 'acp_commands') noteCommands(RUNTIMES.opencode, ev.commands); };
   try {
     await client.initialize();
     const s = await client.newSession({ cwd, mcpServers: [] });
@@ -434,13 +627,40 @@ export async function probeAcpEfforts({ cmd, args, env, cwd }) {
   } finally { client.close(); }
 }
 
+// What a runtime that lists its own models offers this account, read from one throwaway session (all local calls,
+// no model is run): the models with each one's effort levels, the model and level it starts on, and the plan the
+// account is on when the runtime says (Antigravity: _meta.antigravity.tier). Nobody signed in: { signedIn: false }.
+export async function probeAcpModels({ cmd, args, env, cwd, runtime }) {
+  const rt = runtimeOf(runtime), ids = rt.options;
+  const client = new AcpClient({ cmd, args, cwd, env, name: 'model-probe' });
+  client.onNotify = (method, params) => { const ev = method === 'session/update' ? normalizeUpdate(params?.update) : null; if (ev?.type === 'acp_commands') noteCommands(rt, ev.commands); };
+  try {
+    await client.initialize(rt.clientCapabilities, rt.clientInfo);
+    let s;
+    try { s = await client.newSession({ cwd, mcpServers: [] }); }
+    catch (e) { const err = runtimeError(rt, e); if (err.signIn) return { signedIn: false, message: err.message, models: [], defaultModel: null, plan: null }; throw err; }
+    const opt = (cfg, id) => (cfg || []).find(o => o.id === id);
+    const start = opt(s?.configOptions, ids.model), models = [];
+    for (const m of start?.options || []) {
+      // A model the plan lists but will not switch to still appears, with no levels, and the rest are still read.
+      const r = await client.setConfigOption(s.sessionId, ids.model, m.value).catch(() => null);
+      const eff = opt(r?.configOptions, ids.effort);
+      models.push({ id: m.value, label: m.name || m.value, efforts: eff ? (eff.options || []).map(o => o.value).filter(v => v !== 'default') : [], defaultEffort: eff?.currentValue ?? null });
+    }
+    if (start?.currentValue) await client.setConfigOption(s.sessionId, ids.model, start.currentValue).catch(() => { });
+    await new Promise(r => setTimeout(r, 150)); // the command list arrives just after the session opens
+    return { signedIn: true, models, defaultModel: start?.currentValue || models[0]?.id || null, plan: s?._meta?.[rt.id]?.tier?.name || null };
+  } finally { client.close(); }
+}
+
 // Start (or continue/resume) a turn. hooks mirror startCodexTurn: {emit, onFinish, onApproval,
 // auditApproval}. Returns the turn; the reply streams through turn.emit / turn.approvals.
-export async function startAcpTurn({ sessionId, cwd, text, prompt = null, images = [], model, effort, approvalMode, executionMode, costBaseline = null, cmd, args = [], env, instructionsFile = null, askKey = null, resume = false, hooks = {}, origin, originRef, rootOrigin, mayStart = null }) {
+export async function startAcpTurn({ sessionId, cwd, text, prompt = null, images = [], model, effort, approvalMode, executionMode, costBaseline = null, cmd, args = [], env, runtime = null, mcpServers = [], instructionsFile = null, askKey = null, resume = false, hooks = {}, origin, originRef, rootOrigin, mayStart = null }) {
   const bare = sessionId ? bareAcpId(sessionId) : null;
+  const rt = runtime ? runtimeOf(runtime) : runtimeForId(sessionId) || RUNTIMES.opencode;
   let session = bare && acpSessions.get(bare);
   if (session && acpTurns.has(session.sessionId)) throw Object.assign(new Error('busy'), { code: 409 });
-  if (!session) { session = await openAcpSession({ sessionId: bare, cwd, model, cmd, args, env, resume, instructionsFile, askKey }); session.costTotal = resume ? costBaseline : 0; }
+  if (!session) { session = await openAcpSession({ sessionId: bare, cwd, model, cmd, args, env, resume, runtime: rt, mcpServers, instructions: hooks.instructions, instructionsFile, askKey }); session.costTotal = resume ? costBaseline : 0; }
   mayStart?.(); // 1.117: refused just before the turn exists (Pocket was paused meanwhile); the opened process idles out as usual
   const turn = makeAcpTurn(session, { text, model, approvalMode, executionMode, hooks, origin, originRef, rootOrigin }); // 1.117: origin
   turn.effort = effort && effort !== 'default' ? effort : null;
@@ -456,13 +676,11 @@ export async function startAcpTurn({ sessionId, cwd, text, prompt = null, images
       turn.effort = used.effort;
       // Pocket's instructions for this conversation, written where this OpenCode process reads them (it reads its
       // instruction files when it builds each request, verified live), so they carry the session id and today's settings.
-      if (session.instructionsFile && hooks.instructions) fs.writeFileSync(session.instructionsFile, hooks.instructions(ACP + session.sessionId) || '', { mode: 0o600 });
-      const blocks = [{ type: 'text', text: prompt ?? text }, ...images.filter(i => i?.data && i?.mimeType).map(i => ({ type: 'image', mimeType: i.mimeType, data: i.data }))];
-      const r = await session.client.prompt({ sessionId: session.sessionId, prompt: blocks }, PROMPT_TIMEOUT_MS);
-      turn.usage = r?.usage || null;
-      finishAcpTurn(turn, { stopReason: r?.stopReason || 'end_turn' });
+      if (session.instructionsFile && hooks.instructions) fs.writeFileSync(session.instructionsFile, hooks.instructions(session.fullId) || '', { mode: 0o600 });
+      if (turn.stopped) return finishAcpTurn(turn, { stopReason: 'cancelled' }); // stopped before the message went out
+      await runPrompt(turn, promptBlocks(prompt ?? text, images));
     } catch (e) {
-      finishAcpTurn(turn, { stopReason: 'error', error: e.message });
+      finishAcpTurn(turn, { stopReason: 'error', error: runtimeError(session.runtime, e).message });
     }
   })();
   return turn;
@@ -470,7 +688,7 @@ export async function startAcpTurn({ sessionId, cwd, text, prompt = null, images
 
 function finishAcpTurn(turn, result) {
   if (turn.done) return;
-  turn.done = true;
+  turn.done = true; turn.settling = false; clearTimeout(turn.settleTimer);
   // Stopped (by you, or by the watchdog): a stop, not a finished reply, the way the other engines report it.
   if (turn.stopped || result.stopReason === 'cancelled') { turn.stopped = true; result = { ...result, stopReason: 'cancelled', error: turn.stopNote || 'Stopped by you' }; }
   turn.session.lastActivityAt = Date.now();
@@ -484,19 +702,26 @@ function finishAcpTurn(turn, result) {
   const cost = turn.costTotal != null && turn.costStart != null ? Math.round(Math.max(0, turn.costTotal - turn.costStart) * 1e9) / 1e9 : null; // OpenCode's precision
   const u = turn.usage, read = Number(u?.cachedReadTokens) || 0, fresh = Number(u?.inputTokens) || 0;
   const cache = read + fresh > 0 ? { hit: read / (read + fresh) } : null;
+  // A runtime on a plan has no cost to show; its reply line carries the tokens instead, as Codex's does.
+  const tokens = !turn.session.runtime?.cost && Number.isFinite(Number(u?.totalTokens)) && Number(u.totalTokens) > 0 ? Number(u.totalTokens) : null;
   turn.emit({ type: 'result', ok: !turn.stopped && result.stopReason !== 'error', stopReason: result.stopReason, ...(result.error ? { error: result.error } : {}),
-    ...(cost != null ? { cost } : {}), duration_ms: Date.now() - turn.startedAt, ...(cache ? { cache } : {}) });
+    ...(cost != null ? { cost } : {}), ...(tokens != null ? { tokens } : {}), duration_ms: Date.now() - turn.startedAt, ...(cache ? { cache } : {}) });
   turn.emit({ type: 'done' });
   acpTurns.delete(turn.sessionId);
   try { turn.onFinish?.(result, turn); } catch (e) { log(`onFinish threw: ${e.message}`); }
 }
 
-export function steerAcpTurn(sessionId, text) {
+// A message sent during a reply. Where the runtime takes one (Antigravity: a second session/prompt ends the first and
+// the reply goes on with the new instruction, verified live), it goes into the running reply and true is returned.
+// False: this runtime has no mid-reply input (OpenCode), or the reply cannot take it now; the caller queues it or says so.
+export function steerAcpTurn(sessionId, text, { prompt = null, images = [] } = {}) {
   const turn = acpTurns.get(bareAcpId(sessionId));
-  if (!turn) return false;
-  // ACP has no mid-turn steer; cancel so the user can send a fresh message (the UI treats a
-  // failed steer as "queue / send after"). Returning false lets the caller fall back to queue.
-  return false;
+  if (!turn || turn.done || turn.stopped || !turn.session.runtime.steer || !turn.promptStarted) return false;
+  turn.flush(); // what the reply said so far stays above the new message
+  turn.emit({ type: 'user', msg: { role: 'user', text, ts: new Date().toISOString() } });
+  turn.lastActivityAt = Date.now();
+  runPrompt(turn, promptBlocks(prompt ?? text, images));
+  return true;
 }
 
 export function stopAcpTurn(sessionId, note = null) {
@@ -506,6 +731,8 @@ export function stopAcpTurn(sessionId, note = null) {
   turn.approvals?.clear();
   endAsks(turn);
   try { turn.client.cancel(turn.sessionId); } catch { }
+  // No prompt is open (the reply was waiting on a background command): nothing will answer the cancel, so end it here.
+  if (turn.promptStarted && turn.openPrompts === 0) finishAcpTurn(turn, { stopReason: 'cancelled' });
   return true;
 }
 
@@ -527,15 +754,18 @@ export const stalledAcpTurns = quietMs => [...acpTurns.values()].filter(t => !t.
 
 // ---------- read-only listing + transcript (a short-lived reader client) ----------
 // List ACP sessions for the session picker. Spawns a throwaway reader, enumerates via session/list.
-export async function listAcpSessions({ cmd, args, env, limit = 60, hideCwd = null } = {}) {
+export async function listAcpSessions({ cmd, args, env, limit = 60, hideCwd = null, runtime = null } = {}) {
+  const rt = runtimeOf(runtime);
   const client = new AcpClient({ cmd, args, env, name: 'reader' });
   try {
-    await client.initialize();
+    await client.initialize(rt.clientCapabilities, rt.clientInfo);
     const r = await client.listSessions();
-    // OpenCode names a session "New session - <iso time>" until it titles it; treat that as untitled.
-    const rows = (r?.sessions || []).filter(s => !hideCwd || s.cwd !== hideCwd).slice(0, limit).map(s => { const t = /^New session - /.test(s.title || '') ? '' : (s.title || ''); return { id: ACP + s.sessionId, title: t || '(untitled conversation)', untitled: !t, cwd: s.cwd || null, mtimeMs: Date.parse(s.updatedAt) || 0, provider: 'acp' }; });
+    // OpenCode names a session "New session - <iso time>" until it titles it; treat that as untitled. Ids of another
+    // shape than this runtime mints are left out (they could not be opened again).
+    const rows = (r?.sessions || []).filter(s => rt.idRe.test(String(s.sessionId || '')) && (!hideCwd || s.cwd !== hideCwd)).sort((a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0)).slice(0, limit)
+      .map(s => { const t = rt.untitled?.test(s.title || '') ? '' : (s.title || ''); return { id: rt.prefix + s.sessionId, title: t || '(untitled conversation)', untitled: !t, cwd: s.cwd || null, mtimeMs: Date.parse(s.updatedAt) || 0, provider: rt.engine }; });
     return rows;
-  } finally { client.close(); }
+  } catch (e) { throw runtimeError(rt, e); } finally { client.close(); }
 }
 
 // The cwd a session was created in, from session/list — session/load requires it (real OpenCode).
@@ -546,17 +776,17 @@ async function sessionCwd(client, bareSessionId) {
 
 // Read a session's transcript by replaying session/load into normalized events. Resolves the
 // session's original cwd (session/load requires it) via session/list when not supplied.
-export async function readAcpTranscript({ sessionId, cwd, cmd, args, env } = {}) {
-  const bare = bareAcpId(sessionId);
+export async function readAcpTranscript({ sessionId, cwd, cmd, args, env, runtime = null } = {}) {
+  const bare = bareAcpId(sessionId), rt = runtime ? runtimeOf(runtime) : runtimeForId(sessionId) || RUNTIMES.opencode;
   const client = new AcpClient({ cmd, args, env, name: 'reader' });
   const events = [];
   client.onNotify = (method, params) => { if (method === 'session/update' && params?.sessionId === bare) { const e = normalizeUpdate(params.update); if (e) events.push(e); } };
   try {
-    await client.initialize();
+    await client.initialize(rt.clientCapabilities, rt.clientInfo);
     const c = cwd || await sessionCwd(client, bare);
     await client.loadSession({ sessionId: bare, cwd: c || '/', mcpServers: [] });
     return events;
-  } finally { client.close(); }
+  } catch (e) { throw runtimeError(rt, e); } finally { client.close(); }
 }
 
 // ---------- runtime discovery + opt-in config ----------
@@ -586,3 +816,54 @@ export function acpConfig(env = process.env) {
 
 // Whether server.mjs should offer/route the ACP engine (opt-in + runtime present).
 export const acpAvailable = (env = process.env) => Boolean(acpConfig(env));
+
+// ---------- the Antigravity runtime ----------
+// Flags Pocket never passes to `agy`, whatever POCKET_AGY_ARGS says: the ones that skip approvals, present Pocket as
+// another program, run a one-off prompt outside ACP, or start the sign-in (the owner signs in themselves, in a terminal).
+export const AGY_FORBIDDEN_ARGS = ['--dangerously-skip-permissions', '--override_user_agent_name', '--override-user-agent-name', '-p', '--print', '--prompt', '--login'];
+const forbiddenArg = a => AGY_FORBIDDEN_ARGS.some(f => a === f || a.startsWith(f + '='));
+// `agy acp` plus the extra flags the operator set (POCKET_AGY_ARGS, for example --disable-telemetry). A forbidden flag
+// is dropped together with the value that follows it, and named in `dropped` so the server can log it.
+export function antigravityArgs(extra = '') {
+  const words = String(extra || '').split(/\s+/).filter(Boolean), args = ['acp'], dropped = [];
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    if (i === 0 && w === 'acp') continue;
+    if (forbiddenArg(w)) { dropped.push(w); if (!w.includes('=') && words[i + 1] && !words[i + 1].startsWith('-')) i++; continue; }
+    args.push(w);
+  }
+  return { args, dropped };
+}
+export function findAntigravity(env = process.env) {
+  const explicit = (env.POCKET_AGY_CMD || '').trim();
+  if (explicit) return explicit;
+  const home = env.HOME || HOME;
+  const fixed = [path.join(home, '.local', 'bin', 'agy'), '/usr/local/bin/agy', '/usr/bin/agy'];
+  const onPath = (env.PATH || '').split(path.delimiter).filter(Boolean).map(d => path.join(d, 'agy'));
+  return [...fixed, ...onPath].find(p => { try { fs.accessSync(p, fs.constants.X_OK); return true; } catch { return false; } }) || null;
+}
+// Opt-in gate, as for OpenRouter: Antigravity is OFF unless POCKET_AGY_ENABLE is set AND `agy` is found.
+// POCKET_AGY_MODEL names the model a reply on Default runs (else the one the CLI starts on).
+// Returns { cmd, args, dropped, model } or null.
+export function antigravityConfig(env = process.env) {
+  if (!/^(1|true|yes|on)$/i.test(String(env.POCKET_AGY_ENABLE || '').trim())) return null;
+  const cmd = findAntigravity(env);
+  if (!cmd) return null;
+  const { args, dropped } = antigravityArgs(env.POCKET_AGY_ARGS);
+  const model = (env.POCKET_AGY_MODEL || '').trim();
+  return { cmd, args, dropped, model: /^[\w.-]{1,80}$/.test(model) ? model : null };
+}
+// The MCP servers Antigravity's own config lists (~/.gemini/config/mcp_config.json, {mcpServers: {name: {command,
+// args, env}}}), in the shape ACP's session/new takes. `agy acp` does not load that file itself (verified live,
+// 1.5.14: a server listed there is missing in ACP mode and present when the client passes it), so Pocket passes them
+// and a conversation in Pocket has the tools the same person's terminal has. Only local (command) servers: remote
+// ones need another launch mode. A missing or unreadable file is no servers.
+export function antigravityMcpServers(env = process.env) {
+  const file = env.POCKET_AGY_MCP_CONFIG || path.join(env.HOME || HOME, '.gemini', 'config', 'mcp_config.json');
+  let cfg = null; try { cfg = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return []; }
+  const servers = cfg?.mcpServers && typeof cfg.mcpServers === 'object' ? cfg.mcpServers : {};
+  return Object.entries(servers).filter(([, s]) => s && typeof s.command === 'string' && s.command && s.disabled !== true).slice(0, 20).map(([name, s]) => ({
+    name, command: s.command, args: Array.isArray(s.args) ? s.args.map(String) : [],
+    env: Object.entries(s.env && typeof s.env === 'object' ? s.env : {}).map(([k, v]) => ({ name: k, value: String(v) })),
+  }));
+}

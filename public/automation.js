@@ -27,7 +27,7 @@ const Automation = (() => {
   // "3 replies running (2 Claude, 1 Codex), 2 background jobs, 1 usage-limit retry, Inbox Watch."
   function wouldText(w) {
     if (!w) return '';
-    const r = w.replies || {}, engines = [['claude', 'Claude'], ['codex', 'Codex'], ['openrouter', 'OpenRouter']].filter(([k]) => r[k] > 0);
+    const r = w.replies || {}, engines = [['claude', 'Claude'], ['codex', 'Codex'], ['openrouter', 'OpenRouter'], ['antigravity', 'Antigravity']].filter(([k]) => r[k] > 0);
     const replies = engines.reduce((n, [k]) => n + r[k], 0), parts = [];
     if (replies) parts.push(`${plural(replies, 'reply', 'replies')} running (${engines.map(([k, l]) => `${r[k]} ${l}`).join(', ')})`);
     if (w.background > 0) parts.push(plural(w.background, 'background job', 'background jobs'));

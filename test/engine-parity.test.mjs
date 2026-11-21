@@ -1,13 +1,15 @@
 // 1.86 Engine parity: one feature checklist, run against every engine. The real server.mjs, with Claude Code
-// (test/fake-claude.mjs), Codex (test/fake-codex.mjs) and OpenRouter through OpenCode (test/fake-acp.mjs) all on,
-// takes the same requests for each and must behave the same way. A feature added for one engine and not the others
-// fails here; an engine that cannot do something lists it false in engines.mjs, and the app hides it there.
+// (test/fake-claude.mjs), Codex (test/fake-codex.mjs), OpenRouter through OpenCode (test/fake-acp.mjs) and Antigravity
+// (test/fake-agy.mjs) all on, takes the same requests for each and must behave the same way. A feature added for one
+// engine and not the others fails here; an engine that cannot do something lists it false in engines.mjs, and the app
+// hides it there. Antigravity lists `unattended` false (a person sends every message), so where the others queue, retry
+// after a usage limit or are woken by a released hold, it is checked to refuse, to stop, and to stay asleep.
 //
 // Each fake takes the same prompt markers: __SLOW__ (the reply takes a while), __HANG__ (it runs until stopped),
 // __CHOICES__ (it ends with a ```choices block), __DONE__ (it ends with a ```done block), __QUESTION__ (it asks "Which color?" with Blue and Red);
 // 1.87: __PLAN__ (a plan of two steps), __EDIT__ (edits parity.txt, "old line" to "new line"), __LIMIT__ (hits a usage or
 // rate limit that lifts 2 s later), and a command it asks to run (Claude __TOOLREQ__ Bash, Codex __CMDAPPROVAL__,
-// OpenRouter every reply), which the trusted list covers.
+// OpenRouter and Antigravity every reply), which the trusted list covers.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -18,7 +20,7 @@ import { createHmac } from 'node:crypto';
 
 const repo = path.resolve(import.meta.dirname, '..');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const ENGINES = ['claude', 'codex', 'acp'];
+const ENGINES = ['claude', 'codex', 'acp', 'antigravity'];
 const cleanEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(POCKET|VAPID|CODEX|CLAUDE|OPENCODE)_/.test(k)));
 
 async function boot(t, port) {
@@ -31,7 +33,8 @@ async function boot(t, port) {
     POCKET_SESSION_ROOT: path.join(dir, 'sessions'), POCKET_DATA_DIR: path.join(dir, 'data'), POCKET_TEST_CALLS: path.join(dir, 'calls'),
     CLAUDE_BIN: path.join(repo, 'test/fake-claude.mjs'), CODEX_BIN: path.join(repo, 'test/fake-codex.mjs'),
     POCKET_ACP_ENABLE: '1', POCKET_ACP_CMD: process.execPath, POCKET_ACP_ARGS: path.join(repo, 'test/fake-acp.mjs'), POCKET_ACP_STORE: path.join(dir, 'acp-store'), POCKET_ASK_POLL_MS: '100',
-    POCKET_RETRY_BUFFER_MS: '0', POCKET_TRUSTED_ACTIONS: 'Bash(echo PARITY_OK), Bash(echo CX_OK), Bash(echo ACP_OK)',
+    POCKET_AGY_ENABLE: '1', POCKET_AGY_CMD: path.join(repo, 'test/fake-agy.mjs'), FAKE_AGY_STORE: path.join(dir, 'agy-store'),
+    POCKET_RETRY_BUFFER_MS: '0', POCKET_TRUSTED_ACTIONS: 'Bash(echo PARITY_OK), Bash(echo CX_OK), Bash(echo ACP_OK), Bash(echo AGY_OK)',
     FAKE_CODEX_MODELS: JSON.stringify([{ id: 'gpt-6-astra', displayName: 'GPT-6 Astra' }, { id: 'gpt-6-sol', displayName: 'GPT-6 Sol' }]), // Project mode needs a top model offered
   } });
   let logs = ''; child.stdout.on('data', d => logs += d); child.stderr.on('data', d => logs += d);
@@ -47,8 +50,10 @@ async function boot(t, port) {
   const prompts = engine => {
     if (engine === 'claude') return fs.readFileSync(path.join(dir, 'calls'), 'utf8').trim().split('\n').map(l => JSON.parse(l));
     if (engine === 'codex') return fs.readFileSync(path.join(dir, 'calls.codex'), 'utf8').trim().split('\n').map(l => JSON.parse(l));
+    if (engine === 'antigravity') return agySessions().flatMap(x => (x.prompts || []).map(text => ({ text, seen: x.seen, runnerToken: x.runnerToken, append: x.append })));
     return fs.readdirSync(path.join(dir, 'acp-store')).map(f => JSON.parse(fs.readFileSync(path.join(dir, 'acp-store', f), 'utf8'))).flatMap(s => (s.prompts || []).map(text => ({ text, seen: s.seen, runnerToken: s.runnerToken })));
   };
+  const agySessions = () => { try { return fs.readdirSync(path.join(dir, 'agy-store')).filter(f => f.startsWith('session-')).map(f => JSON.parse(fs.readFileSync(path.join(dir, 'agy-store', f), 'utf8'))); } catch { return []; } };
   const sse = (id, stopOn) => new Promise(resolve => {
     const ctrl = new AbortController(), evs = [], timer = setTimeout(() => { ctrl.abort(); resolve(evs); }, 15000);
     fetch(`http://127.0.0.1:${port}/api/session/${e(id)}/events`, { headers, signal: ctrl.signal }).then(async r => {
@@ -57,15 +62,16 @@ async function boot(t, port) {
     }).catch(() => { clearTimeout(timer); resolve(evs); });
   });
   const audit = () => { try { return fs.readFileSync(path.join(dir, 'data', 'automation-audit.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l)); } catch { return []; } }; // 1.117
-  return { port, dir, cwd, home, call, e, until, start, session, idle, prompts, sse, audit, logs: () => logs };
+  return { port, dir, cwd, home, call, e, until, start, session, idle, prompts, agySessions, sse, audit, logs: () => logs };
 }
 
-test('engine parity: the same checklist on Claude Code, Codex and OpenRouter', { timeout: 240_000 }, async t => {
+test('engine parity: the same checklist on Claude Code, Codex, OpenRouter and Antigravity', { timeout: 330_000 }, async t => {
   const s = await boot(t, 18821);
   const features = (await s.call('/engines')).body.engines;
   assert.deepEqual(Object.keys(features).sort(), [...ENGINES].sort(), 'every engine is described');
 
   for (const engine of ENGINES) {
+    const attended = features[engine].features.unattended === false; // a person sends every message: nothing starts by itself
     await t.test(`${engine}: your message shows while its reply runs`, async () => {
       const id = await s.start(engine, `parity one ${engine} __SLOW__`);
       const live = await s.until(async () => { const b = await s.session(id); return b?.active ? b : null; }, 8000, 'the reply to start');
@@ -76,6 +82,7 @@ test('engine parity: the same checklist on Claude Code, Codex and OpenRouter', {
     await t.test(`${engine}: Pocket's instructions reach it`, async () => {
       if (engine === 'claude') assert.ok(s.prompts('claude').some(c => c.text.startsWith('parity one claude') && c.choices), 'Claude got the suggested-reply instructions');
       else if (engine === 'codex') assert.ok(fs.readFileSync(path.join(s.dir, 'calls.threads'), 'utf8').trim().split('\n').map(l => JSON.parse(l)).some(c => c.choices), 'Codex got them');
+      else if (engine === 'antigravity') assert.match(s.prompts('antigravity').find(x => x.text.startsWith('parity one antigravity'))?.append || '', /choices/, 'Antigravity got them with the session');
       else { const p = s.prompts('acp').find(x => x.text.startsWith('parity one acp')); assert.match(p?.seen?.instructions || '', /choices/, 'OpenRouter got them in its instruction file'); }
     });
 
@@ -173,7 +180,24 @@ test('engine parity: the same checklist on Claude Code, Codex and OpenRouter', {
       await s.idle(id);
     });
 
-    await t.test(`${engine}: a queued message runs on the same engine`, async () => {
+    if (attended) await t.test(`${engine}: nothing waits in a queue; a message sent during a reply goes into it`, async () => {
+      const id = await s.start(engine, `parity slow ${engine} __HANG__`);
+      await s.until(async () => (await s.session(id))?.active, 8000, 'the reply to start');
+      await s.until(() => s.prompts(engine).some(c => c.text.startsWith(`parity slow ${engine}`)), 8000, 'the engine to have the message');
+      const q = await s.call(`/session/${s.e(id)}/message`, { text: `parity queued ${engine}`, mode: 'queue', approvalMode: 'full' });
+      assert.equal(q.status, 409, JSON.stringify(q.body)); assert.match(q.body.error, /has no queue: a person sends each message/);
+      const now = await s.call(`/session/${s.e(id)}/message`, { text: `parity steered ${engine}`, approvalMode: 'full' });
+      assert.equal(now.status, 202, JSON.stringify(now.body)); assert.equal(now.body.steered, true);
+      const b = await s.idle(id);
+      assert.equal(b.state.kind, 'finished', JSON.stringify(b.state));
+      assert.ok(s.prompts(engine).some(c => c.text.startsWith(`parity steered ${engine}`)), 'the message went into the reply');
+      assert.ok(!s.prompts(engine).some(c => c.text.startsWith(`parity queued ${engine}`)), 'the refused one never ran');
+      // and with no reply running there is no "save for later" either
+      const later = await s.call(`/session/${s.e(id)}/message`, { text: `parity later ${engine}`, mode: 'queue', approvalMode: 'full' });
+      assert.equal(later.status, 409);
+      assert.deepEqual((await s.call(`/session/${s.e(id)}/queue`)).body?.items || [], []);
+    });
+    else await t.test(`${engine}: a queued message runs on the same engine`, async () => {
       const id = await s.start(engine, `parity slow ${engine} __SLOW__`);
       await s.until(async () => (await s.session(id))?.active, 8000, 'the reply to start');
       const q = await s.call(`/session/${s.e(id)}/message`, { text: `parity queued ${engine}`, mode: 'queue', approvalMode: 'full' });
@@ -182,7 +206,15 @@ test('engine parity: the same checklist on Claude Code, Codex and OpenRouter', {
       await s.idle(id);
     });
 
-    await t.test(`${engine}: Stop is a stop, and the queue waits`, async () => {
+    if (attended) await t.test(`${engine}: Stop is a stop`, async () => {
+      const id = await s.start(engine, `parity stop ${engine} __HANG__`);
+      await s.until(async () => (await s.session(id))?.active, 8000, 'the reply to start');
+      await s.until(() => s.prompts(engine).some(c => c.text.startsWith(`parity stop ${engine}`)), 8000, 'the engine to have the message');
+      assert.equal((await s.call(`/session/${s.e(id)}/stop`, {})).status, 200);
+      const b = await s.idle(id);
+      assert.equal(b.state?.kind, 'stopped', `${engine}: ${JSON.stringify(b.state)}`);
+    });
+    else await t.test(`${engine}: Stop is a stop, and the queue waits`, async () => {
       const id = await s.start(engine, `parity stop ${engine} __HANG__`);
       await s.until(async () => (await s.session(id))?.active, 8000, 'the reply to start');
       await s.until(() => s.prompts(engine).some(c => c.text.startsWith(`parity stop ${engine}`)), 8000, 'the engine to have the message'); // stopped before it even read it, there is no conversation to keep
@@ -232,7 +264,16 @@ test('engine parity: the same checklist on Claude Code, Codex and OpenRouter', {
       assert.ok(!sent.includes('"changes"'), 'the diff itself does not travel with the conversation');
     });
 
-    await t.test(`${engine}: a usage limit waits for the reset, then picks the task up again`, async () => {
+    if (attended) await t.test(`${engine}: a usage limit ends the reply and nothing picks it up by itself`, async () => {
+      const id = await s.start(engine, `parity limit ${engine} __LIMIT__`);
+      const b = await s.idle(id);
+      assert.equal(b.state.kind, 'failed', JSON.stringify(b.state)); assert.equal(b.state.retryAt ?? null, null);
+      await sleep(2600); // the limit "lifts" after 2 s: the other engines would be back at work by now
+      assert.ok(!s.prompts(engine).some(c => /interrupted by an API rate limit/.test(c.text)), 'no reply was started for it');
+      assert.equal((await s.session(id)).active, false);
+      assert.ok(!s.audit().some(x => x.sessionId === id), 'nothing unattended ran in this conversation');
+    });
+    else await t.test(`${engine}: a usage limit waits for the reset, then picks the task up again`, async () => {
       const id = await s.start(engine, `parity limit ${engine} __LIMIT__`);
       const w = await s.until(async () => { const b = await s.session(id); return b?.state?.kind === 'waiting' ? b : null; }, 10000, 'the waiting state');
       assert.equal(w.state.label, 'Waiting for usage reset'); assert.ok(w.state.retryAt > Date.now() - 60_000);
@@ -244,7 +285,17 @@ test('engine parity: the same checklist on Claude Code, Codex and OpenRouter', {
       assert.ok(line, `${engine}: the finished unattended reply is in the audit`); assert.equal(line.rootOrigin, 'owner'); assert.equal(line.engine, engine);
     });
 
-    await t.test(`${engine}: origin travels from the start to the turn, the stream and lastOrigin (1.117)`, async () => {
+    if (attended) await t.test(`${engine}: every reply is the owner's (1.117)`, async () => {
+      const id = await s.start(engine, `parity origin ${engine} __SLOW__`);
+      const own = await s.sse(id, ev => ev.type === 'attach');
+      assert.equal(own.find(ev => ev.type === 'attach')?.origin, 'owner', `${engine}: the owner's reply`);
+      await s.idle(id);
+      assert.equal((await s.session(id)).lastOrigin, undefined, `${engine}: an owner turn is not labelled`);
+      assert.equal((await s.call(`/session/${s.e(id)}/message`, { text: `parity origin owner ${engine}`, approvalMode: 'full' })).status, 202);
+      await s.idle(id);
+      assert.equal((await s.session(id)).lastOrigin, undefined);
+    });
+    else await t.test(`${engine}: origin travels from the start to the turn, the stream and lastOrigin (1.117)`, async () => {
       const id = await s.start(engine, `parity origin ${engine} __SLOW__`);
       const own = await s.sse(id, ev => ev.type === 'attach');
       assert.equal(own.find(ev => ev.type === 'attach')?.origin, 'owner', `${engine}: the owner's reply`);
@@ -265,12 +316,13 @@ test('engine parity: the same checklist on Claude Code, Codex and OpenRouter', {
     });
 
     await t.test(`${engine}: a trusted read-only command runs without an approval card`, async () => {
-      const text = engine === 'claude' ? `parity trusted claude __TOOLREQ__ {"tool":"Bash","input":{"command":"echo PARITY_OK"}}` : engine === 'codex' ? 'parity trusted codex __CMDAPPROVAL__' : 'parity trusted acp';
+      const text = engine === 'claude' ? `parity trusted claude __TOOLREQ__ {"tool":"Bash","input":{"command":"echo PARITY_OK"}}` : engine === 'codex' ? 'parity trusted codex __CMDAPPROVAL__' : `parity trusted ${engine}`;
       const id = await s.start(engine, text, { approvalMode: 'review' });
       const b = await s.idle(id); // with no card to answer, the reply only ends because the command was allowed
       assert.notEqual(b.state.kind, 'input');
       if (engine === 'claude') assert.ok(fs.readFileSync(path.join(s.dir, 'calls.responses'), 'utf8').includes('"behavior":"allow"'));
       if (engine === 'codex') assert.match(fs.readFileSync(path.join(s.dir, 'calls.cxapprovals'), 'utf8'), /"decision":"accept"/);
+      if (engine === 'antigravity') assert.ok(s.agySessions().some(x => x.prompts?.includes('parity trusted antigravity') && x.permission === 'allow'), 'the command was allowed with no card');
       if (engine === 'acp') assert.ok(fs.readdirSync(path.join(s.dir, 'acp-store')).some(f => JSON.parse(fs.readFileSync(path.join(s.dir, 'acp-store', f), 'utf8')).lastPrompt === 'parity trusted acp' && JSON.parse(fs.readFileSync(path.join(s.dir, 'acp-store', f), 'utf8')).permissionOutcome === 'selected'));
     });
 
@@ -282,7 +334,7 @@ test('engine parity: the same checklist on Claude Code, Codex and OpenRouter', {
       await s.idle(id);
       const before = s.prompts(engine).length;
       assert.equal((await s.call(`/session/${s.e(id)}/message`, { text: '/compact', approvalMode: 'full' })).status, 202);
-      await s.until(() => s.prompts(engine).slice(engine === 'acp' ? 0 : before).some(c => c.text === '/compact' || c.text === '[compact]'), 10000, `${engine} to get /compact`);
+      await s.until(() => s.prompts(engine).slice(['acp', 'antigravity'].includes(engine) ? 0 : before).some(c => c.text === '/compact' || c.text === '[compact]'), 10000, `${engine} to get /compact`);
       if (engine === 'codex') assert.ok(s.prompts('codex').some(c => c.text === '[compact]'), 'Codex compacts with its own method');
       await s.idle(id);
     });
@@ -315,11 +367,14 @@ test('engine parity: the same checklist on Claude Code, Codex and OpenRouter', {
       assert.equal(held.body.hold.holder.session, a, `${engine}: the runner token proved the conversation`);
       const clash = await agent('/hold', tb, { name, reason: 'Mine' });
       assert.equal(clash.status, 409); assert.equal(clash.body.hold.holder.session, a);
-      assert.equal((await agent('/wait', tb, { name })).body.free, false);
+      if (attended) { // a wait that would wake it later is refused up front: nobody would have sent that message
+        const w = await agent('/wait', tb, { name });
+        assert.equal(w.status, 409, JSON.stringify(w.body)); assert.equal(w.body.code, 'attended_only');
+      } else assert.equal((await agent('/wait', tb, { name })).body.free, false);
       for (const id of [a, b]) { assert.equal((await s.call(`/session/${s.e(id)}/stop`, {})).status, 200); await s.idle(id); }
       assert.equal((await s.call('/coordination/owner-release', { name })).status, 200);
-      await s.until(() => s.prompts(engine).some(c => c.text.startsWith(`[Pocket coordination] ${name} is free`)), 10000, 'the waiter to be woken');
-      await s.idle(b);
+      if (attended) { await sleep(1200); assert.ok(!s.prompts(engine).some(c => c.text.startsWith('[Pocket coordination]')), 'nothing was woken'); assert.equal((await s.session(b)).active, false); }
+      else { await s.until(() => s.prompts(engine).some(c => c.text.startsWith(`[Pocket coordination] ${name} is free`)), 10000, 'the waiter to be woken'); await s.idle(b); }
       await s.call(`/session/${s.e(a)}/message`, { text: `coord next ${engine}`, approvalMode: 'full' });
       await s.until(() => s.prompts(engine).find(c => c.text.startsWith(`coord next ${engine}`) && c.text.includes(`[Pocket: The owner released your hold on ${name}.`)), 10000, 'the holder to be told');
       await s.idle(a);

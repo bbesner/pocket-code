@@ -143,6 +143,29 @@ async function loadAcpModels() {
   } catch { acpEnabled = false; }
   return ACP_MODELS;
 }
+// The Antigravity engine: Google's agy CLI on the owner's own Google plan, where this server has it on. The menu is what
+// the signed-in plan lists, each model with its own thinking levels. Signed out there is nothing to pick: the model row
+// says so, and New names the command to run on the server (agyNotice).
+let AGY_MODELS = [['default', 'Default', "Antigravity's own default"]];
+let agyState = null; // null = not yet checked; {enabled, signedIn, signInCommand, message}
+let agyEfforts = new Map(), agyEffortDefault = new Map(); // model -> its levels, and the level it starts on
+async function loadAgyModels(fresh) {
+  if (agyState && !fresh) return AGY_MODELS;
+  try {
+    const r = await api('/antigravity/models' + (fresh ? '?fresh=1' : '')), models = Array.isArray(r.models) ? r.models : [];
+    agyState = { enabled: Boolean(r.enabled), signedIn: Boolean(r.signedIn), signInCommand: r.signInCommand || '', message: r.message || '' };
+    const defLabel = r.defaultModel && (models.find(m => m.id === r.defaultModel)?.label || r.defaultModel);
+    AGY_MODELS = !agyState.signedIn
+      ? [['default', agyState.enabled ? 'Not signed in' : 'Default', agyState.signInCommand ? `On this server, run ${agyState.signInCommand}` : agyState.message, 'Default']]
+      : [['default', 'Default', defLabel ? `${defLabel} · Antigravity default` : "Antigravity's own default", defLabel || 'Default'], ...models.map(m => [m.id, m.label || m.id, ''])];
+    providerDefaults.antigravity = { model: r.defaultModel || null };
+    agyEfforts = new Map(models.map(m => [m.id, Array.isArray(m.efforts) ? m.efforts : []]));
+    agyEffortDefault = new Map(models.filter(m => m.defaultEffort).map(m => [m.id, m.defaultEffort]));
+    if (agyState.signedIn && r.error) AGY_MODELS.push(['default', 'Model list unavailable', r.error]);
+  } catch { if (!agyState) agyState = { enabled: false, signedIn: false, signInCommand: '', message: '' }; }
+  return AGY_MODELS;
+}
+const loadModelsFor = provider => provider === 'codex' ? loadCodexModels() : provider === 'acp' ? loadAcpModels() : provider === 'antigravity' ? loadAgyModels() : loadClaudeModels();
 // 1.106: in a conversation started from a Conductor project, Default is the model that start chose (the lead, or Solo's model).
 let chatProjectMode = null; // GET /api/session/:id's projectMode, with the conversation's id
 // 1.106.1: on New, the start a Conductor project will send (set by renderNew), so Default names the model that will run.
@@ -151,7 +174,7 @@ const projectModeNow = () => tb?.key === NEW_KEY ? newProjectMode?.() || null : 
 const CONDUCTOR_MODEL_NOTE = 'Changing the model restarts the lead without its reasoning. A handoff carries the work over cleanly.';
 const CONDUCTOR_NEW_NOTE = 'Default is the lead. Another model here runs in its place, still as Conductor.';
 const modelList = () => {
-  const list = tb?.provider === 'codex' ? CODEX_MODELS : tb?.provider === 'acp' ? ACP_MODELS : MODELS, pm = projectModeNow();
+  const list = tb?.provider === 'codex' ? CODEX_MODELS : tb?.provider === 'acp' ? ACP_MODELS : tb?.provider === 'antigravity' ? AGY_MODELS : MODELS, pm = projectModeNow();
   if (!pm?.modelLabel || !engineHas(tb.provider, 'projectMode')) return list;
   return [['default', 'Default', `${pm.modelLabel} · ${pm.start === 'solo' ? "this project's Solo model" : "this project's lead"}`, pm.modelLabel], ...list.slice(1)];
 };
@@ -159,7 +182,16 @@ const modelList = () => {
 // OpenRouter: only the levels the reply's model takes, strongest first; none at all hides the chip.
 const acpModelNow = () => tb?.prefs.model === 'default' ? providerDefaults.acp.model : tb?.prefs.model;
 const acpEffortLevels = () => { const order = ['max', 'xhigh', 'high', 'medium', 'low', 'minimal', 'none']; return (acpEfforts.get(acpModelNow()) || []).filter(v => order.includes(v)).sort((a, b) => order.indexOf(a) - order.indexOf(b)); };
+// Antigravity: the levels the plan lists for the reply's model, and Default names the level that model starts on.
+const agyModelNow = () => tb?.prefs.model === 'default' ? providerDefaults.antigravity.model : tb?.prefs.model;
+const agyEffortLevels = () => { const order = ['max', 'xhigh', 'high', 'medium', 'low', 'minimal', 'none'], rank = v => order.includes(v) ? order.indexOf(v) : order.length; return [...(agyEfforts.get(agyModelNow()) || [])].sort((a, b) => rank(a) - rank(b)); };
+const noEffortChip = () => (tb?.provider === 'acp' && !acpEffortLevels().length) || (tb?.provider === 'antigravity' && !agyEffortLevels().length);
 const effortList = () => {
+  if (tb?.provider === 'antigravity') {
+    const own = EFFORT_NAMES[agyEffortDefault.get(agyModelNow())];
+    return [['default', 'Default', own ? `${own} · the model's own default` : "The model's own default", 'Default'],
+      ...agyEffortLevels().map(v => EFFORTS.find(e => e[0] === v) || ACP_EFFORTS[v] || [v, v[0].toUpperCase() + v.slice(1), ''])];
+  }
   if (tb?.provider === 'acp') return [['default', 'Default', "The model's own default", 'Default'], ...acpEffortLevels().map(v => EFFORTS.find(e => e[0] === v) || ACP_EFFORTS[v])];
   const d = providerDefaults[tb?.provider === 'codex' ? 'codex' : 'claude'], name = d.effort && EFFORT_NAMES[d.effort];
   // 1.67: nothing above the managed policy's ceiling (maxEffortLevel) is offered for Claude.
@@ -171,13 +203,15 @@ const effortList = () => {
     : [name ? `${name} · Pocket default` : tb?.provider === 'codex' ? 'Your Codex config' : 'Your global setting', name || 'Default'];
   return [['default', 'Default', ...def], ...(offersUltra() ? [['ultra', 'Ultra', 'Maximum, with automatic task delegation']] : []), ...allowed];
 };
-const providerDefaults = { claude: {}, codex: {}, acp: {} };
+const providerDefaults = { claude: {}, codex: {}, acp: {}, antigravity: {} };
 // 1.86: what each engine can do (engines.mjs, served at /api/engines). A feature an engine lists false is hidden on its
-// conversations rather than offered and failing. Until the server answers, OpenRouter's known gaps are assumed.
-const ENGINE_FEATURES = { claude: {}, codex: {}, acp: { steer: false, sideChat: false, branch: false, autoModel: false, awaySummary: false, subagents: false, connectors: false, projectMode: false } };
-const providerOf = id => String(id || '').startsWith('cx:') ? 'codex' : String(id || '').startsWith('acp:') ? 'acp' : 'claude';
+// conversations rather than offered and failing. Until the server answers, OpenRouter's and Antigravity's known gaps are assumed.
+const ENGINE_FEATURES = { claude: {}, codex: {}, acp: { steer: false, sideChat: false, branch: false, autoModel: false, awaySummary: false, subagents: false, connectors: false, projectMode: false },
+  antigravity: { sideChat: false, branch: false, autoModel: false, awaySummary: false, subagents: false, connectors: false, projectMode: false, unattended: false } };
+const providerOf = id => { const s = String(id || ''); return s.startsWith('cx:') ? 'codex' : s.startsWith('acp:') ? 'acp' : s.startsWith('agy:') ? 'antigravity' : 'claude'; };
+const START_PROVIDERS = ['claude', 'codex', 'acp', 'antigravity'];
 const engineHas = (provider, feature) => ENGINE_FEATURES[provider]?.[feature] !== false;
-const ENGINE_LABELS = { claude: 'Claude', codex: 'Codex', acp: 'OpenRouter' };
+const ENGINE_LABELS = { claude: 'Claude', codex: 'Codex', acp: 'OpenRouter', antigravity: 'Antigravity' };
 window.PocketEngines = { has: engineHas, providerOf, label: p => ENGINE_LABELS[p] || 'Claude' };
 api('/engines').then(r => { for (const [k, v] of Object.entries(r?.engines || {})) ENGINE_FEATURES[k] = { ...(v.features || {}) }; }).catch(() => { });
 const EFFORTS = [
@@ -311,20 +345,26 @@ function normalizeModelPick() {
   const model = tb.prefs.model;
   // ACP models are provider-prefixed OpenRouter slugs; a pick not in the loaded acp list goes back
   // to Default (same rule as the Claude list), and any Claude/Codex-looking id is incompatible.
-  const incompatible = tb.provider === 'acp'
+  // Antigravity's plan lists Gemini, Claude and open models by plain id, so only a provider-prefixed slug is foreign.
+  const incompatible = tb.provider === 'antigravity' ? model.includes('/') : tb.provider === 'acp'
     ? /^(?:claude-|opus(?:$|\[)|sonnet(?:$|\[)|haiku(?:$|\[)|fable(?:$|\[)|gpt-|codex(?:$|-)|o\d(?:$|-))/i.test(model)
     : tb.provider === 'codex'
     ? /^(?:claude-|opus(?:$|\[)|sonnet(?:$|\[)|haiku(?:$|\[)|fable(?:$|\[))/i.test(model)
     : /^(?:gpt-|codex(?:$|-)|o\d(?:$|-))/i.test(model);
   // 1.52: a pick the picker no longer offers (Settings or this computer's Claude Code policy) goes back to Default.
   const unoffered = (tb.provider === 'claude' && claudeModelsLoaded && model !== 'default' && !MODELS.some(m => m[0] === model))
-    || (tb.provider === 'acp' && acpEnabled && model !== 'default' && !ACP_MODELS.some(m => m[0] === model));
+    || (tb.provider === 'acp' && acpEnabled && model !== 'default' && !ACP_MODELS.some(m => m[0] === model))
+    || (tb.provider === 'antigravity' && agyState?.signedIn && model !== 'default' && !AGY_MODELS.some(m => m[0] === model)); // signed out there is no list to compare with: the pick is kept
   if (incompatible || unoffered) {
     tb.prefs.model = 'default';
     setPrefs(tb.key, tb.prefs);
   }
   // 1.84.1: an OpenRouter effort the reply's model does not take goes back to Default (once the levels are known).
   if (tb.provider === 'acp' && tb.prefs.effort !== 'default' && acpEfforts.size && !acpEffortLevels().includes(tb.prefs.effort)) {
+    tb.prefs.effort = 'default';
+    setPrefs(tb.key, tb.prefs);
+  }
+  if (tb.provider === 'antigravity' && tb.prefs.effort !== 'default' && agyState?.signedIn && !agyEffortLevels().includes(tb.prefs.effort)) {
     tb.prefs.effort = 'default';
     setPrefs(tb.key, tb.prefs);
   }
@@ -343,7 +383,7 @@ function renderToolbar() {
   bar.innerHTML = `
     ${tb.allowAttach ? `<button class="chip" id="c-att" aria-label="Attach files">${IC.clip}Attach</button>` : ''}
     <button class="chip ${tb.prefs.model !== 'default' ? 'set' : ''}" id="c-model">${IC.model}${esc(tbLabel(modelList(), tb.prefs.model))}</button>
-    ${tb.provider === 'acp' && !acpEffortLevels().length ? '' : `<button class="chip ${tb.prefs.effort !== 'default' ? 'set' : ''}" id="c-eff">${IC.gauge}${esc(tbLabel(effortList(), tb.prefs.effort))}</button>`}
+    ${noEffortChip() ? '' : `<button class="chip ${tb.prefs.effort !== 'default' ? 'set' : ''}" id="c-eff">${IC.gauge}${esc(tbLabel(effortList(), tb.prefs.effort))}</button>`}
     <button class="chip" id="c-approval" title="Permissions for the next reply" aria-label="Permissions for the next reply: ${permissionLabel(nextApprovalMode())}"><span class="label-full">${permissionLabel(nextApprovalMode())}</span><span class="label-short" aria-hidden="true">${nextApprovalMode() === 'full' ? 'Full' : 'Review'}</span></button>
     ${engineHas(tb.provider,'planMode')?`<button class="chip ${tb.prefs.executionMode==='plan'?'set':''}" id="c-mode">${tb.prefs.executionMode==='plan'?'Plan first':'Work normally'}</button>`:''}
     ${tb.allowMute ? `<button class="chip ${chatMuted ? 'set' : ''}" id="c-mute" aria-label="Toggle notifications for this conversation">${chatMuted ? IC.bellOff : IC.bell}${chatMuted ? 'Muted' : 'Alerts'}</button>` : ''}${Voice.muteButtonHTML('chip')}${tb.allowMute ? '<button class="chip conversation-side" id="side-open" hidden>Side chat</button><button class="chip conversation-branch" id="branch-open" hidden>Branch</button><button class="chip conversation-handoff" id="handoff-open" hidden>Handoff</button><button class="chip conversation-project" id="project-open" hidden>Project</button><button class="chip conversation-mode" id="mode-open" hidden></button><button class="chip conversation-task" id="task-open" hidden>Add task</button>' : ''}`;
@@ -362,7 +402,7 @@ function renderToolbar() {
     ...(vaultOn() ? [['vault','Store in the Vault','Save a key or password here instead of pasting it into the message']] : [])],null,v=>{if(v==='file')$('#fpick')?.click();else if(v==='vault')addVaultItemFromComposer();else pasteClipboardImage();}); // 1.39: the Vault option
   $('#c-model').onclick = () => sheet('Model for this reply', modelList(), tb.prefs.model,
     v => { tb.prefs.model = v; if (tb.leadHeld) delete tb.leadHeld.model; setPrefs(tb.key, tb.prefs); renderToolbar(); }, { search: modelList().length > 12 ? 'models' : '', note: projectModeNow()?.start === 'conductor' ? (projectModeNow().pending ? CONDUCTOR_NEW_NOTE : CONDUCTOR_MODEL_NOTE) : '' });
-  const eff = $('#c-eff'); // absent for an OpenRouter model that takes no reasoning-effort setting
+  const eff = $('#c-eff'); // absent for an OpenRouter or Antigravity model that takes no reasoning-effort setting
   if (eff) eff.onclick = () => sheet('Reasoning effort', effortList(), tb.prefs.effort,
     v => { tb.prefs.effort = v; if (tb.leadHeld) delete tb.leadHeld.effort; setPrefs(tb.key, tb.prefs); renderToolbar(); });
   if (loadOutbox(tb.key)) {
@@ -1726,7 +1766,7 @@ function sessionRowHTML(s) {
   return `<div class="session-item ${s.id === chatId ? 'cur' : ''} ${s.pinned ? 'pinned' : ''}" data-item="${esc(s.id)}">
     <button class="row" data-id="${esc(s.id)}">
       <span class="body"><span class="title">${esc(s.title)}</span>
-      <span class="meta">${s.cwd && s.cwd !== sessionsHome ? esc(projName(s.cwd)) + ' · ' : ''}${s.provider === 'codex' ? 'Codex' : s.provider === 'acp' ? 'OpenRouter' : 'Claude'}${s.branchOf ? ' · Branch' : ''}</span>${Automation.originOf(s) ? `<span class="origin-label">${esc(Automation.originOf(s))}</span>` : ''}
+      <span class="meta">${s.cwd && s.cwd !== sessionsHome ? esc(projName(s.cwd)) + ' · ' : ''}${ENGINE_LABELS[s.provider] || 'Claude'}${s.branchOf ? ' · Branch' : ''}</span>${Automation.originOf(s) ? `<span class="origin-label">${esc(Automation.originOf(s))}</span>` : ''}
       <span class="session-status state-${sessionsStale ? 'unknown' : state.kind}">${running && !sessionsStale ? '<span class="ember" aria-hidden="true"></span>' : background && !sessionsStale ? '<span class="ember dim" aria-hidden="true"></span>' : ''}${sessionsStale ? 'Status unavailable' : esc(state.label)}${isUnread(s) ? '<span class="unread">New</span>' : ''}${running && state.queued ? ` · ${state.queued} queued` : ''}</span>
       <span class="activity-detail">${esc(detail)}${running?' · <span data-run-age></span>':''}</span></span>
     </button>${complete ? `<button class="done-close" type="button" data-done-close="${esc(s.id)}" aria-label="Close ${esc(s.title)}: it is complete" title="Complete. Close conversation">${IC.tick}</button>` : ''}<button class="pin-toggle" type="button" data-pin-toggle="${esc(s.id)}" aria-pressed="${s.pinned ? 'true' : 'false'}" aria-label="${s.pinned ? 'Unpin' : 'Pin'} ${esc(s.title)}" title="${s.pinned ? 'Unpin' : 'Pin to the top'}">${IC.pin}</button>${s.pinned ? `<button class="pin-grip" type="button" data-grip="${esc(s.id)}" aria-label="Reorder pinned conversation ${esc(s.title)}: drag it, or press the up and down arrow keys">${IC.grip}</button>` : ''}<button class="session-more icon" data-more="${esc(s.id)}" aria-label="Options for ${esc(s.title)}">${IC.more}</button>
@@ -2088,11 +2128,11 @@ function convoResultsHTML() {
   const scope = c.backend === 'memstem' ? 'Searched every conversation by wording and meaning (MemStem).'
     : `Exact phrase in ${c.complete ? 'the' : c.scanned + ' of the'} ${c.total} most recent conversations${c.complete ? '' : ', newest first'}.`;
   const rows = c.results.map(r => {
-    const who = r.related ? 'Related' : r.role === 'user' ? 'You' : r.provider === 'codex' ? 'Codex' : r.provider === 'acp' ? 'OpenRouter' : 'Claude';
+    const who = r.related ? 'Related' : r.role === 'user' ? 'You' : ENGINE_LABELS[r.provider] || 'Claude';
     const where = r.cwd && r.cwd !== sessionsHome ? esc(projName(r.cwd)) + ' · ' : '';
     return `<div class="session-item convo-item"><button class="row" data-convo-id="${esc(r.id)}">
       <span class="body"><span class="title">${esc(r.title || 'Untitled conversation')}</span>
-      <span class="meta">${where}${r.provider === 'codex' ? 'Codex' : r.provider === 'acp' ? 'OpenRouter' : 'Claude'}${r.mtimeMs ? ' · ' + esc(rel(r.mtimeMs)) : ''}</span>
+      <span class="meta">${where}${ENGINE_LABELS[r.provider] || 'Claude'}${r.mtimeMs ? ' · ' + esc(rel(r.mtimeMs)) : ''}</span>
       <span class="convo-snippet"><span class="convo-who">${who}:</span> ${r.related ? esc(r.snippet || '') : markTerms(r.snippet || '', c.q)}</span></span>
     </button></div>`;
   }).join('');
@@ -2289,7 +2329,7 @@ function handoffCardHTML(id, s) {
   if (!s) return `<div class="handoff-card" data-handoff="${id}"><div class="handoff-head">${IC.hand}<span>This handoff link has expired. Ask the agent for a new one.</span></div></div>`;
   const label = 'Continue in a new conversation';
   if (s.startedSession) return `<div class="handoff-card" data-handoff="${id}"><div class="handoff-head">${IC.hand}<span>Started: <a href="#/chat/${esc(s.startedSession)}">${esc(s.startedTitle || 'New conversation')}</a></span></div></div>`;
-  const agent = { claude: 'Claude', codex: 'Codex', acp: 'OpenRouter' }[s.provider] || '';
+  const agent = ENGINE_LABELS[s.provider] || '';
   // 1.106: a handoff from a project conversation continues in that project, started the same way.
   const start = assistantMode() ? '' : handoffStartOf(id, s), word = start === 'solo' ? 'Solo' : 'Conductor';
   const meta = assistantMode() ? [] : [s.directory ? projName(s.directory) : '', agent, permissionLabel(s.approvalMode), s.projectName && !start ? 'Continues in ' + s.projectName : ''].filter(Boolean);
@@ -2349,7 +2389,7 @@ function startChoiceSheet(current, lead, solo, onPick) {
 async function pickHandoffStart(id) {
   const s = handoffCache.get(id)?.data, current = handoffStartOf(id, s); if (!current) return;
   if (typeof boardSnap !== 'undefined' && !boardSnap) await loadBoard(true).catch(() => { });
-  const agent = ['codex', 'acp'].includes(s.provider) ? s.provider : 'claude';
+  const agent = START_PROVIDERS.includes(s.provider) ? s.provider : 'claude';
   startChoiceSheet(current, boardSnap?.conductor?.[agent], boardSnap?.conductorStart?.solo?.[agent], async v => {
     handoffStartPick.set(id, v);
     await paintHandoffCards($('#msgs')).catch(() => { });
@@ -3044,7 +3084,7 @@ async function renderChat(id, { away = false } = {}) {
       <button class="icon desk" id="railtog" aria-label="Show or hide the conversation list">${IC.panel}</button>`}
       <h1><span class="one" id="ctitle">Conversation</span><span class="tag" id="cproj"></span></h1>
       <span id="hember"></span>
-      <div class="chat-statebar" id="chat-statebar"><button id="session-switch" class="session-switch">Conversations</button><button id="results-open" class="session-switch">Results</button><button id="queue-open" class="session-switch">Queue</button><button id="git-open" class="session-switch">Git</button></div>
+      <div class="chat-statebar" id="chat-statebar"><button id="session-switch" class="session-switch">Conversations</button><button id="results-open" class="session-switch">Results</button>${engineHas(providerOf(id), 'unattended') ? '<button id="queue-open" class="session-switch">Queue</button>' : ''}<button id="git-open" class="session-switch">Git</button></div>
       <button class="icon" id="chgb" aria-label="Changed files">${IC.diff}</button>
       <button class="icon" id="sideb" aria-label="Side chat">${IC.chat}</button>
       <button class="icon" id="findb" aria-label="Find in conversation">${IC.search}</button>
@@ -3055,7 +3095,7 @@ async function renderChat(id, { away = false } = {}) {
     </header>
     <section class="conversation-controls" id="conversation-controls" aria-label="Conversation controls"><p class="lineage" id="lineage" hidden></p><p class="origin-line" id="origin-line" hidden></p><div class="run-confirmation" id="run-confirmation" data-state="unknown"><span id="run-confirmed-state" role="status">Checking server…</span><span id="run-confirmed-at" aria-live="off"></span></div>
     <button id="agents-open" class="agents-open" aria-haspopup="dialog" hidden></button>
-    <div class="question-banner" id="questions-open" hidden>${String(id).startsWith('cx:') ? 'Codex' : String(id).startsWith('acp:') ? 'OpenRouter' : 'Claude'} has a question</div>
+    <div class="question-banner" id="questions-open" hidden>${ENGINE_LABELS[providerOf(id)]} has a question</div>
     <div class="question-banner" id="approvals-open" hidden>Waiting for your OK · Review</div>
     <p id="connection-state" class="connection-state" role="status" hidden></p>
     <div class="findbar" id="findbar" hidden>
@@ -3074,7 +3114,7 @@ async function renderChat(id, { away = false } = {}) {
   else { $('#back').onclick = () => { location.hash = '#/'; }; $('#splitb').onclick = chooseBeside; }
   $('#session-switch').onclick = openSessionSwitcher;
   $('#results-open').onclick = () => openResults(chatId);
-  $('#queue-open').onclick = () => openQueue(chatId);
+  if ($('#queue-open')) $('#queue-open').onclick = () => openQueue(chatId); // absent where a person sends each message (Antigravity)
   $('#git-open').onclick = () => openGit(chatId);
   $('#questions-open').onclick=e=>{if(!e.target.closest?.('[data-act]'))openQuestions(chatId);};
   $('#approvals-open').onclick=e=>{if(!e.target.closest?.('[data-act]'))openApprovals(chatId);};
@@ -3111,9 +3151,9 @@ async function renderChat(id, { away = false } = {}) {
     else { renderChat(chatId); return; } // name cleared → resync the derived title
     railCache.at = 0; if (isWide()) paintRail();
   });
-  const isCx = id.startsWith('cx:'), isAcp = id.startsWith('acp:'), prov = isCx ? 'codex' : isAcp ? 'acp' : 'claude';
+  const prov = providerOf(id);
   tb = { key: id, prefs: getPrefs(id), attachments: loadAttachments(id), allowAttach: true, allowMute: true, provider: prov };
-  (isCx ? loadCodexModels() : isAcp ? loadAcpModels() : loadClaudeModels()).then(renderToolbar);
+  loadModelsFor(prov).then(renderToolbar);
   chatMuted = Boolean(s.muted);
   if(s.executionMode){tb.prefs.executionMode=s.executionMode;setPrefs(id,tb.prefs);}
   slashCwd = s.cwd || '';
@@ -3553,7 +3593,7 @@ const SLASH_POCKET = [
   { name: 'btw', desc: 'Ask in a side chat, without adding to this conversation', where: 'chat', working: true, insert: true, ok: () => SideChat.available(chatId) },
   { name: 'branch', desc: 'Start a saved conversation that carries on from here', where: 'chat', working: true, ok: () => Boolean(chatId) && engineHas(providerOf(chatId), 'branch'), act: () => Branch.open(chatId) },
   { name: 'handoff', desc: 'Have the agent write a briefing and offer a fresh conversation', where: 'chat', ok: () => Boolean(chatId), act: () => Handoff.send(chatId) },
-  { name: 'new', desc: 'Start a new conversation in this folder', where: 'chat', working: true, act: () => { writeLocal('pc-new-start', { cwd: slashCwd }); localStorage.setItem('pc-provider', ['codex', 'acp'].includes(tb?.provider) ? tb.provider : 'claude'); location.hash = '#/new'; } },
+  { name: 'new', desc: 'Start a new conversation in this folder', where: 'chat', working: true, act: () => { writeLocal('pc-new-start', { cwd: slashCwd }); localStorage.setItem('pc-provider', START_PROVIDERS.includes(tb?.provider) ? tb.provider : 'claude'); location.hash = '#/new'; } },
   { name: 'model', desc: 'Choose the model for the next reply', where: 'both', ok: () => $('#c-model'), act: () => $('#c-model')?.click() },
   { name: 'effort', desc: 'Choose how much it thinks before answering', where: 'both', ok: () => $('#c-eff'), act: () => $('#c-eff')?.click() },
   { name: 'usage', desc: 'See how much of your plan is used', where: 'both', working: true, act: () => openUsagePanel() },
@@ -3600,8 +3640,8 @@ function slashGroups(q, { where, provider, working, list }) {
   const fits = c => (c.where === 'both' || c.where === where) && (!working || c.working) && (!c.ok || c.ok());
   const pocket = SLASH_POCKET.filter(fits);
   const known = list?.available ? new Set(list.available) : null;
-  // Claude Code's own commands only for Claude; OpenRouter (OpenCode) gets Pocket's actions and no Claude/Codex skills.
-  const claude = provider === 'acp' ? [] : provider === 'codex' ? SLASH_CODEX.filter(fits) : SLASH_CLAUDE.filter(c => fits(c) && (!known || known.has(c.name)));
+  // Claude Code's own commands only for Claude; OpenRouter (OpenCode) and Antigravity get Pocket's actions and no Claude/Codex skills.
+  const claude = provider === 'acp' || provider === 'antigravity' ? [] : provider === 'codex' ? SLASH_CODEX.filter(fits) : SLASH_CLAUDE.filter(c => fits(c) && (!known || known.has(c.name)));
   const taken = new Set([...SLASH_POCKET, ...SLASH_CLAUDE, ...SLASH_CODEX].map(c => c.name));
   const skills = working ? [] : (list?.skills || []).filter(c => !taken.has(c.name)).map(c => ({ ...c, kind: 'skill' }));
   const rank = arr => arr.map((c, i) => ({ c, s: slashScore(c, q), i })).filter(x => x.s >= 0).sort((a, b) => a.s - b.s || a.i - b.i);
@@ -3674,8 +3714,10 @@ function bindSlash(box, ctx) {
 const sendModes = new Map();
 // 1.60: in Assistant mode a message sent while Claude works waits for the current reply (the choice is hidden there).
 // 1.86: an engine that cannot take a message mid-reply (OpenRouter) sends it after the reply, the choice hidden as here.
+// Antigravity has no queue (a person sends each message): a message sent during its reply goes into the reply, with no choice to show.
 const canSteer = () => !assistantMode() && engineHas(providerOf(chatId), 'steer');
-const defaultSendMode = () => canSteer() ? 'steer' : 'queue';
+const canQueue = () => engineHas(providerOf(chatId), 'unattended');
+const defaultSendMode = () => canSteer() || !canQueue() ? 'steer' : 'queue';
 let composerWorking = false;
 function setComposer(working) {
   const c = $('#comp'); if (!c) return;
@@ -3689,9 +3731,9 @@ function setComposer(working) {
         <button class="chip stopchip" id="stopb" aria-label="Stop">${IC.stop}Stop</button></div>`
       : `<div class="toolbar" id="tbar"></div><div class="attachrow" id="attrow"></div>`}
     <div class="composer-entry">
-    ${working && canSteer() ? '<div class="send-mode" role="group" aria-label="When to send"><button data-mode="steer" title="Steer now" aria-label="Steer now">Steer<span class="sm-x"> now</span></button><button data-mode="queue" title="After this reply" aria-label="After this reply">After <span class="sm-x">this </span>reply</button></div>' : ''}
+    ${working && canSteer() && canQueue() ? '<div class="send-mode" role="group" aria-label="When to send"><button data-mode="steer" title="Steer now" aria-label="Steer now">Steer<span class="sm-x"> now</span></button><button data-mode="queue" title="After this reply" aria-label="After this reply">After <span class="sm-x">this </span>reply</button></div>' : ''}
     ${!working ? `<div class="composer-actions" id="composer-actions"><button class="icon" id="composer-toggle" aria-label="Hide message settings" aria-expanded="true" aria-controls="tbar">${IC.sliders}</button>${ctxRingHTML()}</div>` : ''}
-    <textarea id="box" rows="1" placeholder="${working ? (!canSteer() ? 'Send this after the current reply…' : "Add to what it's doing…") : (assistantMode() ? 'Reply…' : 'Reply, or / for commands')}" enterkeyhint="send"></textarea>
+    <textarea id="box" rows="1" placeholder="${working ? (defaultSendMode() === 'queue' ? 'Send this after the current reply…' : "Add to what it's doing…") : (assistantMode() ? 'Reply…' : 'Reply, or / for commands')}" enterkeyhint="send"></textarea>
     ${Voice.micHTML()}<button class="send" id="send" aria-label="Send">${IC.up}</button></div>`;
   if (typeof paintChatProject === 'function') paintChatProject(); // the toolbar's chip, or the working row's folder button
   if (typeof paintChatTask === 'function') paintChatTask();
@@ -3845,6 +3887,7 @@ async function submitPending(id) {
       : e.status === 409 && e.body?.paused ? Automation.refused() // 1.117: own messages blocked while paused; Retry sends it after Resume
       : rejected ? `Not sent: ${e.message}` : 'Delivery not confirmed. Your message is saved. Retry checks the same request.';
     try { saveOutbox(id, pending); } catch { }
+    if (e.body?.code === 'signin') loadAgyModels(true).then(() => { if (chatId === id) renderToolbar(); }); // Antigravity signed out: the model row says so too
     ghost.forEach(n => n.remove());
     if (chatId === id && $('#box')) $('#box').value = pending.text;
   } finally { sendsInFlight.delete(id); paintDelivery(id); if (chatId === id) paintChoices(); }
@@ -4011,7 +4054,7 @@ async function openStartLink(id) {
     if (!readLocal(startKey, null)) {
       const carried = s.kind === 'handoff' && s.project && s.projectName && !assistantMode() ? { project: s.project, projectName: s.projectName, handoffProject: true, ...(handoffStartOf(id, s) ? { projectStart: handoffStartOf(id, s) } : {}) } : {};
       const title = String(s.title || '').trim() || briefingTitle(s.text);
-      writeLocal(startKey, { start: id, cwd: s.directory || '', ...(['claude', 'codex', 'acp'].includes(s.provider) ? { provider: s.provider } : {}), title, ...carried });
+      writeLocal(startKey, { start: id, cwd: s.directory || '', ...(START_PROVIDERS.includes(s.provider) ? { provider: s.provider } : {}), title, ...carried });
       try { if (localStorage.getItem('pc-prefs-' + key) === null) localStorage.setItem('pc-prefs-' + key, localStorage.getItem('pc-prefs-' + NEW_BASE) || '{}'); } catch { }
     }
   } catch (e) { if (e.message === 'login') return; toast(e.status === 404 ? 'That start link has expired.' : 'Could not load the start link.'); if (!loadDraft(key) && !loadOutbox(key)) { location.replace('#/new'); return; } }
@@ -4052,7 +4095,8 @@ async function renderNew({ home = false, slot = '' } = {}) {
         <button class="row" role="radio" aria-checked="false" data-a="claude"><span class="dot"></span>${IC.term}<span class="p">Claude Code</span></button>
         <button class="row" role="radio" aria-checked="false" data-a="codex"><span class="dot"></span>${IC.term}<span class="p">Codex</span></button>
         <button class="row" role="radio" aria-checked="false" data-a="acp" hidden><span class="dot"></span>${IC.term}<span class="p">OpenRouter</span></button>
-      </div></div>
+        <button class="row" role="radio" aria-checked="false" data-a="antigravity" hidden><span class="dot"></span>${IC.term}<span class="p">Antigravity</span></button>
+      </div><div class="agent-note" id="agy-note" role="status" hidden><p class="title-note"></p><button class="chip" type="button" id="agy-recheck">Check again</button></div></div>
       <div id="new-start-mode" hidden data-conductor-host><div class="mode-row"><span class="h" id="starth">Start</span>${conductorInfoHTML()}</div>${conductorAboutHTML()}<div class="projlist start-modes" id="spick" role="radiogroup" aria-labelledby="starth">
         <button class="row" role="radio" aria-checked="true" data-s="conductor"><span class="dot"></span><span class="p">Conductor<span class="workspace-path" id="spick-lead"></span></span></button>
         <button class="row" role="radio" aria-checked="false" data-s="solo"><span class="dot"></span><span class="p">Solo<span class="workspace-path">One model does the work itself. For a small task.</span></span></button>
@@ -4071,7 +4115,7 @@ async function renderNew({ home = false, slot = '' } = {}) {
   wireShell();
   if (PANE) $('#pane-close').onclick = () => paneSay('close'); else if (home) { $('#settings').onclick = settingsSheet; bindAssistantIntro(); paintAssistantHome(); refreshSessions(); } else $('#back').onclick = () => { location.hash = '#/'; };
   const slotStart = slot ? readLocal(SK, null) : null;
-  const slotProvider = pendingNew?.payload.provider || (['claude', 'codex', 'acp'].includes(slotStart?.provider) ? slotStart.provider : (['codex','acp'].includes(localStorage.getItem('pc-provider')) ? localStorage.getItem('pc-provider') : 'claude'));
+  const slotProvider = pendingNew?.payload.provider || (START_PROVIDERS.includes(slotStart?.provider) ? slotStart.provider : (START_PROVIDERS.includes(localStorage.getItem('pc-provider')) ? localStorage.getItem('pc-provider') : 'claude'));
   tb = { key: NK, prefs: pendingNew ? { model: pendingNew.payload.model || 'default', effort: pendingNew.payload.effort || 'default' } : getPrefs(NK), attachments: loadAttachments(NK), allowAttach: true, provider: slotProvider };
   renderToolbar();
   // which agent runs this session — remembered, since most days you stay on one
@@ -4176,6 +4220,26 @@ async function renderNew({ home = false, slot = '' } = {}) {
   $('#cpath').oninput=context;
   $('#choose-skill').onclick=()=>openSkills(provider,$('#cpath').value.trim()||sel||'', $('#first'));
   const ap = $('#apick');
+  // Antigravity runs on a Google account signed in on this server. Signed out, the note under the agents names the
+  // command to run there, and Check again reads the sign-in afresh.
+  const agyNotice = () => {
+    const note = $('#agy-note'); if (!note) return;
+    const out = provider === 'antigravity' && Boolean(agyState?.enabled) && !agyState.signedIn;
+    note.hidden = !out;
+    if (!out) return;
+    const cmd = agyState.signInCommand;
+    note.querySelector('p').innerHTML = cmd
+      ? `Antigravity is not signed in to Google. On this server, run <code>${esc(cmd)}</code> and follow the link it prints, then check again.`
+      : esc(agyState.message || 'Antigravity is not signed in to Google on this server.');
+    $('#new-setup').open = true;
+  };
+  $('#agy-recheck').onclick = async e => {
+    const b = e.currentTarget; b.disabled = true; b.textContent = 'Checking…';
+    await loadAgyModels(true);
+    b.disabled = false; b.textContent = 'Check again';
+    agyNotice(); renderToolbar();
+    if (agyState?.signedIn) toast('Antigravity is signed in.');
+  };
   const pickAgent = a => {
     provider = a;
     if (slot) { if (startFrom) { startFrom.provider = a; writeLocal(SK, startFrom); } } else localStorage.setItem('pc-provider', a); // 1.112: a draft keeps its own agent
@@ -4185,9 +4249,10 @@ async function renderNew({ home = false, slot = '' } = {}) {
     });
     tb.provider = a;
     const fm = $('#first');
-    if (fm) fm.placeholder = a === 'codex' ? 'What should Codex work on?' : a === 'acp' ? 'What should OpenRouter work on?' : 'What should Claude work on?';
+    if (fm) fm.placeholder = `What should ${ENGINE_LABELS[a] || 'Claude'} work on?`;
     renderToolbar();
-    (a === 'codex' ? loadCodexModels() : a === 'acp' ? loadAcpModels() : loadClaudeModels()).then(renderToolbar);context();
+    loadModelsFor(a).then(renderToolbar);context();
+    agyNotice();
     paintStartMode(); // 1.106: the lead depends on the agent
   };
   ap.querySelectorAll('.row').forEach(r => r.onclick = () => pickAgent(r.dataset.a));
@@ -4198,6 +4263,13 @@ async function renderNew({ home = false, slot = '' } = {}) {
     const row = ap.querySelector('[data-a="acp"]');
     if (row) row.hidden = !acpEnabled;
     if (provider === 'acp' && !acpEnabled) pickAgent('claude'); // a remembered pick that's no longer available
+  });
+  // Antigravity too: its row shows only where the server has it on.
+  loadAgyModels().then(() => {
+    const row = ap.querySelector('[data-a="antigravity"]');
+    if (row) row.hidden = !agyState?.enabled;
+    if (provider === 'antigravity' && !agyState?.enabled) pickAgent('claude');
+    else agyNotice();
   });
   $('#fpick').onchange = e => { uploadFiles([...e.target.files]); e.target.value = ''; };
   const first = $('#first');

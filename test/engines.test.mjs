@@ -17,21 +17,25 @@ function oldValidateModel(provider, model) {
 const throws = fn => { try { fn(); return false; } catch { return true; } };
 
 test('registry shape', () => {
-  assert.deepEqual(ENGINE_IDS, ['claude', 'codex', 'acp']);
+  assert.deepEqual(ENGINE_IDS, ['claude', 'codex', 'acp', 'antigravity']);
   assert.equal(ENGINES.claude.routed, true);
   assert.equal(ENGINES.codex.routed, true);
   assert.equal(ENGINES.acp.routed, true, 'acp runs turns (where the server enables it)');
-  assert.deepEqual(routedEngineIds(), ['claude', 'codex', 'acp']);
+  assert.deepEqual(routedEngineIds(), ['claude', 'codex', 'acp', 'antigravity']);
   // 1.86: every engine declares the same feature keys, so the app can hide what an engine cannot do
   const keys = Object.keys(ENGINES.claude.features).sort();
   for (const e of ENGINE_IDS) assert.deepEqual(Object.keys(ENGINES[e].features).sort(), keys, e + ' declares every feature');
   assert.equal(ENGINES.acp.features.planMode, true); assert.equal(ENGINES.acp.features.sideChat, false);
-  assert.deepEqual(ENGINE_IDS.map(e => ENGINES[e].features.projectMode), [true, true, false], 'Conductor mode: Claude and Codex, not OpenRouter');
+  assert.deepEqual(ENGINE_IDS.map(e => ENGINES[e].features.projectMode), [true, true, false, false], 'Conductor mode: Claude and Codex, not OpenRouter or Antigravity');
+  // Antigravity runs on a person's own Google plan: every message is one a person sent
+  assert.deepEqual(ENGINE_IDS.map(e => ENGINES[e].features.unattended), [true, true, true, false]);
+  assert.deepEqual(ENGINE_IDS.map(e => ENGINES[e].features.steer), [true, true, false, true]);
 });
 
 test('engineForSessionId maps by prefix; unprefixed = claude', () => {
   assert.equal(engineForSessionId('cx:abc-123'), 'codex');
   assert.equal(engineForSessionId('acp:xyz-9'), 'acp');
+  assert.equal(engineForSessionId('agy:0b9c2a44-6a51-4c0e-9d6e-3f1a1d7c9e10'), 'antigravity');
   assert.equal(engineForSessionId('019283-plain-uuid'), 'claude');
   for (const bad of [null, undefined, 42, {}, '']) assert.equal(engineForSessionId(bad), 'claude');
 });
@@ -53,6 +57,12 @@ test('codex rejects claude-looking ids, allows gpt/codex/other', () => {
 test('acp (extension target) allows OpenRouter slugs, rejects claude/gpt/codex ids', () => {
   for (const m of ['openrouter/deepseek/deepseek-v4.1-flash-1017', 'deepseek/deepseek-v4.1-flash', 'z-ai/glm-5.3']) validateModelForEngine('acp', m);
   for (const m of ['claude-opus-5-5', 'opus', 'gpt-6-astra', 'codex', 'o3']) assert.ok(throws(() => validateModelForEngine('acp', m)), m);
+});
+
+test('antigravity allows the models its plan lists, rejects OpenRouter slugs', () => {
+  for (const m of ['gemini-4-neon', 'gemini-pro-orchestrator-neon', 'gemini-3.8-flash', 'claude-opus-5-5', 'gpt-oss-120b-medium']) validateModelForEngine('antigravity', m);
+  for (const m of ['openrouter/deepseek/deepseek-v4.1-flash-1017', 'google/gemini-4-neon']) assert.ok(throws(() => validateModelForEngine('antigravity', m)), m);
+  try { validateModelForEngine('antigravity', 'google/gemini-4-neon'); } catch (e) { assert.equal(e.message, 'Choose an Antigravity model from the model menu, then send again.'); }
 });
 
 test('error carries status/code 400 and the engine label', () => {
