@@ -15,7 +15,7 @@
 //   pocket-board scheduled [--json]               every open reminder, due first
 //   pocket-board context [--hook]                 the current directory's unfinished project, for an agent's session start;
 //                                                 silent (exit 0) when there is none, the feature is off, or Pocket is down
-//   pocket-board import <snapshot.json>            one-time import of a Mission Control board snapshot
+//   pocket-board import <snapshot.json>            one-time import of an older dashboard's board snapshot
 // Options: -p/--project <id> names the project (default: the one whose directory contains the current directory).
 // Environment: POCKET_DATA_DIR and PORT as for the server (the server's .env is read for both); POCKET_URL overrides.
 import fs from 'node:fs';

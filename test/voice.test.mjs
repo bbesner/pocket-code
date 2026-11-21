@@ -35,7 +35,7 @@ test('mute and unmute are quick commands on the device; longer sentences are not
 
 test('spoken reply length: brief is one line, normal about two sentences, detailed the whole reply', () => {
   const md = '**Done.** The nightly import now skips archived suppliers, so the run is down from 14 minutes to 3.\n\n' +
-    'I also added a retry around the Zoho token refresh. It failed twice last week when the token expired mid-run.\n\n' +
+    'I also added a retry around the Zeta token refresh. It failed twice last week when the token expired mid-run.\n\n' +
     '```sh\nnpm test\n```\n\nNext, the duplicate SKU check should move into the same job so it runs once a night.';
   assert.equal(V.reply(md, 'brief'), 'The nightly import now skips archived suppliers, so the run is down from 14 minutes to 3.');
   assert.equal(V.reply(md, 'normal'), V.summary(md));
@@ -86,9 +86,9 @@ test('voice service: not installed, custom engine, transcribe, speak, idle stop 
   assert.equal(v.status().available, true);
   const [a, b] = await Promise.all([v.ensure(), v.ensure()]);
   assert.equal(a, b, 'concurrent first uses share one engine');
-  const out = await v.transcribe(Buffer.alloc(32000), 'MemStem, Zoho — café ✓\nContoso');
+  const out = await v.transcribe(Buffer.alloc(32000), 'MemStem, Zeta — café ✓\nContoso');
   assert.equal(out.text, 'tell it to run the unit tests');
-  assert.equal(out.prompt, 'MemStem, Zoho caf Contoso', 'hint is single-line printable ASCII');
+  assert.equal(out.prompt, 'MemStem, Zeta caf Contoso', 'hint is single-line printable ASCII');
   await assert.rejects(v.transcribe(Buffer.alloc(100)), e => e.status === 400);
   const wav = await v.speak('Hello there.', 'not-a-voice');
   assert.equal(wav.subarray(0, 4).toString(), 'RIFF');

@@ -66,7 +66,7 @@ def test_items_marked_after_and_future_hidden():
 
 def test_unrelated_memory_left_out():
     setup()
-    E.MEMORY_SEARCH = FakeSearch([hit("zoho", "session", "2026-10-21T15:00:00Z", "Audit the Zoho Books billing for the monitoring accounts"),
+    E.MEMORY_SEARCH = FakeSearch([hit("zeta", "session", "2026-10-21T15:00:00Z", "Audit the Zeta Books billing for the monitoring accounts"),
                                   hit("own", "memory", "2026-10-21T15:00:00Z", "Alex asked the assistant about Oct billing"),
                                   hit("inv", "daily", "2026-10-21T15:00:00Z", "2026-10-21"),
                                   hit("riley", "distillation", "2026-10-21T15:00:00Z", "Riley Morgan asked to change the billing card")])

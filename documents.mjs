@@ -2,7 +2,7 @@
 // (POCKET_DOCUMENTS_DIR, default <data dir>/documents); records live in <data dir>/documents.json, written
 // atomically by the server alone. Files dropped straight into the folder are adopted as private records on
 // the next listing; the scan only ever adds. Visibility is private (login), link (an unguessable signed URL,
-// optional expiry, revocable) or public (/files/<name>, the path Mission Control's public links used).
+// optional expiry, revocable) or public (/files/<name>, the path the older dashboard's public links used).
 // Removing a document moves it to .trash for 30 days, then purges it; since 1.45 the owner can also delete a
 // trashed file at once (Delete forever, Empty trash), which takes its file, its thumbnails and its record. HTML is
 // served sandboxed, never under the app origin's authority.
@@ -231,8 +231,8 @@ export class DocumentStore {
     if (r.share?.expiresAt && Date.parse(r.share.expiresAt) <= this.now()) return null;
     return r;
   }
-  // One-time import of Mission Control's dashboard-files-meta.json ({ name: { visibility, access?, updated } }).
-  // public → public; private + access techpro → link (tokens returned once); private → private. Files without a
+  // One-time import of an older dashboard's dashboard-files-meta.json ({ name: { visibility, access?, updated } }).
+  // public → public; private + the staff `access` value → link (tokens returned once); private → private. Files without a
   // record are adopted private by the scan. Names the metadata lists that are not in the folder are reported.
   importMeta(meta) {
     if (!meta || typeof meta !== 'object' || Array.isArray(meta)) throw fail('That is not a documents metadata file.');

@@ -166,7 +166,7 @@ test('InboxStore: Inbox Watch settings, the watcher\'s profile, revisions and pa
   assert.deepEqual(checkWatch({push:{mode:'none'}}).push,{mode:'none'});
   for(const [bad,re] of [[{push:{mode:'loud'}},/push.mode is one of urgent, all, none/],[{push:{kinds:['panic']}},/push.kinds is a list of/],[{push:{perDay:4}},/push.perDay is one of/],[{push:{repeat:'never'}},/push.repeat is worse or every/],[{push:true},/push is \{mode/]])
     assert.throws(()=>checkWatch(bad),e=>e.status===400&&re.test(e.message),JSON.stringify(bad));
-  assert.deepEqual(checkWatch({scope:{mode:'inbox_labels',labels:[' Clients ','Clients','Ultra/Ask first','']}}).scope,{mode:'inbox_labels',labels:['Clients','Ultra/Ask first']},'1.100: what the watcher reads; labels trimmed and deduplicated');
+  assert.deepEqual(checkWatch({scope:{mode:'inbox_labels',labels:[' Clients ','Clients','Team/Ask first','']}}).scope,{mode:'inbox_labels',labels:['Clients','Team/Ask first']},'1.100: what the watcher reads; labels trimmed and deduplicated');
   assert.deepEqual(checkWatch({scope:{mode:'inbox'}}).scope,{mode:'inbox',labels:[]});assert.deepEqual(checkWatch({scope:{}}).scope,{mode:'all',labels:[]});
   assert.equal(checkWatch({rules:'- Never tell me about cameras.\r\n- Tell me about every sale.'}).rules,'- Never tell me about cameras.\n- Tell me about every sale.');assert.equal(ok.lookahead.evening,null);
   for(const [bad,re] of [[{every:-1},/every is whole minutes/],[{every:500},/to 240/],[{periods:[{days:[],from:'01:00',to:'02:00',every:5}]},/Period 1 needs at least one day/],
@@ -468,11 +468,11 @@ test('HTTP: Inbox is off until Settings turns it on; token and cookie, tunnel re
 test('InboxStore: digest items are checked on add, kept on reload, decided one at a time and reported as digest-item feedback',()=>{
   const dir=tmp(),file=path.join(dir,'inbox.json');let clock=Date.parse('2026-11-07T13:00:00Z');
   const s=new InboxStore(file,{now:()=>clock});
-  const items=[{ref:'a317',section:'worth',title:'Roslynn website feedback and review',text:'Roslynn texted that business is up 25%. [Text](msg:1a1b398659576b53)',story:'roslynn-website-feedback',gmail:GMAIL,url:'/#/start/0123456789ab',priority:'low'},
+  const items=[{ref:'a317',section:'worth',title:'Robin website feedback and review',text:'Robin texted that business is up 25%. [Text](msg:1a1b398659576b53)',story:'robin-website-feedback',gmail:GMAIL,url:'/#/start/0123456789ab',priority:'low'},
     {ref:'a296',section:'held',title:'Wireless Experts Google Ads keywords',text:'Steve asked for a keyword review.',story:'wireless-experts-google-ads-keywords'},
-    {ref:'t12',section:'tidied',title:'Polo launch',text:'Resolved'}];
-  const d=s.add({kind:'digest',title:'Morning email digest — Sat Nov 7',text:'## Worth knowing\n- Roslynn website feedback and review: business is up.\nIgnored since the last digest: 9 threads.',items,dedupe:'digest|2026-11-07'});
-  assert.equal(d.items.length,3);assert.deepEqual(d.items[0],{ref:'a317',section:'worth',title:'Roslynn website feedback and review',text:items[0].text,story:'roslynn-website-feedback',gmail:GMAIL,url:'/#/start/0123456789ab',priority:'low',state:'open',actedAt:null,ackedAt:null,note:'',lastAction:null,sessions:[]});
+    {ref:'t12',section:'tidied',title:'Harbor launch',text:'Resolved'}];
+  const d=s.add({kind:'digest',title:'Morning email digest — Sat Nov 7',text:'## Worth knowing\n- Robin website feedback and review: business is up.\nIgnored since the last digest: 9 threads.',items,dedupe:'digest|2026-11-07'});
+  assert.equal(d.items.length,3);assert.deepEqual(d.items[0],{ref:'a317',section:'worth',title:'Robin website feedback and review',text:items[0].text,story:'robin-website-feedback',gmail:GMAIL,url:'/#/start/0123456789ab',priority:'low',state:'open',actedAt:null,ackedAt:null,note:'',lastAction:null,sessions:[]});
   assert.deepEqual([d.items[1].priority,d.items[1].gmail,d.items[1].url,d.items[2].section],['normal','','','tidied'],'defaults');
   assert.throws(()=>s.add({title:'x',items:[{ref:'a1',title:'t',url:'javascript:alert(1)'}]}),e=>e.code==='bad_item','an item\'s start link is checked like an entry\'s');
   assert.equal(s.add({kind:'alert',title:'plain'}).items.length,0,'an alert has no items');
@@ -493,7 +493,7 @@ test('InboxStore: digest items are checked on add, kept on reload, decided one a
   assert.throws(()=>s.act({action:'open',id:d.id,item:'a317'}),e=>e.code==='bad_action');assert.throws(()=>s.act({action:'alert',id:d.id,item:'a999'}),e=>e.status===404&&e.code==='item_missing');
   let fb=s.feedback();
   assert.deepEqual(fb.map(f=>f.id),[`${d.id}/a296`,`${d.id}/a317`],'newest first, the entry itself undecided');
-  assert.deepEqual(fb[1],{id:`${d.id}/a317`,entry:d.id,item:'a317',action:'alert',at:'2026-11-07T13:00:01Z',note:'',title:'Roslynn website feedback and review',story:'roslynn-website-feedback',text:s.get(d.id).items[0].text,gmail:s.get(d.id).items[0].gmail,priority:'low',source:'inbox-monitor',kind:'digest-item'});
+  assert.deepEqual(fb[1],{id:`${d.id}/a317`,entry:d.id,item:'a317',action:'alert',at:'2026-11-07T13:00:01Z',note:'',title:'Robin website feedback and review',story:'robin-website-feedback',text:s.get(d.id).items[0].text,gmail:s.get(d.id).items[0].gmail,priority:'low',source:'inbox-monitor',kind:'digest-item'});
   assert.equal(fb[0].action,'not_useful');
   assert.equal(s.ack([`${d.id}/a317`,d.id,'nope']),1,'the item is acked, the undecided entry is not');assert.deepEqual(s.feedback().map(f=>f.id),[`${d.id}/a296`]);
   // Restore undoes the item's decision and is feedback again; the entry's own decisions still work beside the items'.

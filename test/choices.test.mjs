@@ -17,10 +17,10 @@ test('only the very end of a reply counts; examples shown mid-reply stay text', 
 
 test('a sources list after the block still gives buttons and stays in the text above them', () => {
   // the shape of a real reply that showed the block as code: a web search asked for Sources at the end
-  const t = 'What would you like to do?\n\n```choices\nWait for InMotion (Recommended)\nAdd a custom SSH port\n```\n\nSources:\n- [InMotion Hosting Status](https://status.inmotionhosting.com/)\n- [StatusGator – InMotion Hosting](https://statusgator.com/services/inmotion-hosting)\n';
+  const t = 'What would you like to do?\n\n```choices\nWait for Northwind (Recommended)\nAdd a custom SSH port\n```\n\nSources:\n- [Northwind Hosting Status](https://status.northwind-hosting.example/)\n- [StatusGator – Northwind Hosting](https://statusgator.com/services/northwind-hosting)\n';
   assert.deepEqual(splitChoices(t), {
-    text: 'What would you like to do?\n\nSources:\n- [InMotion Hosting Status](https://status.inmotionhosting.com/)\n- [StatusGator – InMotion Hosting](https://statusgator.com/services/inmotion-hosting)',
-    options: ['Wait for InMotion', 'Add a custom SSH port'], recommended: 0,
+    text: 'What would you like to do?\n\nSources:\n- [Northwind Hosting Status](https://status.northwind-hosting.example/)\n- [StatusGator – Northwind Hosting](https://statusgator.com/services/northwind-hosting)',
+    options: ['Wait for Northwind', 'Add a custom SSH port'], recommended: 0,
   });
   // heading styles, numbered items, bare URLs
   for (const head of ['**Sources:**', '## Sources', 'References', 'Source:']) {

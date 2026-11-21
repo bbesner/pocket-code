@@ -111,7 +111,7 @@ test('HTTP: generated titles, automated runs, 304 session lists, gzip and failur
 
 test('Codex names that are just the opening request count as untitled (1.19.1)',async()=>{
   const {promptOnlyName}=await import('../codex.mjs');
-  const ask='there was a previous session running doing chunk 7 code review for techpro vision nvr. I need you to continue';
+  const ask='there was a previous session running doing chunk 7 code review for acme vision nvr. I need you to continue';
   assert.equal(promptOnlyName({name:ask,preview:ask}),true);
   assert.equal(promptOnlyName({name:ask.slice(0,60),preview:ask}),true,'a clipped copy of the request');
   assert.equal(promptOnlyName({name:'x'.repeat(81),preview:''}),true,'a sentence-length name');

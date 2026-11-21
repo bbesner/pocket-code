@@ -90,7 +90,7 @@ const snapshotFixture=()=>({version:2,generated_at:'2026-10-09T12:00:00+00:00',t
   {id:'blog',name:'Blog cleanup',summary:'',next_step:'',waiting_for:'Owner to review',status:'waiting',directory:'',link:'',created:'2026-10-01T00:00:00+00:00',updated:'2026-10-01T00:00:00+00:00',verified:'2026-10-01T00:00:00+00:00',revision:3,enrollment:'explicit-user-request',tasks:[],reminders:[],due_count:0,history:[]},
   {id:'',name:'',status:'active',tasks:[],reminders:[],history:[]}],due_count:0,reminder_health:{},programs:[],alarms:[],events:[],unboarded:[],total_asks:0,blocked_brad:0});
 
-test('ProjectStore: a Mission Control snapshot imports once, field for field',()=>{
+test('ProjectStore: a dashboard snapshot imports once, field for field',()=>{
   const dir=tmp(),s=new ProjectStore(path.join(dir,'projects.json'),{now:()=>Date.parse('2026-10-09T12:00:00Z')});
   const r=s.importSnapshot(snapshotFixture());
   assert.deepEqual(r.added,['nvr-review','blog']);assert.deepEqual(r.skipped,[{id:'project',reason:'no name'}]);

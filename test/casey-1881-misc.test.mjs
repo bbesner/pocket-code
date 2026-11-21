@@ -95,13 +95,13 @@ test('F-20 / picker: a skill whose description is a YAML block or folded scalar 
  const skill=(name,front)=>{fs.mkdirSync(path.join(ws,'.claude','skills',name),{recursive:true});fs.writeFileSync(path.join(ws,'.claude','skills',name,'SKILL.md'),`---\nname: ${name}\n${front}\n---\n# ${name}\n`);};
  skill('plain','description: Rebrand vendor PDFs.');
  skill('literal','description: |\n  Audit an OpenClaw workspace for cost.\n  Then propose a plan.');
- skill('folded','description: >\n  SecurityCameraKing SEO audit,\n  monitoring and reporting.');
+ skill('folded','description: >\n  Northwind SEO audit,\n  monitoring and reporting.');
  skill('folded-strip','description: >-\n  Build a site map\n  from RTK exports.\nallowed-tools: Read');
  const f=await daemon(t,19851,{HOME:path.join(ws,'home')});
  const r=await f.call('/commands?cwd='+encodeURIComponent(ws));assert.equal(r.status,200);
  const desc=Object.fromEntries(r.body.commands.map(c=>[c.name,c.desc]));
  assert.equal(desc.plain,'Rebrand vendor PDFs.');
- for(const [name,words] of [['literal','Audit an OpenClaw workspace'],['folded','SecurityCameraKing SEO audit'],['folded-strip','Build a site map']])
+ for(const [name,words] of [['literal','Audit an OpenClaw workspace'],['folded','Northwind SEO audit'],['folded-strip','Build a site map']])
   assert.ok(String(desc[name]).includes(words),`${name}: the picker shows ${JSON.stringify(desc[name])}`);
 });
 

@@ -277,7 +277,7 @@ export class ProjectStore {
   markAheadNotified(projectId, reminderId, now = this.now()) { this.markReminder(projectId, reminderId, { aheadNotifiedAt: iso(now) }); }
 
 
-  // One-time import of a Mission Control board snapshot (`board snapshot` JSON, version 2). Existing ids are skipped.
+  // One-time import of an older dashboard's board snapshot (`board snapshot` JSON, version 2). Existing ids are skipped.
   importSnapshot(snap, { actor = 'import' } = {}) {
     const rows = Array.isArray(snap?.projects) ? snap.projects : null;
     if (!rows) throw fail('That is not a board snapshot.');
