@@ -166,3 +166,16 @@ test('PC-11: Strict-Transport-Security only when the request reached the proxy o
   assert.equal(await hsts({'cf-visitor':'{"scheme":"https"}'}),'max-age=31536000','Cloudflare\'s CF-Visitor');
   assert.equal((await s.fetch('/',{headers:{'x-forwarded-proto':'https'}})).headers.get('strict-transport-security'),'max-age=31536000','the app shell too');
 });
+
+test('PC-12: GET /api/me no longer stores a time zone; the owner\'s page POSTs it',async t=>{
+  const s=await server(t,20421);
+  const owner=(await s.login()).cookie,zone=()=>{try{return JSON.parse(fs.readFileSync(path.join(s.dir,'data','pocket-settings.json'),'utf8')).ownerTimezone;}catch{return undefined;}};
+  assert.equal((await s.fetch('/api/me?tz=Pacific/Kiritimati',{headers:{cookie:owner}})).status,200);
+  assert.equal(zone(),undefined,'a GET, which a link on another site can make with the cookie, changes nothing');
+  assert.equal((await s.fetch('/api/timezone',{method:'POST',body:{tz:'Europe/Berlin'}})).status,401,'signed out');
+  assert.equal((await s.fetch('/api/timezone',{method:'POST',headers:{cookie:owner,'sec-fetch-site':'cross-site'},body:{tz:'Europe/Berlin'}})).status,403,'cross-site');
+  assert.equal(zone(),undefined);
+  assert.equal((await s.fetch('/api/timezone',{method:'POST',headers:{cookie:owner},body:{tz:'Not/AZone'}})).status,200);assert.equal(zone(),undefined,'an unknown zone is ignored');
+  assert.equal((await s.fetch('/api/timezone',{method:'POST',headers:{cookie:owner},body:{tz:'Europe/Berlin'}})).status,200);assert.equal(zone(),'Europe/Berlin');
+  const app=await (await s.fetch('/app.js')).text();assert.doesNotMatch(app,/me\?tz=/,'the client no longer sends it on GET');assert.match(app,/api\('\/timezone'/);
+});

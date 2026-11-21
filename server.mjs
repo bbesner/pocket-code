@@ -2549,7 +2549,7 @@ app.post('/api/logout/everywhere', ownPageJson, requireAuth, (_req, res) => {
 
 // 1.20.1: a signed-out browser asks this first; answering 200 { ok: false } keeps the console free of a 401 error.
 // 1.73.3: signed out, the reply names only the mode (the sign-in page says Pocket Assistant or Pocket Code); which modules are on is for the owner.
-app.get('/api/me', async (req, res) => { const ok = checkCookie(getCookie(req, 'pc_auth')) || await accessSignIn(req, res); if (ok) { learnPublicUrl(req); learnTimezone(req.query.tz); } return res.json({ ok, features: ok ? { coordination: coordLive(), projects: Boolean(settings.projects), documents: Boolean(settings.documents), tasks: Boolean(settings.tasks), inbox: Boolean(settings.inbox), vault: vaultLive(), assistantMode: assistantOn(), assistantLocked, handoffAt: handoffAt(), markAllReviewed: settings.markAllReviewed !== false } : { assistantMode: assistantOn() } }); });
+app.get('/api/me', async (req, res) => { const ok = checkCookie(getCookie(req, 'pc_auth')) || await accessSignIn(req, res); if (ok) learnPublicUrl(req); return res.json({ ok, features: ok ? { coordination: coordLive(), projects: Boolean(settings.projects), documents: Boolean(settings.documents), tasks: Boolean(settings.tasks), inbox: Boolean(settings.inbox), vault: vaultLive(), assistantMode: assistantOn(), assistantLocked, handoffAt: handoffAt(), markAllReviewed: settings.markAllReviewed !== false } : { assistantMode: assistantOn() } }); });
 
 // One list, both providers. Codex threads carry their own recency and titles, so the
 // merge is just a sort — pins still float, and a Codex failure never costs the Claude
@@ -4370,6 +4370,9 @@ function learnTimezone(tz) {
   settings.ownerTimezone = tz; saveSettings(); log(`owner time zone: ${tz}`);
 }
 // ---------- 1.69: inbox routes ----------
+// 1.117 (PC-12): the browser reports its zone with a POST from Pocket's own page; GET /api/me?tz= used to store it, and a
+// link on another site could set it, since the cookie rides along on a top-level GET.
+app.post('/api/timezone', ownPageJson, requireAuth, (req, res) => { learnTimezone(req.body?.tz); res.json({ ok: true }); });
 // Inbox Watch: the owner's cookie or the loopback token (a direct loopback request only, as for Tasks and start links).
 // POST /api/inbox is the worker's one call: the entry, the push (kind alerts, urgent) and, when asked, the email.
 const inboxError = (res, e) => { if (!e.status) throw e; res.status(e.status).json({ error: e.message, ...(e.code ? { code: e.code } : {}) }); };
