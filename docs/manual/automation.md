@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.120.0
+checked: 1.121.0
 sources: automation.mjs, checkbacks.mjs, public/automation.js, scripts/pocket-checkback.mjs, skills/pocket-checkback/SKILL.md, server.mjs, queue.mjs, codex.mjs, acp.mjs, sidechat.mjs, coordination.mjs, usage.mjs, inbox-runner.mjs, public/voice-text.js
 -->
 # Automation: Pause all, check-backs and limits on unattended work

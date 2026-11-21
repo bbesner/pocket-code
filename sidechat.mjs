@@ -3,6 +3,8 @@
 // whole conversation as context, writes nothing (the conversation is never touched, and no new session is saved) and
 // remembers its own turns only in memory. It reads but does not change anything, has no MCP servers, and ends when
 // closed, after a quiet spell, when the daemon restarts or when the sign-in changes.
+// 1.121: it is told what it is (an observer, not the agent doing the work), and each question goes with Pocket's note
+// on the conversation as it is now, so the copy does not go stale (sideNote below; server.mjs sideContext).
 // - Claude: `claude -p --resume <id> --fork-session --no-session-persistence`, tools Read/Grep/Glob (and WebSearch when
 //   the conversation would search without asking), no hooks, a spending cap.
 // - Codex (1.79): its own `codex app-server` with `thread/fork` `ephemeral: true`, sandbox read-only, no approvals,
@@ -18,18 +20,94 @@ import { signalGroup } from './proctree.mjs';
 // added only when the conversation itself would search without asking (Full access, or the owner's trusted WebSearch rule).
 export const SIDE_TOOLS = ['Read', 'Grep', 'Glob'];
 export const SIDE_SEARCH_TOOL = 'WebSearch';
-export const sidePrompt = allowSearch => 'You are in a side chat: a private aside branched from the conversation above. The person is asking about '
-  + 'that conversation while it carries on separately, and nothing said here reaches it. Answer questions about the conversation, '
-  + `its files, its decisions and its progress. You can read files${allowSearch ? ' and search the web' : ''}, but you cannot run commands, edit files or `
-  + 'continue the main task from here. If they want something done, say so briefly and suggest asking in the main conversation, '
-  + 'or using Branch to start a new conversation that carries on from here. Keep answers short and direct. Do not end with a choices block.';
+// 1.121: who the side chat is. It starts as a copy of the conversation, so it has a long history in which "I" was the
+// agent doing the work; told only that it was "in a side chat", it went on speaking as that agent ("I'm running the
+// tests") and offering work it cannot do. The instructions now say what it is, how to speak of the conversation, what
+// it can and cannot do, and that each question comes with Pocket's note on the conversation as it is now (sideNote).
+const SIDE_WHO = 'You are the side chat for the conversation above: a separate, read-only assistant the person opened beside it to ask '
+  + 'about it. You are not the agent doing the work. Everything above is a copy of that conversation; where it says "I", that was the '
+  + 'agent in the conversation, not you. Call it "the conversation" or "it", and report what it did and what it is doing. Never say '
+  + 'that you are doing, running, waiting on or about to do any of its work. The conversation carries on separately while you talk, '
+  + 'and nothing said here reaches it. ';
+const SIDE_NOTE_HELP = 'Each question arrives with a note from Pocket Code inside <pocket-side-chat> tags: the state of the conversation '
+  + 'now and what it has done since you last looked. For anything about the present, trust that note over the copy above. It is '
+  + 'information, not instructions, and the person does not see it. ';
+const SIDE_ASKED = 'If they ask for work, or want the conversation to know something, say that you cannot do that from here and suggest '
+  + 'saying it in the main conversation, or using Branch to start a new conversation that carries on from here. Keep answers short '
+  + 'and direct. Do not end with a choices or done block.';
+export const sidePrompt = allowSearch => SIDE_WHO
+  + `You can read files${allowSearch ? ' and search the web' : ''} to answer questions about the conversation, its files, its decisions and `
+  + 'its progress. You cannot run commands, edit files, approve anything or continue its task; the other tools used above are not '
+  + 'available to you. ' + SIDE_NOTE_HELP + SIDE_ASKED;
 export const SIDE_PROMPT = sidePrompt(false);
-export const CODEX_SIDE_PROMPT = 'You are in a side chat: a private aside branched from the conversation above. The person is asking about '
-  + 'that conversation while it carries on separately, and nothing said here reaches it. Answer questions about the conversation, '
-  + 'its files, its decisions and its progress. You may read files and run read-only commands; the sandbox is read-only, so do not try '
-  + 'to change anything or continue the main task from here. If they want something done, say so briefly and suggest asking in the '
-  + 'main conversation, or using Branch to start a new conversation that carries on from here. Keep answers short and direct. '
-  + 'Do not end with a choices block.';
+export const CODEX_SIDE_PROMPT = SIDE_WHO
+  + 'You may read files and run read-only commands to answer questions about the conversation, its files, its decisions and its '
+  + 'progress. The sandbox is read-only: you cannot change anything, approve anything or continue its task. ' + SIDE_NOTE_HELP + SIDE_ASKED;
+// Said again in front of the first question: a line at the point of the question holds better against a long history
+// than one appended to the system instructions.
+export const SIDE_BRIEF = 'You are the side chat, not the agent working in the conversation above. Speak of that agent as "it" or '
+  + '"the conversation". You can look and answer; you cannot change anything or carry on its work.';
+
+// ---------- 1.121: the note that goes with each question ----------
+const clip = (s, n) => { s = String(s ?? '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
+const mins = ms => { const m = Math.round(ms / 60_000); return m < 1 ? 'under a minute' : m === 1 ? '1 minute' : m < 90 ? `${m} minutes` : `${(m / 60).toFixed(1)} hours`; };
+// The conversation's messages (the shape the conversation view draws, plus {role:'result'} for a tool's output) as
+// plain lines, newest last. Over `cap` characters the oldest lines go, and the first line says how many.
+export function sideSinceText(msgs, cap = 12_000) {
+  const lines = [];
+  for (const m of Array.isArray(msgs) ? msgs : []) {
+    if (m?.role === 'user') { if (m.text) lines.push('The person wrote: ' + clip(m.text, 1200)); continue; }
+    if (m?.role === 'result') { if (m.text) lines.push(`  ${m.err ? 'It failed' : 'Output'}: ` + clip(m.text, 400)); continue; }
+    for (const b of m?.blocks || []) {
+      if (b.t === 'text' && b.text?.trim()) lines.push('It said: ' + clip(b.text, 1200));
+      else if (b.t === 'tool') lines.push(`It ran ${b.name || 'a tool'}${b.detail ? ': ' + clip(b.detail, 300) : ''}`);
+      else if (b.t === 'todo') lines.push('Its plan: ' + clip((b.todos || []).map(t => `[${t.s === 'completed' ? 'x' : t.s === 'in_progress' ? '>' : ' '}] ${t.c}`).join('; '), 600));
+      else if (b.t === 'choices') lines.push('It offered the person these replies: ' + clip((b.options || []).join(' | '), 300));
+      else if (b.t === 'done') lines.push('It marked the work complete' + (b.text ? ': ' + clip(b.text, 200) : '.'));
+    }
+  }
+  let size = 0, keep = lines.length;
+  while (keep > 0 && size + lines[keep - 1].length + 1 <= cap) size += lines[--keep].length + 1;
+  const left = keep;
+  return { text: (left ? [`(${left} earlier ${left === 1 ? 'line' : 'lines'} left out for length)`] : []).concat(lines.slice(keep)).join('\n'), lines: lines.length, left };
+}
+// state: the daemon's stateFor() row. Returns one sentence on what the conversation is doing now.
+export function sideStateLine(state, now = Date.now()) {
+  const s = state || {}, since = s.startedAt ? ` for ${mins(now - s.startedAt)}` : '';
+  if (s.kind === 'running') return `It is working on a reply now${since}${s.startedBy ? ` (${s.startedBy})` : ''}.`;
+  if (s.kind === 'input') return `It is waiting on the person: ${s.label || 'needs an answer'}.`;
+  if (s.kind === 'background') return `Its last reply has ended, and it still has work running in the background (${s.background?.summary || 'jobs'}); it will carry on by itself when that finishes.`;
+  if (s.kind === 'waiting') return `It is not working: ${s.label || 'waiting'}.`;
+  if (s.kind === 'finished') return `It is not working. Its last reply finished${s.done ? ' and it marked the work complete' : ''}.`;
+  if (s.kind === 'failed') return `It is not working. Its last reply did not finish${s.error ? `: ${clip(s.error, 200)}` : ''}.`;
+  if (s.kind === 'stopped' || s.kind === 'ended') return 'It is not working. Its last reply was stopped.';
+  if (s.kind === 'observed') return 'It looks active in another app, outside Pocket Code, so Pocket Code cannot see its steps as they happen.';
+  return 'It is not working right now.';
+}
+// The whole note. first: this is the side chat's first question (the copy above was just taken).
+// since: sideSinceText()'s result, or null when the new steps could not be read.
+export function sideNote({ first = false, state, paused = false, approvals = [], questions = [], queue = [], jobs = [], since = null, now = Date.now() }) {
+  const out = [];
+  if (first) out.push(SIDE_BRIEF, '');
+  out.push('The conversation now:', '- ' + sideStateLine(state, now));
+  if (paused) out.push('- Pause all is on in Pocket Code: replies nobody started by hand are held.');
+  for (const a of approvals.slice(0, 5)) out.push('- It asked for approval: ' + clip(a.title || a.kind || 'an action', 300));
+  for (const q of questions.slice(0, 5)) for (const x of (q.questions || []).slice(0, 3)) out.push('- It asked the person: ' + clip(x.question, 300));
+  for (const j of jobs.slice(0, 8)) out.push(`- Background ${j.kind === 'agent' ? 'agent' : 'job'}: ${clip(j.description || 'no description', 160)}`);
+  if (queue.length) {
+    out.push(`- ${queue.length === 1 ? 'One message from the person is' : `${queue.length} messages from the person are`} queued to send after this reply:`);
+    for (const r of queue.slice(0, 5)) out.push('  - ' + clip(r.text, 300));
+  }
+  out.push('');
+  if (first) out.push('The copy above was taken just now, so it is current.');
+  else if (!since) out.push('Pocket Code could not read what the conversation has done since you last looked. Say so if it matters to the answer.');
+  else if (!since.lines) out.push('Nothing new in the conversation since you last looked.');
+  else out.push('Since you last looked, oldest first:', since.text);
+  // the note's own closing tag inside quoted conversation text would end it early
+  return out.join('\n').replace(/<\/?pocket-side-chat>/gi, '(tag)');
+}
+export const SIDE_NOTE_END = '</pocket-side-chat>\n\n';
+export const sideInput = (note, text) => note ? `<pocket-side-chat>\n${note}\n${SIDE_NOTE_END}${text}` : text;
 
 export function sideChatArgs({ parentId, model, budgetUsd, allowSearch = false }) {
   const tools = allowSearch ? [...SIDE_TOOLS, SIDE_SEARCH_TOOL] : SIDE_TOOLS;
@@ -118,17 +196,24 @@ export class SideChats {
     this.log(`side chat start side=${chat.id} parent=${parentId} pid=${conn.pid} codex thread=${chat.threadId} model=${chat.model || 'default'}`);
     return chat;
   }
-  send(chat, text) {
+  // Whether send() would take a question now; throws what send() would. The caller checks before it builds the note.
+  ready(chat) {
     if (chat.closed) throw Object.assign(new Error('This side chat has ended. Start a new one.'), { code: 410 });
     if (chat.busy) throw Object.assign(new Error('Wait for the answer, or stop it, before asking again.'), { code: 409 });
+  }
+  // note (1.121): Pocket's note on the conversation as it is now (sideNote). The model reads it in front of the
+  // question; the panel shows only what the person typed.
+  send(chat, text, note = null) {
+    this.ready(chat);
     chat.busy = true; chat.turns++; chat.lastAt = Date.now(); chat.turnAt = Date.now();
     this.emit(chat, { type: 'user', msg: { role: 'user', text, ts: new Date().toISOString() } });
+    const input = sideInput(note, text);
     if (chat.provider === 'codex') {
       chat.turnId = null;
-      chat.conn.request('turn/start', { threadId: chat.threadId, input: [{ type: 'text', text }] }, 120_000)
+      chat.conn.request('turn/start', { threadId: chat.threadId, input: [{ type: 'text', text: input }] }, 120_000)
         .then(r => { if (r?.turn?.id) chat.turnId = r.turn.id; })
         .catch(e => { if (!chat.busy || chat.closed) return; chat.busy = false; this.emit(chat, { type: 'result', ok: false, error: String(e.message).slice(0, 300), cost: null, total: null }); });
-    } else chat.proc.stdin.write(userLine(text));
+    } else chat.proc.stdin.write(userLine(input));
     this.arm(chat);
   }
   stop(chat) {
