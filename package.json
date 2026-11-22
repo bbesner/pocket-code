@@ -1,6 +1,6 @@
 {
   "name": "pocket-code",
-  "version": "1.121.0",
+  "version": "1.122.0",
   "private": true,
   "type": "module",
   "bin": {
@@ -11,7 +11,9 @@
     "pocket-coord": "scripts/pocket-coord.mjs",
     "pocket-vault": "scripts/pocket-vault.mjs",
     "pocket-inbox": "scripts/pocket-inbox.mjs",
-    "pocket-checkback": "scripts/pocket-checkback.mjs"
+    "pocket-checkback": "scripts/pocket-checkback.mjs",
+    "pocket-run": "scripts/pocket-run.mjs",
+    "pocket-jobkey": "scripts/pocket-jobkey.mjs"
   },
   "description": "Self-hosted Claude Code and Codex workspace for desktop, tablet and phone, with persistent sessions, split conversations and server-side execution.",
   "keywords": [
@@ -44,7 +46,7 @@
     "start": "node server.mjs",
     "init": "node scripts/pocket-init.mjs",
     "test": "POCKET_SKILLS=0 node --test test/*.test.mjs",
-    "test:browser": "node test/browser.mjs && node test/acp-browser.mjs && node test/antigravity-browser.mjs && node test/automation-live-browser.mjs && node test/checkback-live-browser.mjs",
+    "test:browser": "node test/browser.mjs && node test/acp-browser.mjs && node test/antigravity-browser.mjs && node test/automation-live-browser.mjs && node test/checkback-live-browser.mjs && node test/jobkeys-live-browser.mjs && node test/jobrequest-live-browser.mjs",
     "vendor": "node scripts/vendor.mjs",
     "check:release": "node scripts/check-release.mjs",
     "check:manual": "node scripts/check-manual.mjs"

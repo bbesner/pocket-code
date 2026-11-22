@@ -192,6 +192,138 @@ off until the owner turns it on in **Settings → Automation → Check-backs**. 
   owner did not start is refused then, but accepted if it calls again while a later reply the owner started is running. An agent running as the same OS user
   could edit `checkbacks.json` or `pocket-settings.json` by hand; the boundary is the routes, not the files.
 
+## Job keys
+
+Job keys (1.122.0) let a script on the server start a reply, in a conversation the owner can watch, with an instruction the owner wrote. They are off until the owner turns them on in **Settings → Automation → Job keys**. This is what they add.
+
+- **Who may call.** `POST /api/jobs/run` and `GET /api/jobs/runs/<run>` take a job key and nothing else, and only from this server:
+  the socket must be loopback and the request must carry none of `cf-connecting-ip`, `x-forwarded-for`, `forwarded` or
+  `x-real-ip`. A call through the tunnel or a proxy is refused with 403 (*Job keys work only from this server …*). The app's
+  session cookie and the CLI token are refused on these routes too (403), so neither opens them. A reverse proxy that adds
+  none of those headers looks like a local caller; `docs/install.md` has the proxy send `X-Forwarded-For` for this reason.
+  With job keys off, a caller that is not on this server gets the same plain 404 as before the feature existed, and one that
+  is gets *Job keys are switched off on this Pocket.*
+- **How a key is stored and compared.** A key is `pjk_` and 43 characters from 256 random bits. Pocket shows it once and keeps
+  only its SHA-256 hash in `job-keys.json` (mode `0600`, written by tmp file and rename). A presented key is hashed and compared
+  with every stored hash in constant time, with no early exit. The key is never logged, never audited and never in a
+  response after creation: the owner's list shows a key's settings and state, not the key or its hash.
+- **One answer for every bad key.** A wrong key, a text that isn't a key, a disabled key, a deleted key and a key that was
+  rotated all get the same 401 (*Unknown or disabled job key.*), byte for byte, so the answer doesn't tell a caller which
+  keys exist or which are off. The audit file records which it was (`bad_key` or `disabled_key`), without the key. One
+  exception, by shape and not by key: a bearer value of exactly 64 hex characters, the shape of the CLI token, gets 403
+  `job_key_only` (*This route takes a job key only, not the app's sign-in or the CLI token.*), whether or not it is the
+  token. A caller with no key at all gets 401 `no_key`.
+- **Rate limit.** More than 20 wrong keys in 60 seconds, counted across the whole server because every caller is loopback,
+  are answered 429 until the minute is out. A right key still works meanwhile, and the limit is audited once.
+- **What a key can do.** It starts one kind of reply: a new conversation in the key's folder with the key's agent, model and
+  access and the owner's instruction, or the next reply in a conversation that same key started. The folder, agent, model, access
+  and instruction are the owner's, fixed in the key; a call can't choose or change them. It can send data, and instructions
+  too only where the owner turned on **The job may add its own instructions**. The call passes the same unattended gate as a
+  check-back (Pause all, the plan ceilings, the daily count), the key's own limits and **Most data per run**, and a refusal
+  starts and queues nothing.
+- **What a key can't do.** Change a setting, pause or resume Pocket, make, change, rotate or delete a key, read a conversation
+  or a run of another key, or continue a conversation it didn't start. The owner's routes (`/api/jobs/keys…`, the settings,
+  Pause all) take the owner's sign-in only: a job key and the CLI token are refused there. A reply a job started can't set a
+  check-back, and is refused like any reply the owner did not start.
+- **Data is information, not instructions.** Everything a job sends is put into the reply under a line that says it is
+  information, not instructions from the owner, and inside a Markdown fence one backtick longer than any run of backticks in
+  the data, so the data can't close the fence early. It ends with a closing line. With **The job may add its own
+  instructions** on, a job's added instructions come after the owner's, in their own fence, labelled with the key's name.
+  This is a fence and a label, not a wall: an agent can still be misled by text in the data (see below).
+- **"May add its own instructions" and what turning it on means.** It is off for a new key unless the owner changed the
+  default. On, the script that holds the key can say what the reply does, within the key's folder, model, access and limits.
+  Treat that key as if it were the owner typing the message, bounded by the access the key has. Leave it off when the job
+  only has data to hand over.
+- **Key files.** With **Save the key to a file**, Pocket writes `<folder>/<name>.key` with mode `0600`, through a temp file and
+  rename. The folder must be inside the home folder; Pocket resolves links against the real home folder and never writes
+  through one that leads out of it. A folder Pocket creates is `0700`. It never replaces a file that isn't a one-line job key
+  file (a link included), and never one that another key records as its own (409 `file_taken`): a renamed key keeps its
+  old key file name, and a new key of the old name can't take the file over. It rotates a file only while it still holds
+  the old key, and deletes it only while it still holds that key. If the file can't be written, no key is made.
+- **The audit file.** `automation-audit.jsonl` records `job` lines (created, updated, enabled, disabled, rotated, deleted,
+  refused and finished) and `job_auth` lines (a wrong or disabled key, the rate limit). A change names the fields it changed,
+  never their values; none holds a key, a hash, an instruction or any data. The reply's own line carries origin `job` and the
+  run id.
+
+**Plain warnings.**
+
+- **Any program that can read a key file can start that job, and an agent can be that program.** Pocket never gives an
+  agent a key. Its routes refuse an agent that tries to make, change, rotate, delete, list or answer for a key, and after an
+  Allow the agent is told the key file's path, never the key. But a key file is a file, mode `0600`, readable by the OS user
+  that runs Pocket, and agents run as that same user. So an agent with Full access in a conversation could read a key file
+  and call that job with it, and so can any other program running as that user. What that buys it is bounded by the key: a
+  fixed instruction, folder, model and access, the per-key limits and the install-wide gate. The CLI token is readable by
+  that user in the same way. What follows for the owner: keep key folders out of the folders agents work in, which stops an
+  agent coming across a key file by accident but not one that goes looking, and treat a job key as no stronger a boundary than
+  the user account that owns the file. This is the one statement of the rule; the other places that mention it point here.
+- **A job with Full access can do what the agent can do in that folder.** Full access is the key's setting, and is available
+  only where the server allows it (`POCKET_ALLOW_FULL_ACCESS` is not `0`); where it is off, a job runs under **Ask first**
+  (the Review actions mode; the setting for new keys calls it *Ask me for every action*) whatever its key says. Under that,
+  every action asks the owner, and nobody may be looking, so the reply waits for an answer.
+- **Text in the data can still mislead the agent.** An alert, a log line, a web page or an email the script passes on can
+  say "ignore the above" and the agent might go along. The fence and the label lower that risk; they don't remove it. The
+  protection that holds is the key's access: the access and the instruction are fixed by the owner, not by the data, a new key
+  starts under **Ask first** unless the owner changed the default, and a job's reply can't set a check-back. Choose Full access only for a folder
+  where a mistake is cheap.
+- **`POCKET_URL` decides where `pocket-run` sends the key.** Leave it unset or point it at this server.
+- **The data directory holds the runs.** `job-keys.json` holds each key's hash and settings and, for each run, its status and
+  the first line of the reply; keep the data directory private, as above.
+
+### A conversation asks for a job key
+
+An agent in a conversation can ask for a job key with `pocket-jobkey`; only the owner's Allow makes one. This is the
+only route Pocket gives an agent to a key, so the rules are fixed and none is a setting. (A key file is still a file the
+user can read: see the first plain warning above.)
+
+- **Who may ask.** `POST /api/jobs/agent/propose` and `GET /api/jobs/agent/requests/<request>` take the CLI token together
+  with the conversation's runner token, the pair check-backs use. Pocket accepts a job key proposal only with the runner
+  token of a conversation whose running reply the owner started and in which no job has ever run (a run of a deleted key
+  still counts). The token belongs to the conversation's process, not to one reply, so in a conversation no job ever ran
+  in, a process left behind by an earlier reply the owner did not start (a check-back's, a queued message's, or one the
+  agent began itself) can still propose while the owner's next reply runs; the owner's Allow in Settings, after reading
+  the whole instruction, is still required. In detail: the reply that is running must have been started by the owner (its
+  origin and its root origin must both be `owner`, and it must not be a reply the agent began itself after a background
+  job); a reply started by a job, a check-back, the queue, a retry or a coordination wake is refused (403
+  `not_owner_reply`). After that check, a conversation a job has ever run in is refused too (403 `job_conversation`),
+  even while the owner's own reply runs there, because what a job sends could be steering it; the owner can ask in a
+  conversation no job runs in, or make the key in Settings. A terminal or code-server has no runner token and is refused. The app's sign-in is refused
+  on these routes (403), a job key gets 401, and OpenRouter and Antigravity conversations are refused. Every refusal
+  after the caller is known is audited (`proposal_refused`).
+- **What it can send.** Only the fields of the **New job key** sheet: name, folder, agent, model, effort, access,
+  instruction, whether the job may add instructions, limits and the push choice. Any other field is refused, so a request
+  can't name the key file or its folder, an existing key, or whether a key is on. The same checks as the sheet apply, and
+  they run again at Allow, because the folder, the agent or Full access may have changed since.
+- **What Pocket's routes refuse an agent.** Reading, listing, changing, turning off, rotating, deleting or using a key
+  through Pocket, and answering a request, its own included. Reading another conversation's request: that and an unknown
+  id get the same 404, so the answer doesn't say which exist. None of this stops an agent from reading a key file as the
+  user (first plain warning above).
+- **Only the owner answers.** `POST /api/jobs/requests/<request>/answer` takes the owner's sign-in cookie from Pocket's
+  own page and nothing else. The CLI token and a job key are refused (401), and a request from another site is refused
+  (403). The owner can edit any field before answering; the key is made from what the owner sent.
+- **The push can't answer.** *Allow a job key?* has no action buttons, and it doesn't carry the instruction. A notification
+  can't show a whole instruction, and an allowed key starts work without asking from then on, so the owner reads the whole
+  instruction in Settings first. The push follows each device's **Vault requests** switch.
+- **The whole instruction is on the card.** Every line of the instruction shows, in a block that grows with it and has no
+  inner scroll, and the answers (**Deny**, **Edit first**, **Allow**) come after the last line. Enter never allows: not on
+  the card, and not in a field of **Edit before you allow**, where only a click or tap on **Allow with these changes** (or
+  Enter or Space with that button focused) allows.
+- **No auto-approve.** There is no setting, preset or environment variable that allows a request by itself. A request
+  waits for the owner, at most one for each conversation and five for the install, and expires after 24 hours: no key is
+  made.
+- **The key stays out of every answer.** On Allow, Pocket writes the key straight to its key file. The agent is told the
+  status, the key's id and name and the file's path, never the key or its hash. No response to an agent, no log line and
+  no audit line holds either. The audit lines (`proposed`, `proposal_allowed`, `proposal_denied`, `proposal_expired`,
+  `proposal_refused`) name fields and never give their values. If the key file can't be written, Pocket deletes the key
+  again: nothing exists, and the request stays waiting.
+- **A waiting request holds the whole instruction** in `job-keys.json`, which is why that file is mode `0600`. Answered
+  and expired requests are dropped after 7 days.
+
+**Plain warning.** Read the whole instruction and the access before you allow a request. An agent wrote it, and it may
+have been led by text it read. **An allowed key lets any program that can read the key file start that job**, with that
+instruction, folder and access, as often as the key's limits allow, and an agent with Full access running as the same
+user is such a program (first plain warning above). Keep the key folder out of the folders agents work in, and choose
+**Full access** only for a folder where a mistake is cheap.
+
 ## Projects, Files, Tasks and the Vault
 
 These libraries are off until the owner switches them on in Settings. Turning one on adds
@@ -248,10 +380,10 @@ from the box; the price is that a page's remote images, web fonts and scripted c
 of its picture.
 
 **CLI token.** The `pocket-board`, `pocket-docs`, `pocket-tasks`, `pocket-coord`, `pocket-vault` and
-`pocket-checkback` commands use a bearer token that the daemon writes to `cli-token` in the data directory
+`pocket-checkback` and `pocket-jobkey` commands use a bearer token that the daemon writes to `cli-token` in the data directory
 (mode `0600`) and replaces at every start. It is accepted only on the Projects, Files, Tasks and Vault
 routes and, together with a conversation's runner token, on the check-back agent routes
-(`/api/checkbacks/agent/*`), and only on a direct loopback connection: a request carrying a `cf-connecting-ip`,
+(`/api/checkbacks/agent/*`) and the job key request routes (`/api/jobs/agent/*`), and only on a direct loopback connection: a request carrying a `cf-connecting-ip`,
 `x-forwarded-for`, `forwarded` or `x-real-ip` header, as one arriving through a tunnel or proxy
 does, is refused. It
 never replaces the login cookie anywhere else. Anyone who can read that file as the

@@ -1,6 +1,6 @@
 <!-- manual
-checked: 1.121.0
-sources: context-policy.mjs, automation.mjs, cli-updates.mjs, public/cli-updates.js, public/app.js, public/workspace.js, public/theme.js, public/voice.js, server.mjs, router.mjs, access.mjs
+checked: 1.122.0
+sources: context-policy.mjs, automation.mjs, job-keys.mjs, cli-updates.mjs, public/cli-updates.js, public/app.js, public/workspace.js, public/theme.js, public/voice.js, server.mjs, router.mjs, access.mjs
 -->
 # Settings
 
@@ -182,6 +182,7 @@ The same in both modes, and everything here applies to the whole install (**This
 | **Pause all** group | **Your own messages while paused**, **Pause all also pauses Inbox Watch**, **Pause all also stops background jobs**, **On Resume, re-arm held usage-limit retries**, **On Resume, run overdue check-backs** and **Show what will stop before pausing** | Own messages run; the others On | Server (`automation`) |
 | **Limits on unattended work** group | The plan ceilings (weekly and 5-hour, for Claude Code and Codex), **Unattended replies per day**, **OpenRouter spend per day (unattended)**, **Longest unattended reply**, the two switches that extend limits to work you asked for, **Notice when a limit is reached**, and under **Advanced** the stale-reading age. A **No limit** button sits beside each number | 80%, 90%, 40 a day, $5 a day, 60 min | Server (`automation`) |
 | **Check-backs** group | The **Check-backs** switch first, then **Permissions for a check-back**, a switch for Claude Code and one for Codex, **Push the result when the conversation is muted**, **Show check-backs in the Tasks list**, the limits on how many may wait and how far ahead, the note length and the catch-up window, and under **Advanced** the busy wait and the spacing. While the switch is off the rest of the group is dimmed under *These apply when Check-backs is on.*, and can still be changed. Under it, *N waiting* and **Cancel all** while the switch is on and any are waiting | **Check-backs** Off; the rest as in [Automation](automation.md#settings) | Server (`automation`) |
+| **Job keys** group | The **Job keys** switch first. While it is off, that is all the group shows. While it is on: **Waiting for you** (the requests conversations have made for a job key, each with **Allow**, **Edit first** and **Deny**, only while one waits), your list of keys with **New job key**, and then **Advanced**, closed, with the other settings: **Access for new keys**, **Job may add its own instructions (new keys)**, the per-key limits for new keys (**Runs per hour**, **Runs per day** and **Runs at once**), **Most data per run**, **Longest wait a job may ask for**, **Ignore a repeated call for**, **Push when a job finishes (new keys)**, **Job pushes respect the conversation's mute** and **Where Pocket offers to save new keys** ([Automation](automation.md#job-keys)) | **Job keys** Off; the rest as in [Automation](automation.md#job-settings) | Server (`automation` in `pocket-settings.json`; the keys in `job-keys.json`) |
 | **Unattended replies** | **Today** and **Last 7 days**: replies, tokens and cost, and **Limits reached today** | | Server (`automation-state.json`) |
 
 Each group has **Reset to defaults**. A value is checked when it is saved: out of range, it is refused with a message that names the range. While any limit is set to No limit, a warning shows at the top of the page. A change applies to the next start, never to a reply already running.
@@ -194,9 +195,9 @@ Each group has **Reset to defaults**. A value is checked when it is saved: out o
 | **Push to this device** | Web push to this browser, even when Pocket is closed. The bell on the conversation list does the same. **Sign out** turns it off on this browser, **Sign out everywhere** on every device | Off until you turn it on | Server, per device (`push-subs.json`) |
 | **Finished replies** | Push when a conversation finishes a reply, unless the conversation is muted or open in a browser, or you stopped the reply | On when push is turned on | Server, per device |
 | **Due tasks and reminders** | Push once when each comes due; **Tomorrow** and **Done** on the notification answer without opening Pocket | On when push is turned on | Server, per device |
-| **Vault requests** | Push when an agent needs a secret, or wants to share or publish a file, and you have to allow it, with **Allow** and **Deny** | On when push is turned on | Server, per device |
+| **Vault requests** | Push when an agent needs a secret, or wants to share or publish a file, and you have to allow it, with **Allow** and **Deny**. The *Allow a job key?* push, when a conversation asks for a [job key](automation.md#let-a-conversation-set-one-up), follows this switch too, but it has no buttons: it opens the request in Settings, where you read the whole instruction first | On when push is turned on | Server, per device |
 | **Inbox alerts** | Push for an alert from Inbox Watch or another job on the server. Which Inbox Watch alerts push is chosen in its schedule sheet ([Push notifications](inbox-watch.md#push-notifications)) | On when push is turned on | Server, per device |
-| **Check-backs and job results** | Push when a [check-back](automation.md#check-backs) has run (*Checked back · …*) or was missed, and the **Unattended work held** notice when an [Automation limit](automation.md#one-notice-per-reason-per-day) holds work. Shown whether check-backs are on or off, because of that notice. Job results come with a later release | On when push is turned on | Server, per device |
+| **Check-backs and job results** | Push when a [check-back](automation.md#check-backs) has run (*Checked back · …*) or was missed, and the **Unattended work held** notice when an [Automation limit](automation.md#one-notice-per-reason-per-day) holds work. Push when a [job key's](automation.md#job-pushes) run has ended (titled with the job's name, with the first line of the reply). Shown whether check-backs and job keys are on or off, because of that notice | On when push is turned on | Server, per device |
 | **Count on the app icon** | How many tasks and reminders are due, on the installed app's icon. Disabled in browsers without app-badge support | On | This browser, and with its push subscription |
 | **Voice (beta)** | Voice preferences for this device; see below | | This browser |
 | **Notice a day before** | A second notice 24 hours before a dated task or reminder comes due, the same way as the due one | Off | Server |
@@ -300,8 +301,9 @@ defaults to the Pocket Code directory:
 | File | What it holds |
 |---|---|
 | `pocket-settings.json` | Every **Server** setting above, including whether Pocket is paused and the values you saved under Automation, plus two values Pocket learns: your browser's time zone and the public address you sign in through |
-| `automation-state.json`, `automation-audit.jsonl` | The day's counts and limit notices, and a line for each pause, resume, settings change, check-back event and unattended reply (never message text) |
+| `automation-state.json`, `automation-audit.jsonl` | The day's counts and limit notices, and a line for each pause, resume, settings change, check-back event, job event and unattended reply (never message text) |
 | `checkbacks.json` | The check-backs: each one's conversation, note, time and state, for the cards, the list and Tasks |
+| `job-keys.json` | The job keys (a hash of each key, never the key), their recent runs and the requests from conversations, with their whole instruction. Mode `0600` |
 | `push-subs.json` | One entry per device with push on, with its choice of kinds and icon count. A subscription the push service reports as gone is removed |
 | `router-key` | The key saved under **Automatic model choice** (mode `0600`) |
 | `auth-state.json` | The sign-in generation that **Sign out everywhere** moves on, and a keyed hash of the password (mode `0600`, 1.118). Never the password itself |
@@ -342,8 +344,10 @@ A change to `.env` takes effect after a restart from the Pocket Code directory
   (password or one sign-in); the loopback token the agent commands use is not accepted there. Tell the user the exact path to
   change, for example **Settings → Notifications & voice → Notice a day before**, rather than
   trying to change it.
-- Pause, Resume and the **Automation** settings are the owner's too, and no agent can use them: the routes take only the
-  owner's sign-in. Don't try to raise a limit or lift a pause. Tell the user to open **Settings → Automation**.
+- Pause, Resume and the **Automation** settings, job keys included, are the owner's too, and no agent can use them: the
+  routes take only the owner's sign-in. Don't try to raise a limit, lift a pause or make a job key. Tell the user to open
+  **Settings → Automation**. The one thing an agent may do there is ask for a job key with `pocket-jobkey`; only the
+  owner's Allow makes it ([For agents](for-agents.md#propose-a-job-key)).
 - Do not edit `pocket-settings.json` while Pocket runs. The daemon reads it at start and rewrites
   the whole file on the next save, so a hand edit is lost.
 - When a feature command answers that the feature is off, pass on the message, which names

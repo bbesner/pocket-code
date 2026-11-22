@@ -7,7 +7,10 @@
 // Env flags: POCKET_ACP_STORE (required, dir) · FAKE_ACP_NO_LOADSESSION (advertise loadSession:false)
 // · FAKE_ACP_ELICIT (ask an elicitation/create instead of permission) · FAKE_ACP_NO_ASK (skip permission)
 // · FAKE_ACP_DELAY_MS (how long the tool "runs") · FAKE_ACP_SLOW_LOAD (a marker file: while it exists, session/load answers
-// 1.5 s late, a slow reopen, and each such load is noted in <marker>.loads)
+// 1.5 s late, a slow reopen, and each such load is noted in <marker>.loads) · FAKE_ACP_PAGE_SIZE (session/list answers
+// in pages of this many with nextCursor, as ACP allows; OpenCode itself sends 100 and stops) · FAKE_ACP_LIST_HANG,
+// FAKE_ACP_LIST_FAIL, FAKE_ACP_LIST_DELAY_MS (a session/list that never answers, fails or answers late; see the handler)
+// session/list is scoped the way OpenCode scopes it (by project, and by exact folder with `cwd`; see the handler).
 // Prompt markers, the same the Claude and Codex fakes take: __SLOW__ (the tool runs 1.5 s), __HANG__ (never answers until
 // cancelled), __CHOICES__ (ends with a ```choices block), __QUESTION__ (asks through Pocket's ask tool, the MCP server
 // Pocket names in OPENCODE_CONFIG_CONTENT, and answers with what you chose). Each prompt records what reached it: the
@@ -28,6 +31,8 @@ if (!STORE) throw new Error('POCKET_ACP_STORE required');
 fs.mkdirSync(STORE, { recursive: true });
 const sessFile = id => path.join(STORE, encodeURIComponent(id) + '.json');
 const loadSess = id => { try { return JSON.parse(fs.readFileSync(sessFile(id), 'utf8')); } catch { return null; } };
+// The project a folder belongs to, as session/list scopes it: the nearest folder (itself or above) holding a .git, else 'global'.
+const projectOf = dir => { for (let d = path.resolve(dir); ; d = path.dirname(d)) { if (fs.existsSync(path.join(d, '.git'))) return d; if (d === path.dirname(d)) return 'global'; } };
 // Written beside the store and renamed in, so a test reading the store never sees half a file.
 const saveSess = (id, s) => { const tmp = `${STORE}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify(s)); fs.renameSync(tmp, sessFile(id)); };
 
@@ -166,9 +171,28 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       agentInfo: { name: 'FakeACP', version: '0.0.1' },
     });
     case 'session/list': {
+      // As OpenCode 1.19 answers it (ACP.listSessions over Session.list): {} lists the project of the folder this
+      // process runs in, { cwd } only the sessions started in exactly that folder; newest first, and only the newest
+      // 100, which nextCursor pages through but never past. A project here is the nearest folder holding a .git
+      // (OpenCode: the repository), or one "global" project for every folder outside a repository. A session file
+      // may carry its own updatedAt (a test's fixture); otherwise its last write is its time.
+      const p = m.params || {};
+      // Test knobs for a slow or broken program: FAKE_ACP_LIST_HANG / FAKE_ACP_LIST_FAIL (folders, comma-separated; "{}"
+      // is the whole-project question) never answer / answer with an error; FAKE_ACP_LIST_DELAY_MS delays every answer.
+      const who = p.cwd || '{}', named = v => String(process.env[v] || '').split(',').filter(Boolean).includes(who);
+      if (named('FAKE_ACP_LIST_HANG')) return;
+      if (named('FAKE_ACP_LIST_FAIL')) return fail(m.id, 'list failed for ' + who);
+      const delay = Number(process.env.FAKE_ACP_LIST_DELAY_MS) || 0;
+      const want = projectOf(p.cwd || process.cwd());
       let files = []; try { files = fs.readdirSync(STORE).filter(f => f.endsWith('.json')); } catch { }
-      const sessions = files.map(f => { const sid = decodeURIComponent(f.replace(/\.json$/, '')); let st; try { st = fs.statSync(path.join(STORE, f)); } catch { } const d = loadSess(sid) || {}; return { sessionId: sid, cwd: d.cwd || '/tmp', title: d.title || 'New session - ' + new Date(d.createdAt || Date.now()).toISOString(), updatedAt: new Date(st?.mtimeMs || Date.now()).toISOString() }; });
-      return reply(m.id, { sessions });
+      const all = files.map(f => { const sid = decodeURIComponent(f.replace(/\.json$/, '')); let st; try { st = fs.statSync(path.join(STORE, f)); } catch { } const d = loadSess(sid) || {}; return { sessionId: sid, cwd: d.cwd || '/tmp', title: d.title || 'New session - ' + new Date(d.createdAt || Date.now()).toISOString(), updatedAt: new Date(d.updatedAt || st?.mtimeMs || Date.now()).toISOString() }; })
+        .filter(s => projectOf(s.cwd) === want && (!p.cwd || s.cwd === p.cwd))
+        .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, 100);
+      const cursor = p.cursor ? Number(p.cursor) : NaN;
+      const left = Number.isFinite(cursor) ? all.filter(s => Date.parse(s.updatedAt) < cursor) : all;
+      const size = Number(process.env.FAKE_ACP_PAGE_SIZE) || 100, sessions = left.slice(0, size), last = sessions.at(-1);
+      const answer = { sessions, ...(left.length > size && last ? { nextCursor: String(Date.parse(last.updatedAt)) } : {}) };
+      return delay > 0 ? void setTimeout(() => reply(m.id, answer), delay) : reply(m.id, answer);
     }
     case 'session/new': { const sid = 'ses_' + randomUUID(); const s = { updates: [], cwd: m.params?.cwd, createdAt: Date.now() }; saveSess(sid, s); return reply(m.id, { sessionId: sid, configOptions: configOptions(confOf(sid)) }); }
     case 'session/set_config_option': {

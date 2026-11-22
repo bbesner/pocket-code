@@ -95,8 +95,8 @@ export async function runAutomationRegressions({p,base,out,repo,rows,settings,sc
 
  // --- Settings → Automation renders the server's groups; a category in both modes ---
  await openAutomation();
- assert.deepEqual(await p.$$eval('[data-auto-group]',e=>e.map(x=>x.dataset.autoGroup)),['pause','limits','checkbacks']); // 1.119: Check-backs (test/checkback-browser.mjs)
- assert.deepEqual(await p.$$eval('[data-auto-group] > h3',e=>e.map(x=>x.textContent)),['Pause all','Limits on unattended work','Check-backs']);
+ assert.deepEqual(await p.$$eval('[data-auto-group]',e=>e.map(x=>x.dataset.autoGroup)),['pause','limits','checkbacks','jobs']); // 1.119; job keys (test/jobkeys-browser.mjs): Check-backs (test/checkback-browser.mjs)
+ assert.deepEqual(await p.$$eval('[data-auto-group] > h3',e=>e.map(x=>x.textContent)),['Pause all','Limits on unattended work','Check-backs','Job keys']);
  assert.match(await p.$eval('#s-automation [data-pause-toggle]',e=>e.textContent),/^Pause allRunning normally\./);
  assert.equal(await p.$eval('[data-auto-advanced="limits"]',e=>e.open),false,'Advanced starts collapsed');
  assert.equal(await p.$eval(input('staleHours'),e=>e.checkVisibility()),false,'an advanced setting is under Advanced');

@@ -113,6 +113,8 @@ When a command needs your approval, Pocket files a **request** and tells you thr
 - **The Vault view.** Each request is one sentence, such as *The agent in "Staging site" wants to use staging-wp for this command*, with the exact command, **Runs** and the full path of the program that will run (for `env node sync.mjs`, the `node` that `env` starts), **Variables** with each variable and the secret it gets (*`TOKEN` gets staging-wp*), the folder and when it asked. A note under it says when Pocket cannot check everything the command runs (see **What Always allow checks** below). **Allow once** is the orange button; **Deny** sits beside it, and **Always allow** between them when the secret allows it. A request that was already answered, expired or ended when the Vault locked says so when its notification is opened.
 - **The conversation.** The agent ends its reply with suggested replies such as *Allow billing-api for this command* and *Deny billing-api*. Tap one or type it. Pocket also accepts *Always allow billing-api for this command*, *approve*, *don't allow*, and a bare *Allow* or *Deny* when that conversation has exactly one request waiting. Only your own messages in the conversation that raised the request count, and the message is still delivered to the agent.
 
+A reply that [a job key started](automation.md#job-keys) asks the same way, with nobody watching: the request waits for you, and the run reads **needs you** to the script that started it ([What waits for you in a job reply](automation.md#what-waits-for-you-in-a-job-reply)).
+
 **Always allow** saves the exact command (program, every argument and the folder) and its variables for that secret, under **Approved commands** on its sheet, where you can remove it. A changed argument is a new command and asks again, and so does the same command with a secret under another variable name, another secret for a variable, or a variable added; the request then says the variables changed and shows what you allowed before. A request expires after 15 minutes.
 
 Some variable names cannot be given a secret at all, because a program acts on them by itself: it runs or loads the value, reads it as options, creates a file or folder named after it, or sends it to another computer. Pocket refuses them when the agent asks (*`NODE_V8_COVERAGE` cannot be bound.*); the full list is in the table under **What a run does**. Ordinary names such as `GITHUB_TOKEN`, `AWS_SECRET_ACCESS_KEY`, `NPM_TOKEN` and `PGPASSWORD` work as before.
@@ -258,7 +260,7 @@ Each secret's sheet shows its last 20 events under **History**. The file records
 | **Agent access** | Same, under Vault | Free rein, Ask once per command (default), Ask every time. |
 | **Lock after** | Same, under Protection (passphrase mode only) | Never (default), 15 minutes, 1 hour, 8 hours, 24 hours. |
 | **Catch secrets in messages** | Same | On by default. |
-| **Vault requests** | Settings → Notifications & voice | Whether this device gets request pushes. |
+| **Vault requests** | Settings → Notifications & voice | Whether this device gets request pushes. The *Allow a job key?* push ([Automation](automation.md#let-a-conversation-set-one-up)) follows it too. |
 | `POCKET_VAULT_KEY` | `.env` | The server key. Pocket writes it; set it by hand only when there is no `.env` to write. |
 | `POCKET_VAULT_FILL_TOOLS` | Relay's environment | Tools the relay may type a value into. |
 | `POCKET_VAULT_FILL_WAIT` | Relay's environment | Seconds a fill waits for approval. Default 90. |

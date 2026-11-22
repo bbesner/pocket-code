@@ -167,7 +167,7 @@ test('skills: a marked folder without its skill is repaired; a path with a space
 test('skills: each names its manual page, installed with this checkout\'s path; every turn points at the manual index',t=>{
   const dir=tmp();t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
   const roots=[path.join(dir,'claude'),path.join(dir,'codex')];
-  syncSkills({settings:{projects:true,documents:true,tasks:true,vault:true,inbox:true,coordination:true,checkbacks:true},commands:{...commands,inbox:'/srv/pocket/scripts/pocket-inbox.mjs',checkback:'/srv/pocket/scripts/pocket-checkback.mjs'},env:{},roots,codexRoots:[roots[1]]});
+  syncSkills({settings:{projects:true,documents:true,tasks:true,vault:true,inbox:true,coordination:true,checkbacks:true,jobs:true},commands:{...commands,inbox:'/srv/pocket/scripts/pocket-inbox.mjs',checkback:'/srv/pocket/scripts/pocket-checkback.mjs',jobkey:'/srv/pocket/scripts/pocket-jobkey.mjs'},env:{},roots,codexRoots:[roots[1]]});
   for(const s of SKILLS){
     assert.ok(s.manual,`${s.name} names a manual page`);
     const page=path.join(repo,'docs','manual',s.manual);

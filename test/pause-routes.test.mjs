@@ -116,7 +116,7 @@ test('Pause all stops every engine, holds a usage-limit retry, keeps the queue s
 
   const before = (await s.call('/pause')).body;
   assert.deepEqual(before.paused, null);
-  assert.deepEqual(before.would, { replies: { claude: 1, codex: 1, openrouter: 1 }, background: 0, retries: 1, checkbacks: 0, inboxWatch: false });
+  assert.deepEqual(before.would, { replies: { claude: 1, codex: 1, openrouter: 1 }, background: 0, retries: 1, checkbacks: 0, inboxWatch: false, jobs: 0 });
   assert.deepEqual([before.ownMessages, before.confirm], ['run', true]);
 
   // same-site JSON only, the cookie only
@@ -137,7 +137,7 @@ test('Pause all stops every engine, holds a usage-limit retry, keeps the queue s
   assert.deepEqual((await s.call('/sessions')).body.pause, { paused: p.body.paused, held: { retries: 1, checkbacks: 0 }, ownMessages: 'run', confirm: true });
   const twice = await s.call('/pause', {});
   assert.equal(twice.status, 200, 'pausing twice is fine');
-  assert.deepEqual(twice.body.stopped, { replies: { claude: 0, codex: 0, openrouter: 0 }, background: 0, retries: 0, checkbacks: 0, inboxWatch: false }, 'and changes nothing');
+  assert.deepEqual(twice.body.stopped, { replies: { claude: 0, codex: 0, openrouter: 0 }, background: 0, retries: 0, checkbacks: 0, inboxWatch: false, jobs: 0 }, 'and changes nothing');
   assert.equal(s.audit().filter(x => x.action === 'pause').length, 1, 'one audit line for one pause');
   assert.equal((await s.call('/me')).body.paused.at, p.body.paused.at, 'the first pause time stands');
   await sleep(6000); // past the retry's time: held, it does not run
@@ -192,11 +192,11 @@ test('Blocked own messages, coordination wakes while paused, and the Automation 
 
   // ---- the settings route ----
   let a = (await s.call('/automation')).body;
-  assert.deepEqual(a.groups.map(g => g.key), ['pause', 'limits', 'checkbacks']);
+  assert.deepEqual(a.groups.map(g => g.key), ['pause', 'limits', 'checkbacks', 'jobs']);
   const L = key => a.groups[1].settings.find(x => x.key === key);
   assert.deepEqual([L('dailyReplies').value, L('dailyReplies').preset, L('dailyReplies').saved, L('dailyReplies').default], [1, true, false, 40], 'the env preset sets the starting value');
   assert.deepEqual([L('claudeWeekly').value, L('codexWeekly').value], [60, 60]);
-  assert.deepEqual(Object.keys(a).sort(), ['checkbacks', 'groups', 'notices', 'paused', 'usage', 'warnings']);
+  assert.deepEqual(Object.keys(a).sort(), ['checkbacks', 'groups', 'jobs', 'notices', 'paused', 'usage', 'warnings']);
   assert.deepEqual(a.checkbacks, { on: false, pending: 0, running: 0 }, '1.119: off by default');
   assert.equal(a.usage.days.length, 7);
   for (const [p, body] of [['/automation/settings', { group: 'limits', values: { dailyReplies: 5 } }], ['/pause', {}], ['/resume', {}]]) {
@@ -222,7 +222,7 @@ test('Blocked own messages, coordination wakes while paused, and the Automation 
   await ownerControlRefuses(s, 18945);
   assert.equal((await s.call('/automation')).body.groups[1].settings.find(x => x.key === 'dailyReplies').value, 2, 'the refused saves changed nothing');
   // reset: the table values, or this install's presets
-  for (const group of ['pause', 'limits', 'checkbacks']) assert.equal((await s.call('/automation/settings', { group, reset: true })).status, 200);
+  for (const group of ['pause', 'limits', 'checkbacks', 'jobs']) assert.equal((await s.call('/automation/settings', { group, reset: true })).status, 200);
   a = (await s.call('/automation')).body;
   assert.ok(a.groups.every(g => g.settings.every(x => !x.saved)));
   assert.deepEqual(a.groups[0].settings.map(x => [x.key, x.value]), [['ownMessages', 'run'], ['inboxWatch', true], ['backgroundJobs', true], ['rearmRetries', true], ['runOverdue', true], ['confirm', true]]);

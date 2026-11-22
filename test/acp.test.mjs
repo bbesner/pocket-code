@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { AcpClient, messagesFromEvents, startAcpTurn, acpSessions, acpTurns, closeAcpSession, stopAcpTurn, permissionOutcomes, normalizeUpdate, isAcpId, bareAcpId, declineFor, listAcpSessions, readAcpTranscript, probeAcpEfforts } from '../acp.mjs';
+import { AcpClient, messagesFromEvents, startAcpTurn, acpSessions, acpTurns, closeAcpSession, stopAcpTurn, permissionOutcomes, normalizeUpdate, isAcpId, bareAcpId, declineFor, listAcpSessions, readAcpList, readAcpTranscript, probeAcpEfforts } from '../acp.mjs';
 
 const FAKE = path.join(import.meta.dirname, 'fake-acp.mjs');
 const mkStore = () => fs.mkdtempSync(path.join(os.tmpdir(), 'acp-store-'));
@@ -210,9 +210,114 @@ test('probeAcpEfforts maps each OpenRouter model to its effort levels; the probe
     'openrouter/anthropic/claude-sonnet-5.5': ['low', 'medium', 'high', 'xhigh', 'max'],
     'openrouter/meta-llama/llama-4-scout': [],
   }, 'openrouter models only, without "default"');
-  const all = await listAcpSessions({ env: baseEnv(store), cmd: process.execPath, args: [FAKE] });
-  const shown = await listAcpSessions({ env: baseEnv(store), cmd: process.execPath, args: [FAKE], hideCwd: probe });
+  const all = await listAcpSessions({ env: baseEnv(store), cmd: process.execPath, args: [FAKE], folders: [probe] });
+  const shown = await listAcpSessions({ env: baseEnv(store), cmd: process.execPath, args: [FAKE], folders: [probe], hideCwd: probe });
   assert.equal(all.filter(r => r.cwd === probe).length, 1); assert.equal(shown.filter(r => r.cwd === probe).length, 0);
+  // the next probe opens that session again instead of making another (OpenCode cannot delete one over ACP)
+  assert.deepEqual(await probeAcpEfforts({ cmd: process.execPath, args: [FAKE], env: baseEnv(store), cwd: probe }), map);
+  assert.equal((await listAcpSessions({ env: baseEnv(store), cmd: process.execPath, args: [FAKE], folders: [probe] })).filter(r => r.cwd === probe).length, 1, 'still one probe session');
+});
+
+// ---------- the list, read folder by folder (OpenCode answers per project and per folder, 100 at most) ----------
+const mkDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'acp-folder-'));
+const seed = (store, sid, cwd, updatedAt) => fs.writeFileSync(path.join(store, encodeURIComponent(sid) + '.json'), JSON.stringify({ updates: [], cwd, createdAt: updatedAt, updatedAt, title: 'Seeded ' + sid, titled: true }));
+const reader = (store, extra = {}, env = {}) => readAcpList({ env: { ...baseEnv(store), ...env }, cmd: process.execPath, args: [FAKE], limit: 200, ...extra });
+
+test('readAcpList: hidden rows never use up the answer or the limit, and each known folder is asked on its own', async () => {
+  const store = mkStore(), probe = mkDir(), one = mkDir(), two = mkDir(), now = Date.now();
+  for (let i = 0; i < 150; i++) seed(store, `ses_probe${i}`, probe, now + 10_000 + i); // newest of their project
+  seed(store, 'ses_one', one, now); seed(store, 'ses_two', two, now - 1000);
+  // {} from a folder of the same project: 100 probe sessions and nothing else, all hidden
+  const before = await reader(store, { cwd: os.tmpdir(), hideCwd: probe, limit: 2 });
+  assert.deepEqual(before.rows, [], 'the whole-project answer is all probes');
+  const r = await reader(store, { cwd: os.tmpdir(), hideCwd: probe, limit: 2, folders: [one, two, probe] });
+  assert.deepEqual(r.rows.map(x => x.id), ['acp:ses_one', 'acp:ses_two'], 'both folders, the probe folder never');
+  assert.deepEqual(r.rows.map(x => x.title), ['Seeded ses_one', 'Seeded ses_two']);
+  assert.deepEqual(r.complete.sort(), [one, two].sort(), 'each folder answered in full');
+});
+
+test('readAcpList follows nextCursor; a folder answered with 100 is not complete, and a known conversation it missed is listed', async () => {
+  const store = mkStore(), dir = mkDir(), now = Date.now();
+  for (let i = 0; i < 20; i++) seed(store, `ses_p${i}`, dir, now - i * 1000);
+  const paged = await reader(store, { folders: [dir] }, { FAKE_ACP_PAGE_SIZE: '7' });
+  assert.equal(paged.rows.length, 20, 'three pages of 7, 7 and 6'); assert.deepEqual(paged.complete, [dir]);
+  for (let i = 20; i < 130; i++) seed(store, `ses_p${i}`, dir, now + i * 1000); // 110 newer
+  const known = [{ id: 'acp:ses_p19', cwd: dir, at: now - 19_000 }, { id: 'acp:ses_gone', cwd: mkDir(), at: now }];
+  const full = await reader(store, { folders: [dir], known });
+  assert.equal(full.complete.includes(dir), false, 'an answer of 100 may have been cut');
+  const kept = full.rows.find(x => x.id === 'acp:ses_p19');
+  assert.ok(kept, 'the known conversation the answer missed'); assert.equal(kept.cwd, dir); assert.equal(kept.untitled, true); assert.equal(kept.mtimeMs, now - 19_000);
+  assert.ok(!full.rows.some(x => x.id === 'acp:ses_gone'), 'its folder answered in full without it: the program no longer has it');
+  assert.equal(full.rows.length, 101);
+});
+
+// ---------- the read's bounds and the ghost-row rule (hardened 2026-11-22) ----------
+test('readAcpList: the whole-project {} finds a folder nobody named; one failing folder leaves only its own rows out; a failing {} fails the read', async () => {
+  const store = mkStore(), proj = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-proj-')), now = Date.now();
+  fs.mkdirSync(path.join(proj, '.git')); const unnamed = path.join(proj, 'sub'); fs.mkdirSync(unnamed);
+  const bad = mkDir(), good = mkDir();
+  seed(store, 'ses_unnamed', unnamed, now); seed(store, 'ses_bad', bad, now - 1000); seed(store, 'ses_good', good, now - 2000);
+  const r = await reader(store, { cwd: proj, folders: [bad, good] }, { FAKE_ACP_LIST_FAIL: bad });
+  assert.ok(r.rows.some(x => x.id === 'acp:ses_unnamed'), 'found by the reader\'s own {} only');
+  assert.ok(r.rows.some(x => x.id === 'acp:ses_good'), 'the other folder still answered');
+  assert.ok(!r.rows.some(x => x.id === 'acp:ses_bad'), 'the failing folder\'s rows are left out');
+  assert.equal(r.complete.includes(bad), false);
+  await assert.rejects(reader(store, { cwd: proj, folders: [good] }, { FAKE_ACP_LIST_FAIL: '{}' }), /list failed/, 'the {} failing fails the read, as before');
+});
+
+test('readAcpList: a folder that never answers is given up after the per-question limit, and the rest is read', async () => {
+  const store = mkStore(), stuck = mkDir(), dirs = Array.from({ length: 6 }, mkDir), now = Date.now();
+  dirs.forEach((d, i) => seed(store, `ses_d${i}`, d, now - i * 1000));
+  const t0 = Date.now();
+  // the read waits for every folder's worker, so without the per-question limit it would run to the 20 s deadline
+  const r = await reader(store, { folders: [stuck, ...dirs], requestMs: 300, deadlineMs: 20_000, previous: [{ id: 'acp:ses_stuck', cwd: stuck, title: 'Before', untitled: false, mtimeMs: now - 50_000 }] }, { FAKE_ACP_LIST_HANG: stuck });
+  const took = Date.now() - t0;
+  assert.ok(took < 5000, `given up after about 300 ms, not the deadline: ${took} ms`);
+  assert.equal(r.late, false);
+  assert.equal(r.rows.filter(x => /^acp:ses_d/.test(x.id)).length, 6, 'every other folder answered');
+  assert.equal(r.rows.find(x => x.id === 'acp:ses_stuck')?.title, 'Before', 'the folder that did not answer keeps its previous row');
+  // the whole-project {} not answering is the same: it is given up, and the folders' answers are used
+  const t1 = Date.now();
+  const w = await reader(store, { folders: dirs, requestMs: 300, deadlineMs: 20_000 }, { FAKE_ACP_LIST_HANG: '{}' });
+  assert.ok(Date.now() - t1 < 5000, `{} given up after about 300 ms: ${Date.now() - t1} ms`);
+  assert.equal(w.late, true, 'reported as not all answered');
+  assert.equal(w.rows.length, 6);
+});
+
+test('readAcpList: the whole read stops at its deadline, keeps what answered and the previous rows of the rest', async () => {
+  const store = mkStore(), stuck = mkDir(), fine = mkDir(), now = Date.now();
+  seed(store, 'ses_fine', fine, now);
+  const previous = [{ id: 'acp:ses_old', cwd: stuck, title: 'Kept', untitled: false, mtimeMs: now - 60_000 }];
+  for (const hang of [stuck, `{},${stuck}`]) { // a folder hangs; then the {} hangs too
+    const t0 = Date.now();
+    const r = await reader(store, { folders: [fine, stuck], previous, requestMs: 60_000, deadlineMs: 800 }, { FAKE_ACP_LIST_HANG: hang });
+    const took = Date.now() - t0;
+    assert.ok(took < 3000, `${hang}: ended near the 800 ms deadline, not the 60 s per-question limit: ${took} ms`);
+    assert.equal(r.late, true);
+    assert.ok(r.rows.some(x => x.id === 'acp:ses_fine'), 'what answered is used');
+    assert.equal(r.rows.find(x => x.id === 'acp:ses_old')?.title, 'Kept', 'the rest keep their previous rows');
+  }
+});
+
+test('readAcpList ghost rows: dropped when the folder answered in full, when a cut answer reached past them, or when the folder is gone; kept when they may be past the cut or the folder was not read', async () => {
+  const store = mkStore(), full = mkDir(), cut = mkDir(), unread = mkDir(), now = Date.now();
+  const gone = path.join(os.tmpdir(), 'acp-gone-' + process.pid + '-' + now);
+  seed(store, 'ses_here', full, now);
+  for (let i = 0; i < 110; i++) seed(store, `ses_c${i}`, cut, now - 600_000 + i * 1000); // answer: the newest 100, oldest now-590 s
+  const known = [
+    { id: 'acp:ses_fullgone', cwd: full, at: now - 5000 },          // folder answered in full without it
+    { id: 'acp:ses_pastcut', cwd: cut, at: now - 3_600_000 },       // older than the cut answer's oldest: may be past the cut
+    { id: 'acp:ses_insidecut', cwd: cut, at: now - 60_000 },        // inside the answer's range, not in it: gone
+    { id: 'acp:ses_gonedir', cwd: gone, at: now },                  // its folder no longer exists
+    { id: 'acp:ses_unread', cwd: unread, at: now - 1000 },          // its folder is not asked (past maxFolders)
+    { id: 'acp:ses_gonedir2', cwd: gone + '-2', at: now },          // a gone folder that is not asked either
+  ];
+  const previous = [{ id: 'acp:ses_prevfull', cwd: full, title: 'Was here', untitled: false, mtimeMs: now - 1000 }, { id: 'acp:ses_prevunread', cwd: unread, title: 'Still', untitled: false, mtimeMs: now - 2000 }];
+  const r = await reader(store, { folders: [full, cut, gone], known, previous, maxFolders: 3 });
+  const ids = new Set(r.rows.map(x => x.id));
+  for (const id of ['acp:ses_fullgone', 'acp:ses_insidecut', 'acp:ses_gonedir', 'acp:ses_gonedir2', 'acp:ses_prevfull'])assert.ok(!ids.has(id), id + ' is dropped');
+  for (const id of ['acp:ses_pastcut', 'acp:ses_unread', 'acp:ses_prevunread', 'acp:ses_here']) assert.ok(ids.has(id), id + ' stays');
+  assert.equal(r.rows.find(x => x.id === 'acp:ses_prevunread').title, 'Still', 'a kept previous row keeps its title');
 });
 
 // ---------- 1.84.2: Full access, the cost line, and what the agent is doing ----------

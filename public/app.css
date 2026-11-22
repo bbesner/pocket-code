@@ -2361,3 +2361,99 @@ html.pocket-paused .frame header.bar { padding-top: 10px; } /* the banner takes 
 .automation-dependent > .automation-inactive-note { margin: 0 0 2px; }
 .automation-waiting { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0 4px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 15px; color: var(--text); }
 .automation-waiting .chip { min-height: 44px; padding-inline: 16px; font-size: 14px; }
+/* Job keys: the key list under Settings -> Automation -> Job keys, a key's sheet, the key shown once. Existing rows, chips,
+   fields and tokens only. A row's facts are two fixed lines (cut with an ellipsis), so a change of state never moves it. */
+.job-keys { display: flex; flex-direction: column; gap: 4px; margin: 6px 0 4px; padding-top: 8px; border-top: 1px solid var(--line); }
+.job-keys .vault-set-actions { margin-top: 2px; }
+.job-keys > [hidden], .job-key-sheet [hidden] { display: none; }
+.job-key-list { list-style: none; margin: 0 -14px; padding: 0; }
+.job-key-item + .job-key-item { border-top: 1px solid var(--line); }
+.sheet .opt.job-key-row { align-items: flex-start; padding: 10px 14px; font-size: 15.5px; border-radius: 0; }
+.job-key-row > .i { flex: none; margin-top: 2px; color: var(--dim); }
+.job-key-text { flex: 1; min-width: 0; }
+.job-key-name { display: block; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sheet .opt .sub.job-key-facts { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; font-variant-numeric: tabular-nums; }
+.job-key-sheet .job-key-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 14px 8px; }
+.job-key-sheet .job-key-actions .chip { min-height: 44px; padding-inline: 16px; font-size: 14px; }
+.job-key-sheet .job-key-status { margin: 0 14px 12px; font-variant-numeric: tabular-nums; }
+.job-key-sheet .job-key-help { margin-inline: 14px; }
+.job-key-form .vault-field-error:empty, .job-key-form .vault-hint:empty { display: none; }
+.job-key-form .vault-field-error { margin-top: -6px; }
+.job-key-form textarea[readonly], .job-key-form input[readonly] { color: var(--dim); }
+.job-key-form [aria-invalid="true"] { border-color: var(--err); }
+.job-model-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 10em); gap: 10px; }
+.job-model-pair .voice-field select { width: 100%; }
+.job-key-form .opt.job-bool { margin: 0; padding: 10px 0; font-size: 15.5px; }
+.job-limits { display: flex; flex-direction: column; }
+.job-limits > .vault-set-head { margin: 4px 0 0; }
+.job-key-form .job-key-file { margin: 0; overflow-wrap: anywhere; }
+.job-runs-wrap { padding: 16px 14px 4px; border-top: 1px solid var(--line); margin-top: 16px; }
+.job-runs-wrap > .vault-set-head { margin: 0 0 6px; }
+.job-runs { list-style: none; margin: 0 -14px; padding: 0; }
+.job-runs li + li { border-top: 1px solid var(--line); }
+.job-run { display: flex; flex-direction: column; gap: 2px; min-height: 44px; padding: 8px 14px; color: var(--text); text-decoration: none; }
+a.job-run:hover { background: var(--raised); }
+.job-run-head { display: flex; gap: 10px; font-size: 14px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.job-run-status { color: var(--text); }
+.job-run-status[data-status="needs_you"] { color: var(--warn); }
+.job-run-status[data-status="failed"] { color: var(--err); }
+.job-run-reply { font-size: 14px; line-height: 1.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job-key-once .job-once-file { margin: 0 14px 14px; overflow-wrap: anywhere; }
+.job-key-once .vault-key-actions { margin-bottom: 14px; }
+@media (max-width: 420px) { .job-model-pair { grid-template-columns: 1fr; } }
+/* Job keys: a conversation asked for a key. Under the Job keys switch, "Waiting for you" holds one card per request in
+   the Vault request's vocabulary (who asked as the 650 lead, the name in mono, the dim where/when line, Deny outlined and
+   Allow filled at 44px, Edit first a chip between them), bordered like the home view's Waiting for you cards (amber means
+   waiting on you). Every field shows without a tap; the whole instruction keeps its line breaks and scrolls inside the
+   card past ~14 lines, never cut. Full access is the --warn word, the warning treatment Settings already uses. An answer
+   replaces the card in place with one line; a request that went is the bordered --warn notice. No new colour or motion. */
+.job-keys > .job-key-block { display: flex; flex-direction: column; gap: 4px; }
+.job-keys > .job-key-block > [hidden], .job-requests[hidden], .job-request-missing[hidden], .job-answered[hidden], .job-requests-badge[hidden] { display: none; }
+.job-requests { display: flex; flex-direction: column; gap: 10px; padding-bottom: 12px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.job-requests-head { display: flex; align-items: center; gap: 8px; }
+.automation-group > .vault-set-head .badge, [data-settings-category] > .badge { margin-left: 8px; vertical-align: 1px; }
+[data-settings-category] > .badge { margin-left: auto; margin-right: 6px; flex: none; }
+.job-request-list { display: flex; flex-direction: column; gap: 10px; }
+.vault-request.job-request { padding: 12px 14px 14px; border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line)); border-radius: 12px; background: var(--bg); }
+.job-request h4 { margin: 0 0 6px; font-size: 15.5px; font-weight: 400; line-height: 1.45; color: var(--text); overflow-wrap: anywhere; }
+.job-request h4:focus { outline: none; }
+.job-request h4 .vault-name { font-weight: 650; }
+.job-request .job-request-from { color: var(--text); text-decoration: underline; text-decoration-color: var(--dim); text-underline-offset: 3px; }
+.job-request .job-request-from:hover { text-decoration-color: var(--text); }
+.job-request .job-request-from:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; border-radius: 2px; }
+.job-request .vault-request-where { margin: 0 0 10px; }
+.job-request-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0 0 12px; font-size: 14px; line-height: 1.45; }
+.job-request-fact { display: contents; }
+.job-request-facts dt { color: var(--dim); }
+.job-request-facts dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+.job-request-full { color: var(--warn); font-weight: 650; }
+.job-request-label { margin: 0 0 4px; font-size: 14px; color: var(--dim); }
+/* Every line shows: no inner scroll, the card grows and the sheet scrolls, so Allow is reached only past the last line. */
+.job-request-instruction { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text);
+  font-size: 15px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.job-request .vault-request-note { margin-top: 10px; }
+.job-request .job-request-error { margin: 10px 0 0; }
+.job-request .job-request-error[hidden] { display: none; }
+.job-request-outcome { margin: 0; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; font-size: 14.5px; line-height: 1.45; color: var(--text); overflow-wrap: anywhere; }
+.job-request-outcome[data-kind="gone"] { border-color: var(--warn); }
+.job-request-outcome > p { margin: 0; }
+.job-request-outcome .vault-path { overflow-wrap: anywhere; }
+.job-request-outcome > .job-request-next { display: flex; flex-wrap: wrap; align-items: center; column-gap: 6px; margin-top: 2px; }
+.job-request-open { display: inline-flex; align-items: center; min-height: 44px; color: var(--clay); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.job-request-open:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; border-radius: 2px; }
+.job-request-outcome:focus { outline: none; }
+.job-request-outcome:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
+.job-request-missing { margin: 4px 0 6px; }
+.job-request-missing:focus { outline: none; }
+.job-request-slot > .vault-flash { background: var(--raised); box-shadow: inset 3px 0 0 var(--clay); transition: none; }
+.job-answered { margin-top: 6px; }
+.job-answered-list { list-style: none; margin: 0 0 4px; padding: 0; font-size: 14px; }
+.job-answered-list li { display: flex; flex-wrap: wrap; gap: 2px 10px; padding: 6px 0; border-top: 1px solid var(--line); }
+.job-answered-name { color: var(--text); font-weight: 500; overflow-wrap: anywhere; }
+.job-answered-facts { color: var(--dim); font-variant-numeric: tabular-nums; }
+.job-request-edit-actions { display: flex; gap: 10px; justify-content: flex-end; align-items: center; }
+.job-request-edit-actions .chip { min-height: 44px; padding-inline: 16px; font-size: 14px; }
+.row .job-request-label { color: var(--warn); }
+.origin-line.job-request-line a { color: var(--warn); text-decoration: underline; text-underline-offset: 3px; }
+.origin-line.job-request-line a:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; border-radius: 2px; }
+@media (max-width: 420px) { .job-request-facts { grid-template-columns: 1fr; gap: 0; } .job-request-facts dd { margin-bottom: 6px; } }

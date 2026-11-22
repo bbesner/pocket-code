@@ -104,7 +104,12 @@ try {
   const served = (await call('/automation')).body;
   assert.deepEqual(await p.$$eval('[data-auto-group]', e => e.map(x => x.dataset.autoGroup)), served.groups.map(g => g.key));
   assert.deepEqual(await p.$$eval('[data-auto-group] > h3', e => e.map(x => x.textContent)), served.groups.map(g => g.title));
-  for (const g of served.groups) for (const s of g.settings) assert.ok(await p.$(`[data-auto-group="${g.key}"] ${input(s.key)}`), `a control for ${g.key}.${s.key}`);
+  // Job keys while off: the switch and its help only (its settings come with the switch on, under Advanced).
+  const bareOff = g => g.key === 'jobs' && g.settings[0]?.value !== true;
+  for (const g of served.groups) for (const s of g.settings) {
+    if (bareOff(g) && s.key !== g.key) { assert.equal(await p.$(`[data-auto-group="${g.key}"] ${input(s.key)}`), null, `no control for ${g.key}.${s.key} while it is off`); continue; }
+    assert.ok(await p.$(`[data-auto-group="${g.key}"] ${input(s.key)}`), `a control for ${g.key}.${s.key}`);
+  }
   assert.equal(await p.$eval(input('ownMessages'), e => e.value), 'run');
   assert.deepEqual(await p.$$eval(`${input('ownMessages')} option`, e => e.map(o => o.textContent)), setting('pause', 'ownMessages').choices.map(c => c.label));
   assert.equal(await p.$eval(input('claudeWeekly'), e => e.value), '80');

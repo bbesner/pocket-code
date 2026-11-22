@@ -115,7 +115,7 @@ export async function runCheckbackRegressions({p,base,out,repo,rows,conversation
  await p.evaluate(()=>settingsSheet({category:'notifications'}));await p.waitForSelector('#s-push-alerts');
  assert.equal(await p.$eval('#s-push-automation',e=>e.hidden),false,'the push toggle shows while off (it also carries the limit notices)');await p.keyboard.press('Escape');
  await p.evaluate(()=>settingsSheet({category:'automation'}));await p.waitForSelector('[data-auto-group="checkbacks"]');
- assert.deepEqual(await p.$$eval('[data-auto-group]',e=>e.map(x=>x.dataset.autoGroup)),['pause','limits','checkbacks']);
+ assert.deepEqual(await p.$$eval('[data-auto-group]',e=>e.map(x=>x.dataset.autoGroup)),['pause','limits','checkbacks','jobs']);
  assert.equal(await p.$eval('[data-auto-group="checkbacks"] > h3',e=>e.textContent),'Check-backs');
  assert.equal(await p.$eval('[data-auto-group="checkbacks"]',e=>e.classList.contains('automation-group-off')),true,'reads inactive while off');
  assert.equal(await p.$eval('[data-auto-group="checkbacks"] .automation-inactive-note',e=>e.textContent),'These apply when Check-backs is on.');

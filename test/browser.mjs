@@ -2,6 +2,7 @@ import {clickControl} from './ui-controls.mjs';
 import {runCoordinationRegressions} from './coordination-browser.mjs';
 import {automationFixture,automationRoute,pauseRefusal,runAutomationRegressions} from './automation-browser.mjs'; // 1.117
 import {checkbackFixture,checkbackRoute,runCheckbackRegressions} from './checkback-browser.mjs'; // 1.119
+import {jobsFixture,jobsRoute,runJobKeysRegressions} from './jobkeys-browser.mjs'; // job keys
 // Deterministic frontend acceptance checks. This serves fixtures only: no real
 // sessions, credentials, CLI, or production service is involved.
 import http from 'node:http';
@@ -229,8 +230,9 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname==='/api/voice/speak'){let raw='';for await(const c of req)raw+=c;voiceLog.speak.push(JSON.parse(raw));res.writeHead(200,{'content-type':'audio/wav'});res.end(silentWav);return;}
  if(url.pathname.endsWith('/release')){let raw='';for await(const c of req)raw+=c;const stop=JSON.parse(raw||'{}').stop;releases.push(decodeURIComponent(url.pathname));return url.pathname.includes(rows[0].id)&&!stop?json({error:'Still running'},409):json({ok:true});}
  if(await automationRoute(req,url,json))return; // 1.117: /api/pause, /api/resume, /api/automation
+ if(await jobsRoute(req,url,json))return; // job keys: /api/jobs/*
  if(await checkbackRoute(req,url,json,id=>rows.find(r=>r.id===id)?.title||''))return; // 1.119: /api/checkbacks*, and push prefs while a check subscribes
- if(url.pathname==='/api/me')return json({ok:true,paused:automationFixture.me(),features:{automation:true,checkbacks:checkbackFixture.on(),coordination:Boolean(fixtureSettings.coordination)&&!fixtureSettings.assistantMode,projects:Boolean(fixtureSettings.projects),documents:Boolean(fixtureSettings.documents),tasks:Boolean(fixtureSettings.tasks),vault:Boolean(fixtureSettings.vault),inbox:Boolean(fixtureSettings.inbox),assistantMode:Boolean(fixtureSettings.assistantMode),assistantLocked:Boolean(fixtureSettings.assistantLocked),handoffAt:fixtureSettings.handoffAt||0,markAllReviewed:fixtureSettings.markAllReviewed!==false}});
+ if(url.pathname==='/api/me')return json({ok:true,paused:automationFixture.me(),features:{automation:true,checkbacks:checkbackFixture.on(),jobs:jobsFixture.on(),coordination:Boolean(fixtureSettings.coordination)&&!fixtureSettings.assistantMode,projects:Boolean(fixtureSettings.projects),documents:Boolean(fixtureSettings.documents),tasks:Boolean(fixtureSettings.tasks),vault:Boolean(fixtureSettings.vault),inbox:Boolean(fixtureSettings.inbox),assistantMode:Boolean(fixtureSettings.assistantMode),assistantLocked:Boolean(fixtureSettings.assistantLocked),handoffAt:fixtureSettings.handoffAt||0,markAllReviewed:fixtureSettings.markAllReviewed!==false}});
  // 1.99: Coordination's two calls, on a list the test resets.
  if(url.pathname==='/api/coordination')return json({now:Date.now(),seeds:[],holds:coordFixture.holds,recent:coordFixture.recent});
  if(url.pathname==='/api/coordination/owner-release'){let raw='';for await(const c of req)raw+=c;const {name}=JSON.parse(raw),hold=coordFixture.holds.find(h=>h.name===name);coordFixture.holds=coordFixture.holds.filter(h=>h!==hold);
@@ -498,6 +500,7 @@ try{
  if(process.env.POCKET_CLI_UPDATES_ONLY){const {runCliUpdateRegressions}=await import('./cli-updates-browser.mjs');await runCliUpdateRegressions({browser,base,out});throw Object.assign(Error('CLI updates only'),{docsOnly:true});}
  if(process.env.POCKET_AUTOMATION_ONLY){await runAutomationRegressions({p,base,out,repo,rows,settings:fixtureSettings,scan});assert.deepEqual(errors,[]);if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));console.log(JSON.stringify({ok:true,automationOnly:true,screenshots:out}));throw Object.assign(Error('automation only'),{docsOnly:true});}
  if(process.env.POCKET_CHECKBACK_ONLY){await runCheckbackRegressions({p,base,out,repo,rows,conversations,settings:fixtureSettings,scan});assert.deepEqual(errors,[]);if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));console.log(JSON.stringify({ok:true,checkbackOnly:true,screenshots:out}));throw Object.assign(Error('checkback only'),{docsOnly:true});}
+ if(process.env.POCKET_JOBKEYS_ONLY){await runJobKeysRegressions({p,base,out,repo,scan});assert.deepEqual(errors,[]);if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));console.log(JSON.stringify({ok:true,jobKeysOnly:true,screenshots:out}));throw Object.assign(Error('job keys only'),{docsOnly:true});}
  if(process.env.POCKET_COORD_ONLY){await runCoordinationRegressions({p,base,out,repo,rows,settings:fixtureSettings,coord:coordFixture,scan});if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));console.log(JSON.stringify({ok:true,coordinationOnly:true,screenshots:out}));throw Object.assign(Error('coordination only'),{docsOnly:true});}
  if(process.env.POCKET_INBOX_NEWS_ONLY){const {runInboxNewsRegressions}=await import('./inbox-news-browser.mjs');await runInboxNewsRegressions({browser,base,rows,out,settings:fixtureSettings,received,inboxStore,inboxCaughtUp,inboxSplits,conversations});console.log(JSON.stringify({ok:true,inboxNewsOnly:true,screenshots:out}));throw Object.assign(Error('inbox news only'),{docsOnly:true});}
  if(process.env.POCKET_COMPLETE_ONLY){const {runCompleteRegressions}=await import('./complete-browser.mjs');await runCompleteRegressions({browser,base,rows,out,conversations,releases,settings:fixtureSettings});console.log(JSON.stringify({ok:true,completeOnly:true,screenshots:out}));throw Object.assign(Error('complete only'),{docsOnly:true});}
@@ -1061,6 +1064,7 @@ try{
  await runCoordinationRegressions({p,base,out,repo,rows,settings:fixtureSettings,coord:coordFixture,scan});
  await runAutomationRegressions({p,base,out,repo,rows,settings:fixtureSettings,scan}); // 1.117
  await runCheckbackRegressions({p,base,out,repo,rows,conversations,settings:fixtureSettings,scan}); // 1.119
+ await runJobKeysRegressions({p,base,out,repo,scan}); // job keys
  assert.deepEqual(errors,[]);
  if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));
  console.log(JSON.stringify({ok:true,viewports:[360,390,768,1440],dispatches,receiptReplay:true,newSessionRecovery:true,draftAndAttachmentRecovery:true,dialogFocus:true,staleStatus:true,markdownSafety:true,results:true,queueEditing:true,skillLauncher:true,screenshots:out}));

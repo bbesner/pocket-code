@@ -1,6 +1,6 @@
 <!-- manual
 checked: 1.120.0
-sources: approvals.mjs, checkbacks.mjs, trusted.mjs, questions.mjs, subagents.mjs, public/approvals.js, public/workspace.js
+sources: approvals.mjs, checkbacks.mjs, job-keys.mjs, trusted.mjs, questions.mjs, subagents.mjs, public/approvals.js, public/workspace.js
 -->
 # Questions and approvals
 
@@ -165,9 +165,11 @@ Nothing is decided for you. The reply waits until you answer:
 
 ### Replies you did not start
 
-A reply Pocket starts without you (a queued message, a usage-limit retry, a conversation woken from [Coordination](coordination.md), a [check-back](automation.md#check-backs)) asks for approval exactly as one you started does. It runs with the permissions the work was set up with: a queued message with the mode it was queued with, a coordination wake with the mode it asked with, and a check-back with the mode of the reply that set it (**Always Review actions** in **Settings → Automation → Check-backs** lowers it to Review actions; a server with Full access turned off does the same; it is never raised). A usage-limit retry carries on with the mode of the reply it continues. When Full access has since been turned off for the install, a queued message that needed it does not start (see Troubleshooting).
+A reply Pocket starts without you (a queued message, a usage-limit retry, a conversation woken from [Coordination](coordination.md), a [check-back](automation.md#check-backs), a reply a [job key](automation.md#job-keys) started) asks for approval exactly as one you started does. It runs with the permissions the work was set up with: a queued message with the mode it was queued with, a coordination wake with the mode it asked with, a check-back with the mode of the reply that set it (**Always Review actions** in **Settings → Automation → Check-backs** lowers it to Review actions; a server with Full access turned off does the same; it is never raised), and a job key's reply with the key's access: **Ask first** is Review actions, and **Full access** is Full access, only where the server allows it (a server with Full access turned off runs the key under Review actions). Nothing the script sends changes the access. A usage-limit retry carries on with the mode of the reply it continues. When Full access has since been turned off for the install, a queued message that needed it does not start (see Troubleshooting).
 
-Nobody may be looking when such a reply asks, and it waits for you like any other: it does not expire. (On a check-back's reply, the time it waits for you doesn't count toward **Longest unattended reply** unless you switch that on.) The conversation reads **Needs approval**, and the push goes out as usual.
+Nobody may be looking when such a reply asks, and it waits for you like any other: it does not expire. (On a check-back's or a job's reply, the time it waits for you doesn't count toward **Longest unattended reply** unless you switch that on.) The conversation reads **Needs approval**, and the push goes out as usual.
+
+**Ask first when nobody is watching.** A job key set to **Ask first** is Review actions with nobody at the screen, so every action that isn't on your list of read-only actions ([above](#let-read-only-actions-run-without-asking)) waits for you, however long it takes. The script that called is told the run **needs you** (`pocket-run` exits 3) and can look again later. Until you answer, the run counts as working: with **Runs at once** at 1, every later call to that key is refused as busy ([Automation](automation.md#what-a-runs-status-means)). Where you want a job to run on its own, keep its instruction to what your list allows, or choose **Full access** for the key, in a folder where a mistake is cheap. A request to share or publish a file, or to use a secret that asks, also waits for you, under either access.
 
 **Pause all** ([Automation](automation.md#pause-all)) stops every running reply, so a card waiting for you is withdrawn, the way **Stop** withdraws it. While Pocket is paused none of these replies starts, so none can ask. Your own messages still run, and ask as usual, unless you chose **Blocked until you resume**.
 
