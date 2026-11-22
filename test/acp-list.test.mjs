@@ -20,11 +20,17 @@ const cleanEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k
 // The server runs in a folder of its own project (a folder holding a .git), with its data, and so the effort probe's
 // folder, inside it: the layout of an install run from its checkout. `seed` writes sessions into the stand-in's store
 // before the server starts.
-async function server(t, port, { seed = null } = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-list-')), srv = path.join(dir, 'srv'), home = path.join(dir, 'home'), store = path.join(dir, 'acp-store');
+// `outsideTmp`: the test's folders sit outside /tmp (in node_modules/.cache, ignored by git), so the list route's own
+// rule that hides finished conversations in /tmp folders cannot hide a row the guard under test should hide.
+// `homeInSrv`: home is a folder of the server's project, so the reader's {} (asked from home) covers that project,
+// the probe's folder included. `env`: more settings for the server and the stand-in.
+async function server(t, port, { seed = null, outsideTmp = false, homeInSrv = false, env = {} } = {}) {
+  const base = outsideTmp ? path.join(repo, 'node_modules', '.cache') : os.tmpdir();
+  fs.mkdirSync(base, { recursive: true });
+  const dir = fs.mkdtempSync(path.join(base, 'acp-list-')), srv = path.join(dir, 'srv'), home = homeInSrv ? path.join(srv, 'home') : path.join(dir, 'home'), store = path.join(dir, 'acp-store');
   fs.mkdirSync(path.join(srv, '.git'), { recursive: true }); fs.mkdirSync(home, { recursive: true }); fs.mkdirSync(store, { recursive: true });
   const probe = path.join(srv, 'data', 'acp-probe');
-  seed?.({ store, probe });
+  seed?.({ store, probe, srv, home });
   const secret = 'sek-' + port, exp = Date.now() + 3600_000;
   const headers = { 'content-type': 'application/json', cookie: 'pc_auth=' + exp + '.' + createHmac('sha256', secret).update(String(exp)).digest('hex') };
   const child = spawn(process.execPath, [path.join(repo, 'server.mjs')], {
@@ -35,7 +41,7 @@ async function server(t, port, { seed = null } = {}) {
       POCKET_SESSION_ROOT: path.join(dir, 'sessions'), POCKET_DATA_DIR: srv,
       CLAUDE_BIN: path.join(repo, 'test/fake-claude.mjs'),
       POCKET_ACP_ENABLE: '1', POCKET_ACP_CMD: process.execPath, POCKET_ACP_ARGS: path.join(repo, 'test/fake-acp.mjs'),
-      POCKET_ACP_STORE: store, FAKE_ACP_NO_ASK: '1',
+      POCKET_ACP_STORE: store, FAKE_ACP_NO_ASK: '1', ...env,
     },
   });
   let logs = ''; child.stdout.on('data', d => logs += d); child.stderr.on('data', d => logs += d);
@@ -43,11 +49,11 @@ async function server(t, port, { seed = null } = {}) {
   for (let i = 0; ; i++) { try { if ((await fetch(`http://127.0.0.1:${port}/api/health`)).ok) break; } catch { } if (i > 200) throw new Error('server did not start: ' + logs); await sleep(30); }
   const call = async (p, body) => { const r = await fetch(`http://127.0.0.1:${port}/api${p}`, { method: body ? 'POST' : 'GET', headers, body: body ? JSON.stringify(body) : undefined }); let j = null; try { j = await r.json(); } catch { } return { status: r.status, body: j }; };
   const until = async (fn, ms = 15000, what = 'condition') => { const t0 = Date.now(); for (;;) { const v = await fn(); if (v) return v; if (Date.now() - t0 > ms) throw new Error(`timed out waiting for ${what}; log tail: ${logs.slice(-1500)}`); await sleep(50); } };
-  const start = async cwd => { const r = await call('/new', { provider: 'acp', cwd, text: 'look around' }); assert.equal(r.status, 202, JSON.stringify(r.body)); return r.body.id; };
+  const start = async (cwd, text = 'look around') => { const r = await call('/new', { provider: 'acp', cwd, text }); assert.equal(r.status, 202, JSON.stringify(r.body)); return r.body.id; };
   const idle = id => until(async () => { const b = (await call('/session/' + encodeURIComponent(id))).body; return b && b.active === false ? b : null; }, 15000, 'the reply to end');
   const list = async () => (await call('/sessions?limit=200')).body.sessions.filter(s => s.provider === 'acp');
   const probeSessions = () => fs.readdirSync(store).filter(f => f.endsWith('.json')).filter(f => JSON.parse(fs.readFileSync(path.join(store, f), 'utf8')).cwd === probe).length;
-  return { dir, store, probe, call, start, idle, list, probeSessions, logs: () => logs };
+  return { dir, store, probe, srv, home, call, start, idle, list, until, probeSessions, logs: () => logs };
 }
 // A session in the stand-in's store, as OpenCode keeps one: its folder, title and last update.
 const seedSession = (store, sid, cwd, updatedAt, title = '') => fs.writeFileSync(path.join(store, encodeURIComponent(sid) + '.json'), JSON.stringify({ updates: [], cwd, createdAt: updatedAt, updatedAt, ...(title ? { title, titled: true } : {}) }));
@@ -84,4 +90,41 @@ test('a conversation Pocket started stays listed when its folder\'s answer is fu
   assert.ok(mine, 'the conversation Pocket started is still listed: ' + rows.length + ' rows');
   assert.equal(mine.cwd, repo); assert.ok(mine.mtimeMs > 0, 'with the time Pocket saw it last');
   assert.ok(!rows.some(r => r.id === c), 'a conversation the program answered for in full and no longer has is not listed');
+});
+
+// ---------- hardened 2026-11-22: the guards the review found untested, and the list's time bounds ----------
+test('the probe folder stays hidden, and a folder only the whole-project read can find is listed (folders outside /tmp)', async t => {
+  const soon = Date.now() + 3600_000;
+  const s = await server(t, 19052, { outsideTmp: true, homeInSrv: true, seed: ({ store, probe, srv }) => {
+    for (let i = 0; i < 20; i++) seedSession(store, `ses_probe${String(i).padStart(4, '0')}`, probe, soon + i * 1000);
+    const elsewhere = path.join(srv, 'elsewhere'); fs.mkdirSync(elsewhere, { recursive: true });
+    seedSession(store, 'ses_found', elsewhere, soon - 1000, 'Found by the project read');
+  } });
+  assert.ok(!s.probe.startsWith('/tmp/'), 'the probe folder is outside /tmp');
+  const rows = await s.until(async () => { const r = await s.list(); return r.some(x => x.id === 'acp:ses_found') ? r : null; }, 8000, 'the folder found by {} to be listed');
+  assert.equal(rows.find(r => r.id === 'acp:ses_found').cwd, path.join(s.srv, 'elsewhere'));
+  assert.ok(rows.every(r => r.cwd !== s.probe), 'no probe session is listed: ' + rows.filter(r => r.cwd === s.probe).length);
+});
+
+test('a reply ending makes the next list read the program again (no 15-second wait)', async t => {
+  const s = await server(t, 19053);
+  const a = await s.start(repo, 'look around __SLOW__'); // the reply runs about 1.5 s
+  await s.list(); // the read a start triggers happens now, while the reply runs; the cache is fresh after it
+  seedSession(s.store, 'ses_meanwhile', repo, Date.now(), 'Started elsewhere meanwhile');
+  await s.idle(a);
+  await s.until(async () => (await s.list()).some(r => r.id === 'acp:ses_meanwhile'), 5000, 'the conversation started meanwhile to be listed (the cache would hold for 15 s)');
+});
+
+test('the list never waits on a stuck OpenCode longer than its short bound, and the read ends at its deadline', async t => {
+  // OpenCode's whole-project question never answers; the read's deadline is 4 s here (25 s by default)
+  const s = await server(t, 19054, { env: { FAKE_ACP_LIST_HANG: '{}', POCKET_ACP_LIST_DEADLINE_MS: '4000' } });
+  const a = await s.start(repo); await s.idle(a);
+  const t0 = Date.now();
+  const first = await s.list();
+  const took = Date.now() - t0; t.diagnostic(`the list answered in ${took} ms`);
+  assert.ok(took < 3500, `the list answered within the 2 s bound, not the read's 4 s: ${took} ms`);
+  assert.ok(first.some(r => r.id === a), 'the conversation Pocket just ran is listed while the read is on its way');
+  // the read gives up on {} at its deadline and uses the folders' answers: the row now comes from the program
+  await s.until(async () => (await s.list()).find(r => r.id === a)?.title === 'look around', 12000, 'the folders\' answers to be used after the deadline');
+  assert.match(s.logs(), /not everything answered in time/);
 });

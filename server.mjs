@@ -2939,6 +2939,8 @@ function sendJson(req, res, body) {
   res.end(buf);
 }
 async function listAllSessions(limit) {
+  // OpenRouter and Antigravity lists are read in the background, started first so they run beside Claude's and Codex's.
+  for (const rt of ACP_RUNTIMES_ON) if (Date.now() - acpLists[rt].at > 15_000) refreshAcpList(rt);
   let rows = (await listSessions(limit)).map(s => ({ ...s, provider: 'claude' }));
   const warnings = [];
   if (CODEX_ON) {
@@ -2951,9 +2953,17 @@ async function listAllSessions(limit) {
   }
   for (const rt of ACP_RUNTIMES_ON) { // OpenRouter and Antigravity conversations, each from its own program's list
     const c = acpLists[rt];
-    if (Date.now() - c.at > 15_000) { const p = refreshAcpList(rt); if (!c.at) await p; }
+    // After a start, or once a reply began or ended, the list waits for the new read, but never more than
+    // ACP_LIST_WAIT_MS from that read's start, however many polls come in meanwhile; then it serves the last rows.
+    const wait = c.pending && !c.at ? c.waitUntil - Date.now() : 0;
+    if (wait > 0) await Promise.race([c.pending, new Promise(r => setTimeout(r, wait).unref())]);
     rows.push(...c.rows.map(s => ({ ...s, title: smeta[s.id]?.name || s.title, untitled: !smeta[s.id]?.name && s.untitled,
       pinned: isPinned(s.id) || undefined, active: acp.acpTurnActive(s.id) })));
+    if (c.pending) { // a read still on its way: a conversation Pocket ran in the last minutes is not left out meanwhile
+      const have = new Set(c.rows.map(s => s.id));
+      for (const k of acpKnown(acp.RUNTIMES[rt])) if (k.at > Date.now() - 10 * 60_000 && !have.has(k.id))
+        rows.push({ id: k.id, title: smeta[k.id]?.name || '(untitled conversation)', untitled: !smeta[k.id]?.name, cwd: k.cwd, mtimeMs: k.at, provider: acp.RUNTIMES[rt].engine, pinned: isPinned(k.id) || undefined, active: acp.acpTurnActive(k.id) });
+    }
   }
   // Owned runs must stay visible even before the CLI writes a transcript, or
   // after their last transcript update falls outside the recent-history window.
@@ -3824,17 +3834,24 @@ function acpImages(attachments) {
 // folder by folder: the folders of the conversations Pocket started (session meta acpCwd, kept since this fix), of
 // replies and processes running now, of the last list, plus home and Pocket's own folder; and one whole-project read
 // from home finds folders not known yet. A conversation Pocket started is listed even when OpenCode's answer misses it.
-const acpLists = Object.fromEntries(Object.keys(acp.RUNTIMES).map(k => [k, { at: 0, rows: [], pending: null, changes: 0, pendingFor: -1 }]));
+// A read is bounded in acp.readAcpList (LIST_DEADLINE_MS, 25 s by default; POCKET_ACP_LIST_DEADLINE_MS), and the list
+// route waits for one at most ACP_LIST_WAIT_MS from its start: a healthy read takes about 1 s.
+const ACP_LIST_WAIT_MS = msSetting('POCKET_ACP_LIST_WAIT_MS', 2_000);
+const ACP_LIST_DEADLINE_MS = msSetting('POCKET_ACP_LIST_DEADLINE_MS', acp.LIST_DEADLINE_MS);
+const acpLists = Object.fromEntries(Object.keys(acp.RUNTIMES).map(k => [k, { at: 0, rows: [], pending: null, changes: 0, pendingFor: -1, waitUntil: 0 }]));
 // The conversations of this runtime Pocket started, from session meta: [{ id, cwd, at }], newest first.
 const acpKnown = rt => overlayIds(smeta).filter(id => id.startsWith(rt.prefix) && smeta[id]?.acpCwd).map(id => ({ id, cwd: smeta[id].acpCwd, at: smeta[id].acpAt || 0 })).sort((a, b) => b.at - a.at);
-// The folders to ask, newest first: running now, then what Pocket started (acpKnown, added by readAcpList), the last list, home and Pocket's folder.
-function acpFolders(rt) {
+// The folders to ask (acp.readAcpList asks the first LIST_FOLDERS): running now, home and Pocket's folder, then every
+// folder by its newest conversation (what Pocket started and the last list), newest first. A folder whose newest
+// conversation is older than the last row of a full last list cannot reach the list and is not asked (its rows stay).
+function acpFolders(rt, limit = 200) {
   const out = [];
   const add = d => { if (typeof d === 'string' && path.isAbsolute(d) && !out.includes(d)) out.push(d); };
   for (const s of acp.acpSessions.values()) if ((s.runtime?.id || 'opencode') === rt.id) add(s.cwd);
-  for (const k of acpKnown(rt)) add(k.cwd);
-  for (const r of [...acpLists[rt.id].rows].sort((a, b) => b.mtimeMs - a.mtimeMs)) add(r.cwd);
   add(HOME); add(import.meta.dirname);
+  const last = acpLists[rt.id].rows, floor = last.length >= limit ? Math.min(...last.map(r => r.mtimeMs || 0)) : -Infinity;
+  const byTime = [...acpKnown(rt).map(k => ({ cwd: k.cwd, t: k.at })), ...last.map(r => ({ cwd: r.cwd, t: r.mtimeMs || 0 }))].sort((a, b) => b.t - a.t);
+  for (const f of byTime) if (f.t >= floor) add(f.cwd);
   return out;
 }
 const acpListOf = which => acpLists[acpRuntime(which).id];
@@ -3848,11 +3865,14 @@ function refreshAcpList(which = 'opencode') {
   if (c.pending && c.pendingFor === c.changes) return c.pending; // one read at a time, shared while nothing changed since it began
   const earlier = c.pending, at = c.changes; // a change since the read on its way began: read again after it
   const p = Promise.resolve(earlier)
-    .then(() => acp.listAcpSessions({ ...acpLaunch(rt.id), cwd: HOME, limit: 200, hideCwd: ACP_PROBE_DIRS[rt.id], folders: acpFolders(rt), known: acpKnown(rt) }))
-    .then(rows => { c.rows = rows; if (c.changes === at) c.at = Date.now(); })
+    .then(() => acp.readAcpList({ ...acpLaunch(rt.id), cwd: HOME, limit: 200, hideCwd: ACP_PROBE_DIRS[rt.id], folders: acpFolders(rt), known: acpKnown(rt), previous: c.rows, deadlineMs: ACP_LIST_DEADLINE_MS }))
+    .then(r => {
+      c.rows = r.rows; if (c.changes === at) c.at = Date.now();
+      if (r.late) log(`acp list${rt.id === 'opencode' ? '' : ` (${rt.name})`}: not everything answered in time (${r.answered} of ${r.asked} folders; limit ${Math.round(ACP_LIST_DEADLINE_MS / 1000)} s for the read); the rest kept their last rows`);
+    })
     .catch(e => { if (c.changes === at) c.at = Date.now(); log(`acp list failed${rt.id === 'opencode' ? '' : ` (${rt.name})`}: ${e.message}`); })
     .finally(() => { if (c.pending === p) c.pending = null; });
-  c.pending = p; c.pendingFor = at;
+  c.pending = p; c.pendingFor = at; c.waitUntil = Date.now() + ACP_LIST_WAIT_MS;
   return p;
 }
 // Reasoning-effort levels per OpenRouter model, as OpenCode offers them ({slug: [levels]}), probed at boot and
