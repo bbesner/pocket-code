@@ -1373,19 +1373,26 @@ itself is the only thing that must never be left on the page.
   key would be is on the card with no tap: folder, agent, model and effort, access, limits, whether the job may add
   its own instructions, whether it pushes, and when the request expires. **Full access** is marked with the existing
   bordered `--warn` notice treatment, not a new colour. **The whole instruction** is shown in a block that keeps its line
-  breaks and scrolls inside the card when it is long; it is never cut with an ellipsis, because
-  reading it is what the owner is there to do. Under it, one plain sentence says what Allow does: the key is made, saved
-  to a file, the conversation gets the path and not the key, and from then on a script with that file can start the
-  job. Three buttons, in this order: **Allow**, **Edit first**, **Deny**. **Allow** is not the pre-focused or the
-  default button, is not filled in the clay accent, and Enter anywhere on the card does not press it: allowing is
-  deliberate. **Deny** answers at once, with no second question, because it only keeps things as they were. A
+  breaks and wraps long words. The block has no height cap and no scroll of its own: it grows with the instruction, the
+  card grows with it, and the sheet scrolls. It is never cut with an ellipsis or clamped, because reading it is what the
+  owner is there to do, and the owner has to scroll past its last line to reach the buttons. Under it, one plain sentence
+  says what Allow does: the key is made, saved to a file, the conversation gets the path and not the key, and from then
+  on a script with that file can start the job. Three buttons, in this order: **Deny**, **Edit first**, **Allow**.
+  **Allow** is the same filled clay button as **Allow** on a Vault request (`.vault-answer.vault-allow`, shared with the
+  Vault card, so the two read as one kind of decision); **Deny** is its outlined twin and **Edit first** is a chip. **Allow** is not the pre-focused or the default button, and Enter anywhere on the card, on **Allow** included,
+  does not press it: a click, a tap or Space does. Allowing is deliberate. **Deny** answers at once, with no second
+  question, because it only keeps things as they were. A
   refusal from the server, such as an expired request or a key file that could not be written, shows in its own words on
   the card in `--err`, and the card stays. After an answer the card is replaced by one short line (the key file's path,
   or that no key was made), and the key list updates in place.
 - **Edit before you allow.** **Edit first** opens the New job key sheet filled in with the request, titled **Edit before
   you allow**. Its primary button reads **Allow with these changes**, and **Cancel** returns to the card. A name that is
   taken, or any other refusal, shows under its field as the sheet already does. It is the same sheet, not a second form,
-  so the owner sees the same fields in the same order on both paths.
+  so the owner sees the same fields in the same order on both paths. In this sheet no key press in a field allows: the
+  button is `type="button"` and the form has no submit button, so Enter in Name, Folder or a limit does nothing, Enter in
+  the instruction adds a line, and the Go key on a phone keyboard does nothing. Only a click or a tap on **Allow with these
+  changes** allows, or Enter or Space once the owner has moved focus to that button. The owner's own New job key sheet and
+  a key's sheet keep Enter as submit.
 - **The link from the push.** The push *Allow a job key?* has no buttons. Its link opens Settings → Automation → Job keys
   with that request's card scrolled into view and marked with the focus ring; a request that is no longer there lands on
   the group with one line saying so. A conversation that has asked shows one quiet line, *Waiting for you: job key
@@ -1417,8 +1424,9 @@ itself is the only thing that must never be left on the page.
 - **Recent runs.** In a key's sheet, under a `--line` rule and the heading **Recent runs**: a list in the same hairline
   style. Each row is a link of at least 44px with the time and the status on one `--dim` line (*Working*, *Needs you*,
   *Done*, *Failed*), the status in `--text`, and under it the reply's first line, or for a failed run one plain
-  sentence (*It could not start.*, *Stopped.*, *Cut off by a restart.*). *Needs you* is `--warn` and *Failed* is `--err`,
-  the only colour on the list. A row opens the conversation. A refusal is not a run and is never listed.
+  sentence (*It could not start.*, *Stopped.*, *Cut off by a restart.*, *The reply ended with an error.*; a run that
+  ended `limit` or `jobs_off` has none). *Needs you* is `--warn` and *Failed* is `--err`, the only colour on the list. The
+  sheet lists the newest 20. A row opens the conversation. A refusal is not a run and is never listed.
 - **In the conversation and the list.** A conversation a job started carries the 1.117 origin line (*Started by job
   disk-check*) in `--dim` under the list row's meta and under the header. Its push is titled with the job's name.
 - **Pause all.** The confirmation sheet and the toast count running job replies beside the check-backs (*3 replies

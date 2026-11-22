@@ -492,6 +492,17 @@ Some transcripts are folded or left out:
 - Conversations in `/tmp/` workspaces are left out unless pinned or running.
 - Codex subagent threads are not listed.
 
+OpenRouter conversations come from OpenCode's own list, which Pocket reads folder by folder (OpenCode answers only
+the newest 100 of a folder's project). The read has bounds. The conversation list waits for it
+at most 2 seconds, so a slow program holds up the Claude Code and Codex rows by no more than that; the read goes on and a later poll
+shows its result. A read ends after 25 seconds, and a folder that did not answer by then keeps its last rows. Pocket
+asks about 32 folders at most: folders with a process running now, your home folder and Pocket's own folder first, then
+the rest, most recently used first. A conversation the program no longer has is dropped from the list when its folder
+answered in full (or the answer reaches back past it), or when its folder is gone; it stays while its folder was not
+read, or when a cut answer may simply not reach it. One limit remains: a conversation started before 1.122.0 in a
+folder inside a git repository that Pocket has not otherwise asked about stays out of the list until a new conversation
+starts in that folder (it still opens from its link).
+
 ### Titles
 
 A row's title is, first to last: your rename; Pocket's updated title; the agent's own title (Claude

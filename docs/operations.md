@@ -281,7 +281,10 @@ Pocket-owned persistent state includes:
   path but never the key, and is then dropped on the next write. The file is created when the first key is made. It is not private
   content like a transcript, but it is the list of what can start work, so back it up with the data directory and
   keep it out of repositories. The key files the owner chose to save (`~/.config/pocket/jobs/` by default) are
-  outside the data directory and hold the keys themselves, so keep them out of backups that leave the server;
+  outside the data directory and hold the keys themselves, so keep them out of backups that leave the server and out of
+  the folders agents work in. A key file is a file the server's user can read, and agents run as that user, so an agent
+  with Full access could read one and start its job: a job key is no stronger a boundary than that user account
+  ([SECURITY.md](../SECURITY.md#job-keys));
 - `cli-token` and `cli-url`, the loopback CLI token and address. They are rewritten at every
   start, so do not back them up or copy them to another instance.
 
@@ -367,16 +370,32 @@ the package installs as a binary, 1.122.0); a call through the tunnel, a proxy o
 line looks like this, with full paths because cron runs with almost no environment, and with `%` written `\%`:
 
 ```
-*/30 * * * * /usr/bin/node /opt/pocket/scripts/pocket-run.mjs --key-file ~/.config/pocket/jobs/disk-check.key --data-file /var/tmp/disk-report.txt --id disk-$(date +\%Y\%m\%d\%H) >> ~/disk-check.log 2>&1
+0 * * * * /usr/bin/node /opt/pocket/scripts/pocket-run.mjs --key-file ~/.config/pocket/jobs/disk-check.key --data-file /var/tmp/disk-report.txt --id disk-$(date +\%Y\%m\%d\%H) >> ~/disk-check.log 2>&1
 ```
+
+The run id names the occasion, here the hour, so it must change as often as the line runs: this line runs once an hour
+and its id changes once an hour. (A line that ran every 30 minutes with this id would start nothing on every second
+call, because the second call repeats the hour's id; put the minute in the id, `\%Y\%m\%d\%H\%M`, to run every 30 minutes.)
 
 Its exit code says what happened: 0 done, 3 needs the owner, 4 still working (the call didn't use `--wait`, or the wait
 ran out), 5 refused, 1 anything else. A pause, a plan ceiling or the daily limit refuses a job call and queues nothing,
-so the script has to try again later or the owner has to resume. A restart settles a run that was working when
-Pocket stopped: unless a reply or a usage-limit retry still carries it, about 15 seconds after the start it is recorded
-as failed, cut off by the restart. The reply text a script waits for is kept in memory for the last 200 runs; after a
-restart a run keeps only the first line of its reply, and the answer then carries `replyPartial: true`.
-Run ids (`--id`) are remembered for **Ignore a repeated call for**, so a script that retries after a restart gets the first run back.
+so the script has to try again later or the owner has to resume. `--wait` may be any number of seconds: Pocket holds one
+call at most 240 seconds (`POCKET_JOB_HOLD_MAX_MS`, for tests), and `pocket-run` and `pocket-jobkey` ask again in slices
+of at most 240 seconds (`POCKET_RUN_SLICE_S`, `POCKET_JOBKEY_SLICE_S`, for tests) until the wait is used.
+
+A run always ends. A restart settles a run that was working when Pocket stopped: unless a reply or a usage-limit retry
+still carries it, about 15 seconds after the start (`POCKET_JOB_SETTLE_BOOT_MS`, for tests) it is recorded as failed
+with the outcome `interrupted`, and the owner gets *Something went wrong*. A reply that survived the restart is adopted
+again and its run ends with it. Any other run that nothing carries on (a usage-limit retry that was dropped, skipped or
+not re-armed, or a reply that is gone) is ended once Pocket has seen it so twice, 3 seconds or more apart, by the
+automation pass (each minute), the key's next call, or a read of the run, the key list or Recent runs: in practice
+within about a minute. It ends `limit` (the reply had stopped at a usage limit), `jobs_off`, `stopped` (a message from
+the owner replaced the retry) or `interrupted`, with the words in the run's `error` field
+([Automation](manual/automation.md#what-a-runs-status-means)). A run that waits for the owner's answer to an approval
+is not ended: the key stays busy until the owner answers. The reply text a script waits for is kept in memory for the
+last 200 runs; after a restart a run keeps only the first line of its reply, and the answer then carries
+`replyPartial: true`. Run ids (`--id`) are remembered for **Ignore a repeated call for**, so a script that retries after
+a restart gets the first run back, unless that run could not start (outcome `not_started`), which doesn't keep its id.
 
 A conversation can ask for a key itself. While job keys are on, Pocket installs the `pocket-jobs` skill (with its
 `.pocket-managed` marker) in `~/.claude/skills/` and, where Codex is installed, `$CODEX_HOME/skills/`, and removes it
