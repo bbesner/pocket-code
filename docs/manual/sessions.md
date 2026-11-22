@@ -157,8 +157,9 @@ until you answer, then back (see [Questions and approvals](approvals.md#what-hap
 Each row shows the title, the workspace (left out for the default or home folder), the agent, *Branch*
 for a branch, and the state, such as **Response ready**, **Complete**, **Didn't finish**, **Needs your answer**,
 **Needs approval**, **Queue paused** or **Waiting for usage reset**. When the newest reply was started by the queue, a
-usage-limit retry or a coordination wake rather than by you, a dim line under the agent says so (**Queued message**,
-**Continued after a usage limit**, **Woken by a hold** or **Started by a check-back**); see [Automation](automation.md#who-started-a-reply).
+usage-limit retry, a coordination wake, a check-back or a job key rather than by you, a dim line under the agent says so (**Queued message**,
+**Continued after a usage limit**, **Woken by a hold**, **Started by a check-back** or **Started by job** and the key's name, for example **Started by job disk-check**); see [Automation](automation.md#who-started-a-reply).
+A conversation a [job key](automation.md#job-keys) started is titled with the job's name (*Disk check*) and sits in the collapsed **Automated** group.
 While a [check-back](automation.md#check-backs) is waiting or running in a conversation, a small clock shows at the end of its row's state line. Its label (hover it, or use a screen reader) reads *Check-back at 2:30 PM*, *2 check-backs, next at 2:30 PM*, *2 check-backs, one running now, next at 2:30 PM*, or *Checking back now*. It goes when the check-back has run, been missed or been cancelled.
 
 ### Pin, rename, hide and mark reviewed
@@ -421,7 +422,7 @@ Antigravity is attended only: every message is one a person sent.
 
 - No queue. There is no **After this reply** and no **Queue** panel on its conversations.
 - No automatic retry after a usage limit. The reply ends with the reason and you send again later.
-- Check-backs, jobs, Inbox Watch and coordination wakes never start an Antigravity reply, and a handoff
+- Check-backs, job keys, Inbox Watch and coordination wakes never start an Antigravity reply (a job key can't be made for it), and a handoff
   to Antigravity starts only when you press **Start**.
 - One Google account, the one signed in on the server. Pocket has no account switching for it.
 - No API keys: Pocket removes `GEMINI_API_KEY`, `GOOGLE_API_KEY` and the Vertex switch from the CLI's

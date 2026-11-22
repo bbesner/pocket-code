@@ -1,6 +1,6 @@
 <!-- manual
 checked: 1.121.0
-sources: checkbacks.mjs, automation.mjs, cli-updates.mjs, cli-update-worker.mjs, ecosystem.config.cjs, environment.mjs, pipes.mjs, codex.mjs, sidechat.mjs, skills.mjs, vault.mjs, scripts/pocket-mcp-proxy.mjs
+sources: checkbacks.mjs, job-keys.mjs, automation.mjs, cli-updates.mjs, cli-update-worker.mjs, ecosystem.config.cjs, environment.mjs, pipes.mjs, codex.mjs, sidechat.mjs, skills.mjs, vault.mjs, scripts/pocket-mcp-proxy.mjs, scripts/pocket-run.mjs
 -->
 # Operations, upgrades and recovery
 
@@ -271,6 +271,14 @@ Pocket-owned persistent state includes:
 - `checkbacks.json` (1.119, mode `0600`, written by tmp file and rename), the check-backs: waiting and running ones
   until they finish, finished ones for 30 days (at most 300). It is created when the first check-back is set and holds
   each one's note, so treat it like `tasks.json`. Back it up with the data directory;
+- `job-keys.json` (1.JOBKEYS, mode `0600`, written by tmp file and rename), the job keys and their runs. A key is
+  stored as a SHA-256 hash and its settings, never the key itself, so a restored copy keeps every key working and
+  nobody can read a key back from it. Each run keeps its status, its times, the id of its conversation and the first
+  line of its reply. Finished runs are kept for the **Repeat window for an idempotency key** (at least a day), at most
+  5000, and a run still working is always kept. The file is created when the first key is made. It is not private
+  content like a transcript, but it is the list of what can start work, so back it up with the data directory and
+  keep it out of repositories. The key files the owner chose to save (`~/.config/pocket/jobs/` by default) are
+  outside the data directory and hold the keys themselves, so keep them out of backups that leave the server;
 - `cli-token` and `cli-url`, the loopback CLI token and address. They are rewritten at every
   start, so do not back them up or copy them to another instance.
 
@@ -345,6 +353,40 @@ lift it: the install comes back paused, with its queues still and any usage-limi
 marker carries `held: true`). Background jobs Pause all stopped stay stopped. The owner resumes from the banner or
 **Settings → Automation**. Do not edit the file to resume while Pocket runs.
 
+**Job keys** (1.JOBKEYS, [Automation](manual/automation.md#job-keys)) are off until the owner turns them on in
+**Settings → Automation → Job keys**. While they are off every call with a key is refused (a caller on this server gets
+*Job keys are switched off on this Pocket.*; anyone else gets the plain 404 they got before the feature existed), and
+the keys and the settings are kept. A job calls Pocket on its own port, `127.0.0.1` directly, with
+`node <Pocket Code directory>/scripts/pocket-run.mjs --key-file <path> --data-file <file>` (the `pocket-run` command
+the package installs as a binary, 1.JOBKEYS); a call through the tunnel, a proxy or the public address is refused with
+403, because the daemon accepts a job key only on a direct loopback connection with no `cf-connecting-ip`,
+`x-forwarded-for`, `forwarded` or `x-real-ip` header ([docs/install.md](install.md) has the proxy side). A crontab
+line looks like this, with full paths because cron runs with almost no environment, and with `%` written `\%`:
+
+```
+*/30 * * * * /usr/bin/node /opt/pocket/scripts/pocket-run.mjs --key-file ~/.config/pocket/jobs/disk-check.key --data-file /var/tmp/disk-report.txt --id disk-$(date +\%Y\%m\%d\%H) >> ~/disk-check.log 2>&1
+```
+
+Its exit code says what happened: 0 done, 3 needs the owner, 4 still working (the call didn't use `--wait`, or the wait
+ran out), 5 refused, 1 anything else. A pause, a plan ceiling or the daily limit refuses a job call and queues nothing,
+so the script has to try again later or the owner has to resume. A restart settles a run that was working when
+Pocket stopped: unless a reply or a usage-limit retry still carries it, about 15 seconds after the start it is recorded
+as failed, cut off by the restart. The reply text a script waits for is kept in memory for the last 200 runs; after a
+restart a run keeps only the first line of its reply, and the answer then carries `replyPartial: true`.
+Idempotency keys are remembered for the repeat window, so a script that retries after a restart gets the first run back.
+
+Presets for an install are `POCKET_AUTOMATION_JOBS` and its siblings, for example `POCKET_AUTOMATION_JOBS=1` to start
+with the feature on and `POCKET_AUTOMATION_JOB_PER_HOUR=12`; the full list is in
+[Automation](manual/automation.md#presets-for-an-install). A value saved in Settings wins. `pocket-run` finds the daemon
+the way the other commands do (`POCKET_URL`, else `cli-url`, else `PORT` from the `.env` beside it) and reads the key
+from `--key-file` or `POCKET_JOB_KEY`.
+
+Rolling back to 1.121 stops job keys and loses nothing. 1.121 does not read `job-keys.json` or the **Job keys**
+settings; it keeps them in `pocket-settings.json` and the file, so upgrading again finds the keys, their settings and
+their runs. Every call a script makes while rolled back fails, because 1.121 has no job routes and no `pocket-run`: the
+cron lines keep running and keep failing until the upgrade. A conversation a job started stays an ordinary conversation
+under 1.121, which already shows its *Started by job …* label.
+
 **Check-backs** (1.119, [Automation](manual/automation.md#check-backs)) are off until the owner turns them on in
 **Settings → Automation → Check-backs**. A pause holds every waiting check-back, and Resume lets them go or marks the
 overdue ones missed (**On Resume, run overdue check-backs**). A restart settles a check-back that was running: one whose
@@ -416,7 +458,7 @@ Due items are checked every `POCKET_REMINDER_CHECK_MS` (default 60000, minimum 2
 a first check a few seconds after start. A task stays due until it is done or re-dated.
 
 **Push priority.** Due tasks, reminders, Vault requests and alerts (Inbox Watch, `pocket-notify`) go out with `Urgency: high`
-(1.50.2), so Android delivers them while the phone is idle; a finished turn, and a check-back's result or missed notice and the **Unattended work held** notice (kind `automation`, 1.119), go at normal
+(1.50.2), so Android delivers them while the phone is idle; a finished turn, and a check-back's result or missed notice, a job's result (titled with the job's name, 1.JOBKEYS) and the **Unattended work held** notice (kind `automation`, 1.119), go at normal
 priority and may wait until the phone wakes.
 
 **Push preferences.** Each device's choices (which kinds, the icon count) are kept with its
@@ -495,7 +537,7 @@ else the address in `cli-url`, then `PORT` from this checkout's `.env`, and only
 token. The daemon accepts it
 only on the Projects, Files, Tasks, Inbox and Vault routes and the start-link and notify routes, and only on a direct loopback
 connection with no `cf-connecting-ip`, `x-forwarded-for`, `forwarded` or `x-real-ip` header; a request that came
-through the tunnel or a proxy is refused. On the Vault routes it allows only what agents
+through the tunnel or a proxy is refused. The job routes (`/api/jobs/run` and `/api/jobs/runs/…`, 1.JOBKEYS) take a job key instead, under the same loopback rule, and refuse the CLI token. On the Vault routes it allows only what agents
 may do: list, show, run, create an item and read the calling session's history; it never
 returns a value. A new token is generated at every start, so the CLIs must run on the
 same host as the daemon and read the data directory of the daemon that is running. Two

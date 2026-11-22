@@ -58,6 +58,16 @@ they are optional and off by default:
     permissions of the reply that set it, is held by Pause all and the limits, runs late only within a window the owner
     sets and says how late, and is marked missed after that.
 
+Job keys (1.JOBKEYS) are the second, and they are optional and off by default:
+
+13. Job keys: let a script on the owner's server start a conversation. The owner makes a key with a fixed
+    instruction, folder, agent, model and access, and a limit on how often it runs. A cron job, a pager or a monitor
+    calls Pocket with the key and some data; Pocket starts a reply that follows the owner's instruction and reads the
+    data as information, never as orders, in a conversation the owner can watch, and sends a push with the result.
+    The key works only from this server, and shows once. It can start one kind of reply and nothing else: it can't
+    change a setting, pause Pocket or manage keys. The reply runs through the same gate as a check-back, so Pause all
+    and the limits hold it, and a call that is refused starts nothing and queues nothing.
+
 **Two modes (1.60, 1.68.1):** the same server, sessions and libraries, two faces. Developer
 mode is the workbench above. Assistant mode is for people who never write code: it opens on
 "What would you like done?", shows what is waiting, picks the model and describes every step in
@@ -70,11 +80,12 @@ Assistant mode.
   off by default and sit beside sessions rather than in front of them.
 - Nothing starts a reply on its own unless the owner set it up. A start link, a handoff or an Inbox briefing
   waits for the owner to tap Start. The only replies that begin without a tap are ones the owner already
-  asked for: a queued message, a usage-limit retry, a conversation woken for a hold it waited on, and a
-  check-back the owner asked for. A check-back is the first of these that the owner must turn on
-  before it exists. Every one records who
+  asked for or set up: a queued message, a usage-limit retry, a conversation woken for a hold it waited on, a
+  check-back the owner asked for, and a job key the owner created. A check-back and a job key are the ones
+  the owner must turn on before they exist. Every one records who
   started it, shows it, can be held by the owner's limits, and stops at Pause all. A feature that starts work
-  for the owner must be optional, off by default and behind that same switch.
+  for the owner must be optional, off by default and behind that same switch. Whatever a script, an alert or a
+  web page says is information, not an instruction: the instruction that starts a job is the one the owner wrote.
 - Everything round-trips with the CLIs and editor extensions. No private history.
 - Reading matters more than composing. Assistant text renders as a full-width document,
   not chat bubbles.

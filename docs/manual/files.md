@@ -100,6 +100,8 @@ An agent can keep files and change their title or project, but it cannot share o
 - **Deny** changes nothing. A request you don't answer ends after 15 minutes and changes nothing.
 - **Allow** and **Deny** on the notification answer the same way; if the answer cannot be recorded, Files opens with the card.
 
+A reply that [a job key started](automation.md#job-keys) can ask too, and the request waits for you like any other: the run reads **needs you** to the script that started it ([What waits for you in a job reply](automation.md#what-waits-for-you-in-a-job-reply)).
+
 Each request covers one file and one change. Allowing a link does not allow making the file public later; that is a new request. There is no "always allow". Making a file private, or its link expire sooner, needs no request, and nothing changes for what you do yourself in Pocket.
 
 Links are served by Pocket on its own address, with headers that tell search engines not to index them. A shared file cannot be framed by another site.

@@ -1348,3 +1348,53 @@ find out afterwards what became of it, without a notification having to do the e
   whether check-backs are on or off, because it also carries the 1.117 limit notice.
 - **Feature off.** None of the card, clock, Tasks group or *N waiting* line exists; only the settings group (so it can
   be turned on), the Pause all row and the push switch remain.
+
+## Job keys (1.JOBKEYS)
+
+Pinned Operate refinement (design-studio → impeccable): variance low, motion low, density medium-high; existing tokens,
+rows, chips, sheets and settings rows, no new colour, font or component style. Read: someone who lets a script start
+a conversation wants to see which keys exist and what each can do, to make one without leaving Settings, to see the key
+once and be sure it isn't kept, and to find out afterwards what each run did. Nothing here is an alarm, and the key
+itself is the only thing that must never be left on the page.
+
+- **Settings → Automation → Job keys.** The settings vocabulary of 1.117: a group heading, the **Job keys** switch first,
+  `.opt` switches, number rows with their unit and a **No limit** chip where a limit may be off (runs per hour and per
+  day), a choice for **Access for new keys**, **Advanced** in a closed disclosure and **Reset to defaults**. While the
+  switch is off the rest of the group reads as inactive under the note *These apply when Job keys is on.*, and stays
+  editable. **Where Pocket offers to save new keys** is a text field in `.voice-field` (the `folder` setting type); a
+  refused folder shows its reason under the field in `--err` and the old value comes back.
+- **The key list.** Under the group, only while job keys are on and past a `--line` rule: one `.opt` row per key in a
+  list with `--line` hairlines between the rows and no card around them. A 17px key mark in `--dim`, the name in `--text`
+  at weight 500 (one line, ellipsis), then one `--dim` line of facts that does not wrap, in tabular figures: folder,
+  agent and model, access (**Ask first** or **Full access**), state (**On**, **Off** or **Running**) and the last run
+  (*Last run 2:30 PM*, *Never ran*). A row is the same height whatever its state, so nothing below it moves when a run
+  starts. **Running** is words, not a colour. A list that did not change writes nothing to the page. Empty: one
+  `--dim` sentence that says what a job key is, and **New job key**.
+- **The sheets.** Ordinary sheets in the Vault's form vocabulary: `.vault-field-error` lines for a refusal, which
+  appear under the field they name in the server's words, and `aria-invalid` borders in `--err`. **New job key** asks for
+  the name, folder, agent, model and effort (side by side, stacked under 420px), access, the instruction in a text area,
+  **The job may add its own instructions**, the limits and **Push when a job finishes**, then **Save the key to a file**
+  with the folder shown. Full access is offered only where the server allows it. A key's sheet is the same form, with
+  folder and agent read-only (with the reason) once the key has run, a 14px status line, and four chips of 44px:
+  **Turn off** or **Turn on**, **Rotate key** and **Delete**. Rotate and Delete ask first in a sheet of their own that
+  returns to the key's sheet either way (*Rotate the key for disk-check?*, *The old key stops working at once.*;
+  *Delete disk-check?*, which says that a run already working is not stopped), with **Delete** in the destructive tone
+  the Files library uses.
+- **The key, shown once.** After **Create** and **Rotate key**, a sheet in the Vault key sheet's own form: the sentence
+  *This is the only time the key is shown.*, the key in a read-only text area that selects on focus, **Copy**, where it
+  was saved (*Saved to …, readable only by you.*, or why it wasn't), and the line to run it (*Run the job from a script
+  on this server*) with its own **Copy**. The key lives only in that text area. When the sheet leaves the page, whichever
+  way, the text area is emptied; the answer is not kept in a variable, `localStorage`, `sessionStorage` or the URL, and no
+  other screen shows a key, a hash or a key's file contents. The browser suite searches the page and the stores for the
+  key after the sheet closes.
+- **Recent runs.** In a key's sheet, under a `--line` rule and the heading **Recent runs**: a list in the same hairline
+  style. Each row is a link of at least 44px with the time and the status on one `--dim` line (*Working*, *Needs you*,
+  *Done*, *Failed*), the status in `--text`, and under it the reply's first line, or for a failed run one plain
+  sentence (*It could not start.*, *Stopped.*, *Cut off by a restart.*). *Needs you* is `--warn` and *Failed* is `--err`,
+  the only colour on the list. A row opens the conversation. A refusal is not a run and is never listed.
+- **In the conversation and the list.** A conversation a job started carries the 1.117 origin line (*Started by job
+  disk-check*) in `--dim` under the list row's meta and under the header. Its push is titled with the job's name.
+- **Pause all.** The confirmation sheet and the toast count running job replies beside the check-backs (*3 replies
+  running (2 Claude, 1 Codex; 1 started by a job)*; with no other reply, *1 job reply running*).
+- **Feature off.** None of the key list, the sheets or the run lists exists; only the settings group (so it can be
+  turned on), the Pause all row and the push switch remain. The keys are kept.
