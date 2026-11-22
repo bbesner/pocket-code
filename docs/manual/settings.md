@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.121.0
+checked: 1.122.0
 sources: context-policy.mjs, automation.mjs, job-keys.mjs, cli-updates.mjs, public/cli-updates.js, public/app.js, public/workspace.js, public/theme.js, public/voice.js, server.mjs, router.mjs, access.mjs
 -->
 # Settings

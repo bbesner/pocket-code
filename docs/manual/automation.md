@@ -1,12 +1,12 @@
 <!-- manual
-checked: 1.121.0
+checked: 1.122.0
 sources: automation.mjs, checkbacks.mjs, job-keys.mjs, public/automation.js, scripts/pocket-checkback.mjs, scripts/pocket-run.mjs, scripts/pocket-jobkey.mjs, skills/pocket-checkback/SKILL.md, skills/pocket-jobs/SKILL.md, server.mjs, queue.mjs, codex.mjs, acp.mjs, sidechat.mjs, coordination.mjs, usage.mjs, inbox-runner.mjs, public/voice-text.js
 -->
 # Automation: Pause all, check-backs, job keys and limits on unattended work
 
 Some replies start without you: a queued message that runs when the last reply ends, a usage-limit retry, a conversation woken by a hold, and, if you turn them on, a check-back you asked for or a job key you made. **Pause all** is one switch that stops every reply and holds everything automatic. **Check-backs** let a conversation look again later, at a time you asked for. **Job keys** let a script on this server start a reply with an instruction you wrote. **Limits on unattended work** keep that work from using up your plan. All four are in **Settings → Automation**.
 
-Pause all is always available. Check-backs and job keys are off until you turn them on. Nothing else changes until you set it: with the defaults, 1.JOBKEYS behaves as 1.121.
+Pause all is always available. Check-backs and job keys are off until you turn them on. Nothing else changes until you set it: with the defaults, 1.122.0 behaves as 1.121.
 
 ## Pause all
 

@@ -1349,7 +1349,7 @@ find out afterwards what became of it, without a notification having to do the e
 - **Feature off.** None of the card, clock, Tasks group or *N waiting* line exists; only the settings group (so it can
   be turned on), the Pause all row and the push switch remain.
 
-## Job keys (1.JOBKEYS)
+## Job keys (1.122)
 
 Pinned Operate refinement (design-studio → impeccable): variance low, motion low, density medium-high; existing tokens,
 rows, chips, sheets and settings rows, no new colour, font or component style. Read: someone who lets a script start

@@ -194,7 +194,7 @@ off until the owner turns it on in **Settings → Automation → Check-backs**. 
 
 ## Job keys
 
-Job keys (1.JOBKEYS) let a script on the server start a reply, in a conversation the owner can watch, with an instruction the owner wrote. They are off until the owner turns them on in **Settings → Automation → Job keys**. This is what they add.
+Job keys (1.122.0) let a script on the server start a reply, in a conversation the owner can watch, with an instruction the owner wrote. They are off until the owner turns them on in **Settings → Automation → Job keys**. This is what they add.
 
 - **Who may call.** `POST /api/jobs/run` and `GET /api/jobs/runs/<run>` take a job key and nothing else, and only from this server:
   the socket must be loopback and the request must carry none of `cf-connecting-ip`, `x-forwarded-for`, `forwarded` or

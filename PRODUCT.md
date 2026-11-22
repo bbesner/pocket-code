@@ -58,7 +58,7 @@ they are optional and off by default:
     permissions of the reply that set it, is held by Pause all and the limits, runs late only within a window the owner
     sets and says how late, and is marked missed after that.
 
-Job keys (1.JOBKEYS) are the second, and they are optional and off by default:
+Job keys (1.122.0) are the second, and they are optional and off by default:
 
 13. Job keys: let a script on the owner's server start a conversation. The owner makes a key with a fixed
     instruction, folder, agent, model and access, and a limit on how often it runs. A cron job, a pager or a monitor

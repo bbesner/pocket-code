@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.121.0
+checked: 1.122.0
 sources: checkbacks.mjs, job-keys.mjs, automation.mjs, cli-updates.mjs, cli-update-worker.mjs, ecosystem.config.cjs, environment.mjs, pipes.mjs, codex.mjs, sidechat.mjs, skills.mjs, vault.mjs, scripts/pocket-mcp-proxy.mjs, scripts/pocket-run.mjs
 -->
 # Operations, upgrades and recovery
@@ -271,7 +271,7 @@ Pocket-owned persistent state includes:
 - `checkbacks.json` (1.119, mode `0600`, written by tmp file and rename), the check-backs: waiting and running ones
   until they finish, finished ones for 30 days (at most 300). It is created when the first check-back is set and holds
   each one's note, so treat it like `tasks.json`. Back it up with the data directory;
-- `job-keys.json` (1.JOBKEYS, mode `0600`, written by tmp file and rename), the job keys, their runs and the requests
+- `job-keys.json` (1.122.0, mode `0600`, written by tmp file and rename), the job keys, their runs and the requests
   conversations have made for a key (`proposals`). A key is
   stored as a SHA-256 hash and its settings, never the key itself, so a restored copy keeps every key working and
   nobody can read a key back from it. Each run keeps its status, its times, the id of its conversation and the first
@@ -356,12 +356,12 @@ lift it: the install comes back paused, with its queues still and any usage-limi
 marker carries `held: true`). Background jobs Pause all stopped stay stopped. The owner resumes from the banner or
 **Settings → Automation**. Do not edit the file to resume while Pocket runs.
 
-**Job keys** (1.JOBKEYS, [Automation](manual/automation.md#job-keys)) are off until the owner turns them on in
+**Job keys** (1.122.0, [Automation](manual/automation.md#job-keys)) are off until the owner turns them on in
 **Settings → Automation → Job keys**. While they are off every call with a key is refused (a caller on this server gets
 *Job keys are switched off on this Pocket.*; anyone else gets the plain 404 they got before the feature existed), and
 the keys and the settings are kept. A job calls Pocket on its own port, `127.0.0.1` directly, with
 `node <Pocket Code directory>/scripts/pocket-run.mjs --key-file <path> --data-file <file>` (the `pocket-run` command
-the package installs as a binary, 1.JOBKEYS); a call through the tunnel, a proxy or the public address is refused with
+the package installs as a binary, 1.122.0); a call through the tunnel, a proxy or the public address is refused with
 403, because the daemon accepts a job key only on a direct loopback connection with no `cf-connecting-ip`,
 `x-forwarded-for`, `forwarded` or `x-real-ip` header ([docs/install.md](install.md) has the proxy side). A crontab
 line looks like this, with full paths because cron runs with almost no environment, and with `%` written `\%`:
@@ -477,8 +477,8 @@ ahead, marked `ahead: true` for the hook, for items that were set at least a day
 Due items are checked every `POCKET_REMINDER_CHECK_MS` (default 60000, minimum 250), with
 a first check a few seconds after start. A task stays due until it is done or re-dated.
 
-**Push priority.** Due tasks, reminders, Vault requests (the *Allow a job key?* push is one, 1.JOBKEYS) and alerts (Inbox Watch, `pocket-notify`) go out with `Urgency: high`
-(1.50.2), so Android delivers them while the phone is idle; a finished turn, and a check-back's result or missed notice, a job's result (titled with the job's name, 1.JOBKEYS) and the **Unattended work held** notice (kind `automation`, 1.119), go at normal
+**Push priority.** Due tasks, reminders, Vault requests (the *Allow a job key?* push is one, 1.122.0) and alerts (Inbox Watch, `pocket-notify`) go out with `Urgency: high`
+(1.50.2), so Android delivers them while the phone is idle; a finished turn, and a check-back's result or missed notice, a job's result (titled with the job's name, 1.122.0) and the **Unattended work held** notice (kind `automation`, 1.119), go at normal
 priority and may wait until the phone wakes.
 
 **Push preferences.** Each device's choices (which kinds, the icon count) are kept with its
@@ -557,7 +557,7 @@ else the address in `cli-url`, then `PORT` from this checkout's `.env`, and only
 token. The daemon accepts it
 only on the Projects, Files, Tasks, Inbox and Vault routes and the start-link and notify routes, and only on a direct loopback
 connection with no `cf-connecting-ip`, `x-forwarded-for`, `forwarded` or `x-real-ip` header; a request that came
-through the tunnel or a proxy is refused. The job routes (`/api/jobs/run` and `/api/jobs/runs/…`, 1.JOBKEYS) take a job key instead, under the same loopback rule, and refuse the CLI token. The job key request routes (`/api/jobs/agent/propose` and `/api/jobs/agent/requests/…`) take the CLI token together with a conversation's runner token, as the check-back agent routes do. On the Vault routes it allows only what agents
+through the tunnel or a proxy is refused. The job routes (`/api/jobs/run` and `/api/jobs/runs/…`, 1.122.0) take a job key instead, under the same loopback rule, and refuse the CLI token. The job key request routes (`/api/jobs/agent/propose` and `/api/jobs/agent/requests/…`) take the CLI token together with a conversation's runner token, as the check-back agent routes do. On the Vault routes it allows only what agents
 may do: list, show, run, create an item and read the calling session's history; it never
 returns a value. A new token is generated at every start, so the CLIs must run on the
 same host as the daemon and read the data directory of the daemon that is running. Two
