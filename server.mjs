@@ -3608,7 +3608,7 @@ async function runNextFollowup(id, cwd, { replaceStale = false, by = 'queue' } =
 const ACP_OPS = {
   turn: id => acp.ownedAcpTurn(id),
   exists: async id => { if (!acpOn(id)) return false; const c = acpListOf(id); if (acp.acpSessions.has(acp.bareAcpId(id)) || c.rows.some(r => r.id === id)) return true; staleAcpList(id); await refreshAcpList(acpRuntime(id).id); return c.rows.some(r => r.id === id); },
-  cwd: async id => acp.ownedAcpTurn(id)?.cwd || acp.acpSessions.get(acp.bareAcpId(id))?.cwd || acpListOf(id).rows.find(r => r.id === id)?.cwd || null,
+  cwd: async id => acp.ownedAcpTurn(id)?.cwd || acp.acpSessions.get(acp.bareAcpId(id))?.cwd || acpListOf(id).rows.find(r => r.id === id)?.cwd || smeta[id]?.acpCwd || null,
   transcript: async id => { const msgs = await acpMessages(id); return { msgs, total: msgs.length }; },
   startQueued: (id, cwd, row, { from } = {}) => startAcpFromApi({ id, sessionId: acp.bareAcpId(id), cwd, text: row.text, body: row, resume: true, from }),
 };
@@ -3644,7 +3644,7 @@ function ownedTurn(id){return engineOf(id).turn(id);}
 async function acpMessages(id, turn = null) {
   if (acpHistory.has(id)) return acpHistory.get(id);
   const ended = acpRepliesEnded.get(id) || 0;
-  let msgs = acp.messagesFromEvents(await acp.readAcpTranscript({ sessionId: id, ...acpLaunch(acpRuntime(id).id) }));
+  let msgs = acp.messagesFromEvents(await acp.readAcpTranscript({ sessionId: id, cwd: await ACP_OPS.cwd(id), ...acpLaunch(acpRuntime(id).id) }));
   if (turn) {
     const t = String(turn.userText || '').trim(), mine = m => m.role === 'user' && ((m.text || '').trim() === t || (m.text || '').startsWith(t + '\n\n[Attached file'));
     const at = msgs.findLastIndex(mine); if (at >= 0) msgs = msgs.slice(0, at);
@@ -3751,7 +3751,11 @@ async function startAcpFromApi({ id, sessionId, cwd, text, body, resume, from, e
   if (!takesUnattended(eng) && from.origin !== 'owner') throw Object.assign(new Error(`${rt.label} runs only the messages you send yourself.`), { code: 409, status: 409, notStarted: true, attendedOnly: true });
   refuseIfPaused(from); // 1.117: and again just before the turn exists (mayStart), after the awaits below
   if (id) cancelRetry(id); // 1.87: as on Claude and Codex
-  if (id && resume && await folderGone(id, cwd)) { if (acp.acpSessions.get(acp.bareAcpId(id))?.cwd !== HOME) acp.closeAcpSession(id); cwd = HOME; } // 1.98
+  // Reopened with no folder given: the one Pocket knows it in. Left to the program, the folder came from a whole-list
+  // read that could miss the conversation, and the reply then ran in / (acp.mjs openAcpSession).
+  let knownCwd = null;
+  if (id && resume && !cwd && !acp.acpSessions.has(acp.bareAcpId(id))) { knownCwd = await ACP_OPS.cwd(id).catch(() => null); cwd = knownCwd || undefined; }
+  if (id && resume && await folderGone(id, cwd)) { if (acp.acpSessions.get(acp.bareAcpId(id))?.cwd !== HOME) acp.closeAcpSession(id); cwd = HOME; knownCwd = null; } // 1.98
   if (id && resume && !ownedTurn(id)) text = coordNotice(id, text); // 1.99
   const opts = withDefaults(eng, turnOpts(body));
   let model, levels;
@@ -3770,7 +3774,10 @@ async function startAcpFromApi({ id, sessionId, cwd, text, body, resume, from, e
   const launch = bare && acp.acpSessions.has(bare) ? acpLaunch(rt.id) : acpTurnLaunch(rt.id); // a live process keeps its own config
   const turn = await acp.startAcpTurn({ sessionId: sessionId || id, cwd, text, prompt: promptText(text, opts.attachments), images, model, effort, approvalMode: opts.approvalMode, executionMode: opts.executionMode,
     costBaseline, ...launch, resume, hooks: acpHooks(id, eng), ...from, mayStart: () => refuseIfPaused(from) });
-  setSmeta(id || turn.fullId, { acpRunning: Date.now() }); // a restart mid-reply is recorded as a stop (below)
+  // acpRunning: a restart mid-reply is recorded as a stop (below). acpCwd and acpAt: the conversation's folder and last
+  // activity, so the list asks that folder and shows the conversation even when OpenCode's answer misses it.
+  const folder = resume ? knownCwd : cwd;
+  setSmeta(id || turn.fullId, { acpRunning: Date.now(), acpAt: Date.now(), ...(folder && path.isAbsolute(folder) && !smeta[id || turn.fullId]?.acpCwd ? { acpCwd: path.resolve(folder) } : {}) });
   noteStart(id || turn.fullId, from); stampReplyLimit(turn); // 1.117
   return turn;
 }
@@ -3787,7 +3794,23 @@ function acpImages(attachments) {
 // OpenRouter conversations in the list: OpenCode's own session/list, read through a throwaway `opencode acp`
 // and cached, so the frequently polled list waits for OpenCode only on its first read.
 // One cache per runtime (Antigravity's list comes from a throwaway `agy acp` the same way).
+// OpenCode answers session/list per folder and per project, 100 at most (acp.readAcpList), so the list is read
+// folder by folder: the folders of the conversations Pocket started (session meta acpCwd, kept since this fix), of
+// replies and processes running now, of the last list, plus home and Pocket's own folder; and one whole-project read
+// from home finds folders not known yet. A conversation Pocket started is listed even when OpenCode's answer misses it.
 const acpLists = Object.fromEntries(Object.keys(acp.RUNTIMES).map(k => [k, { at: 0, rows: [], pending: null, changes: 0, pendingFor: -1 }]));
+// The conversations of this runtime Pocket started, from session meta: [{ id, cwd, at }], newest first.
+const acpKnown = rt => overlayIds(smeta).filter(id => id.startsWith(rt.prefix) && smeta[id]?.acpCwd).map(id => ({ id, cwd: smeta[id].acpCwd, at: smeta[id].acpAt || 0 })).sort((a, b) => b.at - a.at);
+// The folders to ask, newest first: running now, then what Pocket started (acpKnown, added by readAcpList), the last list, home and Pocket's folder.
+function acpFolders(rt) {
+  const out = [];
+  const add = d => { if (typeof d === 'string' && path.isAbsolute(d) && !out.includes(d)) out.push(d); };
+  for (const s of acp.acpSessions.values()) if ((s.runtime?.id || 'opencode') === rt.id) add(s.cwd);
+  for (const k of acpKnown(rt)) add(k.cwd);
+  for (const r of [...acpLists[rt.id].rows].sort((a, b) => b.mtimeMs - a.mtimeMs)) add(r.cwd);
+  add(HOME); add(import.meta.dirname);
+  return out;
+}
 const acpListOf = which => acpLists[acpRuntime(which).id];
 // A conversation began or a reply ended: the next read asks the program again. A read already on its way began
 // before the change, so its answer is not kept as current (it used to be, and the list then went without the new
@@ -3799,7 +3822,7 @@ function refreshAcpList(which = 'opencode') {
   if (c.pending && c.pendingFor === c.changes) return c.pending; // one read at a time, shared while nothing changed since it began
   const earlier = c.pending, at = c.changes; // a change since the read on its way began: read again after it
   const p = Promise.resolve(earlier)
-    .then(() => acp.listAcpSessions({ ...acpLaunch(rt.id), limit: 200, hideCwd: ACP_PROBE_DIRS[rt.id] }))
+    .then(() => acp.listAcpSessions({ ...acpLaunch(rt.id), cwd: HOME, limit: 200, hideCwd: ACP_PROBE_DIRS[rt.id], folders: acpFolders(rt), known: acpKnown(rt) }))
     .then(rows => { c.rows = rows; if (c.changes === at) c.at = Date.now(); })
     .catch(e => { if (c.changes === at) c.at = Date.now(); log(`acp list failed${rt.id === 'opencode' ? '' : ` (${rt.name})`}: ${e.message}`); })
     .finally(() => { if (c.pending === p) c.pending = null; });
@@ -3808,7 +3831,9 @@ function refreshAcpList(which = 'opencode') {
 }
 // Reasoning-effort levels per OpenRouter model, as OpenCode offers them ({slug: [levels]}), probed at boot and
 // every 6 hours in a folder of its own that the conversation list hides. Until the first probe lands the
-// effort chip waits; a failed probe keeps the last good map.
+// effort chip waits; a failed probe keeps the last good map. The probe reopens its last session instead of making a
+// new one each time; the probe sessions an install already has stay where they are and are never asked for (the
+// folder is hidden and the list asks per folder), so they need no clean-up.
 const ACP_PROBE_DIR = path.join(DATA_DIR, 'data', 'acp-probe');
 const AGY_PROBE_DIR = path.join(DATA_DIR, 'data', 'agy-probe');
 const ACP_PROBE_DIRS = { opencode: ACP_PROBE_DIR, antigravity: AGY_PROBE_DIR };
@@ -3863,7 +3888,7 @@ async function acpTurnFinished(id, turn, ev) {
   const watching = turn.subs.size > 0, engine = acpRuntime(id).engine, convo = `${ENGINES[engine].label} conversation`;
   acpHistory.delete(id); acpRepliesEnded.set(id, (acpRepliesEnded.get(id) || 0) + 1); staleAcpList(id);
   if (engine === 'antigravity' && !ev.ok && ev.error === acp.RUNTIMES.antigravity.signIn) agyMenuCache.at = 0; // signed out meanwhile: the menu says so on its next read
-  setSmeta(id, { acpRunning: null, ...(Number.isFinite(turn.session?.costTotal) ? { acpCost: turn.session.costTotal } : {}), ...(turn.context ? { acpContext: { ...turn.context, at: Date.now() } } : {}) });
+  setSmeta(id, { acpRunning: null, acpAt: Date.now(), ...(Number.isFinite(turn.session?.costTotal) ? { acpCost: turn.session.costTotal } : {}), ...(turn.context ? { acpContext: { ...turn.context, at: Date.now() } } : {}) });
   // 1.87: OpenRouter's own rate limits (429, "retry after") wait and pick up again, as Claude's and Codex's usage limits do
   const limited = takesUnattended(engine) && !ev.ok && !turn.stopped && (turn.retryAttempt || 0) < 3 ? detectRateLimit(ev.error || '') : null; // no retry by itself where a person sends every message
   if (limited) {

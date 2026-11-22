@@ -165,7 +165,7 @@ export class AcpClient {
   initialize(clientCapabilities = CLIENT_CAPABILITIES, clientInfo = null) { return this.request('initialize', { protocolVersion: PROTOCOL_VERSION, clientCapabilities, ...(clientInfo ? { clientInfo } : {}) }); }
   newSession(params) { return this.request('session/new', params); }
   loadSession(params) { return this.request('session/load', params); }
-  listSessions() { return this.request('session/list', {}); }
+  listSessions(params = {}, timeoutMs) { return this.request('session/list', params, timeoutMs); }
   prompt(params, timeoutMs) { return this.request('session/prompt', params, timeoutMs); }
   // OpenCode takes the model and its reasoning effort as session config options, not as prompt fields
   // (a `model` on session/prompt is ignored, and the turn runs on OpenCode's own default model).
@@ -606,16 +606,29 @@ export async function applyAcpConfig(session, { model, effort, executionMode }) 
   return { model, effort: picked };
 }
 
+// The effort probe's session. Every probe (at start and every 6 hours) used to make a new one, and OpenCode cannot
+// delete a session over ACP, so they piled up in the probe folder (over a hundred within a month). Now the newest
+// session already in the probe folder is opened again and reused; a folder with none, or one that does not open,
+// gets a new one. Being signed out is passed on.
+async function probeSession(client, rt, cwd) {
+  try {
+    const r = await client.listSessions({ cwd });
+    const mine = (r?.sessions || []).filter(s => s.cwd === cwd && rt.idRe.test(String(s.sessionId || ''))).sort(newestFirst)[0];
+    if (mine) { const s = await client.loadSession({ sessionId: mine.sessionId, cwd, mcpServers: [] }); if (Array.isArray(s?.configOptions)) return { ...s, sessionId: mine.sessionId }; }
+  } catch (e) { if (runtimeError(rt, e).signIn) throw e; }
+  return client.newSession({ cwd, mcpServers: [] });
+}
+
 // The reasoning-effort levels OpenCode offers for each OpenRouter model, read by pointing one throwaway
 // session at every model in turn (all ~360 take well under a second, all local). {slug: [levels]} without
 // 'default'; a model with no effort setting maps to []. The probe session lives in `cwd`, which the
-// conversation list hides.
+// conversation list hides, and is opened again by the next probe (probeSession).
 export async function probeAcpEfforts({ cmd, args, env, cwd }) {
   const client = new AcpClient({ cmd, args, cwd, env, name: 'effort-probe' });
   client.onNotify = (method, params) => { const ev = method === 'session/update' ? normalizeUpdate(params?.update) : null; if (ev?.type === 'acp_commands') noteCommands(RUNTIMES.opencode, ev.commands); };
   try {
     await client.initialize();
-    const s = await client.newSession({ cwd, mcpServers: [] });
+    const s = await probeSession(client, RUNTIMES.opencode, cwd);
     const models = (s?.configOptions || []).find(o => o.id === 'model')?.options?.map(o => o.value).filter(v => v.startsWith('openrouter/')) || [];
     const out = {};
     for (const m of models) {
@@ -753,20 +766,88 @@ export function closeIdleAcpSessions(idleMs) {
 export const stalledAcpTurns = quietMs => [...acpTurns.values()].filter(t => !t.done && Date.now() - t.lastActivityAt > quietMs && !t.approvals?.list().length && !t.questions?.list().length);
 
 // ---------- read-only listing + transcript (a short-lived reader client) ----------
-// List ACP sessions for the session picker. Spawns a throwaway reader, enumerates via session/list.
-export async function listAcpSessions({ cmd, args, env, limit = 60, hideCwd = null, runtime = null } = {}) {
+// How OpenCode 1.19 answers ACP session/list (read from its code, ACP.listSessions and Session.list, and checked
+// read-only against a real store, 2026-11-22):
+//   · {} lists the sessions of the PROJECT of the folder the program runs in (a git repository, or one shared
+//     "global" project for every folder outside a repository), all its folders mixed;
+//   · { cwd } lists only the sessions started in exactly that folder (in that folder's project);
+//   · either way it answers with the newest 100 and no more: the store is asked for 100, and nextCursor only pages
+//     through those (it never reaches the 101st).
+// So one {} from Pocket's own folder saw only that folder's project, and once Pocket's effort probe had made 100
+// sessions in its folder inside that project they were the whole answer, all hidden, and the list was empty.
+// The list is now read folder by folder: { cwd } for every folder Pocket knows conversations in, plus one {} from the
+// reader's folder to find folders it does not know yet. A folder's own 100 newest cannot be crowded out by another
+// folder (the probe's included), hidden folders are dropped before the list is cut, and a conversation Pocket knows
+// (id, folder, time) that the program's answer missed is still listed.
+export const LIST_CAP = 100; // OpenCode answers at most this many; an answer this long may have been cut
+const LIST_FOLDERS = 64, LIST_PAGES = 10, LIST_PARALLEL = 8, LIST_TIMEOUT_MS = 30_000;
+const newestFirst = (a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0);
+const normDir = d => typeof d === 'string' && path.isAbsolute(d) ? path.resolve(d) : null;
+// One session/list question and the pages that follow it (nextCursor). complete: nothing was left out (no nextCursor
+// on the last page, and fewer sessions on it than the program cuts at).
+async function listPages(client, params, take) {
+  let cursor = null;
+  for (let page = 0; page < LIST_PAGES; page++) {
+    const r = await client.listSessions(cursor ? { ...params, cursor } : params, LIST_TIMEOUT_MS);
+    const got = Array.isArray(r?.sessions) ? r.sessions : [];
+    take(got);
+    if (!r?.nextCursor) return { complete: got.length < LIST_CAP };
+    if (!got.length || String(r.nextCursor) === cursor) return { complete: false };
+    cursor = String(r.nextCursor);
+  }
+  return { complete: false };
+}
+// The conversation list of one runtime, read by a throwaway reader started in `cwd`. `folders`: the folders to ask
+// one by one (newest first; the first LIST_FOLDERS are asked). `known`: conversations Pocket started, [{ id, cwd, at }];
+// their folders are asked too, and one the answers missed is listed from what Pocket knows (untitled until Pocket's
+// own title or name covers it), unless its folder's answer was complete, which means the program no longer has it.
+// `hideCwd`: a folder (or folders) whose sessions never show. Returns { rows, complete: [folders answered in full] }.
+export async function readAcpList({ cmd, args, env, cwd = null, limit = 60, hideCwd = null, folders = [], known = [], runtime = null } = {}) {
   const rt = runtimeOf(runtime);
-  const client = new AcpClient({ cmd, args, env, name: 'reader' });
+  const hidden = new Set([hideCwd].flat().map(normDir).filter(Boolean));
+  const found = new Map(); // bare session id -> the program's row
+  const take = list => {
+    for (const s of list) {
+      const sid = String(s?.sessionId || '');
+      if (!rt.idRe.test(sid) || hidden.has(normDir(s.cwd))) continue; // dropped before the cut, so they never use up the limit
+      const had = found.get(sid);
+      if (!had || newestFirst(had, s) > 0) found.set(sid, s);
+    }
+  };
+  const dirs = [];
+  for (const f of [...folders, ...known.map(k => k?.cwd)]) { const d = normDir(f); if (d && !hidden.has(d) && !dirs.includes(d)) dirs.push(d); }
+  dirs.splice(LIST_FOLDERS);
+  const client = new AcpClient({ cmd, args, env, cwd: cwd && fs.existsSync(cwd) ? cwd : undefined, name: 'reader' });
   try {
     await client.initialize(rt.clientCapabilities, rt.clientInfo);
-    const r = await client.listSessions();
+    const complete = new Set();
+    let next = 0;
+    const askFolders = async () => {
+      while (next < dirs.length) {
+        const d = dirs[next++], asks = [d];
+        try { const real = fs.realpathSync(d); if (real !== d) asks.push(real); } catch { }
+        // A folder that is gone is never complete: the program may file its sessions under another project now.
+        let all = fs.existsSync(d);
+        for (const c of asks) { try { if (!(await listPages(client, { cwd: c }, take)).complete) all = false; } catch { all = false; } }
+        if (all) complete.add(d);
+      }
+    };
+    // The reader's own {} fails the read when it fails (as before); a folder that fails only leaves its rows out.
+    await Promise.all([listPages(client, {}, take), ...Array.from({ length: Math.min(LIST_PARALLEL, dirs.length) }, askFolders)]);
+    for (const k of known) {
+      const sid = typeof k?.id === 'string' && k.id.startsWith(rt.prefix) ? k.id.slice(rt.prefix.length) : '', d = normDir(k?.cwd);
+      if (!rt.idRe.test(sid) || found.has(sid) || !d || hidden.has(d) || complete.has(d)) continue;
+      found.set(sid, { sessionId: sid, cwd: d, title: '', updatedAt: new Date(Number(k.at) || 0).toISOString() });
+    }
     // OpenCode names a session "New session - <iso time>" until it titles it; treat that as untitled. Ids of another
     // shape than this runtime mints are left out (they could not be opened again).
-    const rows = (r?.sessions || []).filter(s => rt.idRe.test(String(s.sessionId || '')) && (!hideCwd || s.cwd !== hideCwd)).sort((a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0)).slice(0, limit)
+    const rows = [...found.values()].sort(newestFirst).slice(0, limit)
       .map(s => { const t = rt.untitled?.test(s.title || '') ? '' : (s.title || ''); return { id: rt.prefix + s.sessionId, title: t || '(untitled conversation)', untitled: !t, cwd: s.cwd || null, mtimeMs: Date.parse(s.updatedAt) || 0, provider: rt.engine }; });
-    return rows;
+    return { rows, complete: [...complete] };
   } catch (e) { throw runtimeError(rt, e); } finally { client.close(); }
 }
+// List ACP sessions for the session picker (the rows of readAcpList).
+export async function listAcpSessions(opts = {}) { return (await readAcpList(opts)).rows; }
 
 // The cwd a session was created in, from session/list — session/load requires it (real OpenCode).
 async function sessionCwd(client, bareSessionId) {
@@ -784,7 +865,7 @@ export async function readAcpTranscript({ sessionId, cwd, cmd, args, env, runtim
   try {
     await client.initialize(rt.clientCapabilities, rt.clientInfo);
     const c = cwd || await sessionCwd(client, bare);
-    await client.loadSession({ sessionId: bare, cwd: c || '/', mcpServers: [] });
+    await client.loadSession({ sessionId: bare, cwd: c && !fs.existsSync(c) ? HOME : c || '/', mcpServers: [] }); // its folder may be gone, as in openAcpSession
     return events;
   } catch (e) { throw runtimeError(rt, e); } finally { client.close(); }
 }

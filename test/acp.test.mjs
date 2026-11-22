@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { AcpClient, messagesFromEvents, startAcpTurn, acpSessions, acpTurns, closeAcpSession, stopAcpTurn, permissionOutcomes, normalizeUpdate, isAcpId, bareAcpId, declineFor, listAcpSessions, readAcpTranscript, probeAcpEfforts } from '../acp.mjs';
+import { AcpClient, messagesFromEvents, startAcpTurn, acpSessions, acpTurns, closeAcpSession, stopAcpTurn, permissionOutcomes, normalizeUpdate, isAcpId, bareAcpId, declineFor, listAcpSessions, readAcpList, readAcpTranscript, probeAcpEfforts } from '../acp.mjs';
 
 const FAKE = path.join(import.meta.dirname, 'fake-acp.mjs');
 const mkStore = () => fs.mkdtempSync(path.join(os.tmpdir(), 'acp-store-'));
@@ -210,9 +210,45 @@ test('probeAcpEfforts maps each OpenRouter model to its effort levels; the probe
     'openrouter/anthropic/claude-sonnet-5.5': ['low', 'medium', 'high', 'xhigh', 'max'],
     'openrouter/meta-llama/llama-4-scout': [],
   }, 'openrouter models only, without "default"');
-  const all = await listAcpSessions({ env: baseEnv(store), cmd: process.execPath, args: [FAKE] });
-  const shown = await listAcpSessions({ env: baseEnv(store), cmd: process.execPath, args: [FAKE], hideCwd: probe });
+  const all = await listAcpSessions({ env: baseEnv(store), cmd: process.execPath, args: [FAKE], folders: [probe] });
+  const shown = await listAcpSessions({ env: baseEnv(store), cmd: process.execPath, args: [FAKE], folders: [probe], hideCwd: probe });
   assert.equal(all.filter(r => r.cwd === probe).length, 1); assert.equal(shown.filter(r => r.cwd === probe).length, 0);
+  // the next probe opens that session again instead of making another (OpenCode cannot delete one over ACP)
+  assert.deepEqual(await probeAcpEfforts({ cmd: process.execPath, args: [FAKE], env: baseEnv(store), cwd: probe }), map);
+  assert.equal((await listAcpSessions({ env: baseEnv(store), cmd: process.execPath, args: [FAKE], folders: [probe] })).filter(r => r.cwd === probe).length, 1, 'still one probe session');
+});
+
+// ---------- the list, read folder by folder (OpenCode answers per project and per folder, 100 at most) ----------
+const mkDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'acp-folder-'));
+const seed = (store, sid, cwd, updatedAt) => fs.writeFileSync(path.join(store, encodeURIComponent(sid) + '.json'), JSON.stringify({ updates: [], cwd, createdAt: updatedAt, updatedAt, title: 'Seeded ' + sid, titled: true }));
+const reader = (store, extra = {}, env = {}) => readAcpList({ env: { ...baseEnv(store), ...env }, cmd: process.execPath, args: [FAKE], limit: 200, ...extra });
+
+test('readAcpList: hidden rows never use up the answer or the limit, and each known folder is asked on its own', async () => {
+  const store = mkStore(), probe = mkDir(), one = mkDir(), two = mkDir(), now = Date.now();
+  for (let i = 0; i < 150; i++) seed(store, `ses_probe${i}`, probe, now + 10_000 + i); // newest of their project
+  seed(store, 'ses_one', one, now); seed(store, 'ses_two', two, now - 1000);
+  // {} from a folder of the same project: 100 probe sessions and nothing else, all hidden
+  const before = await reader(store, { cwd: os.tmpdir(), hideCwd: probe, limit: 2 });
+  assert.deepEqual(before.rows, [], 'the whole-project answer is all probes');
+  const r = await reader(store, { cwd: os.tmpdir(), hideCwd: probe, limit: 2, folders: [one, two, probe] });
+  assert.deepEqual(r.rows.map(x => x.id), ['acp:ses_one', 'acp:ses_two'], 'both folders, the probe folder never');
+  assert.deepEqual(r.rows.map(x => x.title), ['Seeded ses_one', 'Seeded ses_two']);
+  assert.deepEqual(r.complete.sort(), [one, two].sort(), 'each folder answered in full');
+});
+
+test('readAcpList follows nextCursor; a folder answered with 100 is not complete, and a known conversation it missed is listed', async () => {
+  const store = mkStore(), dir = mkDir(), now = Date.now();
+  for (let i = 0; i < 20; i++) seed(store, `ses_p${i}`, dir, now - i * 1000);
+  const paged = await reader(store, { folders: [dir] }, { FAKE_ACP_PAGE_SIZE: '7' });
+  assert.equal(paged.rows.length, 20, 'three pages of 7, 7 and 6'); assert.deepEqual(paged.complete, [dir]);
+  for (let i = 20; i < 130; i++) seed(store, `ses_p${i}`, dir, now + i * 1000); // 110 newer
+  const known = [{ id: 'acp:ses_p19', cwd: dir, at: now - 19_000 }, { id: 'acp:ses_gone', cwd: mkDir(), at: now }];
+  const full = await reader(store, { folders: [dir], known });
+  assert.equal(full.complete.includes(dir), false, 'an answer of 100 may have been cut');
+  const kept = full.rows.find(x => x.id === 'acp:ses_p19');
+  assert.ok(kept, 'the known conversation the answer missed'); assert.equal(kept.cwd, dir); assert.equal(kept.untitled, true); assert.equal(kept.mtimeMs, now - 19_000);
+  assert.ok(!full.rows.some(x => x.id === 'acp:ses_gone'), 'its folder answered in full without it: the program no longer has it');
+  assert.equal(full.rows.length, 101);
 });
 
 // ---------- 1.84.2: Full access, the cost line, and what the agent is doing ----------
