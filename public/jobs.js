@@ -3,8 +3,9 @@
    Here: the key list under Settings → Automation → Job keys, the New job key sheet, the key shown once (after Create and
    Rotate), a key's own sheet with Turn off / Turn on, Rotate key, Delete and Recent runs.
    Requests: an agent in a conversation the owner started proposes a key (pocket-jobkey). It waits under "Waiting for you"
-   above the list, with every field and the whole instruction, and Deny / Edit first / Allow. Allow is never focused for
-   the owner and Enter never allows. Allow writes the key to a file and the card says the file's path, never the key.
+   above the list, with every field and the whole instruction (no inner scroll: the card grows, so Allow is reached only
+   past the instruction's last line), and Deny / Edit first / Allow. Allow is never focused for the owner and Enter never
+   allows, on the card or in a field of Edit first. Allow writes the key to a file and the card says the file's path, never the key.
    Edit first opens the New job key form as "Edit before you allow". The push link #/settings/jobs/request/<id> opens the
    card (app.js's router calls openRequest); the count shows on the Automation entry and the group heading.
    Server contract: GET/POST /api/jobs/keys (with requests and answered), POST /api/jobs/keys/:id (and /enable,
@@ -78,7 +79,7 @@ const JobKeys = (() => {
         ${fact('Push when it finishes', f.pushWhenDone === false ? 'No' : 'Yes')}
       </dl>
       <p class="job-request-label" id="${hid}-i">Instruction</p>
-      <div class="job-request-instruction" tabindex="0" role="region" aria-labelledby="${hid}-i">${esc(f.instruction || '')}</div>
+      <div class="job-request-instruction" role="region" aria-labelledby="${hid}-i">${esc(f.instruction || '')}</div>
       <p class="vault-request-note">On Allow, Pocket makes this key and saves it to a file in <span class="vault-path">${esc(keyFolder())}</span>. The conversation gets the file’s path, not the key. From then on a script with that file can start this job without asking you.</p>
       <p class="vault-request-changed job-request-error" data-job-request-error role="alert"${err ? '' : ' hidden'}>${esc(err)}${err && r.error ? ' Allow again, or Edit first to change the name.' : ''}</p>
       <div class="approval-actions vault-request-actions job-request-actions"><button type="button" class="vault-answer vault-deny" data-jr-deny>Deny</button><button type="button" class="chip" data-jr-edit>Edit first</button><button type="button" class="vault-answer vault-allow" data-jr-allow>Allow</button></div>
@@ -415,7 +416,7 @@ const JobKeys = (() => {
       ${switchHTML('pushWhenDone', 'Push when a job finishes', 'The reply’s first line, on the devices that get check-backs and job results.', k ? k.pushWhenDone !== false : d.pushWhenDone !== false)}
       ${isNew ? saveLine : k.keyFile ? `<p class="vault-hint job-key-file">Key file: <span class="vault-path">${esc(short(k.keyFile))}</span></p>` : ''}
       <p class="vault-form-error" data-job-err="form" role="alert"></p>
-      ${pre ? `<div class="job-request-edit-actions"><button type="button" class="chip" data-jr-cancel>Cancel</button><button class="primary" type="submit">Allow with these changes</button></div>`
+      ${pre ? `<div class="job-request-edit-actions"><button type="button" class="chip" data-jr-cancel>Cancel</button><button type="button" class="primary" data-jr-allow-edit>Allow with these changes</button></div>`
         : `<button class="primary" type="submit">${isNew ? 'Create' : 'Save changes'}</button>`}
     </form>`;
   }
@@ -518,10 +519,15 @@ const JobKeys = (() => {
     form.model.onchange = paintEffort;
     paintEffort();
     form.querySelectorAll('input,textarea,select').forEach(el => el.addEventListener('input', () => el.removeAttribute('aria-invalid')));
-    form.onsubmit = async ev => {
-      ev.preventDefault(); clear();
-      const btn = form.querySelector('button[type=submit]');
-      if (req) {
+    // Edit before you allow: no key press in a field allows. The form has no submit button, and a submit that comes anyway
+    // (the Go key on a phone keyboard) is dropped; only a click or tap on Allow with these changes, or Enter/Space on that
+    // button once the owner has moved focus there, answers the request. The owner's own New job key sheet submits as usual.
+    if (req) {
+      form.onsubmit = ev => ev.preventDefault();
+      const btn = form.querySelector('[data-jr-allow-edit]');
+      btn.onclick = async () => {
+        if (btn.disabled) return;
+        clear();
         btn.disabled = true;
         const fields = requestChanges(sh, form, req);
         try {
@@ -533,8 +539,12 @@ const JobKeys = (() => {
           btn.disabled = false;
           showFieldError(sh, form, e);
         }
-        return;
-      }
+      };
+      return;
+    }
+    form.onsubmit = async ev => {
+      ev.preventDefault(); clear();
+      const btn = form.querySelector('button[type=submit]');
       const body = collect(sh, form, k);
       if (k && !Object.keys(body).length) { setStatus(sh, 'Nothing changed.'); return; }
       btn.disabled = true;

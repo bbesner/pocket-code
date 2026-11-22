@@ -3,8 +3,9 @@
 // owner sees it in Settings → Automation → Job keys under "Waiting for you" with every field and the whole instruction,
 // and answers it. Covered: switched off there is no card and no key list; the layout order (switch, Waiting for you, the
 // key list, Advanced closed) at 1440 and 390; the count on the Automation entry and the group heading, and it clearing;
-// the whole instruction, scrolling inside the card; Full access in the warning colour; Allow never focused for you and
-// Enter never allowing; the push link opening the card (and a gone id's line); the conversation's "Waiting for you" line
+// the whole instruction with no inner scroll (60 lines at 390 and 1440: nothing hidden in the block, a long token wraps,
+// Allow below its last line); a refresh with no change keeping the card's nodes; Full access in the warning colour; Allow
+// never focused for you and Enter never allowing, on the card or in any field of Edit first; the push link opening the card (and a gone id's line); the conversation's "Waiting for you" line
 // and row; a card appearing without a reload; Allow (the key file path, no key anywhere, the key in the list, "Open the
 // conversation"); Edit first (prefilled, Cancel back to the card, a name clash under the field, the server reporting the
 // instruction edited); Deny (no key made); a request answered elsewhere; Recently answered; and, after a restart with a
@@ -66,7 +67,10 @@ async function propose(conversation, fields) {
 }
 const agentRead = async (conversation, id) => (await call(`/jobs/agent/requests/${e(id)}`, undefined, agent(await tokenFor(conversation)))).body;
 
-const LONG = ['Read the disk report in the data.', '', ...Array.from({ length: 36 }, (_, i) => `${i + 1}. Check volume ${i + 1} and say whether it is over 80% full.`), '', 'Change nothing. Marker-end-of-instruction.'].join('\n');
+// 60 lines, one of them a 200-character token with no break in it, the last one a marker.
+const TOKEN = 'token-' + 'x'.repeat(194);
+const LONG = ['Read the disk report in the data.', '', ...Array.from({ length: 55 }, (_, i) => `${i + 1}. Check volume ${i + 1} and say whether it is over 80% full.`), TOKEN, '', 'Change nothing. Marker-end-of-instruction.'].join('\n');
+assert.equal(LONG.split('\n').length, 60);
 const SHORT = 'Summarise the nightly report in the data in five lines.\nDon’t change anything.';
 
 const browser = await puppeteer.launch({ executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/opt/google/chrome/chrome', headless: true, args: ['--no-sandbox'] });
@@ -155,12 +159,45 @@ try {
   assert.equal(await p.$eval('#auto-jobs-h [data-job-requests-badge]', x => x.textContent), '1', 'the group heading counts it');
   assert.equal(await p.$eval('[data-job-requests-count]', x => x.textContent), '1');
 
-  console.log('Job key requests: the card shows every field and the whole instruction, scrolling inside the card');
+  console.log('Job key requests: the card shows every field and the whole instruction, every line in the page, Allow after it');
   const view = (await call('/jobs/keys')).body.requests.find(r => r.id === reqA);
   assert.equal(await p.$eval(`${card(reqA)} .job-request-instruction`, x => x.textContent), LONG, 'the whole instruction, line breaks kept');
-  const box = await p.$eval(`${card(reqA)} .job-request-instruction`, x => { const cs = getComputedStyle(x); return { ws: cs.whiteSpace, overflow: cs.overflowY, scrolls: x.scrollHeight > x.clientHeight + 4, clamp: cs.webkitLineClamp, ellipsis: cs.textOverflow }; });
-  assert.deepEqual([box.ws, box.overflow, box.scrolls, box.ellipsis], ['pre-wrap', 'auto', true, 'clip'], 'a long instruction scrolls inside the card ' + JSON.stringify(box));
-  assert.ok(box.clamp === 'none' || box.clamp === '' || box.clamp == null, 'never clamped');
+  // Nothing hidden inside the block (no inner scroll, no sideways scroll, no clamp), the last line drawn inside it, and the
+  // note and the three answers below its bottom edge: the owner reaches Allow only past the last line.
+  const measure = () => p.$eval(card(reqA), c => {
+    const x = c.querySelector('.job-request-instruction'), cs = getComputedStyle(x), br = x.getBoundingClientRect();
+    const node = x.firstChild, at = node.textContent.indexOf('Marker-end-of-instruction'), range = document.createRange();
+    range.setStart(node, at); range.setEnd(node, at + 'Marker-end-of-instruction'.length);
+    const mr = range.getBoundingClientRect();
+    const t = node.textContent.indexOf('token-'), tr = document.createRange(); tr.setStart(node, t); tr.setEnd(node, t + 200);
+    const below = sel => c.querySelector(sel).getBoundingClientRect().top >= br.bottom;
+    return { ws: cs.whiteSpace, overflowY: cs.overflowY, maxHeight: cs.maxHeight, client: x.clientHeight, scroll: x.scrollHeight, sideways: x.scrollWidth > x.clientWidth + 1,
+      clamp: cs.webkitLineClamp, ellipsis: cs.textOverflow, lastLineInside: mr.height > 0 && mr.top >= br.top && mr.bottom <= br.bottom + 0.5,
+      tokenRows: tr.getClientRects().length, tokenInside: [...tr.getClientRects()].every(r => r.right <= br.right + 0.5),
+      noteBelow: below('.vault-request-note'), denyBelow: below('[data-jr-deny]'), editBelow: below('[data-jr-edit]'), allowBelow: below('[data-jr-allow]'), height: Math.round(br.height) };
+  });
+  for (const [w, set] of [['390', phone], ['1440', desk]]) {
+    await set(); await sleep(200);
+    const m = await measure();
+    assert.equal(m.ws, 'pre-wrap', w + ': line breaks kept');
+    assert.equal(m.maxHeight, 'none', w + ': no height cap ' + JSON.stringify(m));
+    assert.equal(m.client, m.scroll, w + ': nothing hidden inside the block ' + JSON.stringify(m));
+    assert.equal(m.sideways, false, w + ': no sideways scroll inside the block');
+    assert.ok(m.clamp === 'none' || m.clamp === '' || m.clamp == null, w + ': never clamped');
+    assert.equal(m.ellipsis, 'clip', w + ': never cut with an ellipsis');
+    assert.equal(m.lastLineInside, true, w + ': the last line is drawn inside the block ' + JSON.stringify(m));
+    assert.ok(m.tokenRows > 1 && m.tokenInside, w + ': the long token wraps inside the block ' + JSON.stringify(m));
+    assert.deepEqual([m.noteBelow, m.denyBelow, m.editBelow, m.allowBelow], [true, true, true, true], w + ': the note and the answers come after the block ' + JSON.stringify(m));
+    // The last line can be brought into view in the sheet (the page scrolls, not the block).
+    const seen = await p.$eval(card(reqA), c => {
+      const x = c.querySelector('.job-request-instruction'), node = x.firstChild, at = node.textContent.indexOf('Marker-end-of-instruction');
+      const range = document.createRange(); range.setStart(node, at); range.setEnd(node, at + 10);
+      x.closest('.sheet').scrollTop += range.getBoundingClientRect().bottom - innerHeight + 40;
+      const r = range.getBoundingClientRect(), a = c.querySelector('[data-jr-allow]').getBoundingClientRect();
+      return { inView: r.top >= 0 && r.bottom <= innerHeight, allowAfter: a.top > r.bottom };
+    });
+    assert.deepEqual(seen, { inView: true, allowAfter: true }, w + ': the last line scrolls into view in the sheet, Allow after it');
+  }
   const facts = await p.$$eval(`${card(reqA)} .job-request-facts > div`, x => x.map(d => [d.querySelector('dt').textContent, d.querySelector('dd').textContent]));
   assert.deepEqual(facts.map(f => f[0]), ['Folder', 'Agent', 'Model', 'Effort', 'Access', 'Limits', 'Its own instructions', 'Push when it finishes']);
   assert.deepEqual(Object.fromEntries(facts), {
@@ -177,9 +214,20 @@ try {
   assert.deepEqual(await p.$$eval(`${card(reqA)} .job-request-actions button`, x => x.map(b => b.textContent)), ['Deny', 'Edit first', 'Allow']);
   assert.notEqual(await p.evaluate(() => document.activeElement?.hasAttribute('data-jr-allow')), true, 'Allow is not focused for you');
   assert.equal(await p.$eval(`${card(reqA)} [data-jr-allow]`, x => x.type), 'button', 'not a submit button');
-  await p.$eval(`${card(reqA)} .job-request-instruction`, x => { x.scrollTop = 180; });
-  await elShot('request-long-instruction-1440-dark', card(reqA));
-  await p.$eval(`${card(reqA)} .job-request-instruction`, x => { x.scrollTop = 0; });
+  // The 60-line card at 390 and 1440: the sheet scrolled to the card's top, then to its bottom (the answers).
+  for (const [w, set] of [['390', phone], ['1440', desk]]) {
+    await set(); await sleep(200);
+    await p.$eval(card(reqA), c => c.scrollIntoView({ block: 'start' })); await sleep(150); await shot(`request-60-lines-${w}-top-dark`);
+    await p.$eval(card(reqA), c => c.scrollIntoView({ block: 'end' })); await sleep(150); await shot(`request-60-lines-${w}-bottom-dark`);
+  }
+  await desk();
+
+  console.log('Job key requests: a refresh that brings no change keeps the card, its buttons and the scroll position');
+  const marked = await p.$eval(card(reqA), c => { c.scrollIntoView({ block: 'end' }); const s = c.closest('.sheet'); window.__jrAllow = c.querySelector('[data-jr-allow]'); window.__jrCard = c; return s.scrollTop; });
+  await p.evaluate(() => JobKeys.load());
+  await sleep(5600); // and one real 5-second refresh
+  const after = await p.$eval(card(reqA), c => ({ sameAllow: c.querySelector('[data-jr-allow]') === window.__jrAllow, sameCard: c === window.__jrCard, top: c.closest('.sheet').scrollTop }));
+  assert.deepEqual(after, { sameAllow: true, sameCard: true, top: marked }, 'nothing repainted under a finger');
 
   console.log('Job key requests: the layout with a request waiting, at 1440 and 390');
   assertOrder(await order(), true, '1440');
@@ -192,7 +240,7 @@ try {
   await scan('group-request-waiting', '[data-auto-group="jobs"]');
 
   console.log('Job key requests: Enter never allows, not on the card and not on Allow itself');
-  for (const sel of [`${card(reqA)} h4`, `${card(reqA)} .job-request-instruction`, `${card(reqA)} [data-jr-allow]`]) {
+  for (const sel of [`${card(reqA)} h4`, `${card(reqA)} [data-jr-allow]`]) {
     await p.$eval(sel, x => x.focus());
     await p.keyboard.press('Enter');
   }
@@ -267,9 +315,11 @@ try {
   assert.equal(await p.$eval('.job-request-edit input[name="name"]', x => x.value), 'nightly-report');
   assert.equal(await p.$eval('.job-request-edit textarea[name="instruction"]', x => x.value), SHORT);
   assert.equal(await p.$eval('.job-request-edit input[name="workspace"]', x => x.value), cwd.replace(home, '~') === cwd ? cwd : await p.evaluate(c => projShort(c), cwd));
-  assert.equal(await p.$eval('.job-request-edit button[type="submit"]', x => x.textContent), 'Allow with these changes');
+  assert.equal(await p.$eval('.job-request-edit [data-jr-allow-edit]', x => x.textContent), 'Allow with these changes');
+  assert.equal(await p.$eval('.job-request-edit [data-jr-allow-edit]', x => x.type), 'button', 'not a submit button');
+  assert.equal(await p.$('.job-request-edit form button[type="submit"]'), null, 'the form has no submit button');
   assert.equal(await p.$('.job-request-edit [data-job-bool="save"]'), null, 'the key file is always written');
-  assert.notEqual(await p.evaluate(() => document.activeElement?.type), 'submit', 'Allow with these changes is not focused for you');
+  assert.notEqual(await p.evaluate(() => document.activeElement?.hasAttribute('data-jr-allow-edit')), true, 'Allow with these changes is not focused for you');
   await p.$eval('.job-request-edit', x => { x.scrollTop = 0; });
   await fourWays('edit-before-allow', () => p.$eval('.job-request-edit', x => { x.scrollTop = 0; }));
   await scan('edit-before-allow', '.job-request-edit');
@@ -280,14 +330,34 @@ try {
   console.log('Job key requests: a refused change shows under its field; then the edited Allow');
   await p.click(`${card(reqB)} [data-jr-edit]`); await p.waitForSelector('.job-request-edit form');
   const setValue = (sel, v) => p.$eval(sel, (x, v) => { x.focus(); x.value = v; x.dispatchEvent(new Event('input', { bubbles: true })); }, v);
+
+  console.log('Job key requests: in Edit first, Enter in a field never allows (Name, Folder, each limit; in the instruction it adds a line)');
+  await setValue('.job-request-edit input[name="name"]', 'renamed-check');
+  for (const sel of ['input[name="name"]', 'input[name="workspace"]', '[data-job-limit="perHour"]', '[data-job-limit="perDay"]', '[data-job-limit="atOnce"]']) {
+    await p.$eval('.job-request-edit ' + sel, x => { x.disabled = false; x.focus(); });
+    await p.keyboard.press('Enter');
+    await sleep(300);
+    assert.ok(await p.$('.job-request-edit form'), 'the sheet stays after Enter in ' + sel);
+  }
+  await p.$eval('.job-request-edit textarea[name="instruction"]', x => { x.focus(); x.setSelectionRange(x.value.length, x.value.length); });
+  await p.keyboard.press('Enter');
+  assert.equal(await p.$eval('.job-request-edit textarea[name="instruction"]', x => x.value), SHORT + '\n', 'Enter in the instruction adds a line');
+  // The Go key on a phone keyboard submits the form without a button: still nothing.
+  await p.$eval('.job-request-edit form', f => f.requestSubmit());
+  await sleep(1200);
+  assert.deepEqual(await pending(), [reqB], 'still waiting after Enter in every field');
+  assert.deepEqual(await keys(), ['disk-check'], 'no key was made by Enter');
+  assert.equal(fs.existsSync(path.join(keyFolder, 'renamed-check.key')), false);
+  await setValue('.job-request-edit textarea[name="instruction"]', SHORT);
+
   await setValue('.job-request-edit input[name="name"]', 'disk-check');
-  await p.click('.job-request-edit button[type="submit"]');
+  await p.click('.job-request-edit [data-jr-allow-edit]');
   await p.waitForFunction(() => document.querySelector('.job-request-edit [data-job-err="name"]')?.textContent);
   assert.equal(await p.$eval('.job-request-edit [data-job-err="name"]', x => x.textContent), 'There is already a job key named "disk-check".');
   assert.equal(await p.$eval('.job-request-edit input[name="name"]', x => x.getAttribute('aria-invalid')), 'true');
   await setValue('.job-request-edit input[name="name"]', 'nightly-report');
   await setValue('.job-request-edit textarea[name="instruction"]', 'Summarise the nightly report in the data in three lines.');
-  await p.click('.job-request-edit button[type="submit"]');
+  await p.click('.job-request-edit [data-jr-allow-edit]');
   await p.waitForSelector(`.settings-sheet ${outcome(reqB)}`);
   const fileB = path.join(keyFolder, 'nightly-report.key');
   assert.equal(await p.$eval(`${outcome(reqB)} [data-job-outcome-text]`, x => x.textContent), `Allowed. Key file: ${fileB} You changed: instruction.`);

@@ -2428,9 +2428,9 @@ a.job-run:hover { background: var(--raised); }
 .job-request-facts dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
 .job-request-full { color: var(--warn); font-weight: 650; }
 .job-request-label { margin: 0 0 4px; font-size: 14px; color: var(--dim); }
-.job-request-instruction { max-height: 14lh; overflow-y: auto; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text);
+/* Every line shows: no inner scroll, the card grows and the sheet scrolls, so Allow is reached only past the last line. */
+.job-request-instruction { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text);
   font-size: 15px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
-.job-request-instruction:focus-visible { outline: 2px solid var(--clay); outline-offset: 1px; }
 .job-request .vault-request-note { margin-top: 10px; }
 .job-request .job-request-error { margin: 10px 0 0; }
 .job-request .job-request-error[hidden] { display: none; }
