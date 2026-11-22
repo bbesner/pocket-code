@@ -6836,10 +6836,15 @@ function jobKeyFields(b, cur = null) {
     if (!w || !path.isAbsolute(w) || !fs.existsSync(w) || !fs.statSync(w).isDirectory()) throw jobFail('The workspace must be a folder on this server, like ~/projects/disk-check.', 'bad_workspace');
     out.workspace = path.resolve(w);
   }
+  // Checked before the model and effort, which follow the agent: a key that has run keeps its folder and agent.
+  if (cur?.lastRunAt && ((out.workspace && out.workspace !== cur.workspace) || (out.engine && out.engine !== cur.engine)))
+    throw jobFail('This key has run, so its folder and agent stay as they are. Create a new key for another folder or agent.', 'fixed_after_run', 409);
   if (has('model') || out.engine) {
     const m = has('model') ? (b.model == null || b.model === '' ? 'default' : b.model) : cur?.model || 'default';
     if (typeof m !== 'string' || m.length > 200) throw jobFail('Choose a model from the model menu.', 'bad_model');
     try { validateModel(engine, m); } catch (e) { throw jobFail(e.message, 'bad_model'); }
+    // A Claude start passes --model only for a model in the catalogue; anything else would be dropped without a word.
+    if (engine === 'claude' && m !== 'default' && !MODELS.has(m)) throw jobFail('Choose a Claude model from the model menu, like claude-sonnet-5-5.', 'bad_model');
     out.model = m;
   }
   if (has('effort') || out.engine) {
@@ -6878,8 +6883,6 @@ function jobKeyFields(b, cur = null) {
       out.limits[f] = r.value;
     }
   }
-  if (cur?.lastRunAt && ((out.workspace && out.workspace !== cur.workspace) || (out.engine && out.engine !== cur.engine)))
-    throw jobFail('This key has run, so its folder and agent stay as they are. Create a new key for another folder or agent.', 'fixed_after_run', 409);
   return out;
 }
 // A key file the owner asked for: `save: true` (the folder in the settings) or `folder`. Throws as writeKeyFile does.
