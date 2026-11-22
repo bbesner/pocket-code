@@ -6258,7 +6258,7 @@ function checkbackSetter(who) {
     if (child) return cbFail(409, 'one_more', `This check-back reply already set its one follow-up (at ${fmtCheckbackTime(Date.parse(child.dueAt))}). Cancel it first to change the time.`);
     return { turn, depth };
   }
-  const by = auto.originLabel(turn.origin, turn.originRef) || 'something other than the owner';
+  const by = auto.originLabel(turn.origin, shownOriginRef(turn)) || 'something other than the owner';
   return cbFail(403, 'not_owner_reply', `Only a reply the owner started can set a check-back. This one was started by: ${by}. ${offer}`);
 }
 
@@ -6706,6 +6706,8 @@ function jobFinished(id, turn, { outcome, cost, tokens }) {
     .then(devices => { if (devices != null) log(`job push sent (${devices} devices) run=${r.run}`); }).catch(e => log(`job push: ${e.message}`));
 }
 // The start: a new conversation on the key's engine, or the next reply in one this key started.
+// When the data came in, in the owner's zone, with the date: a run can be read long after it started.
+const jobReceivedAt = ms => { const o = { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }; try { return new Date(ms).toLocaleString('en-US', { ...o, timeZone: ownerZone() || undefined }); } catch { return new Date(ms).toLocaleString('en-US', o); } };
 async function startJobTurn(k, r, text, conversation) {
   const from = { origin: 'job', originRef: r.run, rootOrigin: 'job' };
   // The install's Full access switch wins: where it is off, the key runs under Ask me for every action (Review actions).
@@ -6772,7 +6774,7 @@ app.post('/api/jobs/run', jobCaller, async (req, res) => {
   const still = jobStore.key(k.id);
   if (!still || still.enabled === false || still.keyHash !== k.keyHash) { jobStore.dropRun(r.run); return res.status(401).json(JOB_BAD_KEY); } // deleted, disabled or rotated while the gate read
   if (!g.ok) { jobStore.dropRun(r.run); return refuse(409, g.reason === 'feature_off' ? 'jobs_off' : g.reason, jobGateText(g, k), { ...(g.until ? { until: new Date(g.until).toISOString() } : {}), ...(conversation ? { conversation } : {}) }); }
-  const text = jobMessage({ name: k.name, instruction: k.instruction, data, instructions, received: fmtOwnerWhen(Date.now()) });
+  const text = jobMessage({ name: k.name, instruction: k.instruction, data, instructions, received: jobReceivedAt(Date.now()) });
   let id;
   try { id = await startJobTurn(k, r, text, conversation); }
   catch (e) {

@@ -305,6 +305,11 @@ test('Limits per key: one at a time (busy), per hour, per day; data over the lim
   const hang = await s.job(secret, { data: 'stuck __HANG__' });
   assert.equal(hang.status, 202); assert.equal(hang.body.status, 'working');
   await s.until(() => s.claudeCalls().some(x => x.id === hang.body.conversation), 10000, 'the hanging reply to start');
+  // a job's reply can't set a check-back
+  assert.equal((await s.call('/automation/settings', { group: 'checkbacks', values: { checkbacks: true } })).status, 200);
+  const runner = s.claudeCalls().find(x => x.id === hang.body.conversation).runnerToken;
+  const cb = await s.call('/checkbacks/agent/add', { at: '+15m', note: 'look again' }, { authorization: 'Bearer ' + s.cliToken(), 'x-pocket-runner': runner });
+  assert.equal(cb.status, 403); assert.equal(cb.body.code, 'not_owner_reply'); assert.match(cb.body.error, /by job disk-check\./, "names the job, not its run id");
   const n = s.claudeCalls().length;
   const busy = await s.job(secret, { data: 'second' });
   assert.equal(busy.status, 409); assert.equal(busy.body.status, 'refused'); assert.equal(busy.body.reason, 'busy');
