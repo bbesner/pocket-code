@@ -66,7 +66,7 @@ import {renderIntake, intakeBrand, intakeThemeCSS, intakeWhen} from './intake-pa
 import { CliUpdates } from './cli-updates.mjs';
 import { parseEnv } from './env-file.mjs';
 import * as auto from './automation.mjs'; // 1.117: unattended work (`automation` is the titles helper above)
-import { JobKeyStore, NAME_RE as JOB_NAME_RE, KEY_RE as JOB_KEY_RE, RUN_RE as JOB_RUN_RE, ENGINES as JOB_ENGINES, jobTitle, jobMessage, keyView as jobKeyView, runView as jobRunView, writeKeyFile, removeKeyFile, isKeyFile, hashSecret as hashJobKey } from './job-keys.mjs';
+import { JobKeyStore, NAME_RE as JOB_NAME_RE, KEY_RE as JOB_KEY_RE, RUN_RE as JOB_RUN_RE, ENGINES as JOB_ENGINES, jobTitle, jobMessage, keyView as jobKeyView, runView as jobRunView, writeKeyFile, removeKeyFile, isKeyFile, hashSecret as hashJobKey, REQUEST_RE as JOB_REQUEST_RE, PROPOSAL as JOB_PROPOSAL, PROPOSAL_FIELDS as JOB_PROPOSAL_FIELDS } from './job-keys.mjs';
 import { CheckbackStore, checkbackInstructions, parseCheckbackWhen, rangeError as checkbackRangeError, checkbackMessage, firstLine as replyFirstLine, view as checkbackView, lateText } from './checkbacks.mjs'; // 1.119
 
 // ---------- config ----------
@@ -502,7 +502,9 @@ const checkbacksOn = () => checkbackSettings().checkbacks === true;
 // Settings → Automation → Job keys turns it on; off, every job call is refused and the keys are kept.
 const jobSettings = () => auto.groupValues(settings.automation, 'jobs');
 const jobsOn = () => jobSettings().jobs === true;
-const jobStore = new JobKeyStore(path.join(DATA_DIR, 'job-keys.json'), { keepMs: () => jobSettings().jobRepeatDays * 86400_000 });
+// A proposal (pocket-jobkey propose) waits this long for the owner's Allow; POCKET_JOB_REQUEST_TTL_MS shortens it (the tests).
+const jobStore = new JobKeyStore(path.join(DATA_DIR, 'job-keys.json'), { keepMs: () => jobSettings().jobRepeatDays * 86400_000, proposalTtlMs: msSetting('POCKET_JOB_REQUEST_TTL_MS', 24 * 3600_000) });
+const JOBKEY_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-jobkey.mjs');
 // May this engine's conversations use check-backs? OpenRouter never (the spec leaves it out; its route answers engine_unsupported).
 const checkbackEngineOn = engine => { const v = checkbackSettings(); return v.checkbacks === true && (engine === 'claude' ? v.checkbackClaude : engine === 'codex' ? v.checkbackCodex : false) === true; };
 // ---------- 1.69: inbox ----------
@@ -605,7 +607,7 @@ const trustedCommand = command => matchTrusted(trustedRules(), 'Bash', { command
 codex.setTrustedMatcher(trustedCommand);
 acp.setTrustedMatcher(trustedCommand);
 if (AGY_CFG?.dropped.length) log(`POCKET_AGY_ARGS: ignored ${AGY_CFG.dropped.join(' ')} (Pocket never passes ${AGY_CFG.dropped.length > 1 ? 'these flags' : 'this flag'} to agy)`);
-const syncAgentSkills = () => syncSkills({ settings: { ...settings, vault: vaultLive(), coordination: coordLive(), checkbacks: checkbacksOn() }, commands: { board: BOARD_CLI, docs: DOCS_CLI, tasks: TASKS_CLI, vault: VAULT_CLI, inbox: INBOX_CLI, coord: COORD_CLI, checkback: CHECKBACK_CLI }, log }); // 1.34: pocket-projects / pocket-files (1.36: pocket-tasks, 1.39: pocket-vault, 1.69: pocket-inbox) for every agent on the box
+const syncAgentSkills = () => syncSkills({ settings: { ...settings, vault: vaultLive(), coordination: coordLive(), checkbacks: checkbacksOn(), jobs: jobsOn() }, commands: { board: BOARD_CLI, docs: DOCS_CLI, tasks: TASKS_CLI, vault: VAULT_CLI, inbox: INBOX_CLI, coord: COORD_CLI, checkback: CHECKBACK_CLI, jobkey: JOBKEY_CLI }, log }); // 1.34: pocket-projects / pocket-files (1.36: pocket-tasks, 1.39: pocket-vault, 1.69: pocket-inbox) for every agent on the box
 syncAgentSkills();
 const CLI_TOKEN_FILE = path.join(DATA_DIR, 'cli-token');
 const cliToken = randomBytes(32).toString('hex');
@@ -2965,6 +2967,7 @@ app.get('/api/sessions', requireAuth, async (req, res) => {
     for (const s of sessions) Object.assign(s, lastOriginOf(s.id)); // 1.117: the newest turn was not the owner's
     const cbRows = checkbackRows(); // 1.119: the row's clock (how many check-backs wait, and the next one's time)
     for (const s of sessions) if (cbRows.has(s.id)) s.checkback = cbRows.get(s.id);
+    for (const s of sessions) Object.assign(s, jobRequestFor(s.id)); // a job key it proposed waits for the owner's Allow
     for (const s of sessions) delete s.prompt;
     // 1.19: the list rarely changes between 5 s polls. A matching If-None-Match gets 304 with the
     // check time in a header, which still counts as a fresh server confirmation for the client.
@@ -3035,7 +3038,7 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
       title: smeta[id]?.name || (row && !row.untitled ? row.title : '') || turn?.userText?.slice(0, 120) || messages.find(m => m.role === 'user')?.text.slice(0, 120) || 'New conversation',
       cwd, state: stateFor({ id, mtimeMs: row?.mtimeMs || 0 }), active: Boolean(turn),
       turnEvents: turn ? 1 : null, // the history above ends with this reply's message; its stream replays from the event after it
-      muted: mutes.has(id), pinned: isPinned(id), repo: await conversationRepo(id, cwd), messages, total: messages.length, ...lineage(id), ...lastOriginOf(id), ...checkbacksFor(id), projectMode: null, // neither ACP runtime has Project mode
+      muted: mutes.has(id), pinned: isPinned(id), repo: await conversationRepo(id, cwd), messages, total: messages.length, ...lineage(id), ...lastOriginOf(id), ...checkbacksFor(id), ...jobRequestFor(id), projectMode: null, // neither ACP runtime has Project mode
     });
   }
   if (isCx(req.params.id)) {
@@ -3058,7 +3061,7 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
       executionMode:turn?.executionMode,active: Boolean(turn), ext: codex.codexExtActive(tid), turnEvents: turn?.events.length ?? null,
       locked: !turn && !codex.codexSessions.has(tid) && codex.threadLocked(tid), // Pocket's own open session holds the lock too
       muted: mutes.has(req.params.id), pinned: isPinned(req.params.id), repo: await conversationRepo(req.params.id, meta?.cwd || turn?.cwd),
-      messages, total, ...lineage(req.params.id), ...lastOriginOf(req.params.id), ...checkbacksFor(req.params.id), projectMode: projectModeView(req.params.id),
+      messages, total, ...lineage(req.params.id), ...lastOriginOf(req.params.id), ...checkbacksFor(req.params.id), ...jobRequestFor(req.params.id), projectMode: projectModeView(req.params.id),
     });
   }
   const file = await findSessionFile(req.params.id);
@@ -3067,7 +3070,7 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
     if (turn) { // brand-new session: transcript file not written yet
       return res.json({
         id: req.params.id, title: titleOf(req.params.id) || turn.userText?.slice(0, 120) || 'New conversation', cwd: turn.cwd, repo: isGitWorkspace(turn.cwd),
-        state: stateFor({ id: req.params.id }), active: true, messages: turn.userText ? [{ role: 'user', text: turn.userText }] : [], ...lineage(req.params.id), ...lastOriginOf(req.params.id), ...checkbacksFor(req.params.id), projectMode: projectModeView(req.params.id),
+        state: stateFor({ id: req.params.id }), active: true, messages: turn.userText ? [{ role: 'user', text: turn.userText }] : [], ...lineage(req.params.id), ...lastOriginOf(req.params.id), ...checkbacksFor(req.params.id), ...jobRequestFor(req.params.id), projectMode: projectModeView(req.params.id),
       });
     }
     return res.status(404).json({ error: 'not found' });
@@ -3077,7 +3080,7 @@ app.get('/api/session/:id', requireAuth, async (req, res) => {
   const messages = withPendingUser(msgs, turns.get(req.params.id));
   // turnEvents: what the live stream has already broadcast for the running turn. The
   // transcript above covers it, so a fresh stream connection asks to start after it.
-  sendJson(req, res, { ...finishTitle(meta), state: stateFor({ ...meta, id: req.params.id }), active: turns.has(req.params.id), ext: extActive(req.params.id), muted: mutes.has(req.params.id), pinned: isPinned(req.params.id), repo: await conversationRepo(req.params.id, meta.cwd), messages, total, turnEvents: turns.get(req.params.id)?.events.length ?? null, ...lineage(req.params.id), ...lastOriginOf(req.params.id), ...checkbacksFor(req.params.id), projectMode: projectModeView(req.params.id) });
+  sendJson(req, res, { ...finishTitle(meta), state: stateFor({ ...meta, id: req.params.id }), active: turns.has(req.params.id), ext: extActive(req.params.id), muted: mutes.has(req.params.id), pinned: isPinned(req.params.id), repo: await conversationRepo(req.params.id, meta.cwd), messages, total, turnEvents: turns.get(req.params.id)?.events.length ?? null, ...lineage(req.params.id), ...lastOriginOf(req.params.id), ...checkbacksFor(req.params.id), ...jobRequestFor(req.params.id), projectMode: projectModeView(req.params.id) });
 });
 
 // Extract references from assistant messages on demand; no second document store.
@@ -6174,6 +6177,7 @@ app.post('/api/automation/settings', requireAuth, ownerControl, (req, res) => {
     syncAgentSkills();
     if (engineSwitches() !== before) restartIdleRunners('check-backs changed');
   }
+  if (req.body.group === 'jobs') syncAgentSkills(); // the pocket-jobs skill follows the Job keys switch
   if (req.body.group === 'checkbacks' || released) setImmediate(() => checkbackPass().catch(e => log(`check-backs: ${e.message}`)));
   autoAudit({ action: 'settings', group: req.body.group, ...(req.body.reset === true ? { reset: true } : { keys: Object.keys(req.body.values) }) });
   res.json(automationView());
@@ -6380,6 +6384,7 @@ let checkbackPassing = false;
 async function checkbackPass() {
   if (checkbackPassing) return;
   checkbackPassing = true;
+  try { expireJobRequests(); } catch (e) { log(`job key requests: ${e.message}`); } // the same pass marks job key proposals past their time expired
   try { await runDueCheckbacks(); } finally { checkbackPassing = false; }
 }
 // A usage-limit retry waiting for its reset (or held by Pause all) is the owner's work in progress: a check-back starting would
@@ -6664,6 +6669,7 @@ function jobNeedsYou(id) {
   if (t && (t.approvals?.list().length || t.questions?.list().length || t.approvalUnavailable || t.inputUnavailable)) return true;
   try { if (docs.pendingRequests().some(r => r.session === id)) return true; } catch { }
   try { if (vault && vault.pendingFor(id).length) return true; } catch { }
+  if (jobRequestOf(id)) return true; // a job key it proposed waits for the owner's Allow
   return false;
 }
 // A run found working when Pocket started, once nothing carries it on (no reply, no usage-limit retry), ended with the restart.
@@ -6916,8 +6922,11 @@ function jobKeyFields(b, cur = null) {
 const wantsKeyFile = b => b?.save === true || (typeof b?.folder === 'string' && b.folder.trim() !== '');
 const keyFileFolder = b => typeof b?.folder === 'string' && b.folder.trim() ? b.folder.trim() : jobSettings().jobKeyFolder;
 const changedFields = (cur, next) => Object.keys(next).filter(f => JSON.stringify(cur[f]) !== JSON.stringify(next[f]));
+// requests: the proposals waiting for the owner, each with everything the key would be (the whole instruction); answered:
+// the newest answered or expired ones (kept 7 days).
 app.get('/api/jobs/keys', requireAuth, jobsGate, (_req, res) => {
-  res.json({ keys: jobStore.keys.map(jobKeyOut), defaults: jobDefaults() });
+  expireJobRequests();
+  res.json({ keys: jobStore.keys.map(jobKeyOut), defaults: jobDefaults(), requests: jobStore.pendingProposals().map(jobRequestView), answered: jobAnsweredRequests() });
 });
 // Create: the key is in this answer and nowhere else, ever. With a key file asked for, a file that can't be written leaves
 // nothing created.
@@ -6978,8 +6987,187 @@ app.get('/api/jobs/keys/:id/runs', requireAuth, jobsGate, (req, res) => {
   // A working run that waits on the owner reads needs_you here as it does to the job (Recent runs shows Needs you).
   res.json({ runs: jobStore.runsFor(cur.id).slice(0, 100).map(r => { const v = jobRunView(jobSettle(r)); if ((v.status === 'working' || v.status === 'starting') && jobNeedsYou(v.conversation)) v.status = 'needs_you'; return v; }) });
 });
+// ---------- a conversation proposes a job key; the owner allows or denies it ----------
+// The agent in a reply the owner started (the check-backs' rule, checkbackSetter) proposes a key with pocket-jobkey: the
+// same fields and checks as the owner's New job key, minus the key file's folder (always the Job keys folder setting). The
+// owner gets a push (the Vault requests kind, no Allow or Deny on it: the whole instruction can't be read there, and an
+// allowed key runs unattended from then on) and answers in Settings → Automation → Job keys, where the whole instruction is
+// shown, optionally after editing the fields. Allow makes the key and writes it to its key file, or, when the file can't be
+// written, makes nothing and leaves the request waiting with the error. The agent gets the key file's path, never the key,
+// and can't read, list, change or answer anything else. There is no setting that allows a proposal by itself.
+const JOB_REQUEST_WAIT_MAX = 300; // seconds an agent's propose or wait may hold the call open
+// The words for who started a reply that may not propose (the check-back refusal's labels, said as a sentence).
+const JOB_STARTED_BY = { queue: 'the queue (a queued message)', retry: 'a retry after a usage limit', coordination: 'a coordination wake (a hold it waited for was released)', checkback: 'a check-back' };
+const JOB_ASK_OWNER = 'Tell the user what you would propose; a message of their own can ask for it, or they can make the key in Settings → Automation → Job keys.';
+// Who is calling an agent route: the CLI token plus a runner token Pocket gave a conversation (as check-backs, checkbackCaller).
+function jobProposer(req) {
+  if (req.boardActor !== 'cli') return cbFail(403, 'agent_only', 'A job key is proposed by the agent in a conversation, with pocket-jobkey. The owner makes or allows one in Settings → Automation → Job keys.');
+  const token = String(req.get('x-pocket-runner') || '');
+  const none = cbFail(403, 'no_runner', 'pocket-jobkey works only inside a Pocket conversation, and this command is not running in one (no runner token: a terminal or code-server). The owner can make the key in Settings → Automation → Job keys.');
+  if (!token) return none;
+  for (const r of runners.values()) if (sameToken(r.runnerToken, token) && !r.exited) return { sessionId: r.sessionId, engine: 'claude', runner: r };
+  const cx = CODEX_ON ? codex.sessionForRunnerToken(token) : null;
+  if (cx?.threadId) return { sessionId: codex.CX + cx.threadId, engine: 'codex' };
+  const other = ACP_ON || AGY_ON ? acp.sessionForRunnerToken(token) : null;
+  if (other) return cbFail(400, 'engine_unsupported', `${ENGINES[other.runtime.engine].label} conversations can't propose a job key. ${JOB_ASK_OWNER}`);
+  return none;
+}
+// May the reply running now propose one? Only a reply the owner started: never one started by a job, a check-back, the queue,
+// a retry, a coordination wake or the agent itself. Fixed, not a setting.
+function jobProposerTurn(who) {
+  const turn = ownedTurn(who.sessionId);
+  if (!turn || turn.finalized || (who.runner && turn.runner !== who.runner))
+    return cbFail(409, 'no_reply', 'No reply is running in this conversation, so there is no request from the owner to act on. Propose a job key from inside the reply where the owner asked for it.');
+  if (turn.autonomous || turn.controlOnly) return cbFail(403, 'not_owner_reply', `Only a reply the owner started can propose a job key. This reply was started by the agent itself (after a background job), not by the owner. ${JOB_ASK_OWNER}`);
+  if (turn.origin === 'owner' && auto.normRoot(turn.rootOrigin) === 'owner') return { turn };
+  const by = turn.origin === 'job' ? `job ${shownOriginRef(turn)}` : JOB_STARTED_BY[turn.origin] || 'something other than the owner';
+  return cbFail(403, 'not_owner_reply', `Only a reply the owner started can propose a job key. This reply was started by ${by}. ${JOB_ASK_OWNER}`);
+}
+// One audit line: field names only, never the instruction or any value, never a key.
+const jobReqAudit = (event, p, extra = {}) => autoAudit({ action: 'job', event, request: p.id, session: p.session, name: p.fields?.name, fields: Object.keys(p.fields || {}), ...extra });
+const jobRequestLive = (p, now = Date.now()) => p.status === 'pending' && Date.parse(p.expiresAt) > now;
+// The pending proposal of this conversation (one at most), or null.
+function jobRequestOf(id) { if (!id) return null; const now = Date.now(); return jobStore.pendingProposals().find(p => p.session === id && jobRequestLive(p, now)) || null; }
+// What the conversation's row and view carry while one waits: the app shows the conversation waiting on the owner.
+function jobRequestFor(id) {
+  if (!jobsOn()) return {};
+  const p = jobRequestOf(id);
+  return p ? { jobKeyRequest: { id: p.id, name: p.fields.name, proposedAt: p.proposedAt, expiresAt: p.expiresAt } } : {};
+}
+// Pending proposals past their time become expired, each audited once. The check-back pass calls it, and so does every read.
+function expireJobRequests() {
+  const gone = jobStore.expireProposals();
+  for (const p of gone) { jobReqAudit('proposal_expired', p); log(`job key request expired request=${p.id} session=${p.session}`); }
+  return gone.length;
+}
+const jobRequestTitle = p => smeta[p.session]?.name || titleOf(p.session) || p.sessionTitle || '';
+// The owner's view of one waiting: everything the key would be, the whole instruction included.
+const jobRequestView = p => ({ id: p.id, session: p.session, sessionTitle: jobRequestTitle(p), proposedAt: p.proposedAt, expiresAt: p.expiresAt, fields: structuredClone(p.fields), ...(p.error ? { error: p.error } : {}) });
+// Newest answer first; times are to the second, so a tie goes to the later proposal.
+const jobAnsweredRequests = () => jobStore.proposals.map((p, i) => [p, i]).filter(([p]) => p.status !== 'pending')
+  .sort(([a, ia], [b, ib]) => (Date.parse(b.answeredAt || b.expiresAt) - Date.parse(a.answeredAt || a.expiresAt)) || ib - ia).slice(0, 20)
+  .map(([p]) => ({ id: p.id, session: p.session, sessionTitle: jobRequestTitle(p), name: p.fields.name, status: p.status, proposedAt: p.proposedAt, answeredAt: p.answeredAt, ...(p.keyId ? { keyId: p.keyId } : {}), ...(p.edited?.length ? { edited: p.edited } : {}) }));
+// The agent's view: the status; once allowed, the key's id and name and its key file's path (never the key).
+function jobRequestAnswer(p) {
+  const out = { status: p.status, request: p.id };
+  if (p.status === 'pending') return { ...out, expiresAt: p.expiresAt };
+  if (p.status === 'allowed') return { ...out, key: { id: p.keyId, name: p.keyName }, file: p.keyFile, ...(p.edited?.length ? { edited: true, changed: [...p.edited] } : {}) };
+  if (p.status === 'denied') return { ...out, reason: 'The owner denied it. No key was made.' };
+  return { ...out, reason: 'Nobody answered in time, so it expired. No key was made.' };
+}
+// Answers now, or once the owner answers (or it expires), or when `waitS` runs out, whichever is first.
+async function answerJobRequest(res, id, waitS, status = null) {
+  let gone = false; res.on('close', () => { gone = true; });
+  const until = Date.now() + waitS * 1000;
+  let p;
+  for (;;) {
+    expireJobRequests();
+    p = jobStore.proposal(id);
+    if (!p || p.status !== 'pending' || Date.now() >= until || gone) break;
+    await new Promise(resolve => setTimeout(resolve, Math.min(250, Math.max(10, until - Date.now()))));
+  }
+  if (gone) return;
+  if (!p) return res.status(404).json({ error: 'This conversation has no job key request with that id.', code: 'not_found' });
+  res.status(status || (p.status === 'pending' ? 202 : 200)).json(jobRequestAnswer(p));
+}
+const jobWaitSeconds = raw => { const w = Number(raw); return Number.isFinite(w) && w > 0 ? Math.min(w, JOB_REQUEST_WAIT_MAX) : 0; };
+app.post('/api/jobs/agent/propose', requireBoardAuth, jobsGate, async (req, res) => {
+  const who = jobProposer(req); if (who.error) return cbRefuse(res, who);
+  const b = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+  const sent = Object.keys(b).filter(f => JOB_PROPOSAL_FIELDS.includes(f));
+  const refuse = f => {
+    autoAudit({ action: 'job', event: 'proposal_refused', session: who.sessionId, reason: f.code, ...(typeof b.name === 'string' && JOB_NAME_RE.test(b.name.trim()) ? { name: b.name.trim() } : {}), fields: sent });
+    log(`job key proposal refused (${f.code}) session=${who.sessionId}`);
+    return cbRefuse(res, f);
+  };
+  const set = jobProposerTurn(who); if (set.error) return refuse(set);
+  const unknown = Object.keys(b).filter(f => !JOB_PROPOSAL_FIELDS.includes(f) && f !== 'wait');
+  if (unknown.length) return refuse(cbFail(400, 'bad_field', `A proposal takes only ${JOB_PROPOSAL_FIELDS.join(', ')}; not ${unknown.join(', ')}. It can't name a key file, an existing key or anything else.`));
+  if (b.wait != null && (typeof b.wait !== 'number' || !Number.isFinite(b.wait) || b.wait < 0)) return refuse(cbFail(400, 'bad_request', `wait is a number of seconds, 0 to ${JOB_REQUEST_WAIT_MAX}.`));
+  // the waiting limits, checked again after the await below
+  const overLimit = () => {
+    expireJobRequests();
+    const pending = jobStore.pendingProposals(), mine = pending.find(p => p.session === who.sessionId);
+    if (mine && pending.filter(p => p.session === who.sessionId).length >= JOB_PROPOSAL.perConversation) return cbFail(409, 'conversation_limit', `This conversation already has a job key proposal waiting for the owner (${mine.id}, "${mine.fields.name}"). Wait for the answer: pocket-jobkey wait ${mine.id}.`);
+    if (pending.length >= JOB_PROPOSAL.perInstall) return cbFail(409, 'install_limit', `This Pocket already has ${pending.length} job key proposals waiting for the owner, the most it may have. Tell the user.`);
+    return null;
+  };
+  const full = overLimit(); if (full) return refuse(full);
+  // Missing agent or folder: this conversation's own.
+  const body = Object.fromEntries(sent.map(f => [f, b[f]]));
+  if (body.engine == null || body.engine === '') body.engine = who.engine;
+  if (body.workspace == null || body.workspace === '') body.workspace = await engineOf(who.sessionId).cwd(who.sessionId).catch(() => null) || '';
+  let fields;
+  try { fields = jobKeyFields(body); } catch (e) { if (!e?.status) throw e; return refuse(cbFail(e.status, e.code || 'bad_request', e.message)); }
+  delete fields.enabled; // a key made from a proposal starts on
+  const title = await checkbackTitle(who.sessionId).catch(() => '');
+  // re-checked after the awaits: the reply may have ended, or the limits filled, or the name been taken, meanwhile
+  if (ownedTurn(who.sessionId) !== set.turn) return refuse(cbFail(409, 'no_reply', 'The reply ended before the proposal was saved. Propose it from inside a reply the owner started.'));
+  const filled = overLimit(); if (filled) return refuse(filled);
+  if (jobStore.byName(fields.name)) return refuse(cbFail(409, 'name_taken', `There is already a job key named "${fields.name}". Choose another name.`));
+  if (jobStore.pendingProposals().some(p => p.fields.name === fields.name)) return refuse(cbFail(409, 'name_taken', `A proposal for a job key named "${fields.name}" is already waiting for the owner. Choose another name.`));
+  const p = jobStore.addProposal({ session: who.sessionId, sessionTitle: title, fields });
+  jobReqAudit('proposed', p, { engine: p.fields.engine, access: p.fields.access });
+  log(`job key proposed request=${p.id} session=${who.sessionId} name=${p.fields.name} engine=${p.fields.engine} access=${p.fields.access}`);
+  // No actions on the push: the owner reads the whole instruction in Settings before the key can exist.
+  pushRaw('Allow a job key?', `${title || 'A conversation'} asks for a job key: ${p.fields.name}. Open it to read what the job will be told before you answer.`, { tag: 'jobkey:' + p.id, url: '/#/settings/jobs/request/' + p.id, kind: 'vault' })
+    .then(devices => { if (devices != null) log(`job key request push sent (${devices} devices) request=${p.id}`); }).catch(e => log(`job key request push: ${e.message}`));
+  return answerJobRequest(res, p.id, jobWaitSeconds(b.wait));
+});
+// Only the conversation that proposed it. ?wait=N (seconds, up to 300) waits for the owner's answer.
+app.get('/api/jobs/agent/requests/:id', requireBoardAuth, jobsGate, (req, res) => {
+  const who = jobProposer(req); if (who.error) return cbRefuse(res, who);
+  expireJobRequests();
+  const p = jobStore.proposal(String(req.params.id));
+  if (!p || p.session !== who.sessionId) return res.status(404).json({ error: 'This conversation has no job key request with that id.', code: 'not_found' });
+  return answerJobRequest(res, p.id, jobWaitSeconds(req.query.wait));
+});
+// The owner's answer (the cookie only, from Pocket's own page). `fields`: the proposal as the owner edited it in the form.
+app.post('/api/jobs/requests/:id/answer', requireAuth, ownerControl, jobsGate, (req, res) => {
+  const b = req.body || {}, answer = b.answer;
+  if (answer !== 'allow' && answer !== 'deny') return res.status(400).json({ error: 'answer is \'allow\' or \'deny\'.', code: 'bad_answer' });
+  expireJobRequests();
+  const p = jobStore.proposal(String(req.params.id));
+  if (!p) return res.status(404).json({ error: 'That request is gone. Refresh.', code: 'not_found' });
+  if (p.status !== 'pending') return res.status(409).json({ error: { allowed: 'That request was already allowed.', denied: 'That request was already denied.', expired: 'That request expired before it was answered. Ask the agent to propose it again.' }[p.status], code: 'request_' + p.status });
+  const at = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+  if (answer === 'deny') {
+    const d = jobStore.updateProposal(p.id, { status: 'denied', answeredAt: at, error: undefined });
+    jobReqAudit('proposal_denied', d);
+    log(`job key request denied request=${p.id} session=${p.session}`);
+    return res.json({ ok: true, request: jobRequestView(d), status: 'denied' });
+  }
+  let edits = null;
+  if (b.fields != null) {
+    if (typeof b.fields !== 'object' || Array.isArray(b.fields)) return res.status(400).json({ error: 'fields is the proposal\'s fields, as the form edited them.', code: 'bad_request' });
+    const unknown = Object.keys(b.fields).filter(f => !JOB_PROPOSAL_FIELDS.includes(f));
+    if (unknown.length) return res.status(400).json({ error: `Unknown field ${unknown.join(', ')}. A proposal has ${JOB_PROPOSAL_FIELDS.join(', ')}.`, code: 'bad_field' });
+    edits = b.fields;
+  }
+  // Checked again as the owner's own create is: the folder, the agent, the model, Full access may have changed since.
+  let fields;
+  try { fields = jobKeyFields({ ...p.fields, ...(edits || {}) }); } catch (e) { return jobErr(res, e); }
+  const changed = edits ? JOB_PROPOSAL_FIELDS.filter(f => JSON.stringify(p.fields[f] ?? null) !== JSON.stringify(fields[f] ?? null)) : [];
+  let made; try { made = jobStore.addKey({ ...fields, enabled: true }); } catch (e) { return jobErr(res, e); }
+  let file;
+  try { file = writeKeyFile(jobSettings().jobKeyFolder, made.key.name, made.secret, { home: HOME }); }
+  catch (e) {
+    jobStore.deleteKey(made.key.id);
+    const error = { error: e.status ? e.message : `The key file could not be written: ${e.code || e.message}. Nothing was created.`, code: e.status && e.code ? e.code : 'file_error' };
+    const kept = jobStore.updateProposal(p.id, { error: { ...error, at } });
+    log(`job key request=${p.id} allow failed, the key file was not written (${error.code})`);
+    return res.status(e.status || 500).json({ ...error, request: jobRequestView(kept) });
+  }
+  const key = jobStore.updateKey(made.key.id, { keyFile: file });
+  const done = jobStore.updateProposal(p.id, { status: 'allowed', answeredAt: at, keyId: key.id, keyName: key.name, keyFile: file, ...(changed.length ? { edited: changed } : {}), error: undefined });
+  jobAudit('created', key, { fields: Object.keys(fields), keyFile: true, request: p.id });
+  jobReqAudit('proposal_allowed', done, { keyId: key.id, ...(changed.length ? { edited: changed } : {}) });
+  log(`job key request allowed request=${p.id} key=${key.id} name=${key.name}${changed.length ? ` edited=${changed.join(',')}` : ''}`);
+  res.json({ ok: true, status: 'allowed', request: jobRequestView(done), key: jobKeyOut(key), file, ...(changed.length ? { edited: changed } : {}) });
+});
+
 // What Settings → Automation and Pause all say about jobs.
-const jobSummary = () => { const now = Date.now(); return { on: jobsOn(), keys: jobStore.keys.length, enabled: jobStore.keys.filter(k => k.enabled !== false).length, running: jobStore.active().length, runsDay: jobStore.runs.filter(r => r.outcome !== 'not_started' && now - Date.parse(r.startedAt) < 86400_000).length }; };
+const jobSummary = () => { const now = Date.now(); return { on: jobsOn(), keys: jobStore.keys.length, enabled: jobStore.keys.filter(k => k.enabled !== false).length, running: jobStore.active().length, runsDay: jobStore.runs.filter(r => r.outcome !== 'not_started' && now - Date.parse(r.startedAt) < 86400_000).length, requests: jobsOn() ? jobStore.pendingProposals().filter(p => Date.parse(p.expiresAt) > now).length : 0 }; };
 app.get('/api/claude/login',requireAuth,(_req,res)=>{
   res.setHeader('Cache-Control','private, no-store');
   res.json(claudeLogin.snapshot());

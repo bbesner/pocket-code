@@ -25,6 +25,14 @@ export const ACTIVE = new Set(['starting', 'working']);
 export const ENGINES = ['claude', 'codex', 'acp'];
 // Finished runs are kept at least a day (the per-day limit counts them) and at most this many.
 export const KEEP = { minMs: 86400_000, runs: 5000, conversations: 200 };
+// A proposal (an agent in a reply the owner started asks for a key; the owner allows or denies it in Settings):
+// { id, session, sessionTitle, proposedAt, expiresAt, fields { PROPOSAL_FIELDS }, status, answeredAt, keyId?, keyName?,
+//   keyFile?, edited? (the names of the fields the owner changed), error? (the last Allow that could not write the key file) }.
+// It expires after ttlMs unanswered; answered and expired ones are kept keepMs, then pruned at the next write.
+export const REQUEST_RE = /^jp-[0-9a-f]{8}$/;
+export const PROPOSAL = { ttlMs: 24 * 3600_000, keepMs: 7 * 86400_000, perInstall: 5, perConversation: 1 };
+export const PROPOSAL_FIELDS = ['name', 'workspace', 'engine', 'model', 'effort', 'access', 'instruction', 'mayAddInstructions', 'limits', 'pushWhenDone'];
+const PROPOSAL_STATUSES = ['pending', 'allowed', 'denied', 'expired'];
 const fail = (message, status = 400, code = undefined) => Object.assign(new Error(message), { status, ...(code ? { code } : {}) });
 const iso = ms => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 const hex = n => randomBytes(n).toString('hex');
@@ -110,14 +118,18 @@ export function removeKeyFile(file, keyHash) {
 // ---------- the store ----------
 export class JobKeyStore {
   // keepMs(): how long finished runs are kept (the repeat window); at least a day.
-  constructor(file, { now, keepMs } = {}) {
+  // proposalTtlMs: how long a proposal waits for the owner (24 hours; a test shortens it).
+  constructor(file, { now, keepMs, proposalTtlMs } = {}) {
     this.file = file;
     this.now = now || Date.now;
     this.keepMs = keepMs || (() => 7 * 86400_000);
+    this.proposalTtlMs = Number(proposalTtlMs) > 0 ? Number(proposalTtlMs) : PROPOSAL.ttlMs;
     let d = {};
     try { d = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { }
     this.keys = Array.isArray(d.keys) ? d.keys.filter(k => k && KEY_ID_RE.test(k.id) && NAME_RE.test(k.name) && /^[0-9a-f]{64}$/.test(k.keyHash || '')) : [];
     this.runs = Array.isArray(d.runs) ? d.runs.filter(r => r && RUN_RE.test(r.run) && typeof r.keyId === 'string') : [];
+    this.proposals = Array.isArray(d.proposals) ? d.proposals.filter(p => p && REQUEST_RE.test(p.id) && typeof p.session === 'string' && p.fields && typeof p.fields === 'object'
+      && PROPOSAL_STATUSES.includes(p.status) && !Number.isNaN(Date.parse(p.expiresAt))) : [];
     // A run left starting by a crash never started (the start happens after the reservation is saved and is settled at once).
     if (this.runs.some(r => r.status === 'starting')) this.commit(this.keys, this.runs.map(r => r.status === 'starting' ? { ...r, status: 'failed', outcome: 'not_started', endedAt: iso(this.now()) } : r));
   }
@@ -128,14 +140,16 @@ export class JobKeyStore {
     fs.renameSync(tmp, this.file);
   }
   // A change is computed on copies, written, and installed only once the file holds it; a failed write changes nothing.
-  commit(keys, runs) {
+  commit(keys, runs, proposals = this.proposals) {
     const now = this.now(), keep = Math.max(KEEP.minMs, Number(this.keepMs()) || 0), ids = new Set(keys.map(k => k.id));
     const finished = runs.filter(r => !ACTIVE.has(r.status) && ids.has(r.keyId) && now - Date.parse(r.endedAt || r.startedAt) < keep)
       .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt)).slice(0, KEEP.runs);
     const kept = new Set(finished);
     const next = runs.filter(r => ACTIVE.has(r.status) || kept.has(r));
-    this.write({ version: 1, keys, runs: next });
-    this.keys = keys; this.runs = next;
+    // Pending proposals stay (the expiry pass marks them); answered and expired ones go after PROPOSAL.keepMs.
+    const props = proposals.filter(p => p.status === 'pending' || now - Date.parse(p.answeredAt || p.expiresAt) < PROPOSAL.keepMs);
+    this.write({ version: 1, keys, runs: next, proposals: props });
+    this.keys = keys; this.runs = next; this.proposals = props;
   }
   key(id) { return this.keys.find(k => k.id === id) || null; }
   mustKey(id) { const k = this.key(id); if (!k) throw fail('There is no job key with that id.', 404, 'not_found'); return k; }
@@ -207,6 +221,35 @@ export class JobKeyStore {
   }
   dropRun(id) { const live = this.run(id); if (live) this.commit(this.keys, this.runs.filter(x => x !== live)); }
   finishRun(id, status, outcome, extra = {}) { return this.updateRun(id, { status, outcome, endedAt: iso(this.now()), ...extra }); }
+
+  // ---------- proposals ----------
+  proposal(id) { return this.proposals.find(p => p.id === id) || null; }
+  pendingProposals() { return this.proposals.filter(p => p.status === 'pending'); }
+  // fields: already checked by the server (the owner's create checks); only PROPOSAL_FIELDS are kept.
+  addProposal({ session, sessionTitle = '', fields }) {
+    const now = this.now();
+    const p = { id: 'jp-' + hex(4), session, sessionTitle: String(sessionTitle || '').slice(0, 160), proposedAt: iso(now), expiresAt: iso(now + this.proposalTtlMs),
+      fields: Object.fromEntries(PROPOSAL_FIELDS.filter(f => f in fields).map(f => [f, fields[f]])), status: 'pending', answeredAt: null };
+    while (this.proposal(p.id)) p.id = 'jp-' + hex(4);
+    this.commit(this.keys, this.runs, [...this.proposals, p]);
+    return p;
+  }
+  // patch: fields to set; a field set to undefined is removed.
+  updateProposal(id, patch) {
+    const live = this.proposal(id); if (!live) return null;
+    const p = { ...live, ...patch };
+    for (const f of Object.keys(p)) if (p[f] === undefined) delete p[f];
+    this.commit(this.keys, this.runs, this.proposals.map(x => x === live ? p : x));
+    return p;
+  }
+  // Pending proposals past their time become expired, in one write; returns those that just did (each is audited once).
+  expireProposals() {
+    const now = this.now(), due = this.proposals.filter(p => p.status === 'pending' && Date.parse(p.expiresAt) <= now);
+    if (!due.length) return [];
+    const done = new Map(due.map(p => [p, { ...p, status: 'expired', answeredAt: iso(now) }]));
+    this.commit(this.keys, this.runs, this.proposals.map(p => done.get(p) || p));
+    return [...done.values()];
+  }
 }
 
 // What the owner's app sees of a key: never the key or its hash.
