@@ -1963,9 +1963,9 @@ function carryRequests(r, carry) {
 }
 // 1.122.2: a new process on an existing conversation (after a pause, an idle close or a restart) starts that total
 // from the transcript's last cost-state, the conversation's spend so far, so its first reply showed the whole
-// conversation's cost and that figure went to the daily cost limit and the job run. When the CLI says what the
-// result cost on its own (sinceCost), that is the reply's cost; the running total is still kept in the marker, so the
-// 1.78.1 difference stays the fallback for a CLI that does not.
+// conversation's cost, and for a reply Pocket started that figure went into Today's unattended cost and the job run.
+// When the CLI says what the result cost on its own (sinceCost), that is the reply's cost; the running total is still
+// kept in the marker, so the 1.78.1 difference stays the fallback for a CLI that does not.
 function turnCost(turn, o) {
   const total = o?.total_cost_usd, spent = Number(total), own = sinceCost(o);
   const known = total != null && Number.isFinite(spent);
