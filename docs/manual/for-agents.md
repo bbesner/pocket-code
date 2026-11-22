@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.122.0
+checked: 1.122.3
 sources: skills.mjs, tasks.mjs, checkbacks.mjs, job-keys.mjs, project-mode.mjs, choices.mjs, approvals.mjs, skills/, scripts/pocket-checkback.mjs, scripts/pocket-jobkey.mjs, scripts/pocket-run.mjs, scripts/pocket-start.mjs, scripts/pocket-notify.mjs, scripts/pocket-mcp-proxy.mjs
 -->
 # For agents

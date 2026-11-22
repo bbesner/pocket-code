@@ -151,7 +151,7 @@ export class JobKeyStore {
   commit(keys, runs, proposals = this.proposals) {
     const now = this.now(), keep = Math.max(KEEP.minMs, Number(this.keepMs()) || 0), ids = new Set(keys.map(k => k.id));
     const finished = runs.filter(r => !ACTIVE.has(r.status) && ids.has(r.keyId) && now - Date.parse(r.endedAt || r.startedAt) < keep)
-      .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt)).slice(0, KEEP.runs);
+      .reverse().sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt)).slice(0, KEEP.runs); // a tie keeps the later start
     const kept = new Set(finished);
     const next = runs.filter(r => ACTIVE.has(r.status) || kept.has(r));
     // Pending proposals stay (the expiry pass marks them); answered and expired ones go after PROPOSAL.keepMs.
@@ -202,7 +202,9 @@ export class JobKeyStore {
   started(id, conversation) { return Boolean(conversation) && (this.key(id)?.conversations || []).includes(conversation); }
 
   run(id) { return this.runs.find(r => r.run === id) || null; }
-  runsFor(keyId) { return this.runs.filter(r => r.keyId === keyId).sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt) || (a.run < b.run ? 1 : -1)); }
+  // Newest first. startedAt has whole seconds, so runs started in the same second tie; this.runs is in start order, so the
+  // list is reversed first and the (stable) sort keeps that order among equal times: the later start comes first.
+  runsFor(keyId) { return this.runs.filter(r => r.keyId === keyId).reverse().sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt)); }
   active(keyId) { return this.runs.filter(r => ACTIVE.has(r.status) && (!keyId || r.keyId === keyId)); }
   // Runs that count toward the per-key limits: everything that started (or is starting) since `sinceMs`.
   countSince(keyId, sinceMs) { return this.runs.filter(r => r.keyId === keyId && r.outcome !== 'not_started' && Date.parse(r.startedAt) >= sinceMs).length; }
