@@ -1764,6 +1764,7 @@ function scheduleRetry(sessionId, turn, resetAt) {
 const TEST_START_GAP = process.env.POCKET_TEST_START_GAP || '';
 async function testStartGap(id) {
   if (!fs.existsSync(TEST_START_GAP)) return;
+  if (fs.readFileSync(TEST_START_GAP, 'utf8').trim() === 'throw') throw new Error('test start gap: thrown');
   log(`test start gap session=${id}`); await new Promise(r => setTimeout(r, 1500));
 }
 // 1.119: a retry between its timer and its turn (the timer and marker are gone, the turn not yet registered) is still
@@ -1801,7 +1802,7 @@ async function fireRetryNow(m) {
   }
   retryTimers.delete(m.sessionId);
   try { fs.unlinkSync(turnFiles(m.sessionId).retry); } catch { }
-  if (ownedTurn(m.sessionId)) { const o2 = ownedTurn(m.sessionId).origin; log(`retry skipped (turn already running) session=${m.sessionId}`); return jobRetryDied(m, !o2 || o2 === 'owner' ? 'stopped' : 'limit', 'a reply was already running'); }
+  if (ownedTurn(m.sessionId)) { const o2 = ownedTurn(m.sessionId).origin; log(`retry skipped (turn already running) session=${m.sessionId}`); return jobRetryDied(m, o2 === 'owner' ? 'stopped' : 'limit', 'a reply was already running'); }
   if (engineForSessionId(m.sessionId) !== 'claude') { // 1.87: Codex and OpenRouter pick up again the same way
     const id = m.sessionId, body = { model: m.model, effort: m.effort, approvalMode: m.approvalMode };
     try {
@@ -6907,6 +6908,15 @@ app.post('/api/jobs/run', jobCaller, async (req, res) => {
   jobStarting.add(r.run);
   let started = false;
   try { started = await jobStart(res, { k, r, conversation, data, instructions, refuse }); }
+  catch (e) { // thrown outside the start's own handling: the run must not stay reserved, or its key answers busy until a restart
+    const msg = String(e?.message || e).slice(0, 300);
+    if (jobStore.run(r.run)?.status === 'starting') {
+      const done = jobStore.finishRun(r.run, 'failed', 'not_started');
+      jobAudit('finished', done, { run: r.run, engine: k.engine, startedAt: r.startedAt, endedAt: done?.endedAt, outcome: 'not_started' });
+    }
+    log(`job run not started run=${r.run} key=${k.id}: ${msg}`);
+    if (!res.headersSent) res.status(500).json({ status: 'failed', run: r.run, outcome: 'not_started', error: `The run could not start: ${msg}` });
+  }
   finally { jobStarting.delete(r.run); startsPending.delete(r.run); }
   if (started) return answerJobRun(res, r.run, wait);
 });

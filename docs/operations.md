@@ -389,7 +389,7 @@ with the outcome `interrupted`, and the owner gets *Something went wrong*. A rep
 again and its run ends with it. Any other run that nothing carries on (a usage-limit retry that was dropped, skipped or
 not re-armed, or a reply that is gone) is ended once Pocket has seen it so twice, 3 seconds or more apart, by the
 automation pass (each minute), the key's next call, or a read of the run, the key list or Recent runs: in practice
-within about a minute. It ends `limit` (the reply had stopped at a usage limit), `jobs_off`, `stopped` (a message from
+within one to two minutes. It ends `limit` (the reply had stopped at a usage limit), `jobs_off`, `stopped` (a message from
 the owner replaced the retry) or `interrupted`, with the words in the run's `error` field
 ([Automation](manual/automation.md#what-a-runs-status-means)). A run that waits for the owner's answer to an approval
 is not ended: the key stays busy until the owner answers. The reply text a script waits for is kept in memory for the

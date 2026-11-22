@@ -177,6 +177,17 @@ test('A key deleted, disabled or rotated while the gate awaits starts nothing; a
   }
   await sleep(500);
   assert.equal(s.claudeCalls().length, n, 'nothing started');
+  // a throw on the way to the start: the run ends not_started and the key is not left busy
+  {
+    const { key, secret } = await s.makeKey({ name: 'gap-throw' });
+    fs.writeFileSync(gap, 'throw');
+    const r = await s.job(secret, { data: 'x' });
+    fs.rmSync(gap, { force: true });
+    assert.deepEqual([r.status, r.body.status, r.body.outcome], [500, 'failed', 'not_started'], JSON.stringify(r.body));
+    assert.deepEqual(s.store().runs.filter(x => x.keyId === key.id).map(x => x.status), ['failed'], 'the run is not left starting');
+    const again = await s.job(secret, { data: 'x' });
+    assert.ok([200, 202].includes(again.status), `the key is not busy: ${JSON.stringify(again.body)}`);
+  }
   // a proposal: the reply ends while the proposal is on its way
   const a = await s.start('owner asks for a job __HANG__'), ta = await s.tokenFor(a);
   fs.writeFileSync(gap, '');
