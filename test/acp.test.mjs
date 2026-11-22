@@ -210,12 +210,17 @@ test('probeAcpEfforts maps each OpenRouter model to its effort levels; the probe
     'openrouter/anthropic/claude-sonnet-5.5': ['low', 'medium', 'high', 'xhigh', 'max'],
     'openrouter/meta-llama/llama-4-scout': [],
   }, 'openrouter models only, without "default"');
-  const all = await listAcpSessions({ env: baseEnv(store), cmd: process.execPath, args: [FAKE], folders: [probe] });
-  const shown = await listAcpSessions({ env: baseEnv(store), cmd: process.execPath, args: [FAKE], folders: [probe], hideCwd: probe });
+  // 1.122.1: the probe's session is never prompted, so the list may leave it out as a session nobody used; named as a
+  // conversation Pocket knows it is listed, and the hidden folder still hides it.
+  const sids = fs.readdirSync(store).filter(f => f.endsWith('.json')).filter(f => JSON.parse(fs.readFileSync(path.join(store, f), 'utf8')).cwd === probe);
+  assert.equal(sids.length, 1, 'one probe session');
+  const known = [{ id: 'acp:' + decodeURIComponent(sids[0].replace(/\.json$/, '')), cwd: probe, at: Date.now() }];
+  const all = await listAcpSessions({ env: baseEnv(store), cmd: process.execPath, args: [FAKE], folders: [probe], known });
+  const shown = await listAcpSessions({ env: baseEnv(store), cmd: process.execPath, args: [FAKE], folders: [probe], known, hideCwd: probe });
   assert.equal(all.filter(r => r.cwd === probe).length, 1); assert.equal(shown.filter(r => r.cwd === probe).length, 0);
   // the next probe opens that session again instead of making another (OpenCode cannot delete one over ACP)
   assert.deepEqual(await probeAcpEfforts({ cmd: process.execPath, args: [FAKE], env: baseEnv(store), cwd: probe }), map);
-  assert.equal((await listAcpSessions({ env: baseEnv(store), cmd: process.execPath, args: [FAKE], folders: [probe] })).filter(r => r.cwd === probe).length, 1, 'still one probe session');
+  assert.equal(fs.readdirSync(store).filter(f => f.endsWith('.json')).filter(f => JSON.parse(fs.readFileSync(path.join(store, f), 'utf8')).cwd === probe).length, 1, 'still one probe session');
 });
 
 // ---------- the list, read folder by folder (OpenCode answers per project and per folder, 100 at most) ----------

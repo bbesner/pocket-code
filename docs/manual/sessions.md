@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.120.0
+checked: 1.122.1
 sources: checkbacks.mjs, prompts.mjs, starts.mjs, project-mode.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, claude-catalog.mjs, codex.mjs, session-state.mjs, acp.mjs, openrouter.mjs, engines.mjs
 -->
 # Conversations (sessions)
@@ -499,7 +499,9 @@ shows its result. A read ends after 25 seconds, and a folder that did not answer
 asks about 32 folders at most: folders with a process running now, your home folder and Pocket's own folder first, then
 the rest, most recently used first. A conversation the program no longer has is dropped from the list when its folder
 answered in full (or the answer reaches back past it), or when its folder is gone; it stays while its folder was not
-read, or when a cut answer may simply not reach it. One limit remains: a conversation started before 1.122.0 in a
+read, or when a cut answer may simply not reach it. A session that was never used (OpenCode's default title,
+*New session* and a time, with no change since) is not listed unless Pocket started it, so another program that makes
+empty sessions in a folder does not fill the list (1.122.1). One limit remains: a conversation started before 1.122.0 in a
 folder inside a git repository that Pocket has not otherwise asked about stays out of the list until a new conversation
 starts in that folder (it still opens from its link).
 
@@ -517,7 +519,7 @@ These settings are in **Settings → Conversation** and apply to the whole insta
 | Setting | Default | What it does |
 |---|---|---|
 | **Sync names with code-server** | Off | Shares names with Claude Code itself. A rename in Claude Code or code-server shows in Pocket; a rename in Pocket is appended to the transcript as Claude Code's own rename record (or set as a Codex thread's name). Clearing a rename in Pocket clears only Pocket's name. |
-| **Generate short titles** | On (`POCKET_AUTO_TITLES=0` starts it off) | Asks a small model for a 3 to 7 word title for conversations named only by their opening request, active in the last 14 days, one at a time. |
+| **Generate short titles** | On (`POCKET_AUTO_TITLES=0` starts it off) | Asks a small model for a 3 to 7 word title for conversations named only by their opening request, active in the last 14 days, one at a time. A conversation with no message to title keeps *(untitled conversation)*. |
 | **Update titles as conversations progress** | On | After a reply run from Pocket ends, a conversation that grew by four of your messages or about 8,000 characters, at least ten minutes (`POCKET_LIVE_TITLE_GAP_MS`) after its last check, is shown to the same model, which keeps the title or writes a better one. A rename is never touched. |
 | **Summarize what you missed** | On | The While you were away summary. |
 | **Model for titles and summaries** | Automatic | **Automatic: Claude first, then Codex**, **Claude · Haiku** (`claude -p --model haiku`, no tools, nothing saved) or **Codex · GPT-6-Luna** (`codex exec --ephemeral`, read-only). |
