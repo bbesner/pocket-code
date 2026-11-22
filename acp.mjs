@@ -780,30 +780,58 @@ export const stalledAcpTurns = quietMs => [...acpTurns.values()].filter(t => !t.
 // folder (the probe's included), hidden folders are dropped before the list is cut, and a conversation Pocket knows
 // (id, folder, time) that the program's answer missed is still listed.
 export const LIST_CAP = 100; // OpenCode answers at most this many; an answer this long may have been cut
-const LIST_FOLDERS = 64, LIST_PAGES = 10, LIST_PARALLEL = 8, LIST_TIMEOUT_MS = 30_000;
+// Bounds of one read (hardened 2026-11-22; the first per-folder version could take minutes when OpenCode hung):
+//   · LIST_FOLDERS folders at most (the caller orders them newest first), LIST_PARALLEL at a time;
+//   · LIST_REQUEST_MS per question: a healthy answer takes 7 to 30 ms, so a folder that has not answered in 10 s is
+//     left out (it keeps its previous rows) and its worker moves on;
+//   · LIST_DEADLINE_MS for the whole read, reader start included: whatever answered by then is used and every folder
+//     that did not keep its previous rows. A healthy read of a real store takes about 1 s (0.9 s is the reader's start).
+export const LIST_FOLDERS = 32, LIST_REQUEST_MS = 10_000, LIST_DEADLINE_MS = 25_000;
+const LIST_PAGES = 10, LIST_PARALLEL = 8;
+// Pocket records a conversation's time at the start and end of each reply; OpenCode's own time of it can differ by
+// the length of the reply's last step. A known conversation newer than a cut folder answer by more than this was
+// inside the answer's range, so its absence means the program no longer has it.
+export const LIST_SLACK_MS = 120_000;
 const newestFirst = (a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0);
 const normDir = d => typeof d === 'string' && path.isAbsolute(d) ? path.resolve(d) : null;
+const listLate = () => Object.assign(new Error('session/list timed out (the whole read took too long)'), { late: true });
 // One session/list question and the pages that follow it (nextCursor). complete: nothing was left out (no nextCursor
-// on the last page, and fewer sessions on it than the program cuts at).
-async function listPages(client, params, take) {
-  let cursor = null;
+// on the last page, and fewer sessions on it than the program cuts at). oldest: the oldest time in the answer (ms), the
+// edge below which a cut answer may have left sessions out. Each question waits at most requestMs, and never past the
+// read's deadline.
+async function listPages(client, params, take, { requestMs = LIST_REQUEST_MS, deadline = Infinity } = {}) {
+  let cursor = null, oldest = Infinity;
   for (let page = 0; page < LIST_PAGES; page++) {
-    const r = await client.listSessions(cursor ? { ...params, cursor } : params, LIST_TIMEOUT_MS);
+    const left = deadline - Date.now();
+    if (left <= 0) throw listLate();
+    const r = await client.listSessions(cursor ? { ...params, cursor } : params, Math.max(1, Math.min(requestMs, left)));
     const got = Array.isArray(r?.sessions) ? r.sessions : [];
+    for (const s of got) { const t = Date.parse(s?.updatedAt); if (t < oldest) oldest = t; }
     take(got);
-    if (!r?.nextCursor) return { complete: got.length < LIST_CAP };
-    if (!got.length || String(r.nextCursor) === cursor) return { complete: false };
+    if (!r?.nextCursor) return { complete: got.length < LIST_CAP, oldest };
+    if (!got.length || String(r.nextCursor) === cursor) return { complete: false, oldest };
     cursor = String(r.nextCursor);
   }
-  return { complete: false };
+  return { complete: false, oldest };
 }
 // The conversation list of one runtime, read by a throwaway reader started in `cwd`. `folders`: the folders to ask
 // one by one (newest first; the first LIST_FOLDERS are asked). `known`: conversations Pocket started, [{ id, cwd, at }];
-// their folders are asked too, and one the answers missed is listed from what Pocket knows (untitled until Pocket's
-// own title or name covers it), unless its folder's answer was complete, which means the program no longer has it.
-// `hideCwd`: a folder (or folders) whose sessions never show. Returns { rows, complete: [folders answered in full] }.
-export async function readAcpList({ cmd, args, env, cwd = null, limit = 60, hideCwd = null, folders = [], known = [], runtime = null } = {}) {
+// their folders are asked too. `previous`: the rows of the last read. `hideCwd`: a folder (or folders) whose sessions
+// never show.
+//
+// A conversation that is in no answer (the ghost-row rule): it stays listed, with its previous row or else from what
+// Pocket knows (untitled until Pocket's own title or name covers it), when its folder could not be read this time
+// (not asked, failed, or not answered before the deadline), or when the folder's answer was cut (100) and the
+// conversation is older than that answer's oldest row (it may simply be past the cut). It is dropped when its folder
+// answered in full (fewer than 100, no cursor left), when its folder's cut answer reaches back past it (by more than
+// LIST_SLACK_MS), and when its folder no longer exists (the program files the sessions of a gone folder elsewhere,
+// so Pocket cannot tell; it still opens by link).
+//
+// Returns { rows, complete: [folders answered in full], late: whether the deadline cut the read, asked, answered }.
+export async function readAcpList({ cmd, args, env, cwd = null, limit = 60, hideCwd = null, folders = [], known = [], previous = [], runtime = null,
+  requestMs = LIST_REQUEST_MS, deadlineMs = LIST_DEADLINE_MS, maxFolders = LIST_FOLDERS } = {}) {
   const rt = runtimeOf(runtime);
+  const deadline = Date.now() + deadlineMs;
   const hidden = new Set([hideCwd].flat().map(normDir).filter(Boolean));
   const found = new Map(); // bare session id -> the program's row
   const take = list => {
@@ -816,35 +844,58 @@ export async function readAcpList({ cmd, args, env, cwd = null, limit = 60, hide
   };
   const dirs = [];
   for (const f of [...folders, ...known.map(k => k?.cwd)]) { const d = normDir(f); if (d && !hidden.has(d) && !dirs.includes(d)) dirs.push(d); }
-  dirs.splice(LIST_FOLDERS);
+  dirs.splice(Math.max(0, maxFolders));
   const client = new AcpClient({ cmd, args, env, cwd: cwd && fs.existsSync(cwd) ? cwd : undefined, name: 'reader' });
+  let timer = null;
+  const overtime = new Promise(r => { timer = setTimeout(r, Math.max(0, deadline - Date.now()), 'late'); });
   try {
-    await client.initialize(rt.clientCapabilities, rt.clientInfo);
-    const complete = new Set();
-    let next = 0;
+    if (await Promise.race([client.initialize(rt.clientCapabilities, rt.clientInfo), overtime]) === 'late') throw listLate();
+    const answered = new Map(); // folder -> { complete, oldest }: every question about it answered
+    let next = 0, late = false;
     const askFolders = async () => {
-      while (next < dirs.length) {
+      while (next < dirs.length && !late) {
         const d = dirs[next++], asks = [d];
         try { const real = fs.realpathSync(d); if (real !== d) asks.push(real); } catch { }
-        // A folder that is gone is never complete: the program may file its sessions under another project now.
-        let all = fs.existsSync(d);
-        for (const c of asks) { try { if (!(await listPages(client, { cwd: c }, take)).complete) all = false; } catch { all = false; } }
-        if (all) complete.add(d);
+        let ok = true, all = true, oldest = -Infinity; // oldest: the highest edge of the cut answers
+        for (const c of asks) {
+          try { const r = await listPages(client, { cwd: c }, take, { requestMs, deadline }); if (!r.complete) { all = false; if (r.oldest > oldest) oldest = r.oldest; } }
+          catch { ok = false; } // a folder that fails or times out only leaves its rows out
+        }
+        if (ok) answered.set(d, { complete: all, oldest });
       }
     };
-    // The reader's own {} fails the read when it fails (as before); a folder that fails only leaves its rows out.
-    await Promise.all([listPages(client, {}, take), ...Array.from({ length: Math.min(LIST_PARALLEL, dirs.length) }, askFolders)]);
+    let whole = null;
+    const wholeRead = listPages(client, {}, take, { requestMs, deadline }).then(() => { whole = { ok: true }; }, e => { whole = { ok: false, e }; });
+    const done = await Promise.race([Promise.all([wholeRead, ...Array.from({ length: Math.min(LIST_PARALLEL, dirs.length) }, askFolders)]), overtime]);
+    if (done === 'late' || Date.now() >= deadline) late = true; // (a question cut short by the deadline ends with it)
+    // An error answer to {} fails the read (a signed-out program says so there); a {} that did not answer in time does
+    // not: what the folders answered is used.
+    if (whole && !whole.ok && !late && !/^session\/list timed out/.test(whole.e?.message || '')) throw whole.e;
+    if (!whole?.ok) late = true;
+    // Conversations in no answer: keep or drop by the rule above.
+    const keep = (d, at) => {
+      if (!fs.existsSync(d)) return false;
+      const a = answered.get(d);
+      if (!a) return true; // not read this time: as before
+      if (a.complete) return false;
+      return !(at > a.oldest + LIST_SLACK_MS);
+    };
+    for (const p of previous) {
+      const sid = typeof p?.id === 'string' && p.id.startsWith(rt.prefix) ? p.id.slice(rt.prefix.length) : '', d = normDir(p?.cwd);
+      if (!rt.idRe.test(sid) || found.has(sid) || !d || hidden.has(d) || !keep(d, Number(p.mtimeMs) || 0)) continue;
+      found.set(sid, { sessionId: sid, cwd: d, title: p.untitled ? '' : (p.title || ''), updatedAt: new Date(Number(p.mtimeMs) || 0).toISOString() });
+    }
     for (const k of known) {
       const sid = typeof k?.id === 'string' && k.id.startsWith(rt.prefix) ? k.id.slice(rt.prefix.length) : '', d = normDir(k?.cwd);
-      if (!rt.idRe.test(sid) || found.has(sid) || !d || hidden.has(d) || complete.has(d)) continue;
+      if (!rt.idRe.test(sid) || found.has(sid) || !d || hidden.has(d) || !keep(d, Number(k.at) || 0)) continue;
       found.set(sid, { sessionId: sid, cwd: d, title: '', updatedAt: new Date(Number(k.at) || 0).toISOString() });
     }
     // OpenCode names a session "New session - <iso time>" until it titles it; treat that as untitled. Ids of another
     // shape than this runtime mints are left out (they could not be opened again).
     const rows = [...found.values()].sort(newestFirst).slice(0, limit)
       .map(s => { const t = rt.untitled?.test(s.title || '') ? '' : (s.title || ''); return { id: rt.prefix + s.sessionId, title: t || '(untitled conversation)', untitled: !t, cwd: s.cwd || null, mtimeMs: Date.parse(s.updatedAt) || 0, provider: rt.engine }; });
-    return { rows, complete: [...complete] };
-  } catch (e) { throw runtimeError(rt, e); } finally { client.close(); }
+    return { rows, complete: [...answered].filter(([, a]) => a.complete).map(([d]) => d), late, asked: dirs.length, answered: answered.size };
+  } catch (e) { throw runtimeError(rt, e); } finally { clearTimeout(timer); client.close(); }
 }
 // List ACP sessions for the session picker (the rows of readAcpList).
 export async function listAcpSessions(opts = {}) { return (await readAcpList(opts)).rows; }

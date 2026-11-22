@@ -251,6 +251,75 @@ test('readAcpList follows nextCursor; a folder answered with 100 is not complete
   assert.equal(full.rows.length, 101);
 });
 
+// ---------- the read's bounds and the ghost-row rule (hardened 2026-11-22) ----------
+test('readAcpList: the whole-project {} finds a folder nobody named; one failing folder leaves only its own rows out; a failing {} fails the read', async () => {
+  const store = mkStore(), proj = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-proj-')), now = Date.now();
+  fs.mkdirSync(path.join(proj, '.git')); const unnamed = path.join(proj, 'sub'); fs.mkdirSync(unnamed);
+  const bad = mkDir(), good = mkDir();
+  seed(store, 'ses_unnamed', unnamed, now); seed(store, 'ses_bad', bad, now - 1000); seed(store, 'ses_good', good, now - 2000);
+  const r = await reader(store, { cwd: proj, folders: [bad, good] }, { FAKE_ACP_LIST_FAIL: bad });
+  assert.ok(r.rows.some(x => x.id === 'acp:ses_unnamed'), 'found by the reader\'s own {} only');
+  assert.ok(r.rows.some(x => x.id === 'acp:ses_good'), 'the other folder still answered');
+  assert.ok(!r.rows.some(x => x.id === 'acp:ses_bad'), 'the failing folder\'s rows are left out');
+  assert.equal(r.complete.includes(bad), false);
+  await assert.rejects(reader(store, { cwd: proj, folders: [good] }, { FAKE_ACP_LIST_FAIL: '{}' }), /list failed/, 'the {} failing fails the read, as before');
+});
+
+test('readAcpList: a folder that never answers is given up after the per-question limit, and the rest is read', async () => {
+  const store = mkStore(), stuck = mkDir(), dirs = Array.from({ length: 6 }, mkDir), now = Date.now();
+  dirs.forEach((d, i) => seed(store, `ses_d${i}`, d, now - i * 1000));
+  const t0 = Date.now();
+  // the read waits for every folder's worker, so without the per-question limit it would run to the 20 s deadline
+  const r = await reader(store, { folders: [stuck, ...dirs], requestMs: 300, deadlineMs: 20_000, previous: [{ id: 'acp:ses_stuck', cwd: stuck, title: 'Before', untitled: false, mtimeMs: now - 50_000 }] }, { FAKE_ACP_LIST_HANG: stuck });
+  const took = Date.now() - t0;
+  assert.ok(took < 5000, `given up after about 300 ms, not the deadline: ${took} ms`);
+  assert.equal(r.late, false);
+  assert.equal(r.rows.filter(x => /^acp:ses_d/.test(x.id)).length, 6, 'every other folder answered');
+  assert.equal(r.rows.find(x => x.id === 'acp:ses_stuck')?.title, 'Before', 'the folder that did not answer keeps its previous row');
+  // the whole-project {} not answering is the same: it is given up, and the folders' answers are used
+  const t1 = Date.now();
+  const w = await reader(store, { folders: dirs, requestMs: 300, deadlineMs: 20_000 }, { FAKE_ACP_LIST_HANG: '{}' });
+  assert.ok(Date.now() - t1 < 5000, `{} given up after about 300 ms: ${Date.now() - t1} ms`);
+  assert.equal(w.late, true, 'reported as not all answered');
+  assert.equal(w.rows.length, 6);
+});
+
+test('readAcpList: the whole read stops at its deadline, keeps what answered and the previous rows of the rest', async () => {
+  const store = mkStore(), stuck = mkDir(), fine = mkDir(), now = Date.now();
+  seed(store, 'ses_fine', fine, now);
+  const previous = [{ id: 'acp:ses_old', cwd: stuck, title: 'Kept', untitled: false, mtimeMs: now - 60_000 }];
+  for (const hang of [stuck, `{},${stuck}`]) { // a folder hangs; then the {} hangs too
+    const t0 = Date.now();
+    const r = await reader(store, { folders: [fine, stuck], previous, requestMs: 60_000, deadlineMs: 800 }, { FAKE_ACP_LIST_HANG: hang });
+    const took = Date.now() - t0;
+    assert.ok(took < 3000, `${hang}: ended near the 800 ms deadline, not the 60 s per-question limit: ${took} ms`);
+    assert.equal(r.late, true);
+    assert.ok(r.rows.some(x => x.id === 'acp:ses_fine'), 'what answered is used');
+    assert.equal(r.rows.find(x => x.id === 'acp:ses_old')?.title, 'Kept', 'the rest keep their previous rows');
+  }
+});
+
+test('readAcpList ghost rows: dropped when the folder answered in full, when a cut answer reached past them, or when the folder is gone; kept when they may be past the cut or the folder was not read', async () => {
+  const store = mkStore(), full = mkDir(), cut = mkDir(), unread = mkDir(), now = Date.now();
+  const gone = path.join(os.tmpdir(), 'acp-gone-' + process.pid + '-' + now);
+  seed(store, 'ses_here', full, now);
+  for (let i = 0; i < 110; i++) seed(store, `ses_c${i}`, cut, now - 600_000 + i * 1000); // answer: the newest 100, oldest now-590 s
+  const known = [
+    { id: 'acp:ses_fullgone', cwd: full, at: now - 5000 },          // folder answered in full without it
+    { id: 'acp:ses_pastcut', cwd: cut, at: now - 3_600_000 },       // older than the cut answer's oldest: may be past the cut
+    { id: 'acp:ses_insidecut', cwd: cut, at: now - 60_000 },        // inside the answer's range, not in it: gone
+    { id: 'acp:ses_gonedir', cwd: gone, at: now },                  // its folder no longer exists
+    { id: 'acp:ses_unread', cwd: unread, at: now - 1000 },          // its folder is not asked (past maxFolders)
+    { id: 'acp:ses_gonedir2', cwd: gone + '-2', at: now },          // a gone folder that is not asked either
+  ];
+  const previous = [{ id: 'acp:ses_prevfull', cwd: full, title: 'Was here', untitled: false, mtimeMs: now - 1000 }, { id: 'acp:ses_prevunread', cwd: unread, title: 'Still', untitled: false, mtimeMs: now - 2000 }];
+  const r = await reader(store, { folders: [full, cut, gone], known, previous, maxFolders: 3 });
+  const ids = new Set(r.rows.map(x => x.id));
+  for (const id of ['acp:ses_fullgone', 'acp:ses_insidecut', 'acp:ses_gonedir', 'acp:ses_gonedir2', 'acp:ses_prevfull'])assert.ok(!ids.has(id), id + ' is dropped');
+  for (const id of ['acp:ses_pastcut', 'acp:ses_unread', 'acp:ses_prevunread', 'acp:ses_here']) assert.ok(ids.has(id), id + ' stays');
+  assert.equal(r.rows.find(x => x.id === 'acp:ses_prevunread').title, 'Still', 'a kept previous row keeps its title');
+});
+
 // ---------- 1.84.2: Full access, the cost line, and what the agent is doing ----------
 test('Full access answers OpenCode\'s permission requests at once; Review actions still shows a card', async () => {
   const store = mkStore();
