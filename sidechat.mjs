@@ -133,6 +133,30 @@ function resultError(o) {
   return String(o.result || o.subtype || 'The reply failed').slice(0, 300);
 }
 
+// 1.122.2: what a result line cost and whether it ends the turn Pocket started.
+// - The fork starts its cost count from the parent transcript's last cost-state line (what the conversation had spent
+//   when one of its processes last exited), so total_cost_usd includes the conversation's spend: $306 "so far" after a
+//   20-cent answer. model_usage_since_last_result (seen in Claude CLI 2.1.328) is the spend since the previous result line, by
+//   model; summed, it is this line's own cost whatever was carried.
+// - When the copied transcript holds a background task that was running, the fork finds it not running, reports it
+//   stopped, and on our first question first ends that notification's turn: a result with origin.kind
+//   "task-notification", num_turns 0, an empty text and the carried total, about 100 ms in, before the answer. That
+//   result is not the end of our turn.
+export const notOurTurn = o => o?.origin?.kind === 'task-notification' && o.subtype === 'success';
+// The cost of one result line, and the CLI's running total after it (for the fallback below).
+export function resultCost(o, cliTotal = 0) {
+  const spent = Number(o?.total_cost_usd), total = Number.isFinite(spent) ? spent : cliTotal;
+  const since = o?.model_usage_since_last_result;
+  if (since && typeof since === 'object') {
+    const cost = Object.values(since).reduce((a, u) => a + (Number.isFinite(Number(u?.costUSD)) ? Number(u.costUSD) : 0), 0);
+    return { cost: Math.max(0, cost), cliTotal: total };
+  }
+  // Fallback, a CLI without the per-result figure: the difference from the last total this process reported (an
+  // interrupted turn may report 0). Less exact in one case: with a carried total and no skipped result before it, the
+  // first answer's cost and the total include what the conversation had spent.
+  return { cost: Number.isFinite(spent) && spent > cliTotal ? spent - cliTotal : 0, cliTotal: Math.max(total, cliTotal) };
+}
+
 export class SideChats {
   // normalize: the daemon's transcript-line normalizer (same message shape the conversation view draws).
   // codex: { AppServer, normalizeItem, config } from codex.mjs, when Codex is available.
@@ -153,7 +177,7 @@ export class SideChats {
     }
     // 1.89 (F-1): seq counts every event ever emitted and base is the id of events[0], so ids keep counting once the
     // list is trimmed to its last 2,000.
-    return { id: randomUUID(), parentId, events: [], seq: 0, base: 0, subs: new Set(), busy: false, turns: 0, total: 0, startedAt: Date.now(), lastAt: Date.now(), closed: null, stderr: '' };
+    return { id: randomUUID(), parentId, events: [], seq: 0, base: 0, subs: new Set(), busy: false, turns: 0, total: 0, cliTotal: 0, pending: 0, startedAt: Date.now(), lastAt: Date.now(), closed: null, stderr: '' };
   }
   // Claude: synchronous; the process reports a bad conversation id by exiting.
   // allowSearch: the conversation would run WebSearch without asking (the caller decides; see SIDE_TOOLS).
@@ -284,10 +308,20 @@ export class SideChats {
       const m = this.normalize({ ...o, timestamp: o.timestamp || new Date().toISOString() });
       if (m) this.emit(chat, { type: 'assistant', msg: m });
     } else if (o.type === 'result') {
+      // chat.total is what this side chat spent; chat.cliTotal the CLI's running total, carried figure included.
+      const r = resultCost(o, chat.cliTotal);
+      chat.cliTotal = r.cliTotal;
+      // 1.122.2: a stale background task's notification ends its own turn first (notOurTurn): the answer is still to
+      // come, so the side chat stays busy and the panel gets nothing. Whatever it spent goes with the answer. Any other
+      // result, and any error result whatever its origin, ends the turn, so an answer never hangs.
+      if (notOurTurn(o)) {
+        // In the fallback its "cost" is the carried figure; it is left out, and its total is the baseline from here.
+        if (o.model_usage_since_last_result) chat.pending += r.cost;
+        return;
+      }
       chat.busy = false;
-      // total_cost_usd is the process's running total, not this turn's (an interrupted turn may report 0).
-      const spent = Number(o.total_cost_usd), cost = Number.isFinite(spent) && spent > chat.total ? spent - chat.total : 0;
-      chat.total += cost;
+      const cost = r.cost + chat.pending;
+      chat.pending = 0; chat.total += cost;
       this.emit(chat, { type: 'result', ok: o.subtype === 'success', error: resultError(o), cost, total: chat.total, duration_ms: o.duration_ms });
       this.arm(chat);
     }

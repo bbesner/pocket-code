@@ -7,7 +7,7 @@ import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {createHmac,randomUUID} from 'node:crypto';
 import {killStrays} from './stray-runners.mjs';
-import {sideChatArgs,SIDE_TOOLS,sidePrompt,SIDE_PROMPT,CODEX_SIDE_PROMPT,SIDE_BRIEF,sideSinceText,sideStateLine,sideNote,sideInput,SIDE_NOTE_END} from '../sidechat.mjs';
+import {SideChats,sideChatArgs,SIDE_TOOLS,sidePrompt,SIDE_PROMPT,CODEX_SIDE_PROMPT,SIDE_BRIEF,sideSinceText,sideStateLine,sideNote,sideInput,SIDE_NOTE_END} from '../sidechat.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
 const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|CODEX)_/.test(k)));
@@ -239,4 +239,117 @@ test('HTTP: each side question carries the conversation as it is now',async t=>{
   await ask('Fresh look');
   all=inputs();assert.ok(all.at(-1).startsWith('<pocket-side-chat>\n'+SIDE_BRIEF));assert.match(note(all.at(-1)),/The copy above was taken just now/);
   assert.doesNotMatch(logs,/side chat note failed|could not read the conversation/);
+});
+
+// ---------- 1.122.2: the side chat's own cost, and a result that is not the end of its turn ----------
+// The real CLI (2.1.328) starts a fork's cost count at the parent's last cost-state line, and when the copied transcript
+// shows a background task running, it first ends that task's notification turn: an empty result (origin.kind
+// "task-notification", num_turns 0, the carried total) about 100 ms after the first question, before the answer.
+const said=t=>({type:'user',message:{role:'user',content:t}}),reply=t=>({type:'assistant',message:{role:'assistant',content:[{type:'text',text:t}]}});
+const costState=usd=>({type:'cost-state',totalCostUSD:usd});
+const IDLE_PARENT=[said('Plan the camera upgrade'),reply('Here is the plan.'),costState(12.5)];
+const WORKING_PARENT=[said('Plan the camera upgrade'),reply('Here is the plan.'),costState(306.215),said('Run the long check'),
+  {type:'assistant',message:{role:'assistant',content:[{type:'tool_use',id:'toolu_bg1',name:'Bash',input:{command:'sleep 900',run_in_background:true}}]}},
+  {type:'user',message:{role:'user',content:[{type:'tool_result',tool_use_id:'toolu_bg1',content:'Command running in background with ID: b1'}]}}];
+// A daemon on the stand-in CLI with the given conversations ({name: transcript lines}); returns their ids and helpers.
+async function sideServer(t,port,convos){
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-side-cost-'));let logs='';
+  const secret=randomUUID(),exp=Date.now()+3600000;
+  const headers={'content-type':'application/json',cookie:'pc_auth='+exp+'.'+createHmac('sha256',secret).update(String(exp)).digest('hex')};
+  const ws=path.join(dir,'sessions','test-workspace');fs.mkdirSync(ws,{recursive:true});
+  const ids={};
+  for(const [name,lines] of Object.entries(convos)){const id=ids[name]=randomUUID();
+    fs.writeFileSync(path.join(ws,id+'.jsonl'),lines.map(o=>JSON.stringify({...o,cwd:repo,sessionId:id,timestamp:new Date().toISOString()})).join('\n')+'\n');}
+  const child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...cleanEnv(),POCKET_SKILLS:'0',PORT:String(port),POCKET_ENV_FILE:'',POCKET_AUTO_TITLES:'0',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_VOICE:'off',POCKET_MEMSTEM:'0',
+    POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),POCKET_TEST_CALLS:path.join(dir,'calls'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs')},stdio:['ignore','pipe','pipe']});
+  child.stdout.on('data',b=>{logs+=b});child.stderr.on('data',b=>{logs+=b});
+  t.after(async()=>{if(child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}await sleep(200);killStrays(path.join(dir,'data'));fs.rmSync(dir,{recursive:true,force:true,maxRetries:10,retryDelay:200});});
+  for(let i=0;i<150;i++){if(child.exitCode!==null)break;try{if((await fetch(`http://127.0.0.1:${port}/api/health`)).ok)break;}catch{} await sleep(30);}
+  const call=async(p,body,method)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:method||(body?'POST':'GET'),headers,body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json().catch(()=>({}))};};
+  // The side chat's events from `from` until `until` matches one (or 5 s pass).
+  const events=async(side,until,from=0)=>{
+    const ac=new AbortController(),seen=[];const timer=setTimeout(()=>ac.abort(),5000);
+    try{
+      const r=await fetch(`http://127.0.0.1:${port}/api/side/${side}/events?from=${from}`,{headers,signal:ac.signal});
+      const reader=r.body.getReader(),dec=new TextDecoder();let buf='';
+      for(;;){const {value,done}=await reader.read();if(done)break;buf+=dec.decode(value,{stream:true});
+        let i;while((i=buf.indexOf('\n\n'))>=0){const chunk=buf.slice(0,i);buf=buf.slice(i+2);const d=chunk.split('\n').find(l=>l.startsWith('data: '));if(!d)continue;const ev=JSON.parse(d.slice(6));seen.push(ev);if(until(ev,seen)){ac.abort();return seen;}}}
+      return seen;
+    }catch(e){if(e.name==='AbortError')return seen;throw e;}finally{clearTimeout(timer);}
+  };
+  return {ids,call,events,logs:()=>logs};
+}
+const resultsOf=seen=>seen.filter(e=>e.type==='result');
+const near=(a,b,msg)=>assert.ok(Math.abs(a-b)<1e-9,`${msg}: ${a} is not ${b}`);
+
+test('1.122.2: a side chat on a working conversation shows its own cost and stays busy until its answer',async t=>{
+  const s=await sideServer(t,18773,{working:WORKING_PARENT}),id=s.ids.working;
+  const first=await s.call(`/session/${id}/side`,{text:'What is it doing?'});assert.equal(first.status,202);const side=first.body.side;
+  await sleep(250); // the stand-in has sent the stale task's empty result; the answer comes at 600 ms
+  assert.equal((await s.call(`/session/${id}/side`)).body.chat.busy,true,'the empty result does not end the answer');
+  assert.equal((await s.call(`/session/${id}/side`,{text:'Too soon',side})).status,409,'a second question waits for the answer');
+  let seen=await s.events(side,e=>e.type==='result');
+  assert.deepEqual(seen.map(e=>e.type),['user','delta','assistant','result'],'no result reaches the panel before the answer');
+  assert.equal(resultsOf(seen)[0].ok,true);near(resultsOf(seen)[0].cost,0.25,'the answer\'s own cost');near(resultsOf(seen)[0].total,0.25,'what the side chat spent');
+  assert.equal((await s.call(`/session/${id}/side`,{text:'And now?',side})).status,202);
+  seen=await s.events(side,(e,all)=>resultsOf(all).length===2);
+  near(resultsOf(seen)[1].cost,0.25,'the second answer');near(resultsOf(seen)[1].total,0.5,'the total adds only its own cost');
+  near((await s.call(`/session/${id}/side`)).body.chat.total,0.5,'the reopened panel\'s total');
+  // The real CLI's budget stop: an error result with no text, after the answer. It ends the turn and says why.
+  assert.equal((await s.call(`/session/${id}/side`,{text:'Over budget __SIDEBUDGET__',side})).status,202);
+  seen=await s.events(side,(e,all)=>resultsOf(all).length===3);
+  assert.match(resultsOf(seen)[2].error,/spending cap/);assert.equal((await s.call(`/session/${id}/side`)).body.chat.busy,false);
+  assert.equal((await s.call(`/side/${side}`,undefined,'DELETE')).status,200);
+  assert.match(s.logs(),/side chat close side=.* turns=3 cost=0\.7500/,'the close line reports the side chat\'s own spend');
+});
+
+test('1.122.2: an idle conversation\'s earlier cost is not counted; an older CLI on a working one starts from the empty result',async t=>{
+  const s=await sideServer(t,18774,{idle:IDLE_PARENT,old:WORKING_PARENT});
+  // Idle, with a carried total and no empty result before the answer.
+  let r=await s.call(`/session/${s.ids.idle}/side`,{text:'Why this plan?'});assert.equal(r.status,202);
+  let seen=await s.events(r.body.side,e=>e.type==='result');
+  assert.deepEqual(seen.map(e=>e.type),['user','delta','assistant','result']);
+  near(resultsOf(seen)[0].cost,0.25,'first answer');near(resultsOf(seen)[0].total,0.25,'not the conversation\'s 12.50');
+  // A CLI without model_usage_since_last_result: the empty result's total is where the side chat's spend starts.
+  r=await s.call(`/session/${s.ids.old}/side`,{text:'What is it doing? __SIDEOLD__'});assert.equal(r.status,202);
+  seen=await s.events(r.body.side,e=>e.type==='result');
+  assert.deepEqual(seen.map(e=>e.type),['user','delta','assistant','result']);
+  near(resultsOf(seen)[0].cost,0.25,'first answer, older CLI');near(resultsOf(seen)[0].total,0.25,'older CLI total');
+});
+
+test('1.122.2: an error result ends the answer even when it is the stale task\'s',async t=>{
+  const s=await sideServer(t,18775,{working:WORKING_PARENT}),id=s.ids.working;
+  const r=await s.call(`/session/${id}/side`,{text:'What is it doing? __SIDENOTEERR__'});assert.equal(r.status,202);
+  const seen=await s.events(r.body.side,e=>e.type==='result');
+  // Pocket cannot tell this error from the end of the answer, so it ends the turn: nothing hangs on "Answering…".
+  assert.deepEqual(seen.map(e=>e.type),['user','result']);assert.equal(seen[1].ok,false);assert.equal(seen[1].error,'Stopped');
+  assert.equal((await s.call(`/session/${id}/side`)).body.chat.busy,false);
+});
+
+test('1.122.2: the real CLI\'s lines for a side chat on a working conversation, through line()',()=>{
+  // The shape recorded from Claude CLI 2.1.328 (figures from the report that found it; ids made up).
+  const sc=new SideChats({normalize:o=>({role:'assistant',blocks:o.message.content.map(c=>({t:'text',text:c.text}))}),idleMs:0});
+  const feed=(chat,o)=>sc.line(chat,JSON.stringify(o));
+  const usage=usd=>({'claude-test':{costUSD:usd}});
+  const run=withUsage=>{
+    const chat=sc.make('parent-1');chat.busy=true;const busy=[];const at=()=>busy.push(chat.busy);
+    const u=x=>withUsage?{model_usage_since_last_result:x}:{};
+    feed(chat,{type:'system',subtype:'task_notification',status:'stopped'});feed(chat,{type:'system',subtype:'init'});
+    feed(chat,{type:'result',subtype:'success',is_error:false,num_turns:0,result:'',duration_ms:108,total_cost_usd:306.215,origin:{kind:'task-notification'},result_index:0,...u({})});at();
+    feed(chat,{type:'system',subtype:'init'});
+    feed(chat,{type:'stream_event',event:{type:'content_block_delta',delta:{type:'text_delta',text:'It is '}}});at();
+    feed(chat,{type:'assistant',message:{role:'assistant',content:[{type:'text',text:'It is running the long check.'}]}});at();
+    feed(chat,{type:'result',subtype:'success',is_error:false,num_turns:1,result:'It is running the long check.',duration_ms:3858,total_cost_usd:306.417,result_index:1,...u(usage(0.202))});at();
+    chat.busy=true;
+    feed(chat,{type:'result',subtype:'success',is_error:false,num_turns:1,result:'Yes.',duration_ms:900,total_cost_usd:306.476,result_index:2,...u(usage(0.059))});at();
+    return {chat,busy,results:resultsOf(chat.events)};
+  };
+  for(const withUsage of [true,false]){
+    const {chat,busy,results}=run(withUsage),how=withUsage?'per-result usage':'older CLI';
+    assert.deepEqual(busy,[true,true,true,false,false],how+': busy until the answer\'s own result');
+    assert.deepEqual(chat.events.map(e=>e.type),['delta','assistant','result','result'],how);
+    near(results[0].cost,0.202,how+' first cost');near(results[0].total,0.202,how+' first total');
+    near(results[1].cost,0.059,how+' second cost');near(results[1].total,0.261,how+' second total');
+    assert.equal(results[0].duration_ms,3858);
+  }
 });

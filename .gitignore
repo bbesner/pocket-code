@@ -1,6 +1,8 @@
 node_modules/
 .env
 .env.tmp
+# local backups of the environment file (they hold its secrets)
+.env.bak*
 *.log
 push-subs.json
 turnlogs/
@@ -67,3 +69,9 @@ codex-transcripts/
 
 # Managed CLI installations and updater state
 /cli-runtimes/
+
+# Unattended limits and their audit log (1.117), check-backs (1.119), job keys (1.122)
+automation-state.json*
+automation-audit.jsonl
+checkbacks.json*
+job-keys.json*
