@@ -175,7 +175,9 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       // process runs in, { cwd } only the sessions started in exactly that folder; newest first, and only the newest
       // 100, which nextCursor pages through but never past. A project here is the nearest folder holding a .git
       // (OpenCode: the repository), or one "global" project for every folder outside a repository. A session file
-      // may carry its own updatedAt (a test's fixture); otherwise its last write is its time.
+      // may carry its own updatedAt (a test's fixture); otherwise its last write is its time. An untitled session is
+      // named "New session - <createdAt>", as OpenCode names it. 1.122.1: a fixture's listUpdatedAt is sent as it is
+      // (null: left out; or something that is not a time), for the list's fail-open rule.
       const p = m.params || {};
       // Test knobs for a slow or broken program: FAKE_ACP_LIST_HANG / FAKE_ACP_LIST_FAIL (folders, comma-separated; "{}"
       // is the whole-project question) never answer / answer with an error; FAKE_ACP_LIST_DELAY_MS delays every answer.
@@ -185,7 +187,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       const delay = Number(process.env.FAKE_ACP_LIST_DELAY_MS) || 0;
       const want = projectOf(p.cwd || process.cwd());
       let files = []; try { files = fs.readdirSync(STORE).filter(f => f.endsWith('.json')); } catch { }
-      const all = files.map(f => { const sid = decodeURIComponent(f.replace(/\.json$/, '')); let st; try { st = fs.statSync(path.join(STORE, f)); } catch { } const d = loadSess(sid) || {}; return { sessionId: sid, cwd: d.cwd || '/tmp', title: d.title || 'New session - ' + new Date(d.createdAt || Date.now()).toISOString(), updatedAt: new Date(d.updatedAt || st?.mtimeMs || Date.now()).toISOString() }; })
+      const all = files.map(f => { const sid = decodeURIComponent(f.replace(/\.json$/, '')); let st; try { st = fs.statSync(path.join(STORE, f)); } catch { } const d = loadSess(sid) || {}; return { sessionId: sid, cwd: d.cwd || '/tmp', title: d.title || 'New session - ' + new Date(d.createdAt || Date.now()).toISOString(), updatedAt: 'listUpdatedAt' in d ? d.listUpdatedAt ?? undefined : new Date(d.updatedAt || st?.mtimeMs || Date.now()).toISOString() }; })
         .filter(s => projectOf(s.cwd) === want && (!p.cwd || s.cwd === p.cwd))
         .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, 100);
       const cursor = p.cursor ? Number(p.cursor) : NaN;

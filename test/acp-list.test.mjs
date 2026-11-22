@@ -12,6 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createHmac } from 'node:crypto';
+import { readAcpList } from '../acp.mjs';
 
 const repo = path.resolve(import.meta.dirname, '..');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -127,4 +128,100 @@ test('the list never waits on a stuck OpenCode longer than its short bound, and 
   // the read gives up on {} at its deadline and uses the folders' answers: the row now comes from the program
   await s.until(async () => (await s.list()).find(r => r.id === a)?.title === 'look around', 12000, 'the folders\' answers to be used after the deadline');
   assert.match(s.logs(), /not everything answered in time/);
+});
+
+// ---------- 1.122.1: sessions that were never used ----------
+// Found rolling out 1.122.0: another program on an install made empty OpenCode sessions in one folder (two every six
+// hours, never used), and the per-folder read listed each as "(untitled conversation)" and spent a title call on it.
+// OpenCode names a session "New session - <iso time>" until it titles it; an empty one is never updated, so its last
+// update is within 1 ms of the time in its title, and a used one that kept the default title was updated at least
+// 88 ms after it. These read the list straight from acp.readAcpList over the stand-in.
+const FAKE = path.join(repo, 'test', 'fake-acp.mjs');
+function unusedStore(t) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-unused-')), folder = path.join(dir, 'work'), store = path.join(dir, 'store');
+  fs.mkdirSync(folder); fs.mkdirSync(store);
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  return { folder, store };
+}
+// A session OpenCode never titled: its default title carries createdAt; `fields` may move its last update.
+const seedUntitled = (store, sid, cwd, createdAt, fields = {}) => fs.writeFileSync(path.join(store, encodeURIComponent(sid) + '.json'), JSON.stringify({ updates: [], cwd, createdAt, updatedAt: createdAt, ...fields }));
+const readList = (s, opts = {}) => readAcpList({ cmd: process.execPath, args: [FAKE], env: { ...cleanEnv(), POCKET_ACP_STORE: s.store }, cwd: s.folder, runtime: 'opencode', folders: [s.folder], ...opts });
+
+test('1.122.1: a never-used session Pocket did not start is not listed', async t => {
+  const s = unusedStore(t), T = Date.now() - 3600_000;
+  seedUntitled(s.store, 'ses_empty', s.folder, T);
+  seedSession(s.store, 'ses_real', s.folder, T + 1000, 'Real work');
+  const { rows } = await readList(s);
+  assert.ok(rows.some(r => r.id === 'acp:ses_real'), 'the folder was read: ' + JSON.stringify(rows.map(r => r.id)));
+  assert.ok(!rows.some(r => r.id === 'acp:ses_empty'), 'the never-used session is left out');
+});
+
+test('1.122.1: a never-used session Pocket started is still listed', async t => {
+  const s = unusedStore(t), T = Date.now() - 3600_000;
+  seedUntitled(s.store, 'ses_empty', s.folder, T);
+  const { rows } = await readList(s, { known: [{ id: 'acp:ses_empty', cwd: s.folder, at: T }] });
+  const row = rows.find(r => r.id === 'acp:ses_empty');
+  assert.ok(row, 'listed: ' + JSON.stringify(rows));
+  assert.equal(row.title, '(untitled conversation)'); assert.equal(row.untitled, true); assert.equal(row.cwd, s.folder);
+});
+
+test('1.122.1: a used session that kept the default title is listed, untitled', async t => {
+  const s = unusedStore(t), T = Date.now() - 3600_000;
+  seedUntitled(s.store, 'ses_seconds', s.folder, T, { updatedAt: T + 4000 });
+  seedUntitled(s.store, 'ses_quick', s.folder, T + 10_000, { updatedAt: T + 10_088 }); // the closest a used one came
+  const { rows } = await readList(s);
+  for (const id of ['acp:ses_seconds', 'acp:ses_quick']) {
+    const row = rows.find(r => r.id === id);
+    assert.ok(row, id + ' is listed: ' + JSON.stringify(rows.map(r => r.id)));
+    assert.equal(row.title, '(untitled conversation)'); assert.equal(row.untitled, true);
+  }
+});
+
+test('1.122.1: 100 never-used sessions do not use up the limit or crowd out the real one, and the last rows cannot bring them back', async t => {
+  const s = unusedStore(t), T = Date.now() - 3600_000;
+  for (let i = 0; i < 100; i++) seedUntitled(s.store, `ses_empty${String(i).padStart(4, '0')}`, s.folder, T + i * 1000);
+  seedSession(s.store, 'ses_real', s.folder, T + 20_500, 'The real one'); // older than 79 of them: past a limit of 60
+  // the rows 1.122.0 made from the same answer (its newest 100: the real one and 99 empties), as `previous`
+  const previous = [{ id: 'acp:ses_real', title: 'The real one', untitled: false, cwd: s.folder, mtimeMs: T + 20_500 }];
+  for (let i = 1; i < 100; i++) previous.push({ id: `acp:ses_empty${String(i).padStart(4, '0')}`, title: '(untitled conversation)', untitled: true, cwd: s.folder, mtimeMs: T + i * 1000 });
+  for (const prev of [[], previous]) {
+    const { rows } = await readList(s, { limit: 60, previous: prev });
+    assert.deepEqual(rows.map(r => [r.id, r.title]), [['acp:ses_real', 'The real one']], 'only the real one, with ' + prev.length + ' previous rows');
+  }
+});
+
+test('1.122.1: the window is a few milliseconds: 3 ms after its title a session is unused, 15 ms after it is listed', async t => {
+  const s = unusedStore(t), T = Date.now() - 3600_000;
+  seedUntitled(s.store, 'ses_3ms', s.folder, T, { updatedAt: T + 3 });
+  seedUntitled(s.store, 'ses_15ms', s.folder, T + 10_000, { updatedAt: T + 10_015 }); // the earliest first message measured
+  const { rows } = await readList(s);
+  assert.deepEqual(rows.map(r => r.id), ['acp:ses_15ms'], JSON.stringify(rows.map(r => r.id)));
+});
+
+test('1.122.1: a last update without milliseconds is listed (fail open)', async t => {
+  const s = unusedStore(t), T = Math.floor((Date.now() - 3600_000) / 1000) * 1000 + 2; // 2 ms into a second
+  seedUntitled(s.store, 'ses_rounded', s.folder, T, { listUpdatedAt: new Date(T).toISOString().replace(/\.\d{3}Z$/, 'Z') });
+  const { rows } = await readList(s);
+  assert.ok(rows.some(r => r.id === 'acp:ses_rounded' && r.untitled), JSON.stringify(rows.map(r => r.id)));
+});
+
+test('1.122.1: a default-titled session with a missing or unparsable last update is listed (fail open)', async t => {
+  const s = unusedStore(t), T = Date.now() - 3600_000;
+  seedUntitled(s.store, 'ses_notime', s.folder, T, { listUpdatedAt: null });
+  seedUntitled(s.store, 'ses_badtime', s.folder, T, { listUpdatedAt: 'not a time' });
+  const { rows } = await readList(s);
+  for (const id of ['acp:ses_notime', 'acp:ses_badtime']) assert.ok(rows.some(r => r.id === id && r.untitled), id + ' is listed: ' + JSON.stringify(rows.map(r => r.id)));
+});
+
+test('1.122.1: a listed conversation with no message to title costs no title call', async t => {
+  const calls = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-titles-')); t.after(() => fs.rmSync(calls, { recursive: true, force: true }));
+  const T = Date.now() - 60_000, titles = () => { try { return fs.readFileSync(path.join(calls, 'c.titles'), 'utf8'); } catch { return ''; } };
+  // used (updated 5 s after it was made) but never titled: listed as "(untitled conversation)", with nothing to title
+  const s = await server(t, 19055, { env: { POCKET_AUTO_TITLES: '1', POCKET_TEST_CALLS: path.join(calls, 'c') }, seed: ({ store }) => seedUntitled(store, 'ses_quiet', repo, T, { updatedAt: T + 5000 }) });
+  await s.until(async () => (await s.list()).some(r => r.id === 'acp:ses_quiet'), 8000, 'the untitled conversation to be listed');
+  // a Claude conversation the titler does name, asked for after the row above: its call shows the queue has run past it
+  const r = await s.call('/new', { cwd: repo, text: 'name this conversation please' }); assert.equal(r.status, 202, JSON.stringify(r.body));
+  await s.until(async () => { await s.call('/sessions?limit=200'); return /name this conversation please/.test(titles()); }, 15000, 'the Claude conversation\'s title call');
+  assert.doesNotMatch(titles(), /untitled conversation/, 'no title call for the placeholder');
+  assert.equal((await s.list()).find(r => r.id === 'acp:ses_quiet')?.title, '(untitled conversation)');
 });

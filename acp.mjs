@@ -792,6 +792,26 @@ const LIST_PAGES = 10, LIST_PARALLEL = 8;
 // the length of the reply's last step. A known conversation newer than a cut folder answer by more than this was
 // inside the answer's range, so its absence means the program no longer has it.
 export const LIST_SLACK_MS = 120_000;
+// 1.122.1: a session nobody ever used. Another program can make empty sessions in a folder (on one install two every
+// six hours, 268 of them), and the per-folder read of 1.122.0 listed each as "(untitled conversation)" and spent a
+// title call on it. OpenCode names a session "New session - <iso time>" until it titles it, and an empty one is never
+// updated. Measured read-only on a real store (523 sessions, 2026-11-22): all 469 empty ones were last updated within
+// 1 ms of the time in their title; a used session that kept the default title (13 of 54) was updated at least 88 ms
+// after it, usually seconds. So a default title with a last update no more than UNUSED_MS from its time is a session
+// nobody used. It is left out unless Pocket started it; a missing or unparsable time lists it (fail open), and a
+// runtime with no default title (Antigravity) lists everything as before.
+// 5 ms, not more: the first message of a used session was written as early as 15 ms after the session was made.
+// Both times must carry milliseconds (as OpenCode writes them); a rounded time would make the comparison meaningless.
+export const UNUSED_MS = 5;
+const HAS_MS = /\.\d{3}/;
+export function unusedSession(runtime, s) {
+  const rt = runtimeOf(runtime), title = typeof s?.title === 'string' ? s.title : '';
+  if (!rt.untitled || !rt.untitled.test(title)) return false;
+  const stamp = title.replace(rt.untitled, '').trim();
+  if (typeof s.updatedAt !== 'string' || !HAS_MS.test(stamp) || !HAS_MS.test(s.updatedAt)) return false;
+  const made = Date.parse(stamp), at = Date.parse(s.updatedAt);
+  return Number.isFinite(made) && Number.isFinite(at) && Math.abs(at - made) <= UNUSED_MS;
+}
 const newestFirst = (a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0);
 const normDir = d => typeof d === 'string' && path.isAbsolute(d) ? path.resolve(d) : null;
 const listLate = () => Object.assign(new Error('session/list timed out (the whole read took too long)'), { late: true });
@@ -817,7 +837,7 @@ async function listPages(client, params, take, { requestMs = LIST_REQUEST_MS, de
 // The conversation list of one runtime, read by a throwaway reader started in `cwd`. `folders`: the folders to ask
 // one by one (newest first; the first LIST_FOLDERS are asked). `known`: conversations Pocket started, [{ id, cwd, at }];
 // their folders are asked too. `previous`: the rows of the last read. `hideCwd`: a folder (or folders) whose sessions
-// never show.
+// never show. Sessions nobody used (UNUSED_MS) never show either, unless they are in `known` (1.122.1).
 //
 // A conversation that is in no answer (the ghost-row rule): it stays listed, with its previous row or else from what
 // Pocket knows (untitled until Pocket's own title or name covers it), when its folder could not be read this time
@@ -834,10 +854,15 @@ export async function readAcpList({ cmd, args, env, cwd = null, limit = 60, hide
   const deadline = Date.now() + deadlineMs;
   const hidden = new Set([hideCwd].flat().map(normDir).filter(Boolean));
   const found = new Map(); // bare session id -> the program's row
+  const bare = x => typeof x?.id === 'string' && x.id.startsWith(rt.prefix) ? x.id.slice(rt.prefix.length) : '';
+  // 1.122.1: sessions nobody used (unusedSession) that Pocket did not start are dropped here with the hidden folders,
+  // and remembered so the ghost-row rule below cannot bring one back from `previous`.
+  const mine = new Set(known.map(bare).filter(Boolean)), unused = new Set();
   const take = list => {
     for (const s of list) {
       const sid = String(s?.sessionId || '');
       if (!rt.idRe.test(sid) || hidden.has(normDir(s.cwd))) continue; // dropped before the cut, so they never use up the limit
+      if (!mine.has(sid) && unusedSession(rt, s)) { unused.add(sid); continue; } // the same
       const had = found.get(sid);
       if (!had || newestFirst(had, s) > 0) found.set(sid, s);
     }
@@ -880,13 +905,15 @@ export async function readAcpList({ cmd, args, env, cwd = null, limit = 60, hide
       if (a.complete) return false;
       return !(at > a.oldest + LIST_SLACK_MS);
     };
+    // (1.122.1: a previous row of a session this read found unused is not kept. One past a cut answer would be, but
+    // previous rows come from this process's reads, which never list such a session.)
     for (const p of previous) {
-      const sid = typeof p?.id === 'string' && p.id.startsWith(rt.prefix) ? p.id.slice(rt.prefix.length) : '', d = normDir(p?.cwd);
-      if (!rt.idRe.test(sid) || found.has(sid) || !d || hidden.has(d) || !keep(d, Number(p.mtimeMs) || 0)) continue;
+      const sid = bare(p), d = normDir(p?.cwd);
+      if (!rt.idRe.test(sid) || found.has(sid) || unused.has(sid) || !d || hidden.has(d) || !keep(d, Number(p.mtimeMs) || 0)) continue;
       found.set(sid, { sessionId: sid, cwd: d, title: p.untitled ? '' : (p.title || ''), updatedAt: new Date(Number(p.mtimeMs) || 0).toISOString() });
     }
     for (const k of known) {
-      const sid = typeof k?.id === 'string' && k.id.startsWith(rt.prefix) ? k.id.slice(rt.prefix.length) : '', d = normDir(k?.cwd);
+      const sid = bare(k), d = normDir(k?.cwd);
       if (!rt.idRe.test(sid) || found.has(sid) || !d || hidden.has(d) || !keep(d, Number(k.at) || 0)) continue;
       found.set(sid, { sessionId: sid, cwd: d, title: '', updatedAt: new Date(Number(k.at) || 0).toISOString() });
     }
