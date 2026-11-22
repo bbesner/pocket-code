@@ -3,6 +3,7 @@
 // the gate every unattended start passes through, the day's counts and the audit file. Pure where it can be: the
 // gate takes its state as an argument so it is unit-tested without a server (test/automation.test.mjs).
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { atomicWrite } from './usage.mjs';
 
@@ -92,6 +93,33 @@ export const GROUPS = [
       { key: 'spacingSec', label: 'Spacing between overdue check-backs', type: 'number', default: 15, min: 0, max: 300, step: 1, unit: 's', integer: true, advanced: true },
     ],
   },
+  // Job keys (Part 3). Off until the owner turns them on. The access, instructions, per-key limits and push rows are the
+  // defaults a new key starts with; each key keeps its own copy (job-keys.json) that the owner can change per key.
+  {
+    key: 'jobs', title: 'Job keys', settings: [
+      { key: 'jobs', label: 'Job keys', type: 'bool', default: false,
+        help: 'A program on this server starts a conversation with a key you created: your fixed instruction, folder and model, plus the data it sends. Off: every job call is refused; keys are kept.' },
+      { key: 'jobAccess', label: 'Access for new keys', type: 'choice', default: 'ask',
+        choices: [{ value: 'ask', label: 'Ask me for every action' }, { value: 'full', label: 'Full access (only where this server allows it)' }],
+        help: 'Where Full access is turned off for this server, a job runs under Ask me for every action whatever its key says.' },
+      { key: 'jobAddInstructions', label: 'Job may add its own instructions (new keys)', type: 'bool', default: false,
+        help: 'Off: everything a job sends is treated as data.' },
+      { key: 'jobPerHour', label: 'Runs per hour, per key (new keys)', type: 'number', default: 6, min: 1, max: 120, step: 1, unit: '', integer: true, offAllowed: true },
+      { key: 'jobPerDay', label: 'Runs per day, per key (new keys)', type: 'number', default: 24, min: 1, max: 1000, step: 1, unit: '', integer: true, offAllowed: true,
+        help: 'The last 24 hours. Job replies also count toward the unattended replies per day.' },
+      { key: 'jobAtOnce', label: 'Runs at once, per key (new keys)', type: 'number', default: 1, min: 1, max: 5, step: 1, unit: '', integer: true,
+        help: 'A call while this many runs of the key are working is refused as busy.' },
+      { key: 'jobDataMax', label: 'Most data per run', type: 'number', default: 20000, min: 1000, max: 100000, step: 1000, unit: 'characters', integer: true,
+        help: 'Data and added instructions together. More is refused, not cut.' },
+      { key: 'jobWaitMax', label: 'Longest wait a job may ask for', type: 'number', default: 300, min: 30, max: 900, step: 10, unit: 's', integer: true },
+      { key: 'jobRepeatDays', label: 'Repeat window for an idempotency key', type: 'number', default: 7, min: 1, max: 30, step: 1, unit: 'd', integer: true,
+        help: 'In days. A call that repeats an idempotency key within this gets the first run back and starts nothing.' },
+      { key: 'jobPush', label: 'Push when a job finishes (new keys)', type: 'bool', default: true },
+      { key: 'jobPushRespectsMute', label: 'Job pushes respect the conversation\'s mute', type: 'bool', default: true },
+      { key: 'jobKeyFolder', label: 'Where Pocket offers to save new keys', type: 'folder', default: '~/.config/pocket/jobs/',
+        help: 'A folder in your home folder. Key files are written readable only by you.' },
+    ],
+  },
 ];
 const GROUP = Object.fromEntries(GROUPS.map(g => [g.key, g]));
 const camelToEnv = k => k.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase();
@@ -103,14 +131,32 @@ const fmtNum = (s, v) => s.unit === '$' ? `$${Number(v).toFixed(2).replace(/\.00
 export function rangeText(s) {
   if (s.type === 'bool') return 'On or Off';
   if (s.type === 'choice') return s.choices.map(c => `'${c.value}'`).join(' or ');
+  if (s.type === 'folder') return 'a folder in your home folder, written like ~/.config/pocket/jobs/';
   const lo = s.unit === '$' ? `$${s.min.toFixed(2)}` : fmtNum(s, s.min);
   return `${lo} to ${fmtNum(s, s.max)}${s.offAllowed ? ', or No limit' : ''}`;
+}
+// A folder in the owner's home, as the setting stores it: '~/' plus the path inside home, ending in '/' ('~/' for home
+// itself). Takes '~', '~/x' or an absolute path inside home; null for anything else (outside home, '..', control
+// characters, over 400 characters). Where a symlink inside home leads is checked when a key file is written (job-keys.mjs).
+export function homeFolder(v, home = os.homedir()) {
+  if (typeof v !== 'string') return null;
+  const s = v.trim();
+  if (!s || s.length > 400 || /[\0-\x1f\x7f]/.test(s)) return null;
+  let rel;
+  if (s === '~') rel = '';
+  else if (s.startsWith('~/')) rel = s.slice(2);
+  else if (path.isAbsolute(s)) { const r = path.relative(home, s); if (r.startsWith('..') || path.isAbsolute(r)) return null; rel = r; }
+  else return null;
+  const parts = rel.split('/').filter(p => p && p !== '.');
+  if (parts.some(p => p === '..')) return null;
+  return '~/' + (parts.length ? parts.join('/') + '/' : '');
 }
 // One value checked against its setting: { value } (normalized) or { error } naming the allowed range.
 export function checkValue(s, v) {
   const bad = () => ({ error: `${s.label} must be ${rangeText(s)}.` });
   if (s.type === 'bool') return typeof v === 'boolean' ? { value: v } : bad();
   if (s.type === 'choice') return s.choices.some(c => c.value === v) ? { value: v } : bad();
+  if (s.type === 'folder') { const f = homeFolder(v); return f == null ? bad() : { value: f }; }
   if (v === 'off') return s.offAllowed ? { value: 'off' } : bad();
   const n = typeof v === 'number' ? v : typeof v === 'string' && /^\s*-?\d+(\.\d+)?\s*$/.test(v) ? Number(v) : NaN;
   if (!Number.isFinite(n) || n < s.min || n > s.max) return bad();

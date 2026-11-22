@@ -66,6 +66,7 @@ import {renderIntake, intakeBrand, intakeThemeCSS, intakeWhen} from './intake-pa
 import { CliUpdates } from './cli-updates.mjs';
 import { parseEnv } from './env-file.mjs';
 import * as auto from './automation.mjs'; // 1.117: unattended work (`automation` is the titles helper above)
+import { JobKeyStore, NAME_RE as JOB_NAME_RE, KEY_RE as JOB_KEY_RE, RUN_RE as JOB_RUN_RE, ENGINES as JOB_ENGINES, jobTitle, jobMessage, keyView as jobKeyView, runView as jobRunView, writeKeyFile, removeKeyFile, isKeyFile, hashSecret as hashJobKey } from './job-keys.mjs';
 import { CheckbackStore, checkbackInstructions, parseCheckbackWhen, rangeError as checkbackRangeError, checkbackMessage, firstLine as replyFirstLine, view as checkbackView, lateText } from './checkbacks.mjs'; // 1.119
 
 // ---------- config ----------
@@ -496,6 +497,12 @@ const checkbacks = new CheckbackStore(path.join(DATA_DIR, 'checkbacks.json'), { 
 const CHECKBACK_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-checkback.mjs');
 const checkbackSettings = () => auto.groupValues(settings.automation, 'checkbacks');
 const checkbacksOn = () => checkbackSettings().checkbacks === true;
+// ---------- job keys (the store; the routes and the runner are after the check-backs') ----------
+// <data dir>/job-keys.json holds the keys (a hash of each, never the key) and their recent runs (job-keys.mjs). Off until
+// Settings → Automation → Job keys turns it on; off, every job call is refused and the keys are kept.
+const jobSettings = () => auto.groupValues(settings.automation, 'jobs');
+const jobsOn = () => jobSettings().jobs === true;
+const jobStore = new JobKeyStore(path.join(DATA_DIR, 'job-keys.json'), { keepMs: () => jobSettings().jobRepeatDays * 86400_000 });
 // May this engine's conversations use check-backs? OpenRouter never (the spec leaves it out; its route answers engine_unsupported).
 const checkbackEngineOn = engine => { const v = checkbackSettings(); return v.checkbacks === true && (engine === 'claude' ? v.checkbackClaude : engine === 'codex' ? v.checkbackCodex : false) === true; };
 // ---------- 1.69: inbox ----------
@@ -654,7 +661,7 @@ async function gateUnattended(info) {
   const codexReading = !paused && apply.ceilings && info.engine === 'codex' && CODEX_ON && (lim.codexWeekly !== 'off' || lim.codexFiveHour !== 'off')
     ? await codex.codexRateLimits().catch(() => null) : null;
   const r = auto.unattendedGate({ ...info, rootOrigin: root, attendedOnly: !takesUnattended(info.engine) }, {
-    paused, ownBlocked: ownMessagesBlocked(), features: { checkback: checkbacksOn(), job: false }, limits: lim, // 1.119: check-backs
+    paused, ownBlocked: ownMessagesBlocked(), features: { checkback: checkbacksOn(), job: jobsOn() }, limits: lim, // 1.119: check-backs; job keys
     claude: apply.ceilings ? usage.accountSummary() : null, codex: codexReading, counts: autoState.counts(), nextDay: autoState.nextDay(), now: Date.now(),
   });
   if (!r.ok) { log(`unattended start held (${r.reason}${r.limit ? ` ${r.limit}` : ''}${r.window ? ` ${r.engine} ${r.window}` : ''}) origin=${info.origin} session=${info.sessionId}`); autoNotice(r); }
@@ -671,8 +678,14 @@ function autoNotice(r) {
 function noteStart(id, o) { // null: the agent started it, or the owner did
   if (!id) return;
   if (!o || o.origin === 'owner' || !o.origin) { if (smeta[id]?.lastOrigin) setSmeta(id, { lastOrigin: null, lastOriginRef: null }); return; }
-  setSmeta(id, { lastOrigin: o.origin, lastOriginRef: o.originRef || null });
+  setSmeta(id, { lastOrigin: o.origin, lastOriginRef: shownOriginRef(o) || null });
   autoState.recordStart({ rootOrigin: o.rootOrigin });
+}
+// A job's turns carry their run id as originRef (how the run's end is found, a retry's included); what the app and the
+// pushes show is the job's name ("Started by job disk-check").
+function shownOriginRef(t) {
+  if (!t?.originRef || auto.normRoot(t.rootOrigin) !== 'job' || !JOB_RUN_RE.test(t.originRef)) return t?.originRef;
+  return jobStore.run(t.originRef)?.keyName || t.originRef;
 }
 // A finished unattended reply: the day's totals and one audit line. Returns the label the push leads with (null for owner).
 function noteFinish(id, turn, { cost, tokens, durationMs, outcome }) {
@@ -685,11 +698,14 @@ function noteFinish(id, turn, { cost, tokens, durationMs, outcome }) {
   if (turn.origin === 'checkback' && turn.originRef) { // 1.119: its card, its own push (turn.checkbackHandled). Never throws into the reply's end: a
     try { checkbackFinished(id, turn, outcome); } catch (e) { log(`check-back not recorded id=${turn.originRef} session=${id}: ${e.message}`); } // failed write is settled by the next pass
   }
-  return auto.originLabel(turn.origin, turn.originRef);
+  if (rootOrigin === 'job' && turn.originRef) { // a job's run, its retry's included: the run's status and its own push (turn.jobHandled)
+    try { jobFinished(id, turn, { outcome, cost, tokens }); } catch (e) { log(`job run not recorded run=${turn.originRef} session=${id}: ${e.message}`); }
+  }
+  return auto.originLabel(turn.origin, shownOriginRef(turn));
 }
 const withOriginLabel = (label, body) => label ? `${label} · ${body}` : body;
 // The turn's origin as the chat reads it (owner when it says nothing).
-const originView = t => ({ origin: t?.origin || 'owner', ...(t?.originRef ? { originRef: t.originRef } : {}) });
+const originView = t => ({ origin: t?.origin || 'owner', ...(t?.originRef ? { originRef: shownOriginRef(t) } : {}) });
 // What the list and the chat say about the newest turn when the owner did not start it (nothing when the owner did).
 const lastOriginOf = id => smeta[id]?.lastOrigin ? { lastOrigin: smeta[id].lastOrigin, ...(smeta[id].lastOriginRef ? { lastOriginRef: smeta[id].lastOriginRef } : {}) } : {};
 const publicBase = () => (process.env.POCKET_PUBLIC_URL || settings.publicUrl || '').replace(/\/$/, '');
@@ -2374,7 +2390,7 @@ async function finalizeTurn(sessionId, turn, code) {
   // 1.64: a reply that leaves background jobs running is not done. The CLI starts a turn by itself when
   // they finish, and that turn's end sends the notification; a push now would say Done too early.
   if (!watching && !turn.stopped && r && !r.exited && r.bgTasks.length) log(`notification held: ${r.bgTasks.length} background job(s) still running session=${sessionId}`);
-  else if (!watching && !turn.stopped && !settled && !turn.checkbackHandled) { // 1.119: a check-back's reply has its own push
+  else if (!watching && !turn.stopped && !settled && !turn.checkbackHandled && !turn.jobHandled) { // 1.119: a check-back's reply has its own push (and a job's run)
     const result = turn.events.find(e => e.type === 'result');
     // 1.59: plain words; the cost and time stay after "Ready" for the owner who wants them.
     const body = retryAt ? limitPushText('Usage limit reached', sessionId, retryAt)
@@ -2824,7 +2840,7 @@ app.post('/api/logout/everywhere', ownPageJson, requireAuth, (_req, res) => {
 
 // 1.20.1: a signed-out browser asks this first; answering 200 { ok: false } keeps the console free of a 401 error.
 // 1.73.3: signed out, the reply names only the mode (the sign-in page says Pocket Assistant or Pocket Code); which modules are on is for the owner.
-app.get('/api/me', async (req, res) => { const ok = checkCookie(getCookie(req, 'pc_auth')) || await accessSignIn(req, res); if (ok) learnPublicUrl(req); return res.json({ ok, features: ok ? { coordination: coordLive(), projects: Boolean(settings.projects), documents: Boolean(settings.documents), tasks: Boolean(settings.tasks), inbox: Boolean(settings.inbox), vault: vaultLive(), assistantMode: assistantOn(), assistantLocked, handoffAt: handoffAt(), markAllReviewed: settings.markAllReviewed !== false, automation: true, checkbacks: checkbacksOn() } : { assistantMode: assistantOn() }, ...(ok ? { paused: pausedNow() ? { at: pausedNow().at } : null } : {}) }); }); // 1.117: automation, paused
+app.get('/api/me', async (req, res) => { const ok = checkCookie(getCookie(req, 'pc_auth')) || await accessSignIn(req, res); if (ok) learnPublicUrl(req); return res.json({ ok, features: ok ? { coordination: coordLive(), projects: Boolean(settings.projects), documents: Boolean(settings.documents), tasks: Boolean(settings.tasks), inbox: Boolean(settings.inbox), vault: vaultLive(), assistantMode: assistantOn(), assistantLocked, handoffAt: handoffAt(), markAllReviewed: settings.markAllReviewed !== false, automation: true, checkbacks: checkbacksOn(), jobs: jobsOn() } : { assistantMode: assistantOn() }, ...(ok ? { paused: pausedNow() ? { at: pausedNow().at } : null } : {}) }); }); // 1.117: automation, paused
 
 // One list, both providers. Codex threads carry their own recency and titles, so the
 // merge is just a sort — pins still float, and a Codex failure never costs the Claude
@@ -2850,7 +2866,7 @@ function stateFor(s) {
   const state=sessionState({ turn: turn ? {...turn,queue} : null, external: ac ? false : cx ? codex.codexExtActive(codex.bareId(s.id)) : extActive(s.id),
     retryAt, outcome, mtimeMs:s.mtimeMs, background: cx || ac ? [] : backgroundJobs(s.id), quietSince });
   if(queue.length&&!turn && state.kind!=='failed')return {kind:'waiting',label:queue[0].status==='uncertain'?'Queue needs review':'Queue paused',queued:queue.length,confirmed:true};
-  return {...state,...(queue.length?{queued:queue.length}:{}),...(state.kind==='running'&&turn?.origin&&turn.origin!=='owner'?{origin:turn.origin,...(turn.originRef?{originRef:turn.originRef}:{})}:{})}; // 1.117: who started the running reply
+  return {...state,...(queue.length?{queued:queue.length}:{}),...(state.kind==='running'&&turn?.origin&&turn.origin!=='owner'?{origin:turn.origin,...(turn.originRef?{originRef:shownOriginRef(turn)}:{})}:{})}; // 1.117: who started the running reply
 }
 // 1.111: the push for a reply that ended with a Complete card: the word, then the agent's outcome line.
 const completePush = id => { const o = smeta[id]?.outcome; return o?.done ? (o.summary ? `Complete · ${o.summary}` : 'Complete') : null; };
@@ -3548,7 +3564,7 @@ async function codexTurnFinished(id, turn, ev) {
     const next = await runNextFollowup(id, turn.cwd).catch(e => { log(`codex queue start failed thread=${id}: ${e.message}`); return false; });
     if (next !== null) return; // 1.117: null, nothing started (a limit or Pause all held it): this reply's push goes out below
   }
-  if (!watching && !turn.stopped && !settled && !mutes.has(id) && !turn.checkbackHandled) { // 1.119: a check-back's reply has its own push
+  if (!watching && !turn.stopped && !settled && !mutes.has(id) && !turn.checkbackHandled && !turn.jobHandled) { // 1.119: a check-back's reply has its own push (and a job's run)
     const meta = await codex.codexThreadMeta(codex.bareId(id)).catch(() => null);
     // 1.87: the same body Claude's pushes have (the reply's time; tokens where Claude shows its cost)
     const body = !ev.ok ? 'Something went wrong. Tap to see what happened' : completePush(id) ? completePush(id) : assistantOn() ? 'Ready' : `Ready${Number.isFinite(ev.tokens) && ev.tokens > 0 ? ` · ${ev.tokens >= 1e3 ? Math.round(ev.tokens / 1e3) + 'k' : ev.tokens} tokens` : ''}${ev.duration_ms ? ` · ${Math.round(ev.duration_ms / 1000)}s` : ''}`;
@@ -3867,7 +3883,7 @@ async function acpTurnFinished(id, turn, ev) {
     const next = await runNextFollowup(id, turn.cwd).catch(e => { log(`acp queue start failed session=${id}: ${e.message}`); return false; });
     if (next !== null) return; // 1.117: as on Codex, a held row leaves this reply's push to go out
   }
-  if (!watching && !turn.stopped && !settled && !mutes.has(id) && !turn.checkbackHandled) pushNotify(id, smeta[id]?.name || convo, withOriginLabel(originLabel, ev.ok ? completePush(id) || 'Ready' : 'Something went wrong. Tap to see what happened')).catch(() => { });
+  if (!watching && !turn.stopped && !settled && !mutes.has(id) && !turn.checkbackHandled && !turn.jobHandled) pushNotify(id, smeta[id]?.name || convo, withOriginLabel(originLabel, ev.ok ? completePush(id) || 'Ready' : 'Something went wrong. Tap to see what happened')).catch(() => { });
 }
 if (CODEX_ON) codex.adoptCodexSessions(threadId => codexHooks(codex.CX + threadId));
 if (CODEX_ON) codex.pruneTranscriptCache(); // 1.53.5: the on-disk transcript cache keeps its newest files only
@@ -6033,11 +6049,13 @@ const backgroundRunners = () => autoValues('pause').backgroundJobs
 // group, as Stop does) ends the process and its jobs with it, whatever the switch says. Counted here, once each.
 const runningJobRunners = live => live.claude.map(([id, turn]) => runners.get(id)).filter(r => r && r.turn && turns.get(r.sessionId) === r.turn && !r.exited && !r.closing && r.bgTasks.length);
 const jobCount = rs => rs.reduce((n, r) => n + r.bgTasks.length, 0);
+// Job keys' replies running now (counted in `replies` too, and stopped with them).
+const liveJobReplies = live => Object.values(live).flat().filter(([, t]) => t.rootOrigin === 'job').length;
 function pauseWould() {
   const live = liveTurns(), pause = autoValues('pause'), sides = liveSides();
   const side = p => sides.filter(c => (c.provider === 'codex') === (p === 'codex')).length;
   return { replies: { claude: live.claude.length + side('claude'), codex: live.codex.length + side('codex'), openrouter: live.openrouter.length, ...(AGY_ON ? { antigravity: live.antigravity.length } : {}) }, // antigravity only where the server runs it
-    background: jobCount(backgroundRunners()) + jobCount(runningJobRunners(live)), retries: retryTimers.size, checkbacks: checkbacksWouldHold(), // 1.119
+    background: jobCount(backgroundRunners()) + jobCount(runningJobRunners(live)), retries: retryTimers.size, checkbacks: checkbacksWouldHold(), jobs: liveJobReplies(live), // 1.119; job keys
     inboxWatch: Boolean(settings.inbox) && pause.inboxWatch && !inboxStore.paused() };
 }
 // The banner's part (also carried on /api/sessions); GET /api/pause adds what Pause all would stop, for the confirmation.
@@ -6049,7 +6067,7 @@ function pauseView() {
   const b = pauseBanner();
   return { paused: b.paused, would: pauseWould(), held: b.held, ownMessages: b.ownMessages, confirm: b.confirm };
 }
-const NOTHING_STOPPED = Object.freeze({ replies: { claude: 0, codex: 0, openrouter: 0 }, background: 0, retries: 0, checkbacks: 0, inboxWatch: false });
+const NOTHING_STOPPED = Object.freeze({ replies: { claude: 0, codex: 0, openrouter: 0 }, background: 0, retries: 0, checkbacks: 0, jobs: 0, inboxWatch: false });
 function pauseAll() {
   // Already paused: nothing new is started while paused, so there is nothing to stop, and no second audit line.
   if (pausedNow()) return structuredClone(NOTHING_STOPPED);
@@ -6077,7 +6095,7 @@ function pauseAll() {
   }
   holdCheckbacksForPause(); // 1.119: every waiting check-back is held until Resume
   const stopped = { ...would, inboxWatch: Boolean(record.inboxWatch) };
-  autoAudit({ action: 'pause', replies: stopped.replies, background: stopped.background, retries: stopped.retries, checkbacks: stopped.checkbacks, inboxWatch: stopped.inboxWatch });
+  autoAudit({ action: 'pause', replies: stopped.replies, background: stopped.background, retries: stopped.retries, checkbacks: stopped.checkbacks, jobs: stopped.jobs, inboxWatch: stopped.inboxWatch });
   log(`Pause all: stopped ${Object.values(would.replies).reduce((a, n) => a + n, 0)} repl(ies) and ${would.background} background job(s), held ${would.retries} retr(ies) and ${would.checkbacks} check-back(s)`);
   return stopped;
 }
@@ -6116,7 +6134,7 @@ app.post('/api/resume', requireAuth, ownerControl, (_req, res) => { const { rear
 // ---------- 1.117: Settings → Automation ----------
 function automationView() {
   const d = auto.describe(settings.automation);
-  return { paused: pausedView(), groups: d.groups, warnings: d.warnings, notices: autoState.notices(), usage: autoState.usage(), checkbacks: checkbackSummary() };
+  return { paused: pausedView(), groups: d.groups, warnings: d.warnings, notices: autoState.notices(), usage: autoState.usage(), checkbacks: checkbackSummary(), jobs: jobSummary() };
 }
 app.get('/api/automation', requireAuth, (_req, res) => { res.setHeader('Cache-Control', 'private, no-store'); res.json(automationView()); });
 // All or nothing, checked here; a saved value applies to the next start or tick (a running reply keeps what it started with).
@@ -6160,7 +6178,7 @@ function longestReplyTick(now = Date.now()) {
     else if (engine === 'codex') codex.stopCodexTurn(codex.bareId(id));
     else acp.stopAcpTurn(id, `Stopped at the longest unattended reply (${a.limit} min)`);
     autoAudit({ action: 'longest_reply', origin: t.origin, ...(t.originRef ? { originRef: t.originRef } : {}), rootOrigin: t.rootOrigin, engine, sessionId: id, limitMin: a.limit });
-    pushNotify(id, smeta[id]?.name || `${ENGINES[engine].label} conversation`, withOriginLabel(auto.originLabel(t.origin, t.originRef), `Stopped at the longest unattended reply (${a.limit} min)`)).catch(() => { });
+    pushNotify(id, smeta[id]?.name || `${ENGINES[engine].label} conversation`, withOriginLabel(auto.originLabel(t.origin, shownOriginRef(t)), `Stopped at the longest unattended reply (${a.limit} min)`)).catch(() => { });
   }
 }
 if (AUTOMATION_TICK_MS > 0) setInterval(() => { try { longestReplyTick(); } catch (e) { log(`automation tick: ${e.message}`); } }, AUTOMATION_TICK_MS).unref();
@@ -6571,6 +6589,366 @@ app.post('/api/checkbacks/cancel-all', requireAuth, ownerControl, checkbacksGate
   for (const c of checkbacks.waiting()) if (!cancelCheckback(c, 'owner').error) cancelled++;
   res.json({ ok: true, cancelled, ...checkbackSummary() });
 });
+
+// ---------- job keys (docs/plans/unattended-work.md, Part 3; the store is at the top, job-keys.mjs) ----------
+// The owner creates a key (the app, the cookie only); a program on this server calls POST /api/jobs/run with it. The call is
+// checked in this order: loopback with no proxy header, the key (constant time, on its hash), the request, a repeat of an
+// idempotency key (the first run comes back and nothing starts), the conversation it names, the key's own limits, then the
+// unattended gate with origin 'job'. A refusal answers at once and nothing is queued. The start is the engine's own start
+// for a new conversation (or startQueued for one this key started), in the key's folder with its model, effort and access.
+// The reply's end (noteFinish, every engine, a usage-limit retry's included) settles the run and sends the job's push in
+// place of the ordinary one (turn.jobHandled).
+const JOB_REPLY_KEEP = 200; // runs whose whole reply text is kept in memory for the caller (the store keeps the first line)
+const jobReplies = new Map();
+const JOB_BOOT_AT = Date.now();
+const jobBootWorking = new Set(jobStore.active().map(r => r.run)); // found working at boot: settled once nothing carries them on
+const JOB_FAIL = { windowMs: 60_000, max: 20 };
+let jobFails = { since: 0, n: 0, audited: false };
+// One audit line, never the key, its hash, the instruction or the data.
+const jobAudit = (event, k, extra = {}) => autoAudit({ action: 'job', event, keyId: k?.keyId || k?.id, name: k?.keyName || k?.name, ...extra });
+const jobLink = id => { const b = publicBase(); return id && b ? `${b}/#/chat/${id}` : null; };
+const jobEngineOn = e => e === 'claude' || (e === 'codex' && CODEX_ON) || (e === 'acp' && acpOn('acp'));
+const JOB_BAD_KEY = Object.freeze({ status: 'refused', reason: 'bad_key', error: 'Unknown or disabled job key.', code: 'bad_key' });
+const jobsGate = (_req, res, next) => { res.set('Cache-Control', 'private, no-store'); return jobsOn() ? next() : res.status(404).json({ error: 'Job keys are switched off on this Pocket.', code: 'jobs_off' }); };
+// Who may call the job routes: a job key, from this server, straight to the port. Off, a call from this server is told so and
+// any other request is answered as before job keys existed (no such route).
+function jobCaller(req, res, next) {
+  const local = directLoopback(req);
+  if (!jobsOn()) { if (!local) return next('route'); res.set('Cache-Control', 'private, no-store'); return res.status(404).json({ error: 'Job keys are switched off on this Pocket.', code: 'jobs_off' }); }
+  res.set('Cache-Control', 'private, no-store');
+  if (!local) return res.status(403).json({ error: 'Job keys work only from this server: call 127.0.0.1 directly, not through the tunnel or a proxy.', code: 'not_local' });
+  const m = /^Bearer\s+(\S+)\s*$/i.exec(req.get('authorization') || '');
+  if (checkCookie(getCookie(req, 'pc_auth')) || (m && /^[0-9a-f]{64}$/.test(m[1]))) return res.status(403).json({ error: 'This route takes a job key only, not the app\'s sign-in or the CLI token.', code: 'job_key_only' });
+  if (!m) return res.status(401).json({ status: 'refused', reason: 'no_key', error: 'Send the job key: Authorization: Bearer <key>.', code: 'no_key' });
+  const k = jobStore.bySecret(m[1]);
+  if (k && k.enabled !== false) { req.jobKey = k; return next(); }
+  const now = Date.now();
+  if (now - jobFails.since > JOB_FAIL.windowMs) jobFails = { since: now, n: 0, audited: false };
+  if (++jobFails.n > JOB_FAIL.max) {
+    if (!jobFails.audited) { jobFails.audited = true; autoAudit({ action: 'job_auth', event: 'rate_limited', failures: jobFails.n }); log(`job calls refused: over ${JOB_FAIL.max} wrong keys in a minute`); }
+    return res.status(429).json({ status: 'refused', reason: 'rate_limited', error: 'Too many calls with a wrong job key. Wait a minute.', code: 'rate_limited' });
+  }
+  autoAudit({ action: 'job_auth', event: k ? 'disabled_key' : 'bad_key', ...(k ? { keyId: k.id } : {}) }); // never the key presented
+  log(`job call refused: ${k ? `disabled key ${k.id}` : 'unknown key'}`);
+  res.status(401).json(JOB_BAD_KEY);
+}
+// Is the run's conversation waiting on the owner: an approval or a question, a share or publish request (1.118), a Vault request?
+function jobNeedsYou(id) {
+  if (!id) return false;
+  let t = null; try { t = ownedTurn(id); } catch { }
+  if (t && (t.approvals?.list().length || t.questions?.list().length || t.approvalUnavailable || t.inputUnavailable)) return true;
+  try { if (docs.pendingRequests().some(r => r.session === id)) return true; } catch { }
+  try { if (vault && vault.pendingFor(id).length) return true; } catch { }
+  return false;
+}
+// A run found working when Pocket started, once nothing carries it on (no reply, no usage-limit retry), ended with the restart.
+function jobSettle(r) {
+  if (r.status !== 'working' || !jobBootWorking.has(r.run) || Date.now() - JOB_BOOT_AT < 15_000) return r;
+  const id = r.conversation;
+  if (id && (ownedTurn(id) || retryTimers.has(id) || heldRetries.has(id))) return r;
+  jobBootWorking.delete(r.run);
+  const done = jobStore.finishRun(r.run, 'failed', 'interrupted');
+  jobAudit('finished', done, { run: r.run, sessionId: id, engine: r.engine, startedAt: r.startedAt, endedAt: done.endedAt, outcome: 'interrupted' });
+  return done;
+}
+// The answer to the job: { status, run, conversation, link, reply?, outcome?, reason? }.
+function jobAnswer(r0) {
+  const r = jobSettle(r0);
+  let status = r.status === 'starting' ? 'working' : r.status;
+  if (status === 'working' && jobNeedsYou(r.conversation)) status = 'needs_you';
+  const out = { status, run: r.run, conversation: r.conversation || null, link: jobLink(r.conversation) };
+  if (status === 'done') { const full = jobReplies.get(r.run); out.reply = full ?? r.reply ?? ''; if (full == null) out.replyPartial = true; } // after a restart: the first line only
+  if (r.outcome && status !== 'working' && status !== 'needs_you') out.outcome = r.outcome;
+  return out;
+}
+// Answers now, or once the run is no longer working (done, failed or needs you), or when `waitS` runs out, whichever is first.
+async function answerJobRun(res, runId, waitS, extra = {}) {
+  let gone = false; res.on('close', () => { gone = true; });
+  const until = Date.now() + waitS * 1000;
+  let view = null;
+  for (;;) {
+    const r = jobStore.run(runId);
+    if (!r) return gone ? undefined : res.status(404).json({ error: 'This key has no run with that id.', code: 'not_found' });
+    view = jobAnswer(r);
+    if (view.status !== 'working' || Date.now() >= until || gone) break;
+    await new Promise(resolve => setTimeout(resolve, Math.min(250, Math.max(10, until - Date.now()))));
+  }
+  if (gone) return;
+  res.status(view.status === 'working' || view.status === 'needs_you' ? 202 : 200).json({ ...view, ...extra });
+}
+// The last message of the reply that has text: what the owner reads as its answer (the working notes come before it).
+function jobReplyText(turn) {
+  const texts = (turn.events || []).filter(e => e.type === 'assistant').map(e => (Array.isArray(e.msg?.blocks) ? e.msg.blocks : []).filter(b => b?.t === 'text').map(b => String(b.text || '')).join('\n')).filter(t => t.trim());
+  return (texts.at(-1) || '').slice(0, 100_000);
+}
+// The end of a job's reply (noteFinish). A usage limit leaves the run working: its retry carries the run on (rootOrigin job,
+// the same originRef) and its end settles it; that reply's usage-limit push goes out as for any reply. Otherwise the run is
+// done or failed, one audit line is written, and the job's push replaces the ordinary one: kind automation, the job's name,
+// the reply's first line; none when the key says so, when the conversation is muted (unless the owner turned that off), or
+// when the reply was stopped (the owner, Pause all or the longest-reply limit did that, and said so).
+function jobFinished(id, turn, { outcome, cost, tokens }) {
+  const r = jobStore.run(turn.originRef);
+  if (!r || (r.status !== 'working' && r.status !== 'starting')) return;
+  jobBootWorking.delete(r.run);
+  const sum = (a, b) => Number.isFinite(b) ? (Number.isFinite(a) ? a : 0) + b : a;
+  const spent = { cost: sum(r.cost, cost), tokens: sum(r.tokens, tokens) };
+  if (outcome === 'limit') { jobStore.updateRun(r.run, { conversation: r.conversation || id, ...spent }); return; }
+  turn.jobHandled = true;
+  const ok = outcome === 'ok', line = ok ? replyFirstLine(turn.events.filter(e => e.type === 'assistant').map(e => e.msg)) : '';
+  if (ok) { jobReplies.set(r.run, jobReplyText(turn)); while (jobReplies.size > JOB_REPLY_KEEP) jobReplies.delete(jobReplies.keys().next().value); }
+  const done = jobStore.finishRun(r.run, ok ? 'done' : 'failed', outcome, { conversation: r.conversation || id, ...(line ? { reply: line } : {}), ...spent });
+  jobAudit('finished', done, { run: r.run, sessionId: id, engine: r.engine, startedAt: r.startedAt, endedAt: done.endedAt, outcome, ...(Number.isFinite(spent.cost) ? { cost: spent.cost } : {}), ...(Number.isFinite(spent.tokens) ? { tokens: spent.tokens } : {}) });
+  log(`job run ${ok ? 'done' : outcome} run=${r.run} key=${r.keyId} session=${id}`);
+  const k = jobStore.key(r.keyId);
+  if (outcome === 'stopped' || !k || k.pushWhenDone === false) return;
+  if (mutes.has(id) && jobSettings().jobPushRespectsMute) return log(`job push muted run=${r.run} session=${id}`);
+  pushRaw(jobTitle(r.keyName), ok ? line || 'Done' : 'Something went wrong. Tap to see what happened', { tag: 'job:' + r.run, url: '/#/chat/' + id, kind: 'automation' })
+    .then(devices => { if (devices != null) log(`job push sent (${devices} devices) run=${r.run}`); }).catch(e => log(`job push: ${e.message}`));
+}
+// The start: a new conversation on the key's engine, or the next reply in one this key started.
+async function startJobTurn(k, r, text, conversation) {
+  const from = { origin: 'job', originRef: r.run, rootOrigin: 'job' };
+  // The install's Full access switch wins: where it is off, the key runs under Ask me for every action (Review actions).
+  const row = { text, approvalMode: k.access === 'full' && ALLOW_FULL_ACCESS ? 'full' : 'review', executionMode: 'work',
+    ...(k.model && k.model !== 'default' ? { model: k.model } : {}), ...(k.effort ? { effort: k.effort } : {}) };
+  const cwd = LOCK_CWD ? DEFAULT_CWD : k.workspace;
+  if (!cwd || !fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) throw Object.assign(new Error(`The key's folder ${cwd} is gone. Give the key a folder that exists.`), { status: 409, notStarted: true });
+  if (!jobEngineOn(k.engine)) throw Object.assign(new Error(`${ENGINES[k.engine]?.label || k.engine} is not enabled on this server.`), { status: 409, notStarted: true });
+  if (conversation) { await engineOf(conversation).startQueued(conversation, cwd, row, { from }); return conversation; }
+  if (k.engine === 'codex') { const turn = await startCodexFromApi({ threadId: null, cwd, text, body: row, from }); return codex.CX + turn.threadId; }
+  if (k.engine === 'acp') {
+    const turn = await startAcpFromApi({ id: null, sessionId: null, cwd, text, body: row, engine: 'acp', from }), id = turn.fullId;
+    staleAcpList(id);
+    try { setSmeta(id, { engineConfig: { engine: 'acp', inferenceProvider: 'openrouter', model: turn.model } }); } catch { } // as /api/new: the session resumes on its engine
+    return id;
+  }
+  const id = randomUUID();
+  startTurn({ sessionId: id, cwd, text, resume: false, ...turnOpts(row), from });
+  return id;
+}
+// The words for a refusal by the gate.
+function jobGateText(g, k) {
+  if (g.reason === 'paused') return 'Pocket is paused. Nothing was started; try again after the owner resumes.';
+  if (g.reason === 'feature_off') return 'Job keys are switched off on this Pocket.';
+  if (g.reason === 'attended_only') return `${ENGINES[k.engine]?.label || 'This agent'} runs only the messages a person sends.`;
+  if (g.reason === 'busy') return 'That conversation is busy. Try again when its reply ends.';
+  const n = auto.noticeFor(g, fmtOwnerWhen);
+  return `${n?.text || 'A limit on unattended work was reached.'} Nothing was started.`;
+}
+app.post('/api/jobs/run', jobCaller, async (req, res) => {
+  const k = req.jobKey, v = jobSettings(), b = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+  const refuse = (http, reason, error, extra = {}) => {
+    if (!['bad_request'].includes(reason)) jobAudit('refused', k, { reason, ...(extra.limit ? { limit: extra.limit } : {}) });
+    return res.status(http).json({ status: 'refused', reason, error, run: null, conversation: extra.conversation ?? null, link: null, ...extra });
+  };
+  for (const f of ['data', 'instructions', 'idempotencyKey', 'conversation']) if (b[f] != null && typeof b[f] !== 'string') return refuse(400, 'bad_request', `${f} must be text.`);
+  const data = b.data || '', instructions = String(b.instructions || '').trim(), idem = b.idempotencyKey ? b.idempotencyKey.trim() : '';
+  if (idem.length > 200 || /[\0-\x1f\x7f]/.test(idem)) return refuse(400, 'bad_request', 'idempotencyKey is up to 200 characters of text on one line.');
+  if (b.wait != null && (typeof b.wait !== 'number' || !Number.isFinite(b.wait) || b.wait < 0)) return refuse(400, 'bad_request', `wait is a number of seconds, 0 to ${v.jobWaitMax}.`);
+  const wait = Math.min(Number(b.wait) || 0, v.jobWaitMax);
+  if (instructions && !k.mayAddInstructions) return refuse(403, 'instructions_not_allowed', `The job key "${k.name}" may not add instructions. Send everything as data, or let this key add instructions in Settings → Automation → Job keys.`);
+  const size = data.length + instructions.length;
+  if (size > v.jobDataMax) return refuse(413, 'too_large', `The data is ${size.toLocaleString('en-US')} characters; this Pocket takes at most ${v.jobDataMax.toLocaleString('en-US')} per run. Nothing was started.`);
+  // A repeat: the first run, as it stands now; nothing starts.
+  const first = idem ? jobStore.repeatOf(k.id, idem, v.jobRepeatDays * 86400_000) : null;
+  if (first) { log(`job call repeated an idempotency key: run=${first.run} key=${k.id}`); return answerJobRun(res, first.run, wait, { repeat: true }); }
+  let conversation = null;
+  if (b.conversation) {
+    conversation = b.conversation.trim();
+    if (!anyId(conversation) || !jobStore.started(k.id, conversation)) return refuse(403, 'not_yours', 'That conversation was not started by this job key. Leave out conversation to start a new one.');
+    if (jobStore.active().some(r => r.conversation === conversation) || conversationBusy(conversation)) return refuse(409, 'busy', 'That conversation is busy. Try again when its reply ends.', { conversation });
+  }
+  // The key's own limits: runs at once (busy), then the last hour and the last 24 hours.
+  const lim = k.limits || {}, now = Date.now(), atOnce = Number(lim.atOnce) || 1, active = jobStore.active(k.id).length;
+  if (active >= atOnce) return refuse(409, 'busy', atOnce === 1 ? `A run of "${k.name}" is still working. One runs at a time.` : `${active} runs of "${k.name}" are still working, the most at once.`);
+  for (const [f, ms, words] of [['perHour', 3600_000, 'in the last hour'], ['perDay', 86400_000, 'in the last 24 hours']]) {
+    if (lim[f] === 'off' || !Number.isFinite(lim[f])) continue;
+    const n = jobStore.countSince(k.id, now - ms);
+    if (n >= lim[f]) return refuse(409, 'key_limit', `"${k.name}" ran ${n} time${n === 1 ? '' : 's'} ${words}, its limit. Nothing was started.`, { limit: f === 'perHour' ? 'per_hour' : 'per_day' });
+  }
+  // Reserved before the gate's await, so a second call meanwhile counts this one.
+  const r = jobStore.reserve(k, { idempotencyKey: idem || undefined, conversation });
+  const g = await gateUnattended({ origin: 'job', originRef: r.run, rootOrigin: 'job', engine: k.engine, sessionId: conversation });
+  const still = jobStore.key(k.id);
+  if (!still || still.enabled === false || still.keyHash !== k.keyHash) { jobStore.dropRun(r.run); return res.status(401).json(JOB_BAD_KEY); } // deleted, disabled or rotated while the gate read
+  if (!g.ok) { jobStore.dropRun(r.run); return refuse(409, g.reason === 'feature_off' ? 'jobs_off' : g.reason, jobGateText(g, k), { ...(g.until ? { until: new Date(g.until).toISOString() } : {}), ...(conversation ? { conversation } : {}) }); }
+  const text = jobMessage({ name: k.name, instruction: k.instruction, data, instructions, received: fmtOwnerWhen(Date.now()) });
+  let id;
+  try { id = await startJobTurn(k, r, text, conversation); }
+  catch (e) {
+    if (e?.paused) { jobStore.dropRun(r.run); return refuse(409, 'paused', jobGateText({ reason: 'paused' }, k)); } // paused after the gate passed
+    if (!e?.notStarted && (e?.code === 409 || e?.status === 409) && conversation) { jobStore.dropRun(r.run); return refuse(409, 'busy', 'That conversation is busy. Try again when its reply ends.', { conversation }); }
+    const msg = String(e?.message || e).slice(0, 300);
+    const done = jobStore.finishRun(r.run, 'failed', 'not_started');
+    jobAudit('finished', done, { run: r.run, engine: k.engine, startedAt: r.startedAt, endedAt: done?.endedAt, outcome: 'not_started' });
+    log(`job run not started run=${r.run} key=${k.id}: ${msg}`);
+    return res.status(e?.status === 409 ? 409 : 500).json({ status: 'failed', run: r.run, conversation: conversation, link: jobLink(conversation), outcome: 'not_started', error: `The run could not start: ${msg}` });
+  }
+  // The reply may already have ended (and settled the run) while the start was awaited.
+  const cur = jobStore.run(r.run);
+  if (cur?.status === 'starting') jobStore.updateRun(r.run, { status: 'working', conversation: id });
+  else if (cur && !cur.conversation) jobStore.updateRun(r.run, { conversation: id });
+  jobStore.noteConversation(k.id, id);
+  jobStore.updateKey(k.id, { lastRunAt: r.startedAt });
+  log(`job run started run=${r.run} key=${k.id} engine=${k.engine} session=${id}${conversation ? ' (continued)' : ''}`);
+  return answerJobRun(res, r.run, wait);
+});
+app.get('/api/jobs/runs/:run', jobCaller, (req, res) => {
+  const r = jobStore.run(String(req.params.run));
+  if (!r || r.keyId !== req.jobKey.id) return res.status(404).json({ error: 'This key has no run with that id.', code: 'not_found' });
+  const w = Number(req.query.wait);
+  return answerJobRun(res, r.run, Number.isFinite(w) && w > 0 ? Math.min(w, jobSettings().jobWaitMax) : 0);
+});
+
+// The owner's routes (the app): the cookie only, and ownerControl for every change; the CLI token and job keys are refused.
+const jobKeyOut = k => jobKeyView(k, { running: jobStore.active(k.id).length });
+const JOB_LIMIT = { perHour: ['jobPerHour', 'Runs per hour'], perDay: ['jobPerDay', 'Runs per day'], atOnce: ['jobAtOnce', 'Runs at once'] };
+const jobSetting = key => auto.GROUPS.find(g => g.key === 'jobs').settings.find(s => s.key === key);
+function jobDefaults() {
+  const v = jobSettings();
+  return { access: v.jobAccess === 'full' && ALLOW_FULL_ACCESS ? 'full' : 'ask', mayAddInstructions: v.jobAddInstructions, pushWhenDone: v.jobPush,
+    limits: { perHour: v.jobPerHour, perDay: v.jobPerDay, atOnce: v.jobAtOnce }, folder: v.jobKeyFolder, fullAccessAllowed: ALLOW_FULL_ACCESS,
+    workspace: LOCK_CWD ? DEFAULT_CWD : null, engines: JOB_ENGINES.filter(jobEngineOn) };
+}
+const jobFail = (message, code = 'bad_request', status = 400) => Object.assign(new Error(message), { status, code });
+const jobErr = (res, e) => { if (!e?.status) throw e; return res.status(e.status).json({ error: e.message, ...(e.code ? { code: e.code } : {}) }); };
+// The fields of a new key (cur null: every field, defaults from the settings) or of a change (only the fields sent).
+function jobKeyFields(b, cur = null) {
+  const v = jobSettings(), out = {}, has = f => !cur || Object.hasOwn(b, f);
+  if (has('name')) {
+    const name = typeof b.name === 'string' ? b.name.trim() : '';
+    if (!JOB_NAME_RE.test(name)) throw jobFail('A job key\'s name is 1 to 48 lowercase letters, digits, - or _, starting with a letter or digit, like disk-check.', 'bad_name');
+    const other = jobStore.byName(name); if (other && other.id !== cur?.id) throw jobFail(`There is already a job key named "${name}".`, 'name_taken', 409);
+    out.name = name;
+  }
+  if (has('engine')) {
+    const e = b.engine === 'openrouter' ? 'acp' : typeof b.engine === 'string' ? b.engine : '';
+    if (e === 'antigravity') throw jobFail('Antigravity runs only the messages you send yourself, so a job key can\'t use it.', 'attended_only');
+    if (!JOB_ENGINES.includes(e)) throw jobFail('Choose the agent: \'claude\', \'codex\' or \'acp\' (OpenRouter).', 'bad_engine');
+    if (!jobEngineOn(e)) throw jobFail(`${ENGINES[e].label} is not enabled on this server.`, 'engine_off');
+    out.engine = e;
+  }
+  const engine = out.engine || cur?.engine;
+  if (has('workspace')) {
+    let w = typeof b.workspace === 'string' ? b.workspace.trim() : '';
+    if (w === '~' || w.startsWith('~/')) w = path.join(HOME, w.slice(1));
+    if (LOCK_CWD) w = DEFAULT_CWD; // as /api/new: this Pocket starts every conversation in its one folder
+    if (!w || !path.isAbsolute(w) || !fs.existsSync(w) || !fs.statSync(w).isDirectory()) throw jobFail('The workspace must be a folder on this server, like ~/projects/disk-check.', 'bad_workspace');
+    out.workspace = path.resolve(w);
+  }
+  if (has('model') || out.engine) {
+    const m = has('model') ? (b.model == null || b.model === '' ? 'default' : b.model) : cur?.model || 'default';
+    if (typeof m !== 'string' || m.length > 200) throw jobFail('Choose a model from the model menu.', 'bad_model');
+    try { validateModel(engine, m); } catch (e) { throw jobFail(e.message, 'bad_model'); }
+    out.model = m;
+  }
+  if (has('effort') || out.engine) {
+    const raw = has('effort') ? b.effort : cur?.effort, e = raw == null || raw === '' || raw === 'default' ? null : raw;
+    const allowed = engine === 'codex' ? CODEX_EFFORTS : EFFORTS;
+    if (e !== null && (typeof e !== 'string' || !allowed.has(e))) throw jobFail(`Effort is one of ${[...allowed].join(', ')}, or default.`, 'bad_effort');
+    out.effort = e;
+  }
+  if (has('access')) {
+    const a = b.access ?? (cur ? undefined : v.jobAccess === 'full' && ALLOW_FULL_ACCESS ? 'full' : 'ask');
+    if (!['ask', 'full'].includes(a)) throw jobFail('Access is \'ask\' (Ask me for every action) or \'full\' (Full access).', 'bad_access');
+    if (a === 'full' && !ALLOW_FULL_ACCESS) throw jobFail('Full access is turned off on this server.', 'full_access_off', 403);
+    out.access = a;
+  }
+  if (has('instruction')) {
+    const t = typeof b.instruction === 'string' ? b.instruction.trim() : '';
+    if (!t) throw jobFail('Write the standing instruction: what every run of this job does.', 'instruction_required');
+    if (t.length > 20000) throw jobFail(`The standing instruction is ${t.length.toLocaleString('en-US')} characters; keep it to 20,000.`, 'instruction_too_long');
+    out.instruction = t;
+  }
+  for (const [f, dflt] of [['mayAddInstructions', v.jobAddInstructions], ['pushWhenDone', v.jobPush], ['enabled', true]]) {
+    if (!has(f)) continue;
+    const x = b[f] ?? (cur ? undefined : dflt);
+    if (typeof x !== 'boolean') throw jobFail(`${f} is true or false.`);
+    out[f] = x;
+  }
+  if (has('limits')) {
+    const l = b.limits ?? {};
+    if (typeof l !== 'object' || Array.isArray(l)) throw jobFail('limits is { perHour, perDay, atOnce }.');
+    const unknown = Object.keys(l).find(f => !JOB_LIMIT[f]); if (unknown) throw jobFail(`Unknown limit "${unknown}". Use perHour, perDay or atOnce.`);
+    out.limits = { ...(cur?.limits || { perHour: v.jobPerHour, perDay: v.jobPerDay, atOnce: v.jobAtOnce }) };
+    for (const [f, [key, label]] of Object.entries(JOB_LIMIT)) {
+      if (l[f] === undefined) continue;
+      const r = auto.checkValue({ ...jobSetting(key), label }, l[f]);
+      if (r.error) throw jobFail(r.error, 'bad_limit');
+      out.limits[f] = r.value;
+    }
+  }
+  if (cur?.lastRunAt && ((out.workspace && out.workspace !== cur.workspace) || (out.engine && out.engine !== cur.engine)))
+    throw jobFail('This key has run, so its folder and agent stay as they are. Create a new key for another folder or agent.', 'fixed_after_run', 409);
+  return out;
+}
+// A key file the owner asked for: `save: true` (the folder in the settings) or `folder`. Throws as writeKeyFile does.
+const wantsKeyFile = b => b?.save === true || (typeof b?.folder === 'string' && b.folder.trim() !== '');
+const keyFileFolder = b => typeof b?.folder === 'string' && b.folder.trim() ? b.folder.trim() : jobSettings().jobKeyFolder;
+const changedFields = (cur, next) => Object.keys(next).filter(f => JSON.stringify(cur[f]) !== JSON.stringify(next[f]));
+app.get('/api/jobs/keys', requireAuth, jobsGate, (_req, res) => {
+  res.json({ keys: jobStore.keys.map(jobKeyOut), defaults: jobDefaults() });
+});
+// Create: the key is in this answer and nowhere else, ever. With a key file asked for, a file that can't be written leaves
+// nothing created.
+app.post('/api/jobs/keys', requireAuth, ownerControl, jobsGate, (req, res) => {
+  const b = req.body || {};
+  let fields; try { fields = jobKeyFields(b); } catch (e) { return jobErr(res, e); }
+  let made; try { made = jobStore.addKey(fields); } catch (e) { return jobErr(res, e); }
+  let file = null;
+  if (wantsKeyFile(b)) {
+    try { file = writeKeyFile(keyFileFolder(b), made.key.name, made.secret, { home: HOME }); jobStore.updateKey(made.key.id, { keyFile: file }); }
+    catch (e) { jobStore.deleteKey(made.key.id); if (!e.status) log(`job key file not written: ${e.message}`); return res.status(e.status || 400).json({ error: e.status ? e.message : `The key file could not be written: ${e.code || e.message}. Nothing was created.`, code: e.code && e.status ? e.code : 'file_error' }); }
+  }
+  jobAudit('created', made.key, { fields: Object.keys(fields), ...(file ? { keyFile: true } : {}) });
+  log(`job key created id=${made.key.id} name=${made.key.name} engine=${made.key.engine}`);
+  res.status(201).json({ key: jobKeyOut(jobStore.key(made.key.id)), secret: made.secret, ...(file ? { file } : {}), note: 'This is the only time the key is shown.' });
+});
+app.post('/api/jobs/keys/:id', requireAuth, ownerControl, jobsGate, (req, res) => {
+  const cur = jobStore.key(req.params.id); if (!cur) return res.status(404).json({ error: 'There is no job key with that id.', code: 'not_found' });
+  let fields; try { fields = jobKeyFields(req.body || {}, cur); } catch (e) { return jobErr(res, e); }
+  const changed = changedFields(cur, fields);
+  const k = changed.length ? jobStore.updateKey(cur.id, Object.fromEntries(changed.map(f => [f, fields[f]]))) : cur;
+  if (changed.length) jobAudit('updated', k, { fields: changed }); // which fields, never their values
+  res.json({ key: jobKeyOut(k), changed });
+});
+for (const [action, enabled] of [['enable', true], ['disable', false]]) app.post(`/api/jobs/keys/:id/${action}`, requireAuth, ownerControl, jobsGate, (req, res) => {
+  const cur = jobStore.key(req.params.id); if (!cur) return res.status(404).json({ error: 'There is no job key with that id.', code: 'not_found' });
+  const k = cur.enabled === enabled ? cur : jobStore.updateKey(cur.id, { enabled });
+  if (k !== cur) jobAudit(action + 'd', k, { fields: ['enabled'] });
+  res.json({ key: jobKeyOut(k) });
+});
+// A new key, shown once; the old one stops at once. The key file Pocket wrote for it, still holding the old key, gets the new one.
+app.post('/api/jobs/keys/:id/rotate', requireAuth, ownerControl, jobsGate, (req, res) => {
+  const cur = jobStore.key(req.params.id); if (!cur) return res.status(404).json({ error: 'There is no job key with that id.', code: 'not_found' });
+  const b = req.body || {}, oldHash = cur.keyHash;
+  const { key, secret } = jobStore.rotate(cur.id);
+  let file = null, fileError = null;
+  const target = wantsKeyFile(b) ? [keyFileFolder(b), key.name]
+    : cur.keyFile && isKeyFile(cur.keyFile) && hashJobKey(fs.readFileSync(cur.keyFile, 'utf8').trim()) === oldHash ? [path.dirname(cur.keyFile), path.basename(cur.keyFile, '.key')] : null;
+  if (target) {
+    try { file = writeKeyFile(target[0], target[1], secret, { home: HOME }); if (file !== cur.keyFile) removeKeyFile(cur.keyFile, oldHash); jobStore.updateKey(key.id, { keyFile: file }); }
+    catch (e) { fileError = { error: e.status ? e.message : `The key file could not be written: ${e.code || e.message}.`, code: e.status && e.code ? e.code : 'file_error' }; }
+  }
+  jobAudit('rotated', key, { fields: ['key'], ...(file ? { keyFile: true } : {}) });
+  log(`job key rotated id=${key.id}`);
+  res.json({ key: jobKeyOut(jobStore.key(key.id)), secret, ...(file ? { file } : {}), ...(fileError ? { fileError } : {}), note: 'This is the only time the key is shown. The old key stopped working.' });
+});
+// Deleting a key leaves its running run to finish; its key file is removed when it still holds this key.
+app.post('/api/jobs/keys/:id/delete', requireAuth, ownerControl, jobsGate, (req, res) => {
+  const cur = jobStore.key(req.params.id); if (!cur) return res.status(404).json({ error: 'There is no job key with that id.', code: 'not_found' });
+  const fileRemoved = removeKeyFile(cur.keyFile, cur.keyHash);
+  jobStore.deleteKey(cur.id);
+  jobAudit('deleted', cur, { ...(fileRemoved ? { keyFile: 'removed' } : {}) });
+  log(`job key deleted id=${cur.id}`);
+  res.json({ ok: true, ...(fileRemoved ? { fileRemoved: cur.keyFile } : {}) });
+});
+app.get('/api/jobs/keys/:id/runs', requireAuth, jobsGate, (req, res) => {
+  const cur = jobStore.key(req.params.id); if (!cur) return res.status(404).json({ error: 'There is no job key with that id.', code: 'not_found' });
+  res.json({ runs: jobStore.runsFor(cur.id).slice(0, 100).map(r => jobRunView(jobSettle(r))) });
+});
+// What Settings → Automation and Pause all say about jobs.
+const jobSummary = () => { const now = Date.now(); return { on: jobsOn(), keys: jobStore.keys.length, enabled: jobStore.keys.filter(k => k.enabled !== false).length, running: jobStore.active().length, runsDay: jobStore.runs.filter(r => r.outcome !== 'not_started' && now - Date.parse(r.startedAt) < 86400_000).length }; };
 app.get('/api/claude/login',requireAuth,(_req,res)=>{
   res.setHeader('Cache-Control','private, no-store');
   res.json(claudeLogin.snapshot());
