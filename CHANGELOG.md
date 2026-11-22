@@ -3,6 +3,13 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.122.3] — 2026-11-22 · build 219
+
+Found by a failing browser test on main. Under **Recent runs** in a Job key's sheet, two runs of one key that started in the same second were listed in a random order, so the older one could come first; the test for "newest first" failed when a run finished in under a second and the next one started in the same second. **Job keys: runs started in the same second now show newest first, in the order they started.**
+
+- **The order** (`job-keys.mjs` `runsFor`). Start times have whole seconds, so two such runs tie, and the tie was broken by the run's random id. It is now broken by the order the runs were started, later first. The same tie-break applies when the oldest finished runs are pruned, so the run that started last is the one kept.
+- Tested: `test/job-keys.test.mjs`, the `1.122.3:` case (three runs reserved in one second list newest first, also after they finish, after the store is read again from its file, and after pruning; repeated on 20 fresh stores, because run ids are random).
+
 ## [1.122.2] — 2026-11-22 · build 218
 
 Seen on the owner's install with 1.122.0 and Claude CLI 2.1.328. A side chat opened on a long conversation that was working showed **$306 so far** after a 20-cent answer, and its first answer's note read $306.22. About 100 ms after the question, before any text, a result came in that ended the side chat's turn: the panel left *Answering…* while the answer still streamed, and a second question was taken mid-answer. **Each side chat answer now shows its own cost, the total is what the side chat spent, and the side chat stays busy until its answer's own result.** The same carried total reached the conversation itself: in about one in five conversation logs checked there, the first reply of a process reported the conversation's earlier spend with its own, hundreds of dollars for a reply of a few dollars. **The first reply of a new process on a conversation now shows its own cost too, and so does what it adds to the unattended figures.**

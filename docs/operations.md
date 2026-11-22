@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.122.2
+checked: 1.122.3
 sources: checkbacks.mjs, job-keys.mjs, automation.mjs, cli-updates.mjs, cli-update-worker.mjs, ecosystem.config.cjs, environment.mjs, pipes.mjs, codex.mjs, sidechat.mjs, skills.mjs, vault.mjs, scripts/pocket-mcp-proxy.mjs, scripts/pocket-run.mjs
 -->
 # Operations, upgrades and recovery

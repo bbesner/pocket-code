@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { JobKeyStore, KEY_RE, hashSecret, jobMessage, fenceFor, cronPrefix, jobTitle, writeKeyFile, removeKeyFile, keyView, resolveFolder } from '../job-keys.mjs';
+import { JobKeyStore, KEEP, KEY_RE, hashSecret, jobMessage, fenceFor, cronPrefix, jobTitle, writeKeyFile, removeKeyFile, keyView, resolveFolder } from '../job-keys.mjs';
 import * as auto from '../automation.mjs';
 import { automation as titleAutomation } from '../titles.mjs';
 
@@ -78,6 +78,31 @@ test('Runs: reserved before the gate, counted by the hour and day, a repeat foun
   const reloaded = new JobKeyStore(path.join(dir, 'job-keys.json'), { now: () => now });
   assert.equal(reloaded.run(c.run).status, 'failed');
   assert.equal(reloaded.run(c.run).outcome, 'not_started');
+});
+
+test('1.122.3: runs started in the same second list newest first by start order, also after a reload and after pruning', t => {
+  const dir = tmp(); t.after(() => rm(dir));
+  const now = Date.parse('2026-11-20T12:00:00Z'), keep = KEEP.runs;
+  t.after(() => { KEEP.runs = keep; });
+  // Run ids are random, so one trial can pass by luck; 20 fresh stores make the old tie-break fail with near certainty.
+  for (let i = 0; i < 20; i++) {
+    const file = path.join(dir, `job-keys-${i}.json`);
+    const s = new JobKeyStore(file, { now: () => now });
+    const { key } = s.addKey(fields());
+    const [a, b, c] = [s.reserve(key, {}), s.reserve(key, {}), s.reserve(key, {})];
+    assert.equal(a.startedAt, c.startedAt, 'the same second');
+    const order = store => store.runsFor(key.id).map(r => r.run);
+    assert.deepEqual(order(s), [c.run, b.run, a.run], `trial ${i}`);
+    s.finishRun(a.run, 'done', 'ok'); s.finishRun(b.run, 'done', 'ok'); s.finishRun(c.run, 'done', 'ok');
+    assert.deepEqual(order(s), [c.run, b.run, a.run], `trial ${i} after finishing`);
+    assert.deepEqual(order(new JobKeyStore(file, { now: () => now })), [c.run, b.run, a.run], `trial ${i} read again`);
+    // pruning the finished runs to two keeps the two that started last (the new run is still active, so it stays too)
+    KEEP.runs = 2;
+    const d = s.reserve(key, {});
+    KEEP.runs = keep;
+    assert.deepEqual(order(s), [d.run, c.run, b.run], `trial ${i} after pruning`);
+    assert.deepEqual(order(new JobKeyStore(file, { now: () => now })), order(s), `trial ${i} pruned and read again`);
+  }
 });
 
 test('The message: the prefix titles.mjs reads, the standing instruction, added instructions labelled, the data fenced and labelled whatever it holds', () => {
