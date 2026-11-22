@@ -800,11 +800,16 @@ export const LIST_SLACK_MS = 120_000;
 // after it, usually seconds. So a default title with a last update no more than UNUSED_MS from its time is a session
 // nobody used. It is left out unless Pocket started it; a missing or unparsable time lists it (fail open), and a
 // runtime with no default title (Antigravity) lists everything as before.
-export const UNUSED_MS = 20;
+// 5 ms, not more: the first message of a used session was written as early as 15 ms after the session was made.
+// Both times must carry milliseconds (as OpenCode writes them); a rounded time would make the comparison meaningless.
+export const UNUSED_MS = 5;
+const HAS_MS = /\.\d{3}/;
 export function unusedSession(runtime, s) {
   const rt = runtimeOf(runtime), title = typeof s?.title === 'string' ? s.title : '';
   if (!rt.untitled || !rt.untitled.test(title)) return false;
-  const made = Date.parse(title.replace(rt.untitled, '').trim()), at = typeof s.updatedAt === 'string' ? Date.parse(s.updatedAt) : NaN;
+  const stamp = title.replace(rt.untitled, '').trim();
+  if (typeof s.updatedAt !== 'string' || !HAS_MS.test(stamp) || !HAS_MS.test(s.updatedAt)) return false;
+  const made = Date.parse(stamp), at = Date.parse(s.updatedAt);
   return Number.isFinite(made) && Number.isFinite(at) && Math.abs(at - made) <= UNUSED_MS;
 }
 const newestFirst = (a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0);

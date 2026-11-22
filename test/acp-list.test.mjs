@@ -190,6 +190,21 @@ test('1.122.1: 100 never-used sessions do not use up the limit or crowd out the 
   }
 });
 
+test('1.122.1: the window is a few milliseconds: 3 ms after its title a session is unused, 15 ms after it is listed', async t => {
+  const s = unusedStore(t), T = Date.now() - 3600_000;
+  seedUntitled(s.store, 'ses_3ms', s.folder, T, { updatedAt: T + 3 });
+  seedUntitled(s.store, 'ses_15ms', s.folder, T + 10_000, { updatedAt: T + 10_015 }); // the earliest first message measured
+  const { rows } = await readList(s);
+  assert.deepEqual(rows.map(r => r.id), ['acp:ses_15ms'], JSON.stringify(rows.map(r => r.id)));
+});
+
+test('1.122.1: a last update without milliseconds is listed (fail open)', async t => {
+  const s = unusedStore(t), T = Math.floor((Date.now() - 3600_000) / 1000) * 1000 + 2; // 2 ms into a second
+  seedUntitled(s.store, 'ses_rounded', s.folder, T, { listUpdatedAt: new Date(T).toISOString().replace(/\.\d{3}Z$/, 'Z') });
+  const { rows } = await readList(s);
+  assert.ok(rows.some(r => r.id === 'acp:ses_rounded' && r.untitled), JSON.stringify(rows.map(r => r.id)));
+});
+
 test('1.122.1: a default-titled session with a missing or unparsable last update is listed (fail open)', async t => {
   const s = unusedStore(t), T = Date.now() - 3600_000;
   seedUntitled(s.store, 'ses_notime', s.folder, T, { listUpdatedAt: null });

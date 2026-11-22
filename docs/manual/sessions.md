@@ -501,7 +501,8 @@ the rest, most recently used first. A conversation the program no longer has is 
 answered in full (or the answer reaches back past it), or when its folder is gone; it stays while its folder was not
 read, or when a cut answer may simply not reach it. A session that was never used (OpenCode's default title,
 *New session* and a time, with no change since) is not listed unless Pocket started it, so another program that makes
-empty sessions in a folder does not fill the list (1.122.1). One limit remains: a conversation started before 1.122.0 in a
+empty sessions in a folder does not fill the list (1.122.1). OpenCode still counts them in its own answer of 100 per
+folder, so an older conversation in such a folder that Pocket did not start may not be reached. One more limit: a conversation started before 1.122.0 in a
 folder inside a git repository that Pocket has not otherwise asked about stays out of the list until a new conversation
 starts in that folder (it still opens from its link).
 
