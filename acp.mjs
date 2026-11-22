@@ -358,7 +358,7 @@ function makeAcpTurn(session, { text, model, approvalMode, executionMode, hooks,
   const client = session.client;
   const turn = {
     sessionId: session.sessionId, fullId: session.fullId, cwd: session.cwd, startedAt: Date.now(), userText: text,
-    openPrompts: 0, promptStarted: false, lastStop: null, settling: false, settleTimer: null, // steering and background commands (runPrompt, settleOrFinish)
+    openPrompts: 0, promptStarted: false, lastStop: null, settling: false, settleTimer: null, afterStep: false, // steering and background commands (runPrompt, settleOrFinish)
     model, approvalMode: approvalMode === 'full' ? 'full' : 'review', events: [], subs: new Set(), done: false, turnId: randomUUID(),
     client, session, onFinish, text: '', thought: '', costStart: session.costTotal ?? null, costTotal: null, usage: null,
     executionMode: executionMode === 'plan' ? 'plan' : 'work', stopped: false, stopNote: null, lastActivityAt: Date.now(), context: null, asks: new Map(),
@@ -424,9 +424,16 @@ const endAsks = turn => { for (const [id, a] of turn.asks) { askStates.set(id, {
 // about ten seconds to the background: session/prompt returns end_turn while the command still runs, and when it
 // finishes the agent carries on by itself, sending more session/update messages with no prompt open and no closing
 // message (verified live, 1.5.14). So the reply is over when no prompt is open, no tool call is still running, and the
-// model has reported the step after the last tool (usage_update, which ends every model step). Two timers keep a reply
-// from hanging: SETTLE_QUIET_MS with every tool finished and nothing more said, SETTLE_MAX_MS of silence while a tool
-// still runs (a server the agent started and left running); both end the reply without stopping anything.
+// model has reported a step that called no tool. 1.123.1: agy sends a step's usage_update when the model's answer is in
+// and BEFORE that step's tool calls (measured live on 1.5.14: usage_update, then tool_call 2 ms later), so a
+// usage_update alone does not mean the step called nothing. Before 1.123.1 the reply ended on it, the step's next
+// command then asked for approval on a finished reply, was refused, and agy stopped there (a render followed by "copy
+// the files into the claim folder" ended as "Response ready" with the copy never run). Now a usage_update starts
+// SETTLE_STEP_MS of grace; anything else the agent sends in it (a tool call, text, a question) cancels the grace and the
+// reply goes on. Three timers keep a reply from hanging: SETTLE_STEP_MS after a step with nothing after it,
+// SETTLE_QUIET_MS with every tool finished and nothing more said, SETTLE_MAX_MS of silence while a tool still runs (a
+// server the agent started and left running); each ends the reply without stopping anything.
+const SETTLE_STEP_MS = Number(process.env.POCKET_ACP_SETTLE_STEP_MS) || 5_000;
 const SETTLE_QUIET_MS = Number(process.env.POCKET_ACP_SETTLE_QUIET_MS) || 120_000;
 const SETTLE_MAX_MS = Number(process.env.POCKET_ACP_SETTLE_MAX_MS) || 600_000;
 const TOOL_OVER = new Set(['completed', 'failed', 'cancelled']);
@@ -434,7 +441,8 @@ const openTools = turn => [...turn.tools.values()].some(t => t.info.status && !T
 function armSettle(turn) {
   clearTimeout(turn.settleTimer);
   if (turn.done || !turn.settling) return;
-  turn.settleTimer = setTimeout(() => { if (!turn.done && turn.settling && turn.openPrompts === 0) finishAcpTurn(turn, { stopReason: turn.lastStop || 'end_turn' }); }, openTools(turn) ? SETTLE_MAX_MS : SETTLE_QUIET_MS);
+  const wait = openTools(turn) ? SETTLE_MAX_MS : turn.afterStep ? SETTLE_STEP_MS : SETTLE_QUIET_MS;
+  turn.settleTimer = setTimeout(() => { if (!turn.done && turn.settling && turn.openPrompts === 0) finishAcpTurn(turn, { stopReason: turn.lastStop || 'end_turn' }); }, wait);
   turn.settleTimer.unref?.();
 }
 // Called when a prompt returns: finish, or wait for what is still running.
@@ -446,7 +454,7 @@ function settleOrFinish(turn) {
 // One session/prompt of a turn: the message that started it, or one steered into it. A turn ends after its last one.
 function runPrompt(turn, blocks) {
   const session = turn.session;
-  turn.openPrompts++; turn.promptStarted = true; turn.settling = false; clearTimeout(turn.settleTimer);
+  turn.openPrompts++; turn.promptStarted = true; turn.settling = false; turn.afterStep = false; clearTimeout(turn.settleTimer);
   return session.client.prompt({ sessionId: session.sessionId, prompt: blocks }, PROMPT_TIMEOUT_MS).then(r => {
     turn.openPrompts--;
     if (r?.usage) turn.usage = r.usage;
@@ -472,6 +480,7 @@ function wireTurnHandlers(turn) {
     if (method === 'session/update' && params?.sessionId === turn.sessionId) {
       turn.lastActivityAt = Date.now();
       const ev = normalizeUpdate(params.update);
+      if (ev?.type !== 'acp_usage') turn.afterStep = false; // the step goes on (a tool call, text, thinking)
       if (turn.settling) armSettle(turn); // still alive: the wait starts again
       if (!ev) return;
       if (ev.type === 'acp_commands') { turn.session.commands = ev.commands; noteCommands(rt, ev.commands); return; }
@@ -481,8 +490,9 @@ function wireTurnHandlers(turn) {
       if (ev.type === 'acp_usage') {
         if (ev.cost != null) turn.costTotal = ev.cost;
         if (Number.isFinite(ev.used) && Number.isFinite(ev.size)) { turn.context = turn.session.context = { used: ev.used, size: ev.size }; turn.emit({ type: 'usage' }); }
-        // the model's step after the last background command: the reply is over (settleOrFinish)
-        if (turn.settling && turn.openPrompts === 0 && !openTools(turn)) finishAcpTurn(turn, { stopReason: turn.lastStop || 'end_turn' });
+        // a model step after the last background command: the reply is over unless the step's tool calls follow in the
+        // grace (armSettle with afterStep; 1.123.1)
+        if (turn.settling && turn.openPrompts === 0 && !openTools(turn)) { turn.afterStep = true; armSettle(turn); }
         return;
       }
       if (ev.type === 'tool') {
@@ -498,6 +508,7 @@ function wireTurnHandlers(turn) {
   client.onRequest = (method, params, id) => {
     if (turn.done) return client.respond(id, declined(method));
     turn.lastActivityAt = Date.now();
+    turn.afterStep = false; // an approval or a question: the step goes on
     if (turn.settling) armSettle(turn);
     if (method === 'session/request_permission') {
       const { allow, deny, canAllow } = permissionOutcomes(params.options);

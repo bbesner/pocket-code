@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.122.2
+checked: 1.123.1
 sources: checkbacks.mjs, prompts.mjs, starts.mjs, project-mode.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, claude-catalog.mjs, codex.mjs, session-state.mjs, acp.mjs, openrouter.mjs, engines.mjs
 -->
 # Conversations (sessions)
@@ -414,7 +414,9 @@ conversation, so it has the tools your terminal has. Under each reply Pocket sho
 cost: the plan is billed by Google, not per token.
 
 A message sent while a reply runs goes into that reply, as **Steer** does elsewhere. When the CLI leaves
-a command running in the background, the reply stays open until the command reports back or goes quiet.
+a command running in the background, the reply stays open until the command reports back and the agent has
+finished the steps after it, or until it goes quiet. After a background command, a reply shows **Response ready**
+a few seconds after the agent's last words, the time Pocket gives it to start another step.
 
 #### What Pocket will not do with it
 

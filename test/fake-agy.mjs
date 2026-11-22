@@ -22,8 +22,9 @@
 // __HANG__ (waits to be stopped or steered) · __CHOICES__ / __DONE__ (ends with that block) · __QUESTION__ (asks "Which
 // color?" with Blue and Red) · __PLAN__ (a plan of two steps) · __EDIT__ (edits parity.txt, "old line" to "new line") ·
 // __LIMIT__ (a 429) · __COST__ (a reply slow enough to watch). Its own: __NOASK__ (no approval) · __BG__ (a background
-// command that ends 400 ms after the prompt returns) · __BGHANG__ (one that never ends) · __SIGNOUT__ (fails as signed
-// out). Each prompt notes what reached it (session-<id>.json: prompts, seen, ranOn, runnerToken).
+// command that ends 400 ms after the prompt returns) · __BGHANG__ (one that never ends) · __BGMORE__ (after the
+// background command, a step whose usage_update comes before its next command, which asks for approval; the answer is
+// noted as permission2) · __SIGNOUT__ (fails as signed out). Each prompt notes what reached it (session-<id>.json: prompts, seen, ranOn, runnerToken).
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
@@ -132,7 +133,7 @@ async function handlePrompt(id, params) {
   }
 
   // A command, shown first without its text and then with it, as agy sends it; asked about before it runs.
-  const tid = randomUUID(), cmd = /__BG(HANG)?__/.test(text) ? 'sleep 30 && echo BG_DONE' : 'echo AGY_OK';
+  const tid = randomUUID(), cmd = /__BG(HANG|MORE)?__/.test(text) ? 'sleep 30 && echo BG_DONE' : 'echo AGY_OK';
   const call = { sessionUpdate: 'tool_call', toolCallId: tid, name: 'run_command', kind: 'execute', status: 'in_progress', title: cmd, rawInput: { CommandLine: cmd, WaitMsBeforeAsync: 500, toolSummary: 'Run a quick check' } };
   push(call);
   if (!text.includes('__NOASK__')) {
@@ -150,7 +151,7 @@ async function handlePrompt(id, params) {
     }
     update(sid, { sessionUpdate: 'tool_call_update', toolCallId: tid, name: 'run_command', status: 'in_progress' });
   }
-  if (/__BG(HANG)?__/.test(text)) {
+  if (/__BG(HANG|MORE)?__/.test(text)) {
     // The command went to the background: the model says so and the prompt returns while it runs.
     push({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Started it in the background.' } });
     update(sid, { sessionUpdate: 'usage_update', used: 22000, size: 1048576 });
@@ -158,6 +159,32 @@ async function handlePrompt(id, params) {
     if (text.includes('__BGHANG__')) return;
     await sleep(400);
     push({ sessionUpdate: 'tool_call_update', toolCallId: tid, name: 'run_command', status: 'completed', rawOutput: { output: 'BG_DONE\n', exit_code: 0 } });
+    if (text.includes('__BGMORE__')) {
+      // The step after the background command calls another tool. agy 1.5.14 sends the step's usage_update first and
+      // its tool call a moment later (measured live: 2 ms), then asks about it like any command.
+      update(sid, { sessionUpdate: 'usage_update', used: 22500, size: 1048576 });
+      await sleep(30);
+      const tid2 = randomUUID(), cmd2 = 'cp render.mp4 claim/';
+      const call2 = { sessionUpdate: 'tool_call', toolCallId: tid2, name: 'run_command', kind: 'execute', status: 'in_progress', title: cmd2, rawInput: { CommandLine: cmd2, toolSummary: 'Copy the render' } };
+      push(call2);
+      update(sid, { sessionUpdate: 'tool_call_update', toolCallId: tid2, name: 'run_command', status: 'pending' });
+      const ans2 = await askClient(sid, 'session/request_permission', { sessionId: sid,
+        toolCall: { toolCallId: tid2, title: cmd2, kind: 'execute', status: 'pending', rawInput: call2.rawInput },
+        options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }, { optionId: 'deny', name: 'Deny', kind: 'reject_once' }] });
+      s.permission2 = ans2?.aborted ? 'aborted' : ans2?.outcome?.outcome === 'selected' ? ans2.outcome.optionId : ans2?.outcome?.outcome || null;
+      if (s.permission2 !== 'allow') {
+        // what the real CLI did when Pocket refused it: the command is not run and agy stops
+        push({ sessionUpdate: 'tool_call_update', toolCallId: tid2, name: 'run_command', status: 'failed', rawOutput: { output: 'The user denied this command.' } });
+        s.updatedAt = Date.now(); saveSess(sid, s);
+        return;
+      }
+      push({ sessionUpdate: 'tool_call_update', toolCallId: tid2, name: 'run_command', status: 'completed', rawOutput: { output: '', exit_code: 0 } });
+      await sleep(100); // the model's next answer
+      push({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Copied it: FOLLOWUP_OK.' } });
+      update(sid, { sessionUpdate: 'usage_update', used: 23000, size: 1048576 });
+      s.updatedAt = Date.now(); saveSess(sid, s);
+      return;
+    }
     push({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'The background command finished: BG_DONE.' } });
     update(sid, { sessionUpdate: 'usage_update', used: 23000, size: 1048576 });
     s.updatedAt = Date.now(); saveSess(sid, s);
