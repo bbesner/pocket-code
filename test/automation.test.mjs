@@ -27,13 +27,16 @@ test('origins and their labels', () => {
 });
 
 test('the defaults are the spec tables, and the groups are data', () => {
-  assert.deepEqual(auto.GROUPS.map(g => g.key), ['pause', 'limits', 'checkbacks']);
+  assert.deepEqual(auto.GROUPS.map(g => g.key), ['pause', 'limits', 'checkbacks', 'jobs']);
   assert.deepEqual(auto.groupValues({}, 'pause', {}), { ownMessages: 'run', inboxWatch: true, backgroundJobs: true, rearmRetries: true, runOverdue: true, confirm: true });
   assert.deepEqual(auto.groupValues({}, 'limits', {}), { claudeWeekly: 80, claudeFiveHour: 90, codexWeekly: 80, codexFiveHour: 90, dailyReplies: 40, countOwnerWork: false,
     ceilingsHoldOwnerWork: false, openrouterDaily: 5, longestReply: 60, countWaiting: false, notice: 'push', staleHours: 6 });
   // 1.119: the Check-backs table, off by default, the two engine switches on
   assert.deepEqual(auto.groupValues({}, 'checkbacks', {}), { checkbacks: false, checkbackAccess: 'same', checkbackClaude: true, checkbackCodex: true, pushWhenMuted: true, showInTasks: true,
     perConversation: 10, perInstall: 50, chainLimit: 5, furthestHours: 2160, soonestMin: 1, noteMax: 1000, catchUpHours: 12, busyWaitMin: 60, spacingSec: 15 });
+  // job keys: the Settings table of Part 3, off by default
+  assert.deepEqual(auto.groupValues({}, 'jobs', {}), { jobs: false, jobAccess: 'ask', jobAddInstructions: false, jobPerHour: 6, jobPerDay: 24, jobAtOnce: 1,
+    jobDataMax: 20000, jobWaitMax: 300, jobRepeatDays: 7, jobPush: true, jobPushRespectsMute: true, jobKeyFolder: '~/.config/pocket/jobs/' });
   const cbg = auto.GROUPS[2].settings;
   assert.deepEqual(cbg.filter(s => s.advanced).map(s => s.key), ['busyWaitMin', 'spacingSec']);
   assert.ok(!cbg.some(s => s.offAllowed), 'no check-back limit has No limit');
@@ -46,12 +49,16 @@ test('every setting saves a value in range, refuses one out of range by naming t
     claudeWeekly: 60, claudeFiveHour: 70, codexWeekly: 55, codexFiveHour: 65, dailyReplies: 1000, countOwnerWork: true, ceilingsHoldOwnerWork: true,
     openrouterDaily: 0.5, longestReply: 480, countWaiting: true, notice: 'settings', staleHours: 24, runOverdue: false,
     checkbacks: true, checkbackAccess: 'review', checkbackClaude: false, checkbackCodex: false, pushWhenMuted: false, showInTasks: false,
-    perConversation: 50, perInstall: 500, chainLimit: 0, furthestHours: 8760, soonestMin: 60, noteMax: 4000, catchUpHours: 0, busyWaitMin: 480, spacingSec: 0 };
+    perConversation: 50, perInstall: 500, chainLimit: 0, furthestHours: 8760, soonestMin: 60, noteMax: 4000, catchUpHours: 0, busyWaitMin: 480, spacingSec: 0,
+    jobs: true, jobAccess: 'full', jobAddInstructions: true, jobPerHour: 120, jobPerDay: 1000, jobAtOnce: 5, jobDataMax: 100000, jobWaitMax: 30, jobRepeatDays: 30,
+    jobPush: false, jobPushRespectsMute: false, jobKeyFolder: '~/keys/' };
   const bad = { ownMessages: 'maybe', inboxWatch: 'yes', backgroundJobs: 'no', rearmRetries: 1, confirm: 'on',
     claudeWeekly: 9, claudeFiveHour: 101, codexWeekly: 50.5, codexFiveHour: 'lots', dailyReplies: 1001, countOwnerWork: 'off', ceilingsHoldOwnerWork: 0,
     openrouterDaily: 0.49, longestReply: 4, countWaiting: 'true', notice: 'email', staleHours: 'off', runOverdue: 'yes',
     checkbacks: 1, checkbackAccess: 'full', checkbackClaude: 'on', checkbackCodex: 'no', pushWhenMuted: 0, showInTasks: 'false',
-    perConversation: 0, perInstall: 501, chainLimit: -1, furthestHours: 8761, soonestMin: 0, noteMax: 199, catchUpHours: 73, busyWaitMin: 4, spacingSec: 301 };
+    perConversation: 0, perInstall: 501, chainLimit: -1, furthestHours: 8761, soonestMin: 0, noteMax: 199, catchUpHours: 73, busyWaitMin: 4, spacingSec: 301,
+    jobs: 'yes', jobAccess: 'root', jobAddInstructions: 1, jobPerHour: 121, jobPerDay: 0, jobAtOnce: 6, jobDataMax: 999, jobWaitMax: 901, jobRepeatDays: 31,
+    jobPush: 'on', jobPushRespectsMute: 'off', jobKeyFolder: '/etc/' };
   const ranges = { claudeWeekly: /must be 10% to 100%, or No limit\.$/, claudeFiveHour: /10% to 100%, or No limit/, dailyReplies: /1 to 1,000, or No limit/,
     openrouterDaily: /\$0\.50 to \$500, or No limit/, longestReply: /5 min to 480 min, or No limit/, staleHours: /1 h to 24 h\.$/, ownMessages: /'run' or 'blocked'/, inboxWatch: /On or Off/,
     perConversation: /1 to 50\.$/, perInstall: /1 to 500\.$/, chainLimit: /0 to 20\.$/, furthestHours: /1 h to 8,760 h\.$/, soonestMin: /1 min to 60 min\.$/,
@@ -71,7 +78,7 @@ test('every setting saves a value in range, refuses one out of range by naming t
   const mixed = auto.applySave(saved, { group: 'limits', values: { dailyReplies: 7, claudeWeekly: 5 } });
   assert.equal(mixed.status, 400); assert.equal(auto.groupValues(saved, 'limits', {}).dailyReplies, 1000);
   assert.equal(auto.applySave(saved, { group: 'limits', values: { nope: 1 } }).status, 400, 'an unknown key is refused');
-  assert.equal(auto.applySave(saved, { group: 'jobs', values: { x: 1 } }).status, 400, 'an unknown group is refused');
+  assert.equal(auto.applySave(saved, { group: 'nope', values: { x: 1 } }).status, 400, 'an unknown group is refused');
   // reset: the group's table values again
   for (const g of auto.GROUPS) saved = auto.applySave(saved, { group: g.key, reset: true }).automation;
   assert.deepEqual(saved, {});
