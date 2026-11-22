@@ -92,7 +92,10 @@ const lines=readline.createInterface({input:process.stdin});
 lines.on('close',()=>{try{if(fs.existsSync(file))fs.appendFileSync(file,JSON.stringify({type:'cost-state',sessionId:id,totalCostUSD:spent})+'\n'+JSON.stringify({type:'last-prompt',sessionId:id,lastPrompt:'…'})+'\n');}catch{}});
 // Session processes outlive their server by design; a fixture's process ends with its test dir.
 setInterval(()=>{if(!fs.existsSync(root))process.exit(0)},300).unref();
-let working=false,questionKeepAlive,spent=0; // spent: the process's running cost, as the real CLI reports it
+// spent: the process's running cost, as the real CLI reports it. 1.122.2: like the real CLI (2.1.328), a process on an
+// existing transcript starts it at that transcript's last cost-state line (the conversation's spend so far).
+const carried=fs.existsSync(file)?fs.readFileSync(file,'utf8').split('\n').map(l=>{try{return JSON.parse(l);}catch{return null;}}).filter(o=>o?.type==='cost-state').map(o=>Number(o.totalCostUSD)||0).at(-1)||0:0;
+let working=false,questionKeepAlive,spent=carried;
 const append=o=>fs.appendFileSync(file,JSON.stringify({sessionId:id,cwd:process.cwd(),timestamp:new Date().toISOString(),...o})+'\n');
 lines.on('line',line=>{
   const obj=JSON.parse(line);
@@ -159,7 +162,8 @@ lines.on('line',line=>{
     append(assistantMsg);
     console.log(JSON.stringify(assistantMsg));
     const result={type:'result',subtype:text.includes('__FAIL__')?'error':'success',result:'Test result',duration_ms:300};
-    if(text.includes('__COST__')){spent=Math.round((spent+0.4)*100)/100;result.total_cost_usd=spent;} // 1.78.1
+    // 1.78.1; 1.122.2: and the result's own cost, as model_usage_since_last_result (left out with __OLDCLI__, as an older CLI does)
+    if(text.includes('__COST__')){spent=Math.round((spent+0.4)*100)/100;result.total_cost_usd=spent;if(!text.includes('__OLDCLI__'))result.model_usage_since_last_result={'claude-test':{costUSD:0.4}};}
     if(usage)result.modelUsage={[model]:{inputTokens:1200,cacheReadInputTokens:800,cacheCreationInputTokens:0,contextWindow:1000000},'claude-haiku-4-5-20251001':{inputTokens:50,cacheReadInputTokens:0,cacheCreationInputTokens:0,contextWindow:200000}};
     console.log(JSON.stringify(result));
     working=false;

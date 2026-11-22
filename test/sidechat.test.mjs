@@ -353,3 +353,22 @@ test('1.122.2: the real CLI\'s lines for a side chat on a working conversation, 
     assert.equal(results[0].duration_ms,3858);
   }
 });
+
+test('1.122.2: only the stale task\'s empty result is skipped; a task-notification result that did work or says something ends the answer',()=>{
+  const sc=new SideChats({normalize:()=>null,idleMs:0});
+  const usage=usd=>({model_usage_since_last_result:{'claude-test':{costUSD:usd}}});
+  const base={type:'result',subtype:'success',is_error:false,origin:{kind:'task-notification'}};
+  for(const [how,o,ends] of [
+    ['the stale task\'s empty result',{...base,num_turns:0,result:'',total_cost_usd:306.215,...usage(0)},false],
+    ['with text and num_turns 1',{...base,num_turns:1,result:'The check finished: 3 warnings.',total_cost_usd:306.3,...usage(0.085)},true],
+    ['with num_turns 1 and no text',{...base,num_turns:1,result:'',total_cost_usd:306.3,...usage(0.085)},true],
+    ['with text and num_turns 0',{...base,num_turns:0,result:'Done.',total_cost_usd:306.3,...usage(0.085)},true],
+  ]){
+    const chat=sc.make('parent-1');chat.busy=true;
+    sc.line(chat,JSON.stringify(o));
+    assert.equal(chat.busy,!ends,how);
+    const results=resultsOf(chat.events);
+    assert.equal(results.length,ends?1:0,how);
+    if(ends){assert.equal(results[0].ok,true,how);near(results[0].cost,0.085,how+': its own cost');}
+  }
+});

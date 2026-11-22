@@ -15,6 +15,7 @@ import { spawn } from 'node:child_process';
 import readline from 'node:readline';
 import { randomUUID } from 'node:crypto';
 import { signalGroup } from './proctree.mjs';
+import { sinceCost } from './usage.mjs';
 
 // 1.89 (S-2): the side chat cannot ask, so a tool it may use runs unasked. Reading is unasked in either mode; WebSearch is
 // added only when the conversation itself would search without asking (Full access, or the owner's trusted WebSearch rule).
@@ -136,21 +137,20 @@ function resultError(o) {
 // 1.122.2: what a result line cost and whether it ends the turn Pocket started.
 // - The fork starts its cost count from the parent transcript's last cost-state line (what the conversation had spent
 //   when one of its processes last exited), so total_cost_usd includes the conversation's spend: $306 "so far" after a
-//   20-cent answer. model_usage_since_last_result (seen in Claude CLI 2.1.328) is the spend since the previous result line, by
-//   model; summed, it is this line's own cost whatever was carried.
+//   20-cent answer. sinceCost (usage.mjs) is this line's own cost whatever was carried.
 // - When the copied transcript holds a background task that was running, the fork finds it not running, reports it
-//   stopped, and on our first question first ends that notification's turn: a result with origin.kind
-//   "task-notification", num_turns 0, an empty text and the carried total, about 100 ms in, before the answer. That
-//   result is not the end of our turn.
-export const notOurTurn = o => o?.origin?.kind === 'task-notification' && o.subtype === 'success';
+//   stopped, and on our first question first ends that notification's turn: a successful result with origin.kind
+//   "task-notification", num_turns 0, an empty text and the carried total, about 100 ms in, before the answer. Only
+//   that exact shape is skipped. A notification result that did work (num_turns above 0) or says something, or any
+//   error, ends our turn. Less exact in one case: if a CLI ever answered a stale notification with text before our
+//   answer, the panel would show that text, stop waiting and take a new question early; the real answer still streams in
+//   after it with its own result, so nothing is lost or counted twice.
+export const notOurTurn = o => o?.origin?.kind === 'task-notification' && o.subtype === 'success' && !(o.num_turns > 0) && !o.result;
 // The cost of one result line, and the CLI's running total after it (for the fallback below).
 export function resultCost(o, cliTotal = 0) {
   const spent = Number(o?.total_cost_usd), total = Number.isFinite(spent) ? spent : cliTotal;
-  const since = o?.model_usage_since_last_result;
-  if (since && typeof since === 'object') {
-    const cost = Object.values(since).reduce((a, u) => a + (Number.isFinite(Number(u?.costUSD)) ? Number(u.costUSD) : 0), 0);
-    return { cost: Math.max(0, cost), cliTotal: total };
-  }
+  const own = sinceCost(o);
+  if (own != null) return { cost: own, cliTotal: total };
   // Fallback, a CLI without the per-result figure: the difference from the last total this process reported (an
   // interrupted turn may report 0). Less exact in one case: with a carried total and no skipped result before it, the
   // first answer's cost and the total include what the conversation had spent.

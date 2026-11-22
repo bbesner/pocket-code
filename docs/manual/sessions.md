@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.122.1
+checked: 1.122.2
 sources: checkbacks.mjs, prompts.mjs, starts.mjs, project-mode.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, claude-catalog.mjs, codex.mjs, session-state.mjs, acp.mjs, openrouter.mjs, engines.mjs
 -->
 # Conversations (sessions)
