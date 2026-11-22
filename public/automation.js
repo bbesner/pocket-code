@@ -277,11 +277,15 @@ const Automation = (() => {
     const main = rest.filter(s => !s.advanced), adv = rest.filter(s => s.advanced);
     const body = `${rows(main)}
       ${adv.length ? `<details class="settings-details automation-advanced" data-auto-advanced="${esc(g.key)}"${advancedOpen.has(g.key) ? ' open' : ''}><summary>Advanced</summary>${rows(adv)}</details>` : ''}`;
+    // Job keys: what the owner comes here for (requests waiting, the keys) sits right under the switch; the settings
+    // follow under Advanced.
+    // While Job keys are off, the group is the switch and its help, nothing else.
+    const lead = g.key === 'jobs' && !off && typeof JobKeys !== 'undefined' ? JobKeys.listHTML() : '', bare = g.key === 'jobs' && off;
     return `<section class="automation-group${off ? ' automation-group-off' : ''}" data-auto-group="${esc(g.key)}" aria-labelledby="auto-${esc(g.key)}-h">
       <h3 class="vault-set-head" id="auto-${esc(g.key)}-h">${esc(g.title)}</h3>
-      ${sw ? settingRowHTML(g, sw) + `<div class="automation-dependent" data-auto-dependent="${esc(g.key)}">${off ? `<p class="title-note automation-inactive-note">These apply when ${esc(sw.label)} is on.</p>` : ''}${body}</div>` : body}
-      <span class="vault-set-actions"><button type="button" class="chip" data-auto-reset="${esc(g.key)}">Reset to defaults</button></span>
-      <p class="title-note" data-auto-status="${esc(g.key)}" role="status"></p>${g.key === 'checkbacks' ? waitingHTML() : ''}${g.key === 'jobs' && !off && typeof JobKeys !== 'undefined' ? JobKeys.listHTML() : ''}</section>`;
+      ${sw ? settingRowHTML(g, sw) + (bare ? '' : lead + `<div class="automation-dependent" data-auto-dependent="${esc(g.key)}">${off ? `<p class="title-note automation-inactive-note">These apply when ${esc(sw.label)} is on.</p>` : ''}${body}</div>`) : body}
+      ${bare ? '' : `<span class="vault-set-actions"><button type="button" class="chip" data-auto-reset="${esc(g.key)}">Reset to defaults</button></span>`}
+      <p class="title-note" data-auto-status="${esc(g.key)}" role="status"></p>${g.key === 'checkbacks' ? waitingHTML() : ''}</section>`;
   }
   // 1.119: under Check-backs, how many wait and Cancel all; only while it is on and there are any.
   function waitingHTML() {
@@ -305,7 +309,7 @@ const Automation = (() => {
     body.innerHTML = `${(data.warnings || []).map(w => `<p class="title-note automation-warning" role="note">${esc(w)}</p>`).join('')}
       ${(data.groups || []).map(groupHTML).join('')}${usageHTML(data.usage, data.notices)}`;
     bindSettingsBody(body);
-    if (typeof JobKeys !== 'undefined') JobKeys.bind(body); // the key list under Job keys, while it is on
+    if (typeof JobKeys !== 'undefined') { JobKeys.paintBadges(data.jobs?.requests || 0); JobKeys.bind(body); } // the requests and the key list under Job keys, while it is on
     if (focusKey) body.querySelector(`[${focusAttr}="${CSS.escape(focusKey)}"]`)?.focus({ preventScroll: true });
   }
   const settingOf = (group, key) => data?.groups?.find(g => g.key === group)?.settings.find(s => s.key === key);

@@ -108,9 +108,23 @@ try {
   assert.equal(await p.$eval('[data-auto-group="jobs"] > h3', x => x.textContent), 'Job keys');
   assert.equal(await p.$eval('[data-auto-group="jobs"]', x => x.classList.contains('automation-group-off')), true, 'reads inactive while off');
   assert.equal(await p.$('[data-job-keys]'), null, 'no key list while off');
+  assert.equal(await p.$('[data-auto-dependent="jobs"]'), null, 'off: only the switch and its help');
+  assert.equal(await p.$('[data-auto-reset="jobs"]'), null, 'off: no Reset either');
   await elShot('group-off-1440-dark', '[data-auto-group="jobs"]');
 
+  console.log('Job keys: the switch turns it on; the empty list says what a key is');
+  await p.click('[data-auto-key="jobs"]');
+  await p.waitForFunction(() => window.pocketFeatures.jobs === true);
+  await p.waitForSelector('[data-job-keys] [data-job-new]');
+  await p.waitForFunction(() => document.querySelector('[data-job-keys] [data-job-loading]')?.hidden === true);
+  assert.equal(await p.$eval('[data-job-keys] [data-job-empty]', x => x.hidden), false);
+  assert.match(await p.$eval('[data-job-keys] [data-job-empty]', x => x.textContent), /^A job key lets a script on this server start a reply/);
+  assert.equal(await p.$eval('[data-job-new]', x => x.textContent.trim()), 'New job key');
+  await elShot('group-on-empty-1440-dark', '[data-auto-group="jobs"]');
+  await scan('group-on-empty', '[data-auto-group="jobs"]');
+
   console.log('Job keys: the folder setting is a text field; it refuses, saves and resets');
+  await p.$eval('[data-auto-advanced="jobs"] > summary', x => x.click());
   assert.equal(await p.$eval('[data-auto-key="jobKeyFolder"]', x => x.type), 'text');
   assert.equal(await p.$eval('[data-auto-key="jobKeyFolder"]', x => x.value), '~/.config/pocket/jobs/');
   await setValue('[data-auto-key="jobKeyFolder"]', '/etc/pocket/');
@@ -128,18 +142,14 @@ try {
   assert.match(await p.$eval('#auto-jobs-jobPerHour-err', x => x.textContent), /must be 1 to 120, or No limit/);
   await p.click('[data-auto-reset="jobs"]');
   await p.waitForFunction(() => document.querySelector('[data-auto-status="jobs"]')?.textContent === 'Back to the defaults.');
-  assert.equal(await p.$eval('[data-auto-key="jobKeyFolder"]', x => x.value), '~/.config/pocket/jobs/');
-
-  console.log('Job keys: the switch turns it on; the empty list says what a key is');
+  assert.equal((await call('/automation')).body.groups.find(g => g.key === 'jobs').settings.find(s => s.key === 'jobKeyFolder').value, '~/.config/pocket/jobs/');
+  // the reset also turned Job keys off (off is their default): on again
+  await p.waitForFunction(() => window.pocketFeatures.jobs === false);
   await p.click('[data-auto-key="jobs"]');
   await p.waitForFunction(() => window.pocketFeatures.jobs === true);
   await p.waitForSelector('[data-job-keys] [data-job-new]');
-  await p.waitForFunction(() => document.querySelector('[data-job-keys] [data-job-loading]')?.hidden === true);
-  assert.equal(await p.$eval('[data-job-keys] [data-job-empty]', x => x.hidden), false);
-  assert.match(await p.$eval('[data-job-keys] [data-job-empty]', x => x.textContent), /^A job key lets a script on this server start a reply/);
-  assert.equal(await p.$eval('[data-job-new]', x => x.textContent.trim()), 'New job key');
-  await elShot('group-on-empty-1440-dark', '[data-auto-group="jobs"]');
-  await scan('group-on-empty', '[data-auto-group="jobs"]');
+  assert.equal(await p.$eval('[data-auto-advanced="jobs"]', x => x.open), true, 'Advanced stays as the owner left it');
+  await p.$eval('[data-auto-advanced="jobs"] > summary', x => x.click());
 
   console.log('Job keys: New job key; refusals show beside the field they name');
   await p.click('[data-job-new]'); await p.waitForSelector('.job-key-sheet form');

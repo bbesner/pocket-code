@@ -1767,7 +1767,7 @@ function sessionRowHTML(s) {
   return `<div class="session-item ${s.id === chatId ? 'cur' : ''} ${s.pinned ? 'pinned' : ''}" data-item="${esc(s.id)}">
     <button class="row" data-id="${esc(s.id)}">
       <span class="body"><span class="title">${esc(s.title)}</span>
-      <span class="meta">${s.cwd && s.cwd !== sessionsHome ? esc(projName(s.cwd)) + ' · ' : ''}${ENGINE_LABELS[s.provider] || 'Claude'}${s.branchOf ? ' · Branch' : ''}</span>${Automation.originOf(s) ? `<span class="origin-label">${esc(Automation.originOf(s))}</span>` : ''}
+      <span class="meta">${s.cwd && s.cwd !== sessionsHome ? esc(projName(s.cwd)) + ' · ' : ''}${ENGINE_LABELS[s.provider] || 'Claude'}${s.branchOf ? ' · Branch' : ''}</span>${Automation.originOf(s) ? `<span class="origin-label">${esc(Automation.originOf(s))}</span>` : ''}${s.jobKeyRequest?.name ? `<span class="origin-label job-request-label">Waiting for you: job key ${esc(s.jobKeyRequest.name)}</span>` : ''}
       <span class="session-status state-${sessionsStale ? 'unknown' : state.kind}">${running && !sessionsStale ? '<span class="ember" aria-hidden="true"></span>' : background && !sessionsStale ? '<span class="ember dim" aria-hidden="true"></span>' : ''}${sessionsStale ? 'Status unavailable' : esc(state.label)}${isUnread(s) ? '<span class="unread">New</span>' : ''}${running && state.queued ? ` · ${state.queued} queued` : ''}${typeof CheckBacks !== 'undefined' ? CheckBacks.rowClock(s) : ''}</span>
       <span class="activity-detail">${esc(detail)}${running?' · <span data-run-age></span>':''}</span></span>
     </button>${complete ? `<button class="done-close" type="button" data-done-close="${esc(s.id)}" aria-label="Close ${esc(s.title)}: it is complete" title="Complete. Close conversation">${IC.tick}</button>` : ''}<button class="pin-toggle" type="button" data-pin-toggle="${esc(s.id)}" aria-pressed="${s.pinned ? 'true' : 'false'}" aria-label="${s.pinned ? 'Unpin' : 'Pin'} ${esc(s.title)}" title="${s.pinned ? 'Unpin' : 'Pin to the top'}">${IC.pin}</button>${s.pinned ? `<button class="pin-grip" type="button" data-grip="${esc(s.id)}" aria-label="Reorder pinned conversation ${esc(s.title)}: drag it, or press the up and down arrow keys">${IC.grip}</button>` : ''}<button class="session-more icon" data-more="${esc(s.id)}" aria-label="Options for ${esc(s.title)}">${IC.more}</button>
@@ -2004,6 +2004,14 @@ function paintChatOrigin(s) {
   const el = $('#origin-line'); if (!el) return;
   const label = Automation.originOf(s);
   if (el.hidden !== !label) el.hidden = !label; if (el.textContent !== label) el.textContent = label; // unchanged: nothing written
+  // Job keys: the agent here asked for a job key and the owner hasn't answered; the line opens the request in Settings.
+  const line = $('#job-request-line'), link = $('#job-request-link'), r = s?.jobKeyRequest;
+  if (!line || !link) return;
+  const text = r?.name ? `Waiting for you: job key ${r.name}` : '', href = r?.id ? '#/settings/jobs/request/' + encodeURIComponent(r.id) : '#/';
+  if (line.hidden !== !text) line.hidden = !text;
+  if (link.textContent !== text) link.textContent = text;
+  if (link.getAttribute('href') !== href) link.setAttribute('href', href);
+  link.onclick = ev => { if (!r?.id || typeof JobKeys === 'undefined') return; ev.preventDefault(); JobKeys.openRequest(r.id); };
 }
 async function refreshSessions() {
   if (sessionFetch) return sessionFetch;
@@ -3100,7 +3108,7 @@ async function renderChat(id, { away = false } = {}) {
       <button class="icon" id="header-toggle" aria-label="Collapse conversation header" title="Collapse conversation header" aria-expanded="true" aria-controls="open-sessions cproj chat-statebar run-confirmation">${IC.up1}</button>
       ${PANE ? `<button class="icon" id="pane-close" aria-label="Close this pane">${IC.x}</button>` : ''}
     </header>
-    <section class="conversation-controls" id="conversation-controls" aria-label="Conversation controls"><p class="lineage" id="lineage" hidden></p><p class="origin-line" id="origin-line" hidden></p><div class="run-confirmation" id="run-confirmation" data-state="unknown"><span id="run-confirmed-state" role="status">Checking server…</span><span id="run-confirmed-at" aria-live="off"></span></div>
+    <section class="conversation-controls" id="conversation-controls" aria-label="Conversation controls"><p class="lineage" id="lineage" hidden></p><p class="origin-line" id="origin-line" hidden></p><p class="origin-line job-request-line" id="job-request-line" hidden><a id="job-request-link" href="#/"></a></p><div class="run-confirmation" id="run-confirmation" data-state="unknown"><span id="run-confirmed-state" role="status">Checking server…</span><span id="run-confirmed-at" aria-live="off"></span></div>
     <button id="agents-open" class="agents-open" aria-haspopup="dialog" hidden></button>
     <div class="question-banner" id="questions-open" hidden>${ENGINE_LABELS[providerOf(id)]} has a question</div>
     <div class="question-banner" id="approvals-open" hidden>Waiting for your OK · Review</div>
@@ -4507,6 +4515,9 @@ async function renderNew({ home = false, slot = '' } = {}) {
 /* ---------- router ---------- */
 async function route() {
   { const f = vaultFocusOf(location.hash); if (f) { history.replaceState(history.state, '', '#/vault'); vaultSetFocus(f); } } // 1.39: a request push opens the list at its Requests; 1.93: at one secret or one request
+  // Job keys: a request's push (/#/settings/jobs/request/<id>) opens Settings → Automation at that request, over the home view.
+  const jobRequest = typeof JobKeys !== 'undefined' ? JobKeys.requestFromHash(location.hash) : null;
+  if (jobRequest) history.replaceState(history.state, '', '#/');
   rememberViewNavigation(location.hash || '#/');
   rememberReading();stashAttachments(); closeCurrentSheet?.(); ++chatRenderVersion;
   closeES(); chatId = null;
@@ -4534,7 +4545,9 @@ async function route() {
   if (h.startsWith('#/start/')) return openStartLink(h.slice(8)); // 1.57: a start link puts its briefing in New session
   if (h === '#/new') return renderNew();
   if (h === '#/all') return renderList();
-  return assistantMode() ? renderNew({ home: true }) : renderList(); // 1.60: Assistant mode opens on the message box
+  const home = assistantMode() ? renderNew({ home: true }) : renderList(); // 1.60: Assistant mode opens on the message box
+  if (jobRequest) { await home; JobKeys.openRequest(jobRequest); }
+  return home;
 }
 // 1.60: one class on <html> carries Assistant mode's simplifications (app.css), and the window takes its name.
 function applyAssistantMode() {

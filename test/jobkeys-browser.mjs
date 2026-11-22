@@ -75,7 +75,8 @@ export async function runJobKeysRegressions({p,base,out,repo,scan}){
  await automation();
  assert.equal(await p.$('[data-job-keys]'),null);
  assert.equal(f.gets,0,'no call to the key list while off');
- assert.equal(await p.$eval('[data-auto-key="jobKeyFolder"]',e=>e.type),'text','the folder setting is a text field');
+ assert.equal(await p.$('[data-auto-dependent="jobs"]'),null,'off: only the switch and its help');
+ assert.equal(await p.$('[data-auto-reset="jobs"]'),null,'off: no Reset either');
 
  console.log('Job keys (fixture): on, the list shows every key with its state');
  await p.click('[data-auto-key="jobs"]');
@@ -85,6 +86,8 @@ export async function runJobKeysRegressions({p,base,out,repo,scan}){
  assert.deepEqual(await rowOf('disk-check'),['~/ops · Claude Code · Default model','Ask first · Running · Last run '+ago]);
  assert.deepEqual(await rowOf('nightly-report'),['~/reports · Codex · Default model','Full access · Off · Never ran']);
  assert.equal(await p.$eval('[data-job-keys] [data-job-empty]',e=>e.hidden),true,'no empty sentence with keys');
+ assert.equal(await p.$eval('[data-auto-advanced="jobs"]',e=>e.open),false,'the settings wait under Advanced, closed');
+ assert.equal(await p.$eval('[data-auto-key="jobKeyFolder"]',e=>e.type),'text','the folder setting is a text field');
  const targets=await p.$$eval('[data-job-keys] .job-key-row,[data-job-keys] [data-job-new]',x=>x.map(e=>Math.round(e.getBoundingClientRect().height)));
  assert.ok(targets.every(h=>h>=44),'44 px targets: '+targets);
  await shot('key-list',await p.$('[data-auto-group="jobs"]'));
@@ -92,7 +95,7 @@ export async function runJobKeysRegressions({p,base,out,repo,scan}){
 
  console.log('Job keys (fixture): an unchanged refresh writes nothing; a change rewrites only its row, at the same height');
  assert.equal(await writesDuring(p,'[data-job-keys]',5600),0,'the list is not rewritten');
- const [rowA,rowB]=await p.$$('[data-job-keys] > ul > li');const hA=await rowA.evaluate(e=>e.getBoundingClientRect().height);
+ const [rowA,rowB]=await p.$$('[data-job-keys] [data-job-list] > li');const hA=await rowA.evaluate(e=>e.getBoundingClientRect().height);
  await rowB.evaluate(e=>{window.__jobRowB=e;new MutationObserver(r=>{window.__jobRowBWrites=(window.__jobRowBWrites||0)+r.length;}).observe(e,{subtree:true,childList:true,attributes:true,characterData:true});});
  f.keys[0].running=0;
  await p.waitForFunction(()=>/Ask first · On · Last run /.test(document.querySelector('[data-job-keys] .job-key-row').innerText),{timeout:8000});
