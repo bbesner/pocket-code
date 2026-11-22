@@ -538,3 +538,33 @@ test('Where the install turns Full access off, a key can\'t ask for it and the d
   assert.deepEqual(vals, { jobs: false, jobAccess: 'ask', jobAddInstructions: false, jobPerHour: 6, jobPerDay: 24, jobAtOnce: 1, jobDataMax: 20000, jobWaitMax: 300, jobRepeatDays: 7, jobPush: true, jobPushRespectsMute: true, jobKeyFolder: '~/.config/pocket/jobs/' });
   assert.ok(s.audit().some(a => a.action === 'settings' && a.group === 'jobs' && a.reset === true));
 });
+
+// 1.122.2: a job run on a conversation whose process had closed (a new process on the transcript) counted the whole
+// conversation's cost toward today's unattended cost and the run: the CLI starts its running total at the transcript's
+// last cost-state. The result's own figure (model_usage_since_last_result) is what the reply cost.
+test('1.122.2: a job run in a new process on its conversation counts that reply\'s own cost, today and on the run', { timeout: 120_000 }, async t => {
+  const s = await boot(t, 19096, { env: { POCKET_IDLE_CLOSE_MS: '2500' } });
+  await s.turnOn();
+  const { key, secret } = await s.makeKey();
+  const near = (a, b, what) => assert.ok(Math.abs(a - b) < 1e-9, `${what}: ${a}, expected ${b}`);
+  const today = async () => (await s.call('/automation')).body.usage.today.cost;
+  const runCost = async run => (await s.call(`/jobs/keys/${key.id}/runs`)).body.runs.find(r => r.run === run).cost;
+  const closed = () => s.until(async () => (await s.call('/health')).body.processes === 0, 15000, 'the idle process to close');
+  const run = async (data, conversation) => { const r = await s.job(secret, { data, ...(conversation ? { conversation } : {}), wait: 20 }); assert.equal(r.body.status, 'done', JSON.stringify(r.body)); return r.body; };
+  const first = await run('__COST__ one');
+  near(await runCost(first.run), 0.4, 'the first run'); near(await today(), 0.4, 'today');
+  await closed();
+  const second = await run('__COST__ two', first.conversation);
+  near(await runCost(second.run), 0.4, 'a new process on the conversation: the reply\'s own cost, not 0.80');
+  near(await today(), 0.8, 'today: 0.40 + 0.40');
+  const third = await run('__COST__ three', first.conversation);
+  near(await runCost(third.run), 0.4, 'a later reply in the same process: unchanged'); near(await today(), 1.2, 'today');
+  const pids = () => new Set(s.claudeCalls().filter(c => c.id === first.conversation).map(c => c.pid)).size;
+  assert.equal(pids(), 2, 'one process, then a second for the last two runs');
+  // a CLI without the per-result figure: as before, its new process's first total (carried figure included)
+  await closed();
+  const old = await run('__COST__ __OLDCLI__ four', first.conversation);
+  near(await runCost(old.run), 1.6, 'an older CLI: as before'); near(await today(), 2.8, 'today');
+  const audited = s.audit().filter(a => a.action === 'job' && a.event === 'finished').map(a => a.cost);
+  assert.equal(audited.length, 4); [0.4, 0.4, 0.4, 1.6].forEach((c, i) => near(audited[i], c, 'audit line ' + i));
+});

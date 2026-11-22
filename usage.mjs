@@ -16,6 +16,18 @@ import path from 'node:path';
 
 const WINDOW_KEYS = ['five_hour', 'seven_day', 'seven_day_overage_included'];
 
+// 1.122.2: the cost of one result line on its own. total_cost_usd is the process's running total, and a process
+// started on an existing transcript (--resume, or a side chat's fork) starts that total from the transcript's last
+// cost-state line: what the conversation had spent when one of its processes last exited. Newer CLIs (seen in
+// 2.1.328) add model_usage_since_last_result, the spend since the previous result line by model; summed, it is this
+// line's own cost whatever was carried. null when the CLI does not send it (callers fall back to the total).
+export function sinceCost(o) {
+  const since = o?.model_usage_since_last_result;
+  if (!since || typeof since !== 'object') return null;
+  const cost = Object.values(since).reduce((a, u) => a + (Number.isFinite(Number(u?.costUSD)) ? Number(u.costUSD) : 0), 0);
+  return Math.max(0, cost);
+}
+
 export function atomicWrite(file, data) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = file + '.tmp';

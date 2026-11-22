@@ -20,10 +20,21 @@ if (process.argv[2]==='auth'&&process.argv[3]==='status') { console.log(JSON.str
 if (process.argv.includes('--fork-session') && process.argv.includes('--no-session-persistence')) {
   const args=process.argv.slice(2),parent=args[args.indexOf('--resume')+1],root=process.env.POCKET_SESSION_ROOT;
   if(process.env.POCKET_TEST_CALLS)fs.appendFileSync(process.env.POCKET_TEST_CALLS+'.side',JSON.stringify({parent,args,cwd:process.cwd()})+'\n');
-  const found=root&&fs.readdirSync(root).some(d=>fs.existsSync(path.join(root,d,parent+'.jsonl')));
+  const found=root&&fs.readdirSync(root).map(d=>path.join(root,d,parent+'.jsonl')).find(f=>fs.existsSync(f));
   if(!found){console.error('No conversation found with session ID: '+parent);process.exit(1);}
   if(root)setInterval(()=>{if(!fs.existsSync(root))process.exit(0)},300).unref();
-  let n=0,spent=0,hanging=false;const out=o=>console.log(JSON.stringify(o));
+  // 1.122.2: as the real CLI (2.1.328) does, the count starts at the parent's last cost-state line (the carried total),
+  // and each result carries model_usage_since_last_result (left out, as an older CLI does, when the first question
+  // has __SIDEOLD__). A background task the parent's transcript shows running (a run_in_background tool use with no
+  // task-notification after it) is reported stopped, and that notification's empty turn ends first: a result with
+  // origin.kind "task-notification", num_turns 0 and the carried total, before the first answer (__SIDENOTEERR__: an
+  // error result instead).
+  const plines=fs.readFileSync(found,'utf8').split('\n').filter(Boolean).map(l=>{try{return JSON.parse(l);}catch{return null;}}).filter(Boolean);
+  const carried=plines.filter(o=>o.type==='cost-state').map(o=>Number(o.totalCostUSD)||0).at(-1)||0;
+  const bg=plines.flatMap(o=>o.type==='assistant'&&Array.isArray(o.message?.content)?o.message.content.filter(c=>c.type==='tool_use'&&c.input?.run_in_background).map(c=>c.id):[]);
+  let stale=bg.filter(tid=>!plines.some(o=>o.type==='user'&&JSON.stringify(o.message?.content??'').includes('<tool-use-id>'+tid+'</tool-use-id>'))).length>0;
+  let n=0,spent=carried,hanging=false,old=null;const out=o=>console.log(JSON.stringify(o));
+  const since=cost=>old?{}:{model_usage_since_last_result:cost?{'claude-test':{costUSD:cost}}:{}};
   // like the real CLI, it exits when its input closes (the side chat ended or the daemon went away)
   readline.createInterface({input:process.stdin}).on('close',()=>process.exit(0)).on('line',line=>{
     const o=JSON.parse(line);
@@ -33,10 +44,16 @@ if (process.argv.includes('--fork-session') && process.argv.includes('--no-sessi
     // the whole input is recorded for the tests.
     const full=o.message.content[0].text,text=full.split('</pocket-side-chat>\n\n').pop();n++;
     if(process.env.POCKET_TEST_CALLS)fs.appendFileSync(process.env.POCKET_TEST_CALLS+'.side-input',JSON.stringify({parent,n,full})+'\n');
+    if(old===null)old=text.includes('__SIDEOLD__');
+    const slow=stale;
+    if(stale){stale=false;const err=text.includes('__SIDENOTEERR__');
+      out({type:'system',subtype:'task_notification',status:'stopped'});out({type:'system',subtype:'init',session_id:'fork-0'});
+      out({type:'result',subtype:err?'error_during_execution':'success',is_error:err,num_turns:0,result:'',total_cost_usd:spent,duration_ms:108,origin:{kind:'task-notification'},...since(0)});}
     out({type:'system',subtype:'init',session_id:'fork-'+n});
     out({type:'stream_event',event:{type:'content_block_delta',delta:{type:'text_delta',text:'Side '}}});
     if(text.includes('__SIDEHANG__')){hanging=true;return;}
-    setTimeout(()=>{const t='Side answer '+n+': '+text;out({type:'assistant',message:{role:'assistant',model:'claude-test',content:[{type:'text',text:t}]}});out({type:'result',subtype:text.includes('__SIDEBUDGET__')?'error_max_budget_usd':'success',is_error:false,result:t,total_cost_usd:(spent+=0.25),duration_ms:120});},150);
+    // the real CLI's budget stop comes after the answer, with no text (is_error, result '')
+    setTimeout(()=>{const t='Side answer '+n+': '+text,budget=text.includes('__SIDEBUDGET__');out({type:'assistant',message:{role:'assistant',model:'claude-test',content:[{type:'text',text:t}]}});out({type:'result',subtype:budget?'error_max_budget_usd':'success',is_error:budget,result:budget?'':t,num_turns:1,total_cost_usd:(spent+=0.25),duration_ms:120,...since(0.25)});},slow?600:150);
   });
 } else
 // Session titles (titles.mjs): a one-shot -p call with no saved session. Answer like the real CLI's json output.
@@ -75,7 +92,10 @@ const lines=readline.createInterface({input:process.stdin});
 lines.on('close',()=>{try{if(fs.existsSync(file))fs.appendFileSync(file,JSON.stringify({type:'cost-state',sessionId:id,totalCostUSD:spent})+'\n'+JSON.stringify({type:'last-prompt',sessionId:id,lastPrompt:'…'})+'\n');}catch{}});
 // Session processes outlive their server by design; a fixture's process ends with its test dir.
 setInterval(()=>{if(!fs.existsSync(root))process.exit(0)},300).unref();
-let working=false,questionKeepAlive,spent=0; // spent: the process's running cost, as the real CLI reports it
+// spent: the process's running cost, as the real CLI reports it. 1.122.2: like the real CLI (2.1.328), a process on an
+// existing transcript starts it at that transcript's last cost-state line (the conversation's spend so far).
+const carried=fs.existsSync(file)?fs.readFileSync(file,'utf8').split('\n').map(l=>{try{return JSON.parse(l);}catch{return null;}}).filter(o=>o?.type==='cost-state').map(o=>Number(o.totalCostUSD)||0).at(-1)||0:0;
+let working=false,questionKeepAlive,spent=carried;
 const append=o=>fs.appendFileSync(file,JSON.stringify({sessionId:id,cwd:process.cwd(),timestamp:new Date().toISOString(),...o})+'\n');
 lines.on('line',line=>{
   const obj=JSON.parse(line);
@@ -142,7 +162,8 @@ lines.on('line',line=>{
     append(assistantMsg);
     console.log(JSON.stringify(assistantMsg));
     const result={type:'result',subtype:text.includes('__FAIL__')?'error':'success',result:'Test result',duration_ms:300};
-    if(text.includes('__COST__')){spent=Math.round((spent+0.4)*100)/100;result.total_cost_usd=spent;} // 1.78.1
+    // 1.78.1; 1.122.2: and the result's own cost, as model_usage_since_last_result (left out with __OLDCLI__, as an older CLI does)
+    if(text.includes('__COST__')){spent=Math.round((spent+0.4)*100)/100;result.total_cost_usd=spent;if(!text.includes('__OLDCLI__'))result.model_usage_since_last_result={'claude-test':{costUSD:0.4}};}
     if(usage)result.modelUsage={[model]:{inputTokens:1200,cacheReadInputTokens:800,cacheCreationInputTokens:0,contextWindow:1000000},'claude-haiku-4-5-20251001':{inputTokens:50,cacheReadInputTokens:0,cacheCreationInputTokens:0,contextWindow:200000}};
     console.log(JSON.stringify(result));
     working=false;

@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.121.0
+checked: 1.122.2
 sources: checkbacks.mjs, choices.mjs, project-mode.mjs, public/projects.js, starts.mjs, results.mjs, queue.mjs, sidechat.mjs, public/sidechat.js, subagents.mjs, workspace.mjs, worktrees.mjs, public/secret-detect.js
 -->
 # Working in a conversation
@@ -362,8 +362,9 @@ How it behaves:
   shows the same side chat. One side chat per conversation.
 - It ends when you close it, after 30 quiet minutes, when Pocket restarts, when the Claude sign-in changes (Claude side
   chats), or when a newer one replaces it. Your next question starts a new one.
-- Claude answers show their cost and the footer the running total. The first question reads the whole conversation, so it
-  costs the most; follow-ups read it from the prompt cache. Codex answers show their time only.
+- Claude answers show their cost and the footer what this side chat has spent so far, not what the conversation
+  itself has spent. The first question reads the whole conversation, so it costs the most; follow-ups read it from the
+  prompt cache. Codex answers show their time only.
 - **Stop** (the Ask button while it answers) stops the answer. If a Codex side chat does not answer Stop within 20
   seconds, Pocket ends that side chat; your next question starts a new one.
 - **Need work done? Branch instead** moves your typed text to [Branch](#branch-into-a-new-conversation) without sending it.

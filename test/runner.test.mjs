@@ -217,6 +217,8 @@ test('a just-sent message shows as pending until the CLI writes it, and never tw
 });
 
 // 1.78.1: the CLI reports its process's running cost total; each reply shows only its own share, across a restart.
+// 1.122.2: asked as a CLI without the per-result figure (__OLDCLI__), so this still proves the difference of totals
+// and the marker a restarted daemon reads.
 test('a reused process reports each turn\'s own cost, also after a daemon restart',async t=>{
  const f=await fixture(t,18473);
  // Reads a running turn's events until its result (the __SLOW__ turn is still going when this connects).
@@ -229,19 +231,52 @@ test('a reused process reports each turn\'s own cost, also after a daemon restar
     let i;while((i=buf.indexOf('\n\n'))>=0){const d=buf.slice(0,i).split('\n').find(l=>l.startsWith('data: '));buf=buf.slice(i+2);if(!d)continue;const ev=JSON.parse(d.slice(6));if(ev.type==='result'){ac.abort();return ev;}}}
   }catch(e){if(e.name==='AbortError')return null;throw e;}finally{clearTimeout(timer);}
  };
- const id=(await f.call('/new',{cwd:repo,...msg('__COST__ __SLOW__ first')})).body.id;
+ const id=(await f.call('/new',{cwd:repo,...msg('__COST__ __OLDCLI__ __SLOW__ first')})).body.id;
  let r=await result(id);assert.equal(r.cost,0.4,'first turn: the whole total');
  assert.ok(await f.until(async()=>await f.state(id)==='finished'));
- assert.equal((await f.call(`/session/${id}/message`,msg('__COST__ __SLOW__ second'))).status,202);
+ assert.equal((await f.call(`/session/${id}/message`,msg('__COST__ __OLDCLI__ __SLOW__ second'))).status,202);
  r=await result(id);assert.equal(r.cost,0.4,'second turn: only its own cost, not 0.80');
  assert.ok(await f.until(async()=>await f.state(id)==='finished'));
  assert.equal(f.pids().size,1,'the same process');
  // The process outlives the daemon; the restarted daemon keeps counting from the marker.
  await f.stop();await f.start();
  assert.ok(await f.until(async()=>(await f.health()).processes===1),'the process was adopted');
- assert.equal((await f.call(`/session/${id}/message`,msg('__COST__ __SLOW__ third'))).status,202);
+ assert.equal((await f.call(`/session/${id}/message`,msg('__COST__ __OLDCLI__ __SLOW__ third'))).status,202);
  r=await result(id);assert.equal(r.cost,0.4,'after a restart: still its own cost, not 1.20');
  assert.equal(f.pids().size,1);
+});
+
+// 1.122.2: a new process on a conversation starts the CLI's running total at the transcript's last cost-state (what
+// the conversation had spent when its last process exited), so its first reply showed the whole conversation's cost.
+// The result's model_usage_since_last_result is the reply's own cost; a CLI without it gets the 1.78.1 difference.
+test('1.122.2: the first reply of a new process on a conversation that carries a cost shows its own cost',async t=>{
+ const f=await fixture(t,18476,{POCKET_IDLE_CLOSE_MS:'2500'});
+ const result=async id=>{
+  const ac=new AbortController(),timer=setTimeout(()=>ac.abort(),8000);
+  try{
+   const r=await fetch(`http://127.0.0.1:${f.port}/api/session/${id}/events?from=0`,{headers:f.headers,signal:ac.signal});
+   const reader=r.body.getReader(),dec=new TextDecoder();let buf='';
+   for(;;){const {value,done}=await reader.read();if(done)return null;buf+=dec.decode(value,{stream:true});
+    let i;while((i=buf.indexOf('\n\n'))>=0){const d=buf.slice(0,i).split('\n').find(l=>l.startsWith('data: '));buf=buf.slice(i+2);if(!d)continue;const ev=JSON.parse(d.slice(6));if(ev.type==='result'){ac.abort();return ev;}}}
+  }catch(e){if(e.name==='AbortError')return null;throw e;}finally{clearTimeout(timer);}
+ };
+ const carried=id=>f.transcript(id).split('\n').filter(l=>l.includes('"cost-state"')).map(l=>JSON.parse(l).totalCostUSD).at(-1);
+ const closed=async(id,total)=>{assert.ok(await f.until(async()=>(await f.health()).processes===0,10000),'the idle process closed');assert.ok(await f.until(async()=>carried(id)===total),`its transcript carries ${total}`);};
+ const ask=async(id,text)=>{assert.equal((await f.call(`/session/${id}/message`,msg(text))).status,202);const r=await result(id);assert.ok(await f.until(async()=>await f.state(id)==='finished'));return r;};
+ const id=(await f.call('/new',{cwd:repo,...msg('__COST__ __SLOW__ first')})).body.id;
+ assert.equal((await result(id)).cost,0.4);
+ assert.ok(await f.until(async()=>await f.state(id)==='finished'));
+ await closed(id,0.4);
+ assert.equal((await ask(id,'__COST__ __SLOW__ second')).cost,0.4,'a new process: its own cost, not the conversation\'s 0.80');
+ assert.equal(f.pids().size,2,'a new process');
+ assert.equal((await ask(id,'__COST__ __SLOW__ third')).cost,0.4,'a later reply in the same process: unchanged');
+ assert.equal(f.pids().size,2,'the same process');
+ // A CLI that does not send the per-result figure: as before, the difference from the new process's first total (none),
+ // so the first reply of a new process shows what the CLI reports, carried figure included.
+ await closed(id,1.2);
+ assert.equal((await ask(id,'__COST__ __SLOW__ __OLDCLI__ fourth')).cost,1.6,'an older CLI: as before');
+ assert.equal((await ask(id,'__COST__ __SLOW__ __OLDCLI__ fifth')).cost,0.4,'and its later replies their own share');
+ assert.equal(f.pids().size,3);
 });
 
 // 1.82: a background subagent's permission request arrives when no reply is running (or outlives the reply that

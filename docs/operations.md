@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.122.0
+checked: 1.122.2
 sources: checkbacks.mjs, job-keys.mjs, automation.mjs, cli-updates.mjs, cli-update-worker.mjs, ecosystem.config.cjs, environment.mjs, pipes.mjs, codex.mjs, sidechat.mjs, skills.mjs, vault.mjs, scripts/pocket-mcp-proxy.mjs, scripts/pocket-run.mjs
 -->
 # Operations, upgrades and recovery
@@ -91,7 +91,8 @@ only and are never reattached. One ends when it is closed, after `POCKET_SIDE_CH
 does not answer Stop within 20 seconds, and (Claude only) when the Claude sign-in changes. At most `POCKET_SIDE_CHAT_MAX` (default
 4) are open at once: opening another closes the longest-quiet one, and is refused while every one is
 answering. A Claude side chat stops at `POCKET_SIDE_CHAT_BUDGET_USD` (default 5; `0` removes the
-cap). Side chats are not counted in `POCKET_MAX_PROCESSES` or in health. `POCKET_SIDE_CHAT=0`
+cap). The cap, the cost each answer shows and the `cost=` of the close log line count only the side
+chat's own spend, not what the conversation had spent before it (1.122.2). Side chats are not counted in `POCKET_MAX_PROCESSES` or in health. `POCKET_SIDE_CHAT=0`
 turns them off.
 
 With Inbox Watch on, the daemon also starts the watcher (`python3`, the `inbox-watch/` code) once a
@@ -214,7 +215,8 @@ check failure. Do not treat a cached UI or a successful health request as releas
 
 Existing process environment values take precedence over `.env`. `POCKET_ENV_FILE`
 selects another file; an empty value skips file loading. Keep one daemon per data
-directory. `POCKET_DATA_DIR` defaults to the checkout; `POCKET_SESSION_ROOT` changes
+directory. `POCKET_DATA_DIR` defaults to the checkout, and the repository's `.gitignore` covers every
+file and folder the daemon writes there, and local `.env.bak*` copies of `.env` (1.122.2); `POCKET_SESSION_ROOT` changes
 Claude transcript storage only, while `CODEX_HOME` selects Codex's native store.
 
 Starting the daemon also has side effects beyond its own state. It writes a fresh
