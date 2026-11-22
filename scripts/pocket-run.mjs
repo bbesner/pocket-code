@@ -6,7 +6,7 @@
 //   pocket-run --key-file <file> --run <run id> [--wait <seconds>] [--json]     look at a run again
 //
 // The key comes from --key-file or POCKET_JOB_KEY; there is no --key flag, because other programs can read a command line.
-// --data - reads the data from stdin. --wait waits up to that many seconds for the run to finish (Pocket caps it).
+// --data - reads the data from stdin. --wait waits up to that many seconds for the run to finish, asking every 240 s at most.
 // Exit codes: 0 done (the reply on stdout) · 3 needs you (an approval or question waits) · 4 still working (poll with --run)
 // · 5 refused (paused, a limit, a wrong or disabled key, busy; the reason on stderr) · 1 error.
 // With --json the whole answer is printed on stdout whatever the exit code. The key is never printed.
@@ -57,28 +57,42 @@ if (opts.wait !== undefined) { wait = Number(opts.wait); if (!Number.isFinite(wa
 
 async function readStdin() { const chunks = []; for await (const c of process.stdin) chunks.push(c); return Buffer.concat(chunks).toString('utf8'); }
 
-async function call(method, p, body) {
+// A long --wait is waited in slices: one call is held at most SLICE seconds (Pocket holds one at most 240, and Node's fetch
+// gives up on an answer whose headers take 300), then the run is asked again until --wait is used up.
+// POCKET_RUN_SLICE_S shortens a slice (tests).
+const SLICE = Number(env('POCKET_RUN_SLICE_S')) > 0 ? Number(env('POCKET_RUN_SLICE_S')) : 240;
+const deadline = Date.now() + wait * 1000;
+const left = () => Math.max(0, (deadline - Date.now()) / 1000);
+const slice = () => wait ? Math.min(SLICE, Math.max(1, Math.round(left()))) : 0;
+
+async function call(method, p, body, waitS = 0) {
   let r;
   try {
     r = await fetch(base + p, { method, headers: { authorization: 'Bearer ' + key, ...(body ? { 'content-type': 'application/json' } : {}) },
-      body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout((wait + 60) * 1000) });
+      body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout((waitS + 60) * 1000) });
   } catch (e) { die(`Pocket Code is not reachable at ${base}: ${e.name === 'TimeoutError' ? 'no answer in time' : e.cause?.code || e.message}`); }
   let data = null; try { data = await r.json(); } catch { }
   return { http: r.status, data: data && typeof data === 'object' ? data : {} };
 }
+const poll = (run, w) => call('GET', `/api/jobs/runs/${run}${w ? `?wait=${encodeURIComponent(w)}` : ''}`, null, w);
 
-const { http, data } = opts.run
-  ? (/^jr-[0-9a-f]{12}$/.test(opts.run) ? await call('GET', `/api/jobs/runs/${opts.run}${wait ? `?wait=${encodeURIComponent(wait)}` : ''}`) : die('--run takes a run id like jr-0123456789ab.'))
+let { http, data } = opts.run
+  ? (/^jr-[0-9a-f]{12}$/.test(opts.run) ? await poll(opts.run, slice()) : die('--run takes a run id like jr-0123456789ab.'))
   : await (async () => {
     if (opts.data !== undefined && opts.data !== '-') die('--data takes only "-" (read stdin); use --data-file <path> for a file, so the data stays off the command line.');
     if (opts.data !== undefined && opts['data-file'] !== undefined) die('Use --data - or --data-file, not both.');
     const body = {
       data: opts.data === '-' ? await readStdin() : opts['data-file'] !== undefined ? readFile(opts['data-file'], 'data') : '',
       ...(opts['instructions-file'] !== undefined ? { instructions: readFile(opts['instructions-file'], 'instructions') } : {}),
-      ...(opts.id ? { idempotencyKey: opts.id } : {}), ...(opts.conversation ? { conversation: opts.conversation } : {}), ...(wait ? { wait } : {}),
+      ...(opts.id ? { idempotencyKey: opts.id } : {}), ...(opts.conversation ? { conversation: opts.conversation } : {}), ...(wait ? { wait: slice() } : {}),
     };
-    return call('POST', '/api/jobs/run', body);
+    return call('POST', '/api/jobs/run', body, slice());
   })();
+// Still working with time left: ask again. A repeat (--id) keeps saying so.
+while (data.status === 'working' && /^jr-[0-9a-f]{12}$/.test(String(data.run || '')) && left() > 0.5) {
+  const next = await poll(data.run, slice());
+  ({ http } = next); data = { ...(data.repeat ? { repeat: true } : {}), ...next.data };
+}
 
 const status = data.status || (http === 401 || data.code === 'jobs_off' ? 'refused' : 'error');
 if (opts.json) process.stdout.write(JSON.stringify({ ...data, ...(data.status ? {} : { status }), http }, null, 1) + '\n');

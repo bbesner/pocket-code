@@ -113,7 +113,7 @@ function pocketRun(s, args, { env = {}, input = null } = {}) {
 }
 
 test('Off by default: a caller on this server is told job keys are off, anyone else gets what 1.121 gave, and the owner routes say off', { timeout: 60_000 }, async t => {
-  const s = await boot(t, 19061);
+  const s = await boot(t, 19095); // not 19061: test/mcp-proxy.test.mjs has it
   const r = await s.job('pjk_' + 'a'.repeat(43), { data: 'x' });
   assert.equal(r.status, 404); assert.deepEqual(r.body, OFF);
   const anyone = await s.job('pjk_' + 'a'.repeat(43), { data: 'x' }, { 'x-forwarded-for': '203.0.113.9' });

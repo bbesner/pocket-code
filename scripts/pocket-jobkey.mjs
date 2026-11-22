@@ -60,6 +60,19 @@ async function call(p, body, waitS = 0) {
   if (data.code === 'jobs_off') die('Job keys are switched off on this Pocket. The owner turns them on in Settings → Automation → Job keys.', EXIT.off);
   die(data.error || `${r.status} from ${p}`);
 }
+// A wait is waited in slices: one call is held at most SLICE seconds (Pocket holds one at most 240, and Node's fetch gives up
+// on an answer whose headers take 300), then the request is asked again until the wait is used up. POCKET_JOBKEY_SLICE_S
+// shortens a slice (tests).
+const SLICE = Number(env('POCKET_JOBKEY_SLICE_S')) > 0 ? Number(env('POCKET_JOBKEY_SLICE_S')) : 240;
+async function waited(first, id, waitS) {
+  const deadline = Date.now() + waitS * 1000, left = () => (deadline - Date.now()) / 1000;
+  let d = await first(Math.min(SLICE, waitS));
+  while (d.status === 'pending' && (d.request || id) && left() > 0.5) {
+    const w = Math.min(SLICE, Math.max(1, Math.round(left())));
+    d = await call(`/api/jobs/agent/requests/${encodeURIComponent(d.request || id)}?wait=${w}`, null, w);
+  }
+  return d;
+}
 const seconds = (v, dflt) => { if (v === undefined) return dflt; const n = Number(v); if (!Number.isFinite(n) || n < 0 || n > 300) die('--wait takes a number of seconds from 0 to 300.'); return n; };
 const limit = (v, flag) => { if (v === undefined) return undefined; if (v === 'off') return 'off'; const n = Number(v); if (!Number.isInteger(n)) die(`${flag} takes a whole number${flag === '--at-once' ? '' : ', or off'}.`); return n; };
 
@@ -97,13 +110,13 @@ switch (cmd) {
     if (Object.values(limits).some(v => v !== undefined)) body.limits = Object.fromEntries(Object.entries(limits).filter(([, v]) => v !== undefined));
     if (opts['may-add-instructions']) body.mayAddInstructions = true;
     if (opts['no-push']) body.pushWhenDone = false;
-    finish(await call('/api/jobs/agent/propose', body, wait));
+    finish(await waited(w => call('/api/jobs/agent/propose', { ...body, wait: w }, w), null, wait));
     break;
   }
   case 'wait': case 'status': {
     if (!arg) die(`${cmd} needs the request id printed with pending.`);
     const wait = cmd === 'wait' ? seconds(opts.wait, 300) : 0;
-    finish(await call(`/api/jobs/agent/requests/${encodeURIComponent(arg)}${wait ? '?wait=' + wait : ''}`, null, wait));
+    finish(await waited(w => call(`/api/jobs/agent/requests/${encodeURIComponent(arg)}${w ? '?wait=' + w : ''}`, null, w), arg, wait));
     break;
   }
 }

@@ -9,7 +9,8 @@
 //   rotatedAt, lastRunAt, conversations (the newest ids this key started, so `conversation` can be checked) }.
 // The key itself is never stored; keyHash never leaves this file's callers (keyView leaves it out).
 // A run: { run, keyId, keyName, conversation, engine, status, startedAt, endedAt?, outcome?, idempotencyKey?, reply?
-//   (the reply's first line only), cost?, tokens? }. status: starting (reserved before the gate, so two calls can't both
+//   (the reply's first line only), cost?, tokens?, limited? (its last reply stopped at a usage limit), error? (why a run
+//   no reply ended was ended: the server's fixed words, never text from the reply) }. status: starting (reserved before the gate, so two calls can't both
 // pass the per-key limits) · working · done · failed. A refusal is not a run; a start that failed is kept as failed with
 // outcome not_started and does not count toward the limits or a repeat.
 import fs from 'node:fs';
@@ -82,10 +83,15 @@ export function isKeyFile(file) {
   if (!st.isFile() || st.size > 200) return false;
   try { return KEY_RE.test(fs.readFileSync(file, 'utf8').trim()); } catch { return false; }
 }
+// A key file's path with its folder's links resolved, so two spellings of one file compare equal.
+export function canonKeyFile(file) {
+  try { return path.join(fs.realpathSync(path.dirname(file)), path.basename(file)); } catch { return path.resolve(String(file)); }
+}
 // Writes <folder>/<name>.key (0600). Missing folders are made 0700. A folder that is, or passes through, a symlink is
 // followed only while it stays inside home; the file itself is never a symlink; an existing file that is not a key file
-// is never replaced. Returns the file's path.
-export function writeKeyFile(folder, name, secret, { home = os.homedir() } = {}) {
+// is never replaced, nor is one another key records as its own (`taken(canonical path)` returns that key's name: a key
+// renamed after its file was written keeps the file, and a new key of the old name must not take it over). Returns the path.
+export function writeKeyFile(folder, name, secret, { home = os.homedir(), taken = null } = {}) {
   if (!NAME_RE.test(name) || !KEY_RE.test(secret)) throw fail('Not a job key.', 500);
   const dir = resolveFolder(folder, home), realHome = fs.realpathSync(home);
   const outside = () => fail('That folder leads outside your home folder (a link), so Pocket won\'t write a key there.', 400, 'outside_home');
@@ -102,6 +108,8 @@ export function writeKeyFile(folder, name, secret, { home = os.homedir() } = {})
   }
   if (!within(fs.realpathSync(dir), realHome)) throw outside();
   const file = path.join(dir, name + '.key');
+  const owner = taken ? taken(canonKeyFile(file)) : null;
+  if (owner) throw fail(`${file} is the key file of the job key "${owner}", so Pocket won't write another key there. Choose another folder or name.`, 409, 'file_taken');
   let exists = true; try { fs.lstatSync(file); } catch { exists = false; }
   if (exists && !isKeyFile(file)) throw fail(`${file} is already there and is not a job key file, so Pocket left it as it is. Choose another folder or name.`, 409, 'file_exists');
   const tmp = path.join(dir, `.${name}.key.${hex(4)}.tmp`);
@@ -263,6 +271,6 @@ export function keyView(k, { running = 0 } = {}) {
 // One run, as the owner's list shows it.
 export function runView(r) {
   return { run: r.run, keyId: r.keyId, name: r.keyName, conversation: r.conversation || null, status: r.status === 'starting' ? 'working' : r.status, startedAt: r.startedAt,
-    ...(r.endedAt ? { endedAt: r.endedAt } : {}), ...(r.outcome ? { outcome: r.outcome } : {}), ...(r.reply ? { reply: r.reply } : {}),
+    ...(r.endedAt ? { endedAt: r.endedAt } : {}), ...(r.outcome ? { outcome: r.outcome } : {}), ...(r.reply ? { reply: r.reply } : {}), ...(r.error ? { error: r.error } : {}),
     ...(Number.isFinite(r.cost) ? { cost: r.cost } : {}), ...(Number.isFinite(r.tokens) ? { tokens: r.tokens } : {}), ...(r.idempotencyKey ? { idempotencyKey: r.idempotencyKey } : {}) };
 }
