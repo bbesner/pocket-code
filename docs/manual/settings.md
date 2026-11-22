@@ -1,6 +1,6 @@
 <!-- manual
-checked: 1.122.3
-sources: context-policy.mjs, automation.mjs, job-keys.mjs, cli-updates.mjs, public/cli-updates.js, public/app.js, public/workspace.js, public/theme.js, public/voice.js, server.mjs, router.mjs, access.mjs
+checked: 1.123.0
+sources: context-policy.mjs, automation.mjs, job-keys.mjs, cli-updates.mjs, self-update.mjs, scripts/pocket-self-update.sh, public/cli-updates.js, public/app.js, public/workspace.js, public/theme.js, public/voice.js, server.mjs, router.mjs, access.mjs
 -->
 # Settings
 
@@ -245,10 +245,22 @@ available. Review*.
 
 The **Pocket Code** row shows the version this server is running and the latest published release
 (GitHub's latest release, never a prerelease or draft), with links to its release notes and to the
-upgrade steps in the operations guide. Pocket Code is not installed from here: whoever manages the
+upgrade steps in the operations guide. Normally Pocket Code is not installed from here: whoever manages the
 server upgrades it, and the notice goes away once the server runs that release. Before then, a
 server restart is what moves a checked-out new version into use, so the row reports the running
 version, not the files on disk.
+
+**Update from Pocket** (1.123). When the person who owns the server lets Pocket install its own
+releases (`POCKET_SELF_UPDATE=1` in `.env`, then a restart), the row has an **Update to …** button
+instead of the link to the upgrade steps. Pocket asks you to confirm, then does what an operator does:
+it checks that the Pocket Code folder is unchanged and on `main` (or on a release), that the release is
+on `main`, and that no reply is running; backs up its private data to `~/backups`; installs the release
+and its packages; and restarts. The sheet shows each step. While Pocket restarts the page loses
+contact for a moment and reconnects by itself; open conversations reconnect too. If the new version
+does not start, Pocket goes back to the one it was running and says so in the row, and you can try
+again. The button is not offered while a reply is running, while a Claude Code or Codex upgrade runs,
+or when Pocket cannot restart itself (it is not running under PM2, or the folder is not a git
+checkout); the row then says why. It needs at least 5 GB free on the server for the backup.
 
 For Claude Code and Codex, the review shows installed and available versions and links to the
 publisher's release notes. Choose either CLI or both, then **Upgrade selected**.

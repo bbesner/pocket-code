@@ -8,7 +8,7 @@ export async function runCliUpdateRegressions({browser,base,out}){
  await page.setRequestInterception(true);
  page.on('request',req=>{const url=new URL(req.url());if(!url.pathname.startsWith('/api/cli-updates'))return req.continue();
   if(offline)return req.respond({status:503,contentType:'application/json',body:'{"error":"Update status unavailable"}'});
-  if(req.method()==='POST'){posts.push(JSON.parse(req.postData()));if(url.pathname.endsWith('/upgrade'))state.job={id:'job-one',running:true,phase:'testing',results:[]};}
+  if(req.method()==='POST'){posts.push(JSON.parse(req.postData()));if(url.pathname.endsWith('/upgrade'))state.job={id:'job-one',running:true,phase:'testing',results:[]};if(url.pathname.endsWith('/pocket'))state.pocket.self.job={id:'self-one',running:true,phase:'restarting',from:state.pocket.installed,to:state.pocket.latest};}
   return req.respond({status:req.method()==='POST'?202:200,contentType:'application/json',body:JSON.stringify(state)});
  });
  try{
@@ -67,6 +67,35 @@ export async function runCliUpdateRegressions({browser,base,out}){
   const switched=page.waitForRequest(r=>r.method()==='POST'&&new URL(r.url()).pathname.endsWith('/api/cli-updates/switch'),{timeout:10000});
   await page.click('[data-cli-interrupt="false"]');await switched;
   assert.deepEqual(posts.at(-1),{key:'claude',id:state.providers[0].older[0].id,interrupt:false});
-  assert.deepEqual(errors,[]);console.log('CLI update browser checks passed: review, explicit selection, reconnect, failure, retry, success, accessibility at 390/1440.');
+  // 1.123: an install whose owner opted in (POCKET_SELF_UPDATE=1) updates Pocket Code from the sheet.
+  await page.keyboard.press('Escape');reset();state.providers.forEach(p=>{p.installed=p.latest;p.available=false;});
+  state.pocket.self={enabled:true,available:true,reason:null,job:null};
+  await page.evaluate(()=>pollCliUpdates());await page.click('.cli-update-notice');await page.waitForSelector('#pocket-self-update');
+  assert.equal(await page.$eval('#pocket-self-update',e=>e.textContent),'Update to 1.108.0');
+  assert.equal(await page.$('#pocket-update-row a[href*="operations.md"]'),null,'no operator guide when the owner installs it');
+  assert.match(await page.$eval('#pocket-update-row',e=>e.textContent),/You install its updates here/);
+  let asked='';const onDialog=d=>{asked=d.message();d.accept();};page.on('dialog',onDialog);
+  const updated=page.waitForRequest(r=>r.method()==='POST'&&new URL(r.url()).pathname.endsWith('/api/cli-updates/pocket'),{timeout:10000});
+  await page.$eval('#pocket-self-update',e=>e.scrollIntoView({block:'center'}));await page.click('#pocket-self-update');await updated;page.off('dialog',onDialog);
+  assert.match(asked,/goes back to 1\.107\.1/);assert.deepEqual(posts.at(-1),{version:'1.108.0'});
+  await page.waitForFunction(()=>document.querySelector('#pocket-self-status')?.textContent.includes('Restarting Pocket'));
+  assert.equal(await page.$('#pocket-self-update'),null,'no second update while one runs');
+  offline=true;await new Promise(r=>setTimeout(r,2500));
+  assert.equal(await page.$eval('#cli-update-error',e=>e.textContent),'','the server going away mid-update is not shown as an error');offline=false;
+  state.pocket={...state.pocket,installed:'1.108.0',available:false,self:{...state.pocket.self,job:{id:'self-one',running:false,phase:'complete',from:'1.107.1',to:'1.108.0'}}};
+  await page.waitForFunction(()=>document.querySelector('#pocket-self-status')?.textContent==='Updated to 1.108.0.');
+  await page.setViewport({width:390,height:900,isMobile:false,hasTouch:false});await new Promise(r=>setTimeout(r,350));
+  await page.addScriptTag({path:path.resolve('node_modules/axe-core/axe.min.js')});
+  const selfAxe=await page.evaluate(async()=>axe.run('.cli-updates-sheet',{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa']}}));
+  assert.deepEqual(selfAxe.violations.map(x=>({id:x.id,nodes:x.nodes.map(n=>n.target)})),[]);
+  state.pocket={...state.pocket,installed:'1.107.1',available:true,self:{...state.pocket.self,job:{id:'self-two',running:false,phase:'failed',from:'1.107.1',to:'1.108.0',error:'1.108.0 did not start, so Pocket went back to 1.107.1.'}}};
+  await page.waitForFunction(()=>document.querySelector('#pocket-self-status')?.textContent.includes('went back to 1.107.1'));
+  assert.ok(await page.$('#pocket-self-update'),'after a failure the owner can try again');
+  await page.$eval('#pocket-update-row',e=>e.scrollIntoView({block:'center'}));await page.screenshot({path:path.join(out,'cli-updates-self-390.png')});
+  if(process.env.POCKET_DESIGN_SCANNER){await page.addScriptTag({path:process.env.POCKET_DESIGN_SCANNER});fs.writeFileSync(path.join(out,'cli-updates-self-design-390.json'),JSON.stringify(await page.evaluate(()=>window.impeccableDetectAsync({scrollOffscreen:false})),null,2));}
+  state.pocket.self={enabled:true,available:false,reason:'Pocket is not running under PM2 here, so it cannot restart itself. Update it from the server.',job:null};
+  await page.waitForFunction(()=>document.querySelector('#pocket-update-row').textContent.includes('not running under PM2'));
+  assert.equal(await page.$('#pocket-self-update'),null);
+  assert.deepEqual(errors,[]);console.log('CLI update browser checks passed: review, explicit selection, reconnect, failure, retry, success, accessibility at 390/1440; Pocket Code self-update (button, confirm, restart, done, failure, unavailable).');
  }finally{await page.close();}
 }

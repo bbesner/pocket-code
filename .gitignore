@@ -75,3 +75,7 @@ automation-state.json*
 automation-audit.jsonl
 checkbacks.json*
 job-keys.json*
+
+# 1.123: progress and log of a Pocket Code update the install runs on itself (POCKET_SELF_UPDATE=1)
+pocket-self-update.json*
+pocket-self-update.log

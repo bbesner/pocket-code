@@ -13,7 +13,7 @@ let checkout=false;try{checkout=git('rev-parse','--is-inside-work-tree').trim()=
 
 // Written under the data folder by other modules: vault.mjs (audit log next to vault.enc), inbox-runner.mjs, cli-updates.mjs,
 // atomic writes' temp files, and local backups of the environment file.
-const ELSEWHERE=['vault-audit.jsonl','vault.enc.tmp','router-key.tmp','inbox-watch-data','cli-runtimes','checkbacks.json.tmp','.env','.env.tmp','.env.bak-before-change'];
+const ELSEWHERE=['vault-audit.jsonl','pocket-self-update.json','pocket-self-update.json.tmp','pocket-self-update.json.lock','pocket-self-update.log','vault.enc.tmp','router-key.tmp','inbox-watch-data','cli-runtimes','checkbacks.json.tmp','.env','.env.tmp','.env.bak-before-change'];
 function fromCode(){
   const names=new Set();
   for(const f of ['server.mjs','codex.mjs'])for(const m of fs.readFileSync(path.join(repo,f),'utf8').matchAll(/path\.join\(DATA_DIR,\s*'([^']+)'/g))names.add(m[1]);
