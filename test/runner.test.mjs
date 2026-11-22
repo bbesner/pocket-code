@@ -217,6 +217,8 @@ test('a just-sent message shows as pending until the CLI writes it, and never tw
 });
 
 // 1.78.1: the CLI reports its process's running cost total; each reply shows only its own share, across a restart.
+// 1.122.2: asked as a CLI without the per-result figure (__OLDCLI__), so this still proves the difference of totals
+// and the marker a restarted daemon reads.
 test('a reused process reports each turn\'s own cost, also after a daemon restart',async t=>{
  const f=await fixture(t,18473);
  // Reads a running turn's events until its result (the __SLOW__ turn is still going when this connects).
@@ -229,17 +231,17 @@ test('a reused process reports each turn\'s own cost, also after a daemon restar
     let i;while((i=buf.indexOf('\n\n'))>=0){const d=buf.slice(0,i).split('\n').find(l=>l.startsWith('data: '));buf=buf.slice(i+2);if(!d)continue;const ev=JSON.parse(d.slice(6));if(ev.type==='result'){ac.abort();return ev;}}}
   }catch(e){if(e.name==='AbortError')return null;throw e;}finally{clearTimeout(timer);}
  };
- const id=(await f.call('/new',{cwd:repo,...msg('__COST__ __SLOW__ first')})).body.id;
+ const id=(await f.call('/new',{cwd:repo,...msg('__COST__ __OLDCLI__ __SLOW__ first')})).body.id;
  let r=await result(id);assert.equal(r.cost,0.4,'first turn: the whole total');
  assert.ok(await f.until(async()=>await f.state(id)==='finished'));
- assert.equal((await f.call(`/session/${id}/message`,msg('__COST__ __SLOW__ second'))).status,202);
+ assert.equal((await f.call(`/session/${id}/message`,msg('__COST__ __OLDCLI__ __SLOW__ second'))).status,202);
  r=await result(id);assert.equal(r.cost,0.4,'second turn: only its own cost, not 0.80');
  assert.ok(await f.until(async()=>await f.state(id)==='finished'));
  assert.equal(f.pids().size,1,'the same process');
  // The process outlives the daemon; the restarted daemon keeps counting from the marker.
  await f.stop();await f.start();
  assert.ok(await f.until(async()=>(await f.health()).processes===1),'the process was adopted');
- assert.equal((await f.call(`/session/${id}/message`,msg('__COST__ __SLOW__ third'))).status,202);
+ assert.equal((await f.call(`/session/${id}/message`,msg('__COST__ __OLDCLI__ __SLOW__ third'))).status,202);
  r=await result(id);assert.equal(r.cost,0.4,'after a restart: still its own cost, not 1.20');
  assert.equal(f.pids().size,1);
 });

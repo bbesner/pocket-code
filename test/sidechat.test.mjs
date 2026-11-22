@@ -372,3 +372,26 @@ test('1.122.2: only the stale task\'s empty result is skipped; a task-notificati
     if(ends){assert.equal(results[0].ok,true,how);near(results[0].cost,0.085,how+': its own cost');}
   }
 });
+
+test('1.122.2: the empty result can come before any question; what a skipped result spent goes with the next answer',()=>{
+  const sc=new SideChats({normalize:()=>null,idleMs:0});
+  const usage=usd=>({model_usage_since_last_result:usd?{'claude-test':{costUSD:usd}}:{}});
+  const stale={type:'result',subtype:'success',is_error:false,num_turns:0,result:'',origin:{kind:'task-notification'}};
+  // The CLI can send it soon after it starts, while Pocket still reads the conversation for its note: no question yet.
+  const chat=sc.make('parent-1');
+  sc.line(chat,JSON.stringify({...stale,total_cost_usd:306.215,...usage(0)}));
+  assert.equal(chat.busy,false);assert.equal(chat.events.length,0,'nothing goes to the panel');
+  chat.busy=true;
+  sc.line(chat,JSON.stringify({type:'result',subtype:'success',is_error:false,num_turns:1,result:'Yes.',total_cost_usd:306.417,...usage(0.202)}));
+  let results=resultsOf(chat.events);
+  assert.equal(chat.busy,false);assert.equal(results.length,1);near(results[0].cost,0.202,'its own cost');near(results[0].total,0.202,'the total');
+  // Should a skipped result ever report spend of its own, it is counted once, with the answer that follows.
+  const paid=sc.make('parent-2');paid.busy=true;
+  sc.line(paid,JSON.stringify({...stale,total_cost_usd:10.01,...usage(0.01)}));
+  assert.equal(paid.busy,true);
+  sc.line(paid,JSON.stringify({type:'result',subtype:'success',is_error:false,num_turns:1,result:'Yes.',total_cost_usd:10.11,...usage(0.1)}));
+  paid.busy=true;
+  sc.line(paid,JSON.stringify({type:'result',subtype:'success',is_error:false,num_turns:1,result:'Again.',total_cost_usd:10.16,...usage(0.05)}));
+  results=resultsOf(paid.events);
+  near(results[0].cost,0.11,'the answer and what the skipped result spent');near(results[1].cost,0.05,'counted once');near(results[1].total,0.16,'the total');
+});

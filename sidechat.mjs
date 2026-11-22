@@ -139,9 +139,9 @@ function resultError(o) {
 //   when one of its processes last exited), so total_cost_usd includes the conversation's spend: $306 "so far" after a
 //   20-cent answer. sinceCost (usage.mjs) is this line's own cost whatever was carried.
 // - When the copied transcript holds a background task that was running, the fork finds it not running, reports it
-//   stopped, and on our first question first ends that notification's turn: a successful result with origin.kind
-//   "task-notification", num_turns 0, an empty text and the carried total, about 100 ms in, before the answer. Only
-//   that exact shape is skipped. A notification result that did work (num_turns above 0) or says something, or any
+//   stopped, and soon after it starts (before or just after our first question) ends that notification's turn: a
+//   successful result with origin.kind "task-notification", num_turns 0, an empty text and the carried total, before
+//   the answer. Only that exact shape is skipped, whether or not a question is waiting. A notification result that did work (num_turns above 0) or says something, or any
 //   error, ends our turn. Less exact in one case: if a CLI ever answered a stale notification with text before our
 //   answer, the panel would show that text, stop waiting and take a new question early; the real answer still streams in
 //   after it with its own result, so nothing is lost or counted twice.
