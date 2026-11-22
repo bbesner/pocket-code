@@ -29,7 +29,11 @@ const Automation = (() => {
     if (!w) return '';
     const r = w.replies || {}, engines = [['claude', 'Claude'], ['codex', 'Codex'], ['openrouter', 'OpenRouter'], ['antigravity', 'Antigravity']].filter(([k]) => r[k] > 0);
     const replies = engines.reduce((n, [k]) => n + r[k], 0), parts = [];
-    if (replies) parts.push(`${plural(replies, 'reply', 'replies')} running (${engines.map(([k, l]) => `${r[k]} ${l}`).join(', ')})`);
+    // Job keys: a job's reply is one of the replies running, so it is named inside their count, not added to it:
+    // "2 replies running (1 Claude, 1 Codex; 1 started by a job)".
+    const jobs = w.jobs > 0 ? w.jobs : 0, jobPart = jobs ? `; ${jobs} started by ${jobs === 1 ? 'a job' : 'jobs'}` : '';
+    if (replies) parts.push(`${plural(replies, 'reply', 'replies')} running (${engines.map(([k, l]) => `${r[k]} ${l}`).join(', ')}${jobPart})`);
+    else if (jobs) parts.push(plural(jobs, 'job reply', 'job replies') + ' running');
     if (w.background > 0) parts.push(plural(w.background, 'background job', 'background jobs'));
     if (w.retries > 0) parts.push(plural(w.retries, 'usage-limit retry', 'usage-limit retries'));
     if (w.checkbacks > 0) parts.push(plural(w.checkbacks, 'check-back', 'check-backs'));
@@ -164,7 +168,7 @@ const Automation = (() => {
     const sh = document.createElement('div'); sh.className = 'sheet pause-sheet';
     // What stops, then what is held (retries and check-backs wait for Resume; they don't stop), as the toast says it:
     // "This stops 3 replies running (2 Claude, 1 Codex), 2 background jobs, Inbox Watch. It holds 1 usage-limit retry, 3 check-backs."
-    const w = d.would || {}, stops = wouldText({ replies: w.replies, background: w.background, inboxWatch: w.inboxWatch }), holds = wouldText({ retries: w.retries, checkbacks: w.checkbacks });
+    const w = d.would || {}, stops = wouldText({ replies: w.replies, jobs: w.jobs, background: w.background, inboxWatch: w.inboxWatch }), holds = wouldText({ retries: w.retries, checkbacks: w.checkbacks });
     const would = [stops && 'This stops ' + stops, holds && (stops ? 'It holds ' : 'This holds ') + holds].filter(Boolean).join(' ');
     sh.innerHTML = `<h2>Pause all</h2>
       <p class="pause-would" data-pause-would>${would ? esc(would) : 'Nothing is running or waiting right now. Pausing holds anything automatic that comes up.'}</p>
@@ -188,7 +192,7 @@ const Automation = (() => {
       apply({ paused: r.paused || { at: new Date().toISOString() } });
       // Replies and background jobs stop; retries and check-backs are held, not stopped:
       // "Paused. Stopped 2 replies running (2 Claude), 1 background job. Held 1 usage-limit retry."
-      const s = r.stopped || {}, stopped = wouldText({ replies: s.replies, background: s.background });
+      const s = r.stopped || {}, stopped = wouldText({ replies: s.replies, jobs: s.jobs, background: s.background });
       const held = wouldText({ retries: s.retries, checkbacks: s.checkbacks });
       toast(['Paused.', stopped && 'Stopped ' + stopped, held && 'Held ' + held].filter(Boolean).join(' '));
       poll(true); if (typeof refreshSessions === 'function') refreshSessions();
@@ -255,6 +259,8 @@ const Automation = (() => {
     const described = [note ? id + '-note' : '', id + '-err'].filter(Boolean).join(' ');
     if (s.type === 'bool') return `<div class="automation-row" data-auto-row="${esc(s.key)}"><button type="button" class="opt automation-bool" id="${id}" data-auto-key="${esc(s.key)}" aria-pressed="${s.value === true}" aria-describedby="${id}-err"><span class="dot${s.value === true ? ' on' : ''}"></span><span>${esc(s.label)}${note ? `<span class="sub">${esc(note)}</span>` : ''}</span></button>${err}</div>`;
     if (s.type === 'choice') return `<div class="automation-row" data-auto-row="${esc(s.key)}"><label class="voice-field">${esc(s.label)}<select id="${id}" data-auto-key="${esc(s.key)}" aria-describedby="${described}">${(s.choices || []).map(c => `<option value="${esc(c.value)}"${String(c.value) === String(s.value) ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select></label>${noteHTML}${err}</div>`;
+    // Job keys: a folder in the home folder, written ~/…/ (the server checks it and says why when it refuses).
+    if (s.type === 'folder') return `<div class="automation-row automation-folder" data-auto-row="${esc(s.key)}"><label class="voice-field">${esc(s.label)}<input type="text" id="${id}" data-auto-key="${esc(s.key)}" value="${esc(s.value)}" maxlength="400" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-describedby="${described}"></label>${noteHTML}${err}</div>`;
     const off = s.value === 'off';
     return `<div class="automation-row automation-number" data-auto-row="${esc(s.key)}">
       <label class="automation-label" for="${id}">${esc(s.label)}</label>
@@ -275,7 +281,7 @@ const Automation = (() => {
       <h3 class="vault-set-head" id="auto-${esc(g.key)}-h">${esc(g.title)}</h3>
       ${sw ? settingRowHTML(g, sw) + `<div class="automation-dependent" data-auto-dependent="${esc(g.key)}">${off ? `<p class="title-note automation-inactive-note">These apply when ${esc(sw.label)} is on.</p>` : ''}${body}</div>` : body}
       <span class="vault-set-actions"><button type="button" class="chip" data-auto-reset="${esc(g.key)}">Reset to defaults</button></span>
-      <p class="title-note" data-auto-status="${esc(g.key)}" role="status"></p>${g.key === 'checkbacks' ? waitingHTML() : ''}</section>`;
+      <p class="title-note" data-auto-status="${esc(g.key)}" role="status"></p>${g.key === 'checkbacks' ? waitingHTML() : ''}${g.key === 'jobs' && !off && typeof JobKeys !== 'undefined' ? JobKeys.listHTML() : ''}</section>`;
   }
   // 1.119: under Check-backs, how many wait and Cancel all; only while it is on and there are any.
   function waitingHTML() {
@@ -299,6 +305,7 @@ const Automation = (() => {
     body.innerHTML = `${(data.warnings || []).map(w => `<p class="title-note automation-warning" role="note">${esc(w)}</p>`).join('')}
       ${(data.groups || []).map(groupHTML).join('')}${usageHTML(data.usage, data.notices)}`;
     bindSettingsBody(body);
+    if (typeof JobKeys !== 'undefined') JobKeys.bind(body); // the key list under Job keys, while it is on
     if (focusKey) body.querySelector(`[${focusAttr}="${CSS.escape(focusKey)}"]`)?.focus({ preventScroll: true });
   }
   const settingOf = (group, key) => data?.groups?.find(g => g.key === group)?.settings.find(s => s.key === key);
@@ -319,6 +326,7 @@ const Automation = (() => {
       data = await api('/automation/settings', { method: 'POST', body: JSON.stringify({ group, ...payload }) });
       apply({ paused: data.paused ?? state.paused });
       if (group === 'checkbacks') followCheckbacksSwitch();
+      if (group === 'jobs' && window.pocketFeatures) window.pocketFeatures.jobs = settingOf('jobs', 'jobs')?.value === true;
       paintSettings();
       const st = host.querySelector(`[data-auto-status="${CSS.escape(group)}"]`); if (st) st.textContent = (typeof done === 'function' ? done() : done) || 'Saved.';
       return true;
@@ -341,7 +349,11 @@ const Automation = (() => {
         const key = el.dataset.autoKey, s = settingOf(group, key); if (!s) return;
         if (s.type === 'bool') el.onclick = () => save(group, { values: { [key]: !(s.value === true) } }, { key, control: el });
         else if (s.type === 'choice') el.onchange = () => save(group, { values: { [key]: el.value } }, { key, control: el });
-        else {
+        else if (s.type === 'folder') {
+          el.oninput = () => el.removeAttribute('aria-invalid');
+          el.onchange = () => { const v = el.value.trim(); if (v === String(s.value)) return; save(group, { values: { [key]: v } }, { key, control: el }); };
+          el.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); el.dispatchEvent(new Event('change')); } };
+        } else {
           el.oninput = () => el.removeAttribute('aria-invalid');
           el.onchange = () => {
             const raw = el.value.trim(), n = Number(raw);
@@ -378,5 +390,5 @@ const Automation = (() => {
   listeners.push(() => { if (host?.isConnected) paintControls(); });
 
   return { on, isPaused, apply, fromMe, fromList, poll, paint, pauseAll, resume, refused, moreMenu, toggleHTML, bindToggles,
-    originLabel, originOf, wouldText, settingsHTML, bindSettings, onChange: fn => listeners.push(fn) };
+    originLabel, originOf, wouldText, settingsHTML, bindSettings, settingOf, onChange: fn => listeners.push(fn) };
 })();

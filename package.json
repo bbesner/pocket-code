@@ -45,7 +45,7 @@
     "start": "node server.mjs",
     "init": "node scripts/pocket-init.mjs",
     "test": "POCKET_SKILLS=0 node --test test/*.test.mjs",
-    "test:browser": "node test/browser.mjs && node test/acp-browser.mjs && node test/antigravity-browser.mjs && node test/automation-live-browser.mjs && node test/checkback-live-browser.mjs",
+    "test:browser": "node test/browser.mjs && node test/acp-browser.mjs && node test/antigravity-browser.mjs && node test/automation-live-browser.mjs && node test/checkback-live-browser.mjs && node test/jobkeys-live-browser.mjs",
     "vendor": "node scripts/vendor.mjs",
     "check:release": "node scripts/check-release.mjs",
     "check:manual": "node scripts/check-manual.mjs"

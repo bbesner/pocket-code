@@ -6950,7 +6950,8 @@ app.post('/api/jobs/keys/:id/delete', requireAuth, ownerControl, jobsGate, (req,
 });
 app.get('/api/jobs/keys/:id/runs', requireAuth, jobsGate, (req, res) => {
   const cur = jobStore.key(req.params.id); if (!cur) return res.status(404).json({ error: 'There is no job key with that id.', code: 'not_found' });
-  res.json({ runs: jobStore.runsFor(cur.id).slice(0, 100).map(r => jobRunView(jobSettle(r))) });
+  // A working run that waits on the owner reads needs_you here as it does to the job (Recent runs shows Needs you).
+  res.json({ runs: jobStore.runsFor(cur.id).slice(0, 100).map(r => { const v = jobRunView(jobSettle(r)); if ((v.status === 'working' || v.status === 'starting') && jobNeedsYou(v.conversation)) v.status = 'needs_you'; return v; }) });
 });
 // What Settings → Automation and Pause all say about jobs.
 const jobSummary = () => { const now = Date.now(); return { on: jobsOn(), keys: jobStore.keys.length, enabled: jobStore.keys.filter(k => k.enabled !== false).length, running: jobStore.active().length, runsDay: jobStore.runs.filter(r => r.outcome !== 'not_started' && now - Date.parse(r.startedAt) < 86400_000).length }; };

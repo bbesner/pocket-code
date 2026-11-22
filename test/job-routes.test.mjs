@@ -441,6 +441,8 @@ test('needs_you while an approval waits, and pocket-run\'s exit codes 0, 3, 4 an
   const ap = await s.job(secret, { data: 'please __APPROVAL__', wait: 15 });
   assert.equal(ap.status, 202); assert.equal(ap.body.status, 'needs_you', JSON.stringify(ap.body));
   assert.equal((await s.poll(secret, ap.body.run)).body.status, 'needs_you');
+  // the owner's Recent runs says the same
+  assert.equal((await s.call(`/jobs/keys/${key.id}/runs`)).body.runs.find(r => r.run === ap.body.run).status, 'needs_you');
   // 0: done, the reply on stdout
   const done = await pocketRun(s, ['--key-file', keyFile, '--data', '-', '--wait', '20'], { input: 'disk at 91%' });
   assert.equal(done.code, 0, done.err); assert.equal(done.out, 'Test response.\n');

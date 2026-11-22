@@ -2361,3 +2361,43 @@ html.pocket-paused .frame header.bar { padding-top: 10px; } /* the banner takes 
 .automation-dependent > .automation-inactive-note { margin: 0 0 2px; }
 .automation-waiting { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0 4px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 15px; color: var(--text); }
 .automation-waiting .chip { min-height: 44px; padding-inline: 16px; font-size: 14px; }
+/* Job keys: the key list under Settings -> Automation -> Job keys, a key's sheet, the key shown once. Existing rows, chips,
+   fields and tokens only. A row's facts are two fixed lines (cut with an ellipsis), so a change of state never moves it. */
+.job-keys { display: flex; flex-direction: column; gap: 4px; margin: 6px 0 4px; padding-top: 8px; border-top: 1px solid var(--line); }
+.job-keys .vault-set-actions { margin-top: 2px; }
+.job-keys > [hidden], .job-key-sheet [hidden] { display: none; }
+.job-key-list { list-style: none; margin: 0 -14px; padding: 0; }
+.job-key-item + .job-key-item { border-top: 1px solid var(--line); }
+.sheet .opt.job-key-row { align-items: flex-start; padding: 10px 14px; font-size: 15.5px; border-radius: 0; }
+.job-key-row > .i { flex: none; margin-top: 2px; color: var(--dim); }
+.job-key-text { flex: 1; min-width: 0; }
+.job-key-name { display: block; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sheet .opt .sub.job-key-facts { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; font-variant-numeric: tabular-nums; }
+.job-key-sheet .job-key-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 14px 8px; }
+.job-key-sheet .job-key-actions .chip { min-height: 44px; padding-inline: 16px; font-size: 14px; }
+.job-key-sheet .job-key-status { margin: 0 14px 12px; font-variant-numeric: tabular-nums; }
+.job-key-sheet .job-key-help { margin-inline: 14px; }
+.job-key-form .vault-field-error:empty, .job-key-form .vault-hint:empty { display: none; }
+.job-key-form .vault-field-error { margin-top: -6px; }
+.job-key-form textarea[readonly], .job-key-form input[readonly] { color: var(--dim); }
+.job-key-form [aria-invalid="true"] { border-color: var(--err); }
+.job-model-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 10em); gap: 10px; }
+.job-model-pair .voice-field select { width: 100%; }
+.job-key-form .opt.job-bool { margin: 0; padding: 10px 0; font-size: 15.5px; }
+.job-limits { display: flex; flex-direction: column; }
+.job-limits > .vault-set-head { margin: 4px 0 0; }
+.job-key-form .job-key-file { margin: 0; overflow-wrap: anywhere; }
+.job-runs-wrap { padding: 16px 14px 4px; border-top: 1px solid var(--line); margin-top: 16px; }
+.job-runs-wrap > .vault-set-head { margin: 0 0 6px; }
+.job-runs { list-style: none; margin: 0 -14px; padding: 0; }
+.job-runs li + li { border-top: 1px solid var(--line); }
+.job-run { display: flex; flex-direction: column; gap: 2px; min-height: 44px; padding: 8px 14px; color: var(--text); text-decoration: none; }
+a.job-run:hover { background: var(--raised); }
+.job-run-head { display: flex; gap: 10px; font-size: 14px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.job-run-status { color: var(--text); }
+.job-run-status[data-status="needs_you"] { color: var(--warn); }
+.job-run-status[data-status="failed"] { color: var(--err); }
+.job-run-reply { font-size: 14px; line-height: 1.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job-key-once .job-once-file { margin: 0 14px 14px; overflow-wrap: anywhere; }
+.job-key-once .vault-key-actions { margin-bottom: 14px; }
+@media (max-width: 420px) { .job-model-pair { grid-template-columns: 1fr; } }
