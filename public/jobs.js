@@ -690,7 +690,8 @@ const JobKeys = (() => {
     const reply = r.reply || (r.status === 'failed' ? FAILED[r.outcome] || '' : '');
     return `<span class="job-run-head">${t}<span class="job-run-status" data-status="${esc(r.status)}">${esc(status)}</span></span>${reply ? `<span class="job-run-reply">${esc(reply)}</span>` : ''}`;
   }
-  const FAILED = { not_started: 'It could not start.', stopped: 'Stopped.', interrupted: 'Cut off by a restart.', error: 'The reply ended with an error.' };
+  const FAILED = { not_started: 'It could not start.', stopped: 'Stopped.', interrupted: 'Cut off by a restart.', error: 'The reply ended with an error.',
+    limit: 'Stopped at a usage limit and was not retried.', jobs_off: 'Stopped at a usage limit. Job keys were switched off before the retry.' };
   function loadRuns(s) {
     if (!s?.id || s.fetching) return;
     s.fetching = api(`/jobs/keys/${encodeURIComponent(s.id)}/runs`, { cache: 'no-store' }).then(d => paintRuns(s, d.runs || []), e => {

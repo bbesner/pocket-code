@@ -34,6 +34,8 @@ export const jobsFixture={
    run(3,'done',60,{endedAt:iso(now-59*MIN),reply:'Volume sda1 is at 91%; the others are fine.'}),
    run(4,'failed',120,{endedAt:iso(now-119*MIN),outcome:'interrupted'}),
    run(5,'failed',180,{endedAt:iso(now-179*MIN),outcome:'error',reply:'The disk report was empty.'}),
+   run(6,'failed',240,{endedAt:iso(now-239*MIN),outcome:'limit'}),
+   run(7,'failed',300,{endedAt:iso(now-299*MIN),outcome:'jobs_off'}),
   ],'jk-night001':[]};
  },
  view(k){return {...k};},
@@ -104,13 +106,13 @@ export async function runJobKeysRegressions({p,base,out,repo,scan}){
 
  console.log('Job keys (fixture): a key that has run; Recent runs in every status');
  await p.click('[data-job-keys] [data-job-open]');await p.waitForSelector('.job-key-sheet [data-job-runs] > li');
- await p.waitForFunction(()=>document.querySelectorAll('[data-job-runs] > li').length===5);
+ await p.waitForFunction(()=>document.querySelectorAll('[data-job-runs] > li').length===7);
  assert.equal(await p.$eval('.job-key-sheet input[name="workspace"]',e=>e.readOnly),true);
  assert.equal(await p.$eval('.job-key-sheet select[name="engine"]',e=>e.disabled),true);
  assert.equal(await p.$eval('#job-workspace-hint',e=>e.textContent),'This key has run, so its folder and agent stay as they are. Create a new key for another folder or agent.');
  assert.deepEqual(await p.$$eval('.job-key-sheet select[name="access"] option',x=>x.map(o=>o.textContent)),['Ask first'],'Full access is not offered where the server turned it off');
- assert.deepEqual(await p.$$eval('[data-job-runs] .job-run-status',x=>x.map(e=>e.textContent)),['Working','Needs you','Done','Failed','Failed']);
- assert.deepEqual(await p.$$eval('[data-job-runs] > li',x=>x.map(l=>l.querySelector('.job-run-reply')?.textContent||'')),['','','Volume sda1 is at 91%; the others are fine.','Cut off by a restart.','The disk report was empty.']);
+ assert.deepEqual(await p.$$eval('[data-job-runs] .job-run-status',x=>x.map(e=>e.textContent)),['Working','Needs you','Done','Failed','Failed','Failed','Failed']);
+ assert.deepEqual(await p.$$eval('[data-job-runs] > li',x=>x.map(l=>l.querySelector('.job-run-reply')?.textContent||'')),['','','Volume sda1 is at 91%; the others are fine.','Cut off by a restart.','The disk report was empty.','Stopped at a usage limit and was not retried.','Stopped at a usage limit. Job keys were switched off before the retry.']);
  assert.equal(await p.$eval('[data-job-runs] > li a.job-run',e=>e.getAttribute('href')),'#/chat/job-conv-1');
  assert.equal(await writesDuring(p,'[data-job-runs]',5600),0,'the runs list is not rewritten');
  await p.$eval('.job-key-sheet',e=>{e.scrollTop=e.scrollHeight;});

@@ -60,4 +60,5 @@ is refused, and so is a terminal.
 
 You can't read a key, list keys, change or turn off a key, rotate or delete one, propose a change to an existing key, or
 answer a proposal, yours included. One proposal per conversation waits at a time, and five per Pocket; each waits 24
-hours. The user makes, changes and removes keys in Settings → Automation → Job keys.
+hours. A conversation that a job has run in can't propose a key at all: tell the user to ask in a conversation of
+their own. The user makes, changes and removes keys in Settings → Automation → Job keys.
