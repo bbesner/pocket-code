@@ -1,6 +1,6 @@
 <!-- manual
-checked: 1.122.3
-sources: checkbacks.mjs, job-keys.mjs, automation.mjs, cli-updates.mjs, cli-update-worker.mjs, ecosystem.config.cjs, environment.mjs, pipes.mjs, codex.mjs, sidechat.mjs, skills.mjs, vault.mjs, scripts/pocket-mcp-proxy.mjs, scripts/pocket-run.mjs
+checked: 1.123.0
+sources: checkbacks.mjs, job-keys.mjs, automation.mjs, cli-updates.mjs, cli-update-worker.mjs, self-update.mjs, scripts/pocket-self-update.sh, ecosystem.config.cjs, environment.mjs, pipes.mjs, codex.mjs, sidechat.mjs, skills.mjs, vault.mjs, scripts/pocket-mcp-proxy.mjs, scripts/pocket-run.mjs
 -->
 # Operations, upgrades and recovery
 
@@ -120,7 +120,7 @@ request; GitHub redirects it to the latest published release, never a draft or p
 is not subject to the API's 60-an-hour per-IP limit) and compares that tag with the running
 daemon's `package.json` version. The first check waits two minutes after the daemon starts. A newer one puts a notice in the
 browser with links to the release notes and to [Upgrade an existing installation](#upgrade-an-existing-installation);
-nothing is downloaded or installed. `POCKET_UPDATE_CHECK=0` turns that check off, and
+nothing is downloaded or installed (unless the owner allows it, see [Updating from Pocket](#updating-from-pocket)). `POCKET_UPDATE_CHECK=0` turns that check off, and
 `POCKET_RELEASES_REPO=owner/repo` points it at a fork's releases. It runs even when
 `POCKET_CLI_UPDATES=0`.
 
@@ -343,6 +343,31 @@ drafts and preferences need browser storage; they are not included in a server b
 Do not copy another instance's `.env`, restore stale state, or downgrade the frontend
 asset number. If code changes require rollback after browsers cached a release, ship
 a reverted patch with a fresh asset number so those clients load it reliably.
+
+### Updating from Pocket
+
+Since 1.123 the owner of an install can let Pocket install its own releases: set `POCKET_SELF_UPDATE=1`
+in `.env` and restart. The **Pocket Code** row in **Updates** then has an **Update to …** button. It is
+for an install whose owner runs the server; on a managed install leave it unset, so only the operator updates.
+
+The button starts `scripts/pocket-self-update.sh`, detached from the daemon (through `setsid -f` on Linux)
+so it outlives the restart it causes, with only `PATH`, `HOME`, `LANG` and `PM2_HOME` in its environment.
+It follows the steps above: the origin must be `github.com/<POCKET_RELEASES_REPO or bbesner/pocket-code>`,
+the checkout on `main` (fast-forwarded) or on a detached release, tracked files unchanged and `HEAD` what it
+was when the button was pressed; the tag `v<version>` must be on `origin/main`; at least 5 GB must be free.
+It backs up the git-ignored private files to `~/backups/pocket-code-<version>-update-<time>/`
+(`private-state.tar.gz`, `prev-head.txt`, `prev-branch.txt`), runs `npm ci` and `check:release --released`,
+then `pm2 restart <its pm_id>` (the stored PM2 environment is kept; Pocket reads `.env` itself) and waits up
+to 90 seconds for a new process that serves the release and answers `/api/health`, and is still the same
+process 10 seconds later. Then `pm2 save`. If any step after the checkout moves fails, the checkout and
+packages go back to the previous commit; if the new version does not come up, the previous version is
+restarted too. The daemon refuses to start it while a reply or a CLI upgrade is running.
+
+Progress is in `pocket-self-update.json` in the data folder (a job silent for 20 minutes shows as
+interrupted) and the script's output in `pocket-self-update.log`; both are git-ignored. Requirements: PM2
+(the daemon must run under it), a git checkout, `git`, `npm`, `pm2`, `tar` and `flock` on the daemon's
+PATH. Running an operator update on such an install works as before; an operator script that expects a
+particular `HEAD` will find the owner may already have moved it.
 
 ## Restarted questions and approvals
 
