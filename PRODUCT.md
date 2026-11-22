@@ -66,7 +66,10 @@ Job keys (1.JOBKEYS) are the second, and they are optional and off by default:
     data as information, never as orders, in a conversation the owner can watch, and sends a push with the result.
     The key works only from this server, and shows once. It can start one kind of reply and nothing else: it can't
     change a setting, pause Pocket or manage keys. The reply runs through the same gate as a check-back, so Pause all
-    and the limits hold it, and a call that is refused starts nothing and queues nothing.
+    and the limits hold it, and a call that is refused starts nothing and queues nothing. The owner can also ask a
+    conversation to set a job up: the agent writes the script and the instruction and asks for a key, and the owner
+    reads the whole instruction and taps Allow. Only that Allow makes the key; the agent is given the path of the
+    key file, never the key, and can't allow its own request.
 
 **Two modes (1.60, 1.68.1):** the same server, sessions and libraries, two faces. Developer
 mode is the workbench above. Assistant mode is for people who never write code: it opens on
@@ -81,7 +84,8 @@ Assistant mode.
 - Nothing starts a reply on its own unless the owner set it up. A start link, a handoff or an Inbox briefing
   waits for the owner to tap Start. The only replies that begin without a tap are ones the owner already
   asked for or set up: a queued message, a usage-limit retry, a conversation woken for a hold it waited on, a
-  check-back the owner asked for, and a job key the owner created. A check-back and a job key are the ones
+  check-back the owner asked for, and a job key the owner created or allowed (an agent may ask for one, and only the
+  owner's Allow makes it). A check-back and a job key are the ones
   the owner must turn on before they exist. Every one records who
   started it, shows it, can be held by the owner's limits, and stops at Pause all. A feature that starts work
   for the owner must be optional, off by default and behind that same switch. Whatever a script, an alert or a

@@ -125,6 +125,10 @@ With **Check-backs** on ([Automation](automation.md#check-backs)), when you ask 
 
 With **Job keys** on ([Automation](automation.md#job-keys)), a script on the server can start a reply with a job key you made. The conversation is titled with the job's name (*Disk check*), sits under **Automated** in the list, and says **Started by job disk-check** under its header and on its row. Its first message is your instruction followed by the script's data, fenced and labelled as information ([What the reply receives](automation.md#what-the-reply-receives)). Open it like any other conversation: watch, answer an approval, steer or send a message of your own. Your next message clears the label. Under **Ask first**, an action that isn't on your list waits for you, and the conversation reads **Needs approval**. A push, titled with the job's name, tells you when the run ends.
 
+### A conversation asks for a job key
+
+With **Job keys** on, you can ask a conversation to set up something that runs by itself. It writes the script and the instruction, then asks Pocket for a job key. Nothing exists yet. While the request waits for you, the conversation shows a line, *Waiting for you: job key disk-check*, that opens the request in **Settings → Automation → Job keys**, where you read the whole instruction and tap **Allow**, **Edit first** or **Deny** ([Let a conversation set one up](automation.md#let-a-conversation-set-one-up)). The conversation doesn't wake by itself when you answer: tell it you did, and it gets the path of the key file, never the key. Only a reply to a message you sent can ask.
+
 ### Close a finished conversation (the Complete card)
 
 When an agent has finished everything you asked for in the conversation and has nothing more to recommend, its reply

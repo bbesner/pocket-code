@@ -159,7 +159,7 @@ for a branch, and the state, such as **Response ready**, **Complete**, **Didn't 
 **Needs approval**, **Queue paused** or **Waiting for usage reset**. When the newest reply was started by the queue, a
 usage-limit retry, a coordination wake, a check-back or a job key rather than by you, a dim line under the agent says so (**Queued message**,
 **Continued after a usage limit**, **Woken by a hold**, **Started by a check-back** or **Started by job** and the key's name, for example **Started by job disk-check**); see [Automation](automation.md#who-started-a-reply).
-A conversation a [job key](automation.md#job-keys) started is titled with the job's name (*Disk check*) and sits in the collapsed **Automated** group.
+A conversation a [job key](automation.md#job-keys) started is titled with the job's name (*Disk check*) and sits in the collapsed **Automated** group. A conversation that has asked you to allow a job key shows a quiet line on its row, *Waiting for you: job key disk-check*, until you answer or the request expires after 24 hours ([Let a conversation set one up](automation.md#let-a-conversation-set-one-up)).
 While a [check-back](automation.md#check-backs) is waiting or running in a conversation, a small clock shows at the end of its row's state line. Its label (hover it, or use a screen reader) reads *Check-back at 2:30 PM*, *2 check-backs, next at 2:30 PM*, *2 check-backs, one running now, next at 2:30 PM*, or *Checking back now*. It goes when the check-back has run, been missed or been cancelled.
 
 ### Pin, rename, hide and mark reviewed

@@ -271,11 +271,14 @@ Pocket-owned persistent state includes:
 - `checkbacks.json` (1.119, mode `0600`, written by tmp file and rename), the check-backs: waiting and running ones
   until they finish, finished ones for 30 days (at most 300). It is created when the first check-back is set and holds
   each one's note, so treat it like `tasks.json`. Back it up with the data directory;
-- `job-keys.json` (1.JOBKEYS, mode `0600`, written by tmp file and rename), the job keys and their runs. A key is
+- `job-keys.json` (1.JOBKEYS, mode `0600`, written by tmp file and rename), the job keys, their runs and the requests
+  conversations have made for a key (`proposals`). A key is
   stored as a SHA-256 hash and its settings, never the key itself, so a restored copy keeps every key working and
   nobody can read a key back from it. Each run keeps its status, its times, the id of its conversation and the first
-  line of its reply. Finished runs are kept for the **Repeat window for an idempotency key** (at least a day), at most
-  5000, and a run still working is always kept. The file is created when the first key is made. It is not private
+  line of its reply. Finished runs are kept for **Ignore a repeated call for** (at least a day), at most
+  5000, and a run still working is always kept. A request keeps the whole instruction the agent wrote, until it is
+  answered or expires (24 hours); an answered or expired one stays for 7 days, with its settings and the key file's
+  path but never the key, and is then dropped on the next write. The file is created when the first key is made. It is not private
   content like a transcript, but it is the list of what can start work, so back it up with the data directory and
   keep it out of repositories. The key files the owner chose to save (`~/.config/pocket/jobs/` by default) are
   outside the data directory and hold the keys themselves, so keep them out of backups that leave the server;
@@ -373,7 +376,21 @@ so the script has to try again later or the owner has to resume. A restart settl
 Pocket stopped: unless a reply or a usage-limit retry still carries it, about 15 seconds after the start it is recorded
 as failed, cut off by the restart. The reply text a script waits for is kept in memory for the last 200 runs; after a
 restart a run keeps only the first line of its reply, and the answer then carries `replyPartial: true`.
-Idempotency keys are remembered for the repeat window, so a script that retries after a restart gets the first run back.
+Run ids (`--id`) are remembered for **Ignore a repeated call for**, so a script that retries after a restart gets the first run back.
+
+A conversation can ask for a key itself. While job keys are on, Pocket installs the `pocket-jobs` skill (with its
+`.pocket-managed` marker) in `~/.claude/skills/` and, where Codex is installed, `$CODEX_HOME/skills/`, and removes it
+when job keys are turned off; the agent's command is `pocket-jobkey` (`node <Pocket Code directory>/scripts/pocket-jobkey.mjs`,
+or `npx pocket-jobkey` from that directory). It sends the CLI token and the conversation's runner token to
+`/api/jobs/agent/propose`, so it works only from a Pocket conversation, never from a terminal or code-server. The
+owner gets the push *Allow a job key?* (kind `vault`, so it follows each device's **Vault requests** switch; it has no
+action buttons) and answers in **Settings → Automation → Job keys**. On Allow, Pocket writes the key file to the
+folder in **Where Pocket offers to save new keys**, mode `0600`, and the agent gets only the path. At most one request
+waits for each conversation and five for the install, and one expires after 24 hours; Pocket looks for expired ones
+with the check-back pass (every `POCKET_CHECKBACK_TICK_MS`, whatever the check-backs switch says) and on every read.
+`POCKET_JOB_REQUEST_TTL_MS` shortens the 24 hours, in milliseconds. It is for tests; leave it unset. The audit file
+records `proposed`, `proposal_allowed`, `proposal_denied`, `proposal_expired` and `proposal_refused` lines, which name
+fields and never give values.
 
 Presets for an install are `POCKET_AUTOMATION_JOBS` and its siblings, for example `POCKET_AUTOMATION_JOBS=1` to start
 with the feature on and `POCKET_AUTOMATION_JOB_PER_HOUR=12`; the full list is in
@@ -384,7 +401,10 @@ from `--key-file` or `POCKET_JOB_KEY`.
 Rolling back to 1.121 stops job keys and loses nothing. 1.121 does not read `job-keys.json` or the **Job keys**
 settings; it keeps them in `pocket-settings.json` and the file, so upgrading again finds the keys, their settings and
 their runs. Every call a script makes while rolled back fails, because 1.121 has no job routes and no `pocket-run`: the
-cron lines keep running and keep failing until the upgrade. A conversation a job started stays an ordinary conversation
+cron lines keep running and keep failing until the upgrade. A request still waiting stays in `job-keys.json`; after the
+upgrade, one past 24 hours is marked expired. Delete the `pocket-jobs` folders this version installed under
+`~/.claude/skills/` and `$CODEX_HOME/skills/`, because 1.121 does not remove them and the `pocket-jobkey` command
+they name is gone. A conversation a job started stays an ordinary conversation
 under 1.121, which already shows its *Started by job …* label.
 
 **Check-backs** (1.119, [Automation](manual/automation.md#check-backs)) are off until the owner turns them on in
@@ -457,7 +477,7 @@ ahead, marked `ahead: true` for the hook, for items that were set at least a day
 Due items are checked every `POCKET_REMINDER_CHECK_MS` (default 60000, minimum 250), with
 a first check a few seconds after start. A task stays due until it is done or re-dated.
 
-**Push priority.** Due tasks, reminders, Vault requests and alerts (Inbox Watch, `pocket-notify`) go out with `Urgency: high`
+**Push priority.** Due tasks, reminders, Vault requests (the *Allow a job key?* push is one, 1.JOBKEYS) and alerts (Inbox Watch, `pocket-notify`) go out with `Urgency: high`
 (1.50.2), so Android delivers them while the phone is idle; a finished turn, and a check-back's result or missed notice, a job's result (titled with the job's name, 1.JOBKEYS) and the **Unattended work held** notice (kind `automation`, 1.119), go at normal
 priority and may wait until the phone wakes.
 
@@ -537,7 +557,7 @@ else the address in `cli-url`, then `PORT` from this checkout's `.env`, and only
 token. The daemon accepts it
 only on the Projects, Files, Tasks, Inbox and Vault routes and the start-link and notify routes, and only on a direct loopback
 connection with no `cf-connecting-ip`, `x-forwarded-for`, `forwarded` or `x-real-ip` header; a request that came
-through the tunnel or a proxy is refused. The job routes (`/api/jobs/run` and `/api/jobs/runs/…`, 1.JOBKEYS) take a job key instead, under the same loopback rule, and refuse the CLI token. On the Vault routes it allows only what agents
+through the tunnel or a proxy is refused. The job routes (`/api/jobs/run` and `/api/jobs/runs/…`, 1.JOBKEYS) take a job key instead, under the same loopback rule, and refuse the CLI token. The job key request routes (`/api/jobs/agent/propose` and `/api/jobs/agent/requests/…`) take the CLI token together with a conversation's runner token, as the check-back agent routes do. On the Vault routes it allows only what agents
 may do: list, show, run, create an item and read the calling session's history; it never
 returns a value. A new token is generated at every start, so the CLIs must run on the
 same host as the daemon and read the data directory of the daemon that is running. Two

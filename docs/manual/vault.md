@@ -260,7 +260,7 @@ Each secret's sheet shows its last 20 events under **History**. The file records
 | **Agent access** | Same, under Vault | Free rein, Ask once per command (default), Ask every time. |
 | **Lock after** | Same, under Protection (passphrase mode only) | Never (default), 15 minutes, 1 hour, 8 hours, 24 hours. |
 | **Catch secrets in messages** | Same | On by default. |
-| **Vault requests** | Settings → Notifications & voice | Whether this device gets request pushes. |
+| **Vault requests** | Settings → Notifications & voice | Whether this device gets request pushes. The *Allow a job key?* push ([Automation](automation.md#let-a-conversation-set-one-up)) follows it too. |
 | `POCKET_VAULT_KEY` | `.env` | The server key. Pocket writes it; set it by hand only when there is no `.env` to write. |
 | `POCKET_VAULT_FILL_TOOLS` | Relay's environment | Tools the relay may type a value into. |
 | `POCKET_VAULT_FILL_WAIT` | Relay's environment | Seconds a fill waits for approval. Default 90. |
