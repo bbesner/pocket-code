@@ -4074,7 +4074,7 @@ async function acpTurnFinished(id, turn, ev) {
     scheduleRetry(id, turn, limited.resetAt);
     recordOutcome(id, turn, ev, limited.resetAt);
     const label = noteFinish(id, turn, { cost: acpReplyCost(turn), outcome: 'limit' }); // 1.117
-    if (!mutes.has(id)) pushNotify(id, smeta[id]?.name || convo, withOriginLabel(label, limitPushText('Rate limited', id, limited.resetAt))).catch(() => { });
+    if (!mutes.has(id)) pushNotify(id, shownTitle(id, turn) || convo, withOriginLabel(label, limitPushText('Rate limited', id, limited.resetAt))).catch(() => { });
     return;
   }
   const settled = recordOutcome(id, turn, ev);
@@ -4087,7 +4087,7 @@ async function acpTurnFinished(id, turn, ev) {
     const next = await runNextFollowup(id, turn.cwd).catch(e => { log(`acp queue start failed session=${id}: ${e.message}`); return false; });
     if (next !== null) return; // 1.117: as on Codex, a held row leaves this reply's push to go out
   }
-  if (!watching && !turn.stopped && !settled && !mutes.has(id) && !turn.checkbackHandled && !turn.jobHandled) pushNotify(id, smeta[id]?.name || convo, withOriginLabel(originLabel, ev.ok ? completePush(id) || 'Ready' : 'Something went wrong. Tap to see what happened')).catch(() => { });
+  if (!watching && !turn.stopped && !settled && !mutes.has(id) && !turn.checkbackHandled && !turn.jobHandled) pushNotify(id, shownTitle(id, turn) || convo, withOriginLabel(originLabel, ev.ok ? completePush(id) || 'Ready' : 'Something went wrong. Tap to see what happened')).catch(() => { });
 }
 if (CODEX_ON) codex.adoptCodexSessions(threadId => codexHooks(codex.CX + threadId));
 if (CODEX_ON) codex.pruneTranscriptCache(); // 1.53.5: the on-disk transcript cache keeps its newest files only
@@ -4786,6 +4786,10 @@ app.delete('/api/side/:side', requireAuth, (req, res) => {
 // --fork-session --session-id <new>`; Codex: `thread/fork` in the new conversation's own app-server. Side chat is the
 // unsaved, read-only aside; Branch is a real conversation.
 const titleOf = id => { const m = smeta[id] || {}; return m.name || storedAutoTitle(id) || (m.branchOf ? 'Branch: ' + m.branchNote : null); };
+// 1.124.5: and for an OpenRouter or Antigravity conversation, the title its program's list gives it, or (not listed yet) its
+// reply's message, as the conversation list shows it (the Vault request and the Ready push said "An agent" and "OpenRouter conversation").
+const shownTitle = (id, turn = isAcpId(id) ? acp.acpTurns.get(acp.bareAcpId(id)) : null) => titleOf(id)
+  || (isAcpId(id) ? (row => row ? (row.untitled ? '' : row.title) : turn?.userText?.slice(0, 120))(acpListOf(id)?.rows.find(r => r.id === id)) : '') || '';
 // The conversation this one branched from, and the ones branched from it (newest first), from Pocket's own metadata.
 function lineage(id) {
   const m = smeta[id] || {};
@@ -5418,7 +5422,7 @@ function vaultRouteCaller(req) {
   const token = String(req.get('x-pocket-runner') || ''), o = token ? acp.sessionForRunnerToken(token) : null;
   return o ? { actor: 'agent', session: o.fullId, sessionTitle: sessionName(o.fullId), tokenHash: createHash('sha256').update(token).digest('hex') } : c;
 }
-const sessionName = id => { const m = smeta[id]; return (m && typeof m.name === 'string' && m.name) || ''; };
+const sessionName = id => shownTitle(id) || ''; // 1.124.5: was the name alone
 // 1.41: the owner can answer a pending request in the conversation that raised it: "Allow zeta-books for this command",
 // "Always allow zeta-books for this command", "Deny zeta-books" (the suggested replies agents offer), or a bare "Allow"/"Deny"
 // when that session has exactly one pending request. Only the owner's own messages (cookie) reach here; the message is
@@ -5996,7 +6000,9 @@ app.post('/intake/:token', (req, res, next) => intakeForm(req, res, err => { if 
   }
   const who = r.for || 'Someone', asks = vault.effective(vault.items.find(i => i.id === out.item.id) || out.item) !== 'auto';
   log(`vault intake filled name=${r.name} request=${r.id} fields=${out.item.fields.join(',')}`);
-  pushRaw(`${who.slice(0, 40)} filled in ${r.name}`, `It is in the Vault now.${asks ? ' Agents still ask you before using it.' : ''}`, { tag: 'vault:intake:' + r.id, url: '/#/vault/item/' + encodeURIComponent(r.name), kind: 'vault' }).catch(() => {});
+  // 1.124.5: a link an agent or a terminal made says so, and which conversation asked.
+  const asked = r.by === 'agent' ? (t => t ? `The agent in "${t.slice(0, 80)}" asked for it. ` : 'An agent asked for it. ')(shownTitle(r.session) || r.sessionTitle) : r.by === 'terminal' ? 'A terminal asked for it. ' : '';
+  pushRaw(`${who.slice(0, 40)} filled in ${r.name}`, `${asked}It is in the Vault now.${asks ? ' Agents still ask you before using it.' : ''}`, { tag: 'vault:intake:' + r.id, url: '/#/vault/item/' + encodeURIComponent(r.name), kind: 'vault' }).catch(() => {});
   res.redirect(303, '/intake/done');
 });
 

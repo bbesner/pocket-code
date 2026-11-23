@@ -71,7 +71,7 @@ The person opens a plain page with your organisation's name, logo and colour, wh
 
 The link works once. Opening it does not use it up, so a mail scanner that follows it changes nothing; only sending the form does. A used, cancelled or expired link shows *This link is no longer active*. While the Vault is locked or off the page says *Temporarily unavailable*, keeps nothing, and the link stays open for when it is unlocked.
 
-**Links sent**, above your secrets, lists the links that are waiting and the ones that ended in the last week. A waiting link has **New link** (the old address stops working and you copy the new one) and **Cancel**. A filled one has **Open**. The name stays reserved for the link while it waits: nothing else can be added or renamed to it. Up to 50 links can wait at once.
+**Links sent**, above your secrets, lists the links that are waiting and the ones that ended in the last week. A link an agent made says so, with its conversation's title when known (*Made by the agent in "…"*), and one made from a terminal says *Made from a terminal*; a link replaced with **New link** says which one it is (*Link 2*). When the person sends the form you get a notification, which says which conversation asked (1.124.5). A waiting link has **New link** (the old address stops working and you copy the new one) and **Cancel**. A filled one has **Open**. The name stays reserved for the link while it waits: nothing else can be added or renamed to it. Up to 50 links can wait at once.
 
 **Branding.** The page shows the organisation and colour from three settings in `.env` (restart Pocket after changing them):
 

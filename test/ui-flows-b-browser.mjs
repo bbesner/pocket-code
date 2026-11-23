@@ -47,6 +47,29 @@ export async function runFlowsBFixes({browser,base,rows,out,settingsState=()=>({
   await shot('coordination-free');
  }));
 
+ // b-10: Links sent says which agent conversation made a link, or that a terminal did, and which link a replaced one is.
+ await check('Vault: Links sent says the agent conversation or terminal that made a link, and "Link 2" for a replaced one',PHONE,(page,shot)=>withSettings({vault:true},async()=>{
+  const now=Date.now(),day=86400000;
+  const intakes=[
+   {id:'in1',name:'export-api',kind:'api_key',for:'Pat Lee (Example IT)',state:'filled',by:'agent',session:rows[1].id,sessionTitle:'Deploy the staging site',links:2,createdAt:now-3600000,endedAt:now-600000,expiresAt:now+day},
+   {id:'in2',name:'vendor-login',kind:'login',for:'Sam Ortiz',state:'pending',by:'agent',session:'acp:ses_gone',sessionTitle:'',links:1,createdAt:now-1200000,expiresAt:now+2*day},
+   {id:'in3',name:'router-admin',kind:'login',state:'pending',by:'terminal',links:3,createdAt:now-600000,expiresAt:now+day},
+   {id:'in4',name:'alarm-code',kind:'note',for:'Front desk',state:'pending',by:'owner',links:1,createdAt:now-300000,expiresAt:now+day}];
+  await intercept(page,async(r,u)=>{
+   if(u.pathname==='/api/vault'){const snap=await (await fetch(base+'/api/vault')).json();await json(r,{...snap,intakes});return true;}
+  });
+  await page.goto(base+'/#/vault');await page.waitForSelector('.vault-intake');
+  const facts=await page.$$eval('.vault-intake',els=>els.map(e=>[e.querySelector('.vault-name').textContent,[...e.querySelectorAll('.vault-fact')].map(f=>f.textContent.replace('·','').trim()).slice(0,-2),e.querySelector('.session-status').scrollWidth<=e.querySelector('.session-status').clientWidth]));
+  assert.deepEqual(facts,[
+   ['export-api',['For Pat Lee (Example IT)','Made by the agent in "Deploy the staging site"','Link 2','API key'],true],
+   ['vendor-login',['For Sam Ortiz','Made by an agent','Login'],true],
+   ['router-admin',['Made from a terminal','Link 3','Login'],true],
+   ['alarm-code',['For Front desk','Secure note'],true]]);
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'nothing runs off the side');
+  await page.$eval('#vault-intakes',e=>e.scrollIntoView({block:'start'}));
+  await shot('vault-links-sent');
+ }));
+
  assert.deepEqual(errors,[],'no page errors');
  fs.writeFileSync(path.join(out,'ui-flows-b.json'),JSON.stringify({checks},null,2));
  console.log(JSON.stringify({flowsBFixes:checks.length,ok:true}));

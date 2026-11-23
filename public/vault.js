@@ -350,7 +350,9 @@ const VAULT_INTAKE_STATE={pending:'Waiting',filled:'Filled in',cancelled:'Cancel
 const vaultIntakes=()=>vaultSnap?.intakes||[];
 function vaultIntakeRowHTML(r){
  const when=r.state==='pending'?`Expires ${vaultDate(r.expiresAt)}`:r.state==='expired'?vaultDate(r.expiresAt):vaultDate(r.endedAt);
- const facts=[r.for?`For ${esc(r.for)}`:'',esc(VAULT_KIND_WORD[r.kind]||'Secret'),`<span class="${r.state==='pending'?'vault-intake-wait':''}">${esc(VAULT_INTAKE_STATE[r.state]||r.state)}</span>`,esc(when)].filter(Boolean);
+ // 1.124.5: a link an agent or a terminal made says so (and in which conversation), and a replaced one which link it is.
+ const madeBy=r.by==='agent'?(r.sessionTitle?`Made by the agent in "${esc(r.sessionTitle)}"`:'Made by an agent'):r.by==='terminal'?'Made from a terminal':'';
+ const facts=[r.for?`For ${esc(r.for)}`:'',madeBy,r.links>1?`Link ${Number(r.links)}`:'',esc(VAULT_KIND_WORD[r.kind]||'Secret'),`<span class="${r.state==='pending'?'vault-intake-wait':''}">${esc(VAULT_INTAKE_STATE[r.state]||r.state)}</span>`,esc(when)].filter(Boolean);
  const actions=r.state==='pending'?`<button class="chip" data-intake-relink="${esc(r.id)}" aria-label="New link for ${esc(r.name)}">New link</button><button class="chip" data-intake-cancel="${esc(r.id)}" aria-label="Cancel the link for ${esc(r.name)}">Cancel</button>`
   :r.state==='filled'&&vaultSnap?.items.some(i=>i.name===r.name)?`<button class="chip" data-intake-item="${esc(r.name)}" aria-label="Open ${esc(r.name)}">Open</button>`:'';
  return `<div class="session-item vault-item vault-intake${r.state==='pending'?'':' finished'}" data-intake="${esc(r.id)}">
