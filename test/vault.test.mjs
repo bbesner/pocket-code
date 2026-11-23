@@ -682,6 +682,50 @@ test('HTTP: a request continues only as what it is, by who raised it, and once; 
   assert.doesNotMatch(logs,/TypeError|unhandled rejection/);
 });
 
+// 1.124.2: an OpenRouter conversation carries a runner token like the others, but the Vault did not look it up, so its request
+// was a terminal's: no conversation on the row or in the push, and the owner's "Allow ... for this command" there did nothing.
+test('HTTP: a request from an OpenRouter conversation names it, and the owner can answer it there',async t=>{
+  const dir=tmp();let port=19947;
+  const secret=randomUUID(),exp=Date.now()+3600000,key=newKey();
+  const cookie=exp+'.'+createHmac('sha256',secret).update(String(exp)).digest('hex');
+  const headers={'content-type':'application/json',cookie:'pc_auth='+cookie};
+  const cwd=path.join(dir,'work');
+  for(const d of [path.join(dir,'sessions'),path.join(dir,'data'),cwd])fs.mkdirSync(d,{recursive:true});
+  let child,logs='';
+  const start=async()=>{
+   child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...cleanEnv(),PORT:String(port),POCKET_ENV_FILE:'',POCKET_AUTO_TITLES:'0',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_VOICE:'off',POCKET_MEMSTEM:'0',POCKET_SKILLS:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),POCKET_TEST_CALLS:path.join(dir,'calls'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs'),POCKET_VAULT_KEY:key,
+    POCKET_ACP_ENABLE:'1',POCKET_ACP_CMD:process.execPath,POCKET_ACP_ARGS:path.join(repo,'test/fake-acp.mjs'),POCKET_ACP_STORE:path.join(dir,'acp-store')},stdio:['ignore','pipe','pipe']});
+   child.stdout.on('data',b=>{logs+=b});child.stderr.on('data',b=>{logs+=b});
+   for(let i=0;i<100;i++){if(child.exitCode!==null)break;try{const r=await fetch(`http://127.0.0.1:${port}/api/health`);if(r.ok)return;}catch{} await sleep(30)}
+   if(child.exitCode!==null&&/EADDRINUSE/.test(logs)&&(start.tries=(start.tries||0)+1)<4){port+=41;logs='';return start();}
+   throw Error('Test server failed: '+logs);
+  };
+  t.after(async()=>{if(child&&child.exitCode===null){const e=new Promise(r=>child.once('exit',r));child.kill();await e;}killStrays(path.join(dir,'data'));fs.rmSync(dir,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
+  const call=async(p,body,h=headers)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:body?'POST':'GET',headers:h,body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json().catch(()=>({}))};};
+  const streamCall=async(p,body,h)=>{const r=await fetch(`http://127.0.0.1:${port}/api${p}`,{method:'POST',headers:h,body:JSON.stringify(body)});if(!r.ok)return {status:r.status,events:[],body:await r.json().catch(()=>({}))};const text=await r.text();return {status:r.status,events:text.trim().split('\n').filter(Boolean).map(l=>JSON.parse(l))};};
+  await start();
+  const bearer={'content-type':'application/json',authorization:'Bearer '+fs.readFileSync(path.join(dir,'data','cli-token'),'utf8').trim()};
+  assert.equal((await call('/settings',{vault:true})).body.vault,true);
+  assert.equal((await call('/vault/act',{action:'add',name:'acme-sync',kind:'token',values:{value:SECRET}})).status,200);
+  const made=await call('/new',{provider:'acp',cwd,text:'Sync the acme records',approvalMode:'full',clientMessageId:randomUUID()});assert.equal(made.status,202,JSON.stringify(made.body));
+  const id=made.body.id;assert.match(id,/^acp:/);
+  let runnerToken=null;
+  for(let i=0;i<300&&!runnerToken;i++){await sleep(50);try{runnerToken=fs.readdirSync(path.join(dir,'acp-store')).map(f=>{try{return JSON.parse(fs.readFileSync(path.join(dir,'acp-store',f),'utf8'));}catch{return {};}}).find(v=>v.runnerToken)?.runnerToken;}catch{}}
+  assert.ok(runnerToken,'the OpenRouter process has a runner token: '+logs.slice(-1500));
+  for(let i=0;i<300;i++){await sleep(50);const s=(await call('/session/'+encodeURIComponent(id))).body;if(s&&!s.active&&s.state?.kind!=='running')break;}
+  const agent={...bearer,'x-pocket-runner':runnerToken};
+  const run=streamCall('/vault/run',{argv:['sh','-c','echo "t=$T"'],cwd,env:{T:'acme-sync'},wait:60},agent);
+  let reqs=[];for(let i=0;i<80&&!reqs.length;i++){await sleep(50);reqs=(await call('/vault')).body.requests;}
+  assert.equal(reqs.length,1);
+  assert.equal(reqs[0].session,id,'the request names the OpenRouter conversation, not a terminal');
+  const said=await call('/session/'+encodeURIComponent(id)+'/message',{text:'Allow acme-sync for this command.',clientMessageId:randomUUID()});
+  assert.ok([200,202].includes(said.status),JSON.stringify(said.body));
+  const r=await run;
+  assert.equal(r.events.filter(e=>e.t==='out').map(e=>e.s).join(''),'t={{vault:acme-sync}}\n','the owner\'s reply in the conversation allowed it');
+  assert.match(logs,/answered once from the conversation session=acp:/);
+  assert.equal(logs.includes(SECRET),false,'the value is never logged');
+});
+
 // PC-02: an Always recipe used to match the command's text alone, so a script rewritten after the owner's Always, or a program
 // of the same name put earlier on PATH, ran with the secret unasked. The recipe now holds what the command runs.
 test('HTTP (PC-02): an Always recipe holds what the command runs; a changed script or a PATH shim asks again and runs nothing; an old recipe asks once',async t=>{

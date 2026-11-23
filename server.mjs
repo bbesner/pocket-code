@@ -5184,7 +5184,7 @@ const coordError = (res, e) => res.status(e.status || 500).json({ error: e.messa
 function coordCaller(req, res) {
   const who = vaultCaller(req);
   if (who.actor === 'owner') { res.status(403).json({ error: 'Holds are claimed by conversations and terminals. Release one in Coordination.', code: 'cli_only' }); return null; }
-  // OpenRouter is proved here only: the Vault still treats it as a terminal, so its access doesn't change with this release.
+  // OpenRouter is proved here from its own token (vaultCaller does not look it up; the Vault routes do since 1.124.2).
   const openrouter = (ACP_ON || AGY_ON) && who.actor !== 'agent' ? acp.sessionForRunnerToken(String(req.get('x-pocket-runner') || '')) : null; // either ACP runtime
   const session = who.session || (openrouter ? openrouter.fullId : null);
   return session ? { kind: 'conversation', session } : { kind: 'terminal', session: null };
@@ -5268,6 +5268,15 @@ function vaultCaller(req) {
   }
   return { actor: 'terminal', session: null, sessionTitle: '', tokenHash: null };
 }
+// 1.124.2: the Vault routes also know an OpenRouter or Antigravity conversation by its runner token, as check-backs and
+// jobs do. Its request was a terminal's: the push said a terminal asked, and the owner's "Allow … for this command" in the
+// conversation found nothing to answer. The handoff, coordination and document routes keep vaultCaller as it is.
+function vaultRouteCaller(req) {
+  const c = vaultCaller(req);
+  if (c.actor !== 'terminal' || !(ACP_ON || AGY_ON)) return c;
+  const token = String(req.get('x-pocket-runner') || ''), o = token ? acp.sessionForRunnerToken(token) : null;
+  return o ? { actor: 'agent', session: o.fullId, sessionTitle: sessionName(o.fullId), tokenHash: createHash('sha256').update(token).digest('hex') } : c;
+}
 const sessionName = id => { const m = smeta[id]; return (m && typeof m.name === 'string' && m.name) || ''; };
 // 1.41: the owner can answer a pending request in the conversation that raised it: "Allow zeta-books for this command",
 // "Always allow zeta-books for this command", "Deny zeta-books" (the suggested replies agents offer), or a bare "Allow"/"Deny"
@@ -5301,7 +5310,7 @@ function restartIdleRunners(why) {
   if (CODEX_ON) for (const s of [...codex.codexSessions.values()]) if (!s.turn && !s.closing && !s.exited) codex.closeCodexSession(s, why);
 }
 app.get('/api/vault', requireBoardAuth, vaultOn, vaultNoStore, (req, res) => {
-  const c = vaultCaller(req);
+  const c = vaultRouteCaller(req);
   if (vault.locked) return res.json({ version: 1, now: Date.now(), ready: false, locked: true, mode: vault.mode, items: [], trash: [], requests: [], openRequests: 0, push: { enabled: pushReady } });
   res.json({ ...vault.snapshot({ owner: c.actor === 'owner' }), mode: vault.mode, locked: false, push: { enabled: pushReady } });
 });
@@ -5372,7 +5381,7 @@ function vaultPushText(r, what) {
 }
 const vaultPushOpts = r => ({ tag: 'vault:' + r.id, url: '/#/vault/request/' + encodeURIComponent(r.id), kind: 'vault', vaultRequest: r.id, actions: [{ action: 'allow', title: 'Allow' }, { action: 'deny', title: 'Deny' }] });
 app.post('/api/vault/act', requireBoardAuth, vaultOn, vaultOpen, sameOrigin, vaultNoStore, (req, res) => {
-  const c = vaultCaller(req), body = req.body || {};
+  const c = vaultRouteCaller(req), body = req.body || {};
   try {
     const out = vault.act(body, c);
     log(`vault ${body.action} ${out.name ? 'item=' + out.name : out.id ? 'request=' + out.id : ''} by ${c.actor}${c.session ? ' session=' + c.session : ''}`);
@@ -5389,7 +5398,7 @@ app.post('/api/vault/field', requireAuth, vaultOn, vaultOpen, sameOrigin, vaultN
   catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message }); }
 });
 app.get('/api/vault/audit', requireBoardAuth, vaultOn, vaultOpen, vaultNoStore, (req, res) => {
-  const c = vaultCaller(req);
+  const c = vaultRouteCaller(req);
   let item = String(req.query.item || '');
   if (!item && req.query.name) item = vault.byName(String(req.query.name))?.id || '-';
   res.json({ rows: vault.auditRows({ item: item || undefined, session: c.session, owner: c.actor === 'owner', limit: Number(req.query.limit) || 50 }) });
@@ -5433,7 +5442,7 @@ app.post('/api/vault/restore-key', requireAuth, sameOrigin, vaultNoStore, (req, 
 // scrubbed output back as JSON lines. The CLI never receives a value; the command does.
 const vaultRuns = new Set();
 async function vaultRun(req, res, { argv, cwd, env, timeout, wait, request: existing }) {
-  const c = vaultCaller(req);
+  const c = vaultRouteCaller(req);
   res.status(200).set({ 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'private, no-store', 'X-Accel-Buffering': 'no' });
   const send = ev => { try { res.write(JSON.stringify(ev) + '\n'); } catch { } };
   const beat = setInterval(() => send({ t: 'beat' }), 20_000);
@@ -5501,7 +5510,7 @@ app.post('/api/vault/run', requireBoardAuth, vaultOn, vaultOpen, sameOrigin, (re
 // only the placeholder; this route returns the values to its caller, so an agent holding the CLI token can obtain any
 // value it could have filled, and the agent driving the page can read a filled value back (SECURITY.md, Vault). Answers {ok, values}, {pending, request} (the proxy retries with `request`) or {denied}.
 app.post('/api/vault/release', requireBoardAuth, vaultOn, vaultOpen, sameOrigin, vaultNoStore, async (req, res) => {
-  const c = vaultCaller(req), b = req.body || {};
+  const c = vaultRouteCaller(req), b = req.body || {};
   const name = v => /^[\w.-]{1,64}$/.test(String(v || '')) ? String(v) : null;
   try {
     let reqRow = null, bound, cmd, refs;
@@ -5545,7 +5554,7 @@ app.post('/api/vault/wait', requireBoardAuth, vaultOn, vaultOpen, sameOrigin, (r
 // so the CLI token may do all three, as it may add an item. The token is in this answer only; the store keeps its hash.
 const intakePath = token => '/intake/' + token;
 app.post('/api/vault/intake', requireBoardAuth, vaultOn, vaultOpen, sameOrigin, vaultNoStore, (req, res) => {
-  const c = vaultCaller(req), b = req.body || {}, action = String(b.action || '');
+  const c = vaultRouteCaller(req), b = req.body || {}, action = String(b.action || '');
   try {
     let out;
     if (action === 'create') out = vault.createIntake(b, c);
@@ -5564,7 +5573,7 @@ app.post('/api/vault/intake', requireBoardAuth, vaultOn, vaultOpen, sameOrigin, 
 // the wait runs out. Never a value: the item comes back as the same view `show` prints.
 app.get('/api/vault/intake/wait', requireBoardAuth, vaultOn, vaultOpen, vaultNoStore, async (req, res) => {
   const name = String(req.query.name || '').toLowerCase(), until = Date.now() + Math.min(VAULT_LIMITS.waitMax, Math.max(0, Number(req.query.wait) || 0)) * 1000;
-  const c = vaultCaller(req), find = () => (vault && !vault.locked) ? vault.intakeViews().find(r => r.name === name) || null : undefined;
+  const c = vaultRouteCaller(req), find = () => (vault && !vault.locked) ? vault.intakeViews().find(r => r.name === name) || null : undefined;
   let r = find(), gone = false; res.on('close', () => { gone = true; });
   if (!r) return res.status(404).json({ error: `No intake link for ${name || 'that name'} in the last week.`, code: 'intake_none' });
   while (r && r.state === 'pending' && Date.now() < until && !gone) { await new Promise(ok => setTimeout(ok, 1000)); r = find(); }
