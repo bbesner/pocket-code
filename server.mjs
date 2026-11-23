@@ -492,6 +492,21 @@ const TASKS_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-tasks.mjs');
 // /api/coordination* only; who is asking comes from the runner token (coordCaller), never from the request body.
 const coord = new CoordStore(path.join(DATA_DIR, 'coordination.json'), { log });
 const COORD_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-coord.mjs');
+// 1.124.5: a list that did not parse was kept aside beside it and the store started empty (store-file.mjs), and only the log said
+// so. Each view's answer carries the kept copies of its list (to the owner, not the CLI) until the owner dismisses one; the names
+// dismissed are kept in the settings. A kept copy moved back by hand is gone, and so is its notice. Nothing is restored here.
+const KEPT_STORES = { projects: 'projects.json', tasks: 'tasks.json', documents: 'documents.json', coordination: 'coordination.json' };
+const KEPT_NAME = /^(projects|tasks|documents|coordination)\.json\.corrupt-\d{8}-\d{6}$/;
+let keptScan = { at: -1, names: [] }; // the data folder's entries, read again when the folder changes
+function keptAside(req, store) {
+  if (req.boardActor === 'cli') return {};
+  let at; try { at = fs.statSync(DATA_DIR).mtimeMs; } catch { return {}; }
+  if (at !== keptScan.at) { let names = []; try { names = fs.readdirSync(DATA_DIR).filter(n => KEPT_NAME.test(n)); } catch { } keptScan = { at, names }; }
+  const seen = Array.isArray(settings.keptSeen) ? settings.keptSeen : [];
+  const list = keptScan.names.filter(n => n.startsWith(KEPT_STORES[store] + '.corrupt-') && !seen.includes(n)).sort()
+    .map(kept => ({ store, kept, file: path.join(DATA_DIR, KEPT_STORES[store]) }));
+  return list.length ? { keptAside: list } : {};
+}
 const coordLive = () => Boolean(settings.coordination) && !assistantOn();
 const coordOn = (_req, res, next) => coordLive() ? next() : res.status(404).json({ error: 'Coordination is off. Turn it on in Settings → Projects, files, tasks & vault.', code: 'coordination_off' });
 // ---------- 1.119: check-backs (the store; the runner and routes are after Settings → Automation) ----------
@@ -4074,7 +4089,7 @@ async function acpTurnFinished(id, turn, ev) {
     scheduleRetry(id, turn, limited.resetAt);
     recordOutcome(id, turn, ev, limited.resetAt);
     const label = noteFinish(id, turn, { cost: acpReplyCost(turn), outcome: 'limit' }); // 1.117
-    if (!mutes.has(id)) pushNotify(id, smeta[id]?.name || convo, withOriginLabel(label, limitPushText('Rate limited', id, limited.resetAt))).catch(() => { });
+    if (!mutes.has(id)) pushNotify(id, shownTitle(id, turn) || convo, withOriginLabel(label, limitPushText('Rate limited', id, limited.resetAt))).catch(() => { });
     return;
   }
   const settled = recordOutcome(id, turn, ev);
@@ -4087,14 +4102,19 @@ async function acpTurnFinished(id, turn, ev) {
     const next = await runNextFollowup(id, turn.cwd).catch(e => { log(`acp queue start failed session=${id}: ${e.message}`); return false; });
     if (next !== null) return; // 1.117: as on Codex, a held row leaves this reply's push to go out
   }
-  if (!watching && !turn.stopped && !settled && !mutes.has(id) && !turn.checkbackHandled && !turn.jobHandled) pushNotify(id, smeta[id]?.name || convo, withOriginLabel(originLabel, ev.ok ? completePush(id) || 'Ready' : 'Something went wrong. Tap to see what happened')).catch(() => { });
+  if (!watching && !turn.stopped && !settled && !mutes.has(id) && !turn.checkbackHandled && !turn.jobHandled) pushNotify(id, shownTitle(id, turn) || convo, withOriginLabel(originLabel, ev.ok ? completePush(id) || 'Ready' : 'Something went wrong. Tap to see what happened')).catch(() => { });
 }
 if (CODEX_ON) codex.adoptCodexSessions(threadId => codexHooks(codex.CX + threadId));
 if (CODEX_ON) codex.pruneTranscriptCache(); // 1.53.5: the on-disk transcript cache keeps its newest files only
 
 // 1.117: while Pocket is paused with "Your own messages while paused" set to Blocked, the owner's sends are refused too. Adding
 // to the queue (mode queue) still works: it starts nothing.
+// 1.124.5: and while the self-update is restarting this daemon: a reply started between the script's last check for running
+// replies and the PM2 restart would be cut short. The job says restarting until the new version says complete, so only the
+// version being replaced refuses (a new daemon whose `complete` write failed would otherwise refuse for 20 minutes).
+const selfRestarting = () => { const j = selfUpdate.job(); return Boolean(j?.running && j.phase === 'restarting' && j.from === cliUpdates.pocketVersion); };
 function ownerSendGate(req, res, next) {
+  if (selfRestarting()) return res.status(409).json({ error: 'Pocket is restarting for its update; your message is kept.', code: 'restarting' });
   if (!ownMessagesBlocked() || (req.path.endsWith('/message') && req.body?.mode === 'queue')) return next();
   res.status(409).json({ error: 'Pocket is paused. Resume to send.', paused: true });
 }
@@ -4786,6 +4806,10 @@ app.delete('/api/side/:side', requireAuth, (req, res) => {
 // --fork-session --session-id <new>`; Codex: `thread/fork` in the new conversation's own app-server. Side chat is the
 // unsaved, read-only aside; Branch is a real conversation.
 const titleOf = id => { const m = smeta[id] || {}; return m.name || storedAutoTitle(id) || (m.branchOf ? 'Branch: ' + m.branchNote : null); };
+// 1.124.5: and for an OpenRouter or Antigravity conversation, the title its program's list gives it, or (not listed yet) its
+// reply's message, as the conversation list shows it (the Vault request and the Ready push said "An agent" and "OpenRouter conversation").
+const shownTitle = (id, turn = isAcpId(id) ? acp.acpTurns.get(acp.bareAcpId(id)) : null) => titleOf(id)
+  || (isAcpId(id) ? (row => row ? (row.untitled ? '' : row.title) : turn?.userText?.slice(0, 120))(acpListOf(id)?.rows.find(r => r.id === id)) : '') || '';
 // The conversation this one branched from, and the ones branched from it (newest first), from Pocket's own metadata.
 function lineage(id) {
   const m = smeta[id] || {};
@@ -5004,7 +5028,7 @@ app.get('/api/board', requireBoardAuth, boardOn, (req, res) => {
   const dir = typeof req.query.dir === 'string' ? req.query.dir : '';
   let snap;
   try { snap = board.snapshot({ dir }); } catch (e) { if (!e.status) throw e; return res.status(e.status).json({ error: e.message }); }
-  res.set('Cache-Control', 'private, no-store').json({ ...snap, push: { enabled: pushReady }, hook: Boolean(REMINDER_HOOK), email: emailOn(), conductor: projectModeOn() ? conductorLeads() : null, conductorStart: projectModeOn() ? conductorStart() : null }); // Project mode: the lead per engine, or null
+  res.set('Cache-Control', 'private, no-store').json({ ...snap, push: { enabled: pushReady }, hook: Boolean(REMINDER_HOOK), email: emailOn(), conductor: projectModeOn() ? conductorLeads() : null, conductorStart: projectModeOn() ? conductorStart() : null, ...keptAside(req, 'projects') }); // Project mode: the lead per engine, or null
 });
 app.post('/api/board/act', requireBoardAuth, boardOn, (req, res) => {
   const actor = req.boardActor || 'ui';
@@ -5028,7 +5052,7 @@ app.post('/api/board/import', requireBoardAuth, boardOn, (req, res) => {
 app.get('/api/tasks', requireBoardAuth, tasksOn, (req, res) => {
   const cb = req.boardActor === 'cli' ? null : checkbackTaskGroup(); // 1.119: the Tasks view's check-backs group, for the app only
   const jobs = req.boardActor === 'cli' ? null : jobTaskGroup(); // 1.124: and its Jobs group, for the app only (agents can't list keys)
-  res.set('Cache-Control', 'private, no-store').json({ ...taskStore.snapshot(), push: { enabled: pushReady }, hook: Boolean(REMINDER_HOOK), email: emailOn(), ...(cb ? { checkbacks: cb } : {}), ...(jobs ? { jobs } : {}) });
+  res.set('Cache-Control', 'private, no-store').json({ ...taskStore.snapshot(), push: { enabled: pushReady }, hook: Boolean(REMINDER_HOOK), email: emailOn(), ...(cb ? { checkbacks: cb } : {}), ...(jobs ? { jobs } : {}), ...keptAside(req, 'tasks') });
 });
 // 1.37: a task an agent adds from a session (pocket-tasks add --session) gets that session's title and
 // workspace, as the Add task button does, so the list names where it came from and Start opens in the right place.
@@ -5333,7 +5357,11 @@ async function coordWake(offer, note = '') {
         origin: 'coordination', rootOrigin: auto.normRoot(next.run?.rootOrigin) }); // 1.117: owner when the wait did not say
     } catch (e) { log(`coordination wake skipped name=${next.name} session=${id}: ${e.message}`); continue; }
     log(`coordination woke session=${id} for ${next.name}`);
-    if (followups.list(id)[0]?.id === row.id && !ownedTurn(id)) await runNextFollowup(id, await engineOf(id).cwd(id), { by: 'coordination' }).catch(e => log(`coordination wake start failed session=${id}: ${e.message}`));
+    let started = false;
+    if (followups.list(id)[0]?.id === row.id && !ownedTurn(id)) started = Boolean(await runNextFollowup(id, await engineOf(id).cwd(id), { by: 'coordination' }).catch(e => { log(`coordination wake start failed session=${id}: ${e.message}`); return null; }));
+    // 1.124.5: a wake that did not start and will not start when a running reply ends (paused, its queue stopped, a limit)
+    // gives up the 10-minute window, so the next sweep offers the name to the next in line.
+    if (!started && !(ownedTurn(id) && !pausedNow()) && coord.offerHeld(next.name, id)) log(`coordination wake held session=${id} for ${next.name}; the next in line may have it`);
     return coordHolderTitle(next);
   }
   return null;
@@ -5350,9 +5378,11 @@ async function coordSweep() {
   for (const offer of coord.sweep({ running: new Set(runningConversations()) })) await coordWake(offer);
 }
 setInterval(() => coordSweep().catch(e => log('coordination sweep: ' + e.message)), Math.max(100, Number(process.env.POCKET_COORD_SWEEP_MS) || 30_000)).unref();
-app.get('/api/coordination', requireBoardAuth, coordOn, (_req, res) => {
+app.get('/api/coordination', requireBoardAuth, coordOn, (req, res) => {
   const view = coord.snapshot();
-  res.set('Cache-Control', 'no-store').json({ ...view, holds: view.holds.map(h => ({ ...coordShown(h), waiters: h.waiters.map(w => ({ ...w, title: coordHolderTitle(w) })) })), recent: view.recent.map(coordShown) });
+  const titled = w => ({ ...w, title: coordHolderTitle(w) });
+  res.set('Cache-Control', 'no-store').json({ ...view, holds: view.holds.map(h => ({ ...coordShown(h), waiters: h.waiters.map(titled) })), recent: view.recent.map(coordShown),
+    free: view.free.map(f => ({ ...f, waiters: f.waiters.map(titled), offer: f.offer && titled(f.offer) })), ...keptAside(req, 'coordination') }); // 1.124.5: free names with a line or a recent offer
 });
 app.post('/api/coordination/hold', requireBoardAuth, coordOn, (req, res) => {
   const holder = coordCaller(req, res); if (!holder) return;
@@ -5412,7 +5442,7 @@ function vaultRouteCaller(req) {
   const token = String(req.get('x-pocket-runner') || ''), o = token ? acp.sessionForRunnerToken(token) : null;
   return o ? { actor: 'agent', session: o.fullId, sessionTitle: sessionName(o.fullId), tokenHash: createHash('sha256').update(token).digest('hex') } : c;
 }
-const sessionName = id => { const m = smeta[id]; return (m && typeof m.name === 'string' && m.name) || ''; };
+const sessionName = id => shownTitle(id) || ''; // 1.124.5: was the name alone
 // 1.41: the owner can answer a pending request in the conversation that raised it: "Allow zeta-books for this command",
 // "Always allow zeta-books for this command", "Deny zeta-books" (the suggested replies agents offer), or a bare "Allow"/"Deny"
 // when that session has exactly one pending request. Only the owner's own messages (cookie) reach here; the message is
@@ -5757,10 +5787,19 @@ async function documentSource(p) {
 const docError = (res, e) => { if (!e.status) throw e; res.status(e.status).json({ error: e.message }); };
 // 1.81 (#179): a file links only to a project that exists; a typo in --project used to link it to one nobody could open.
 const checkDocProject = p => { const id = typeof p === 'string' ? p.trim() : ''; if (id && !board.projects.some(x => x.id === id)) throw Object.assign(new Error(`There is no project with the id ${id}. pocket-board status --all lists the ids.`), { status: 400 }); };
+// 1.124.5: the owner's Dismiss on a kept-aside notice (keptAside above). The kept copy itself stays where it is.
+app.post('/api/kept-aside/dismiss', requireAuth, sameOrigin, (req, res) => {
+  const kept = String(req.body?.kept || '');
+  if (!KEPT_NAME.test(kept)) return res.status(400).json({ error: 'That is not a kept copy of a list.' });
+  settings.keptSeen = [...new Set([...(Array.isArray(settings.keptSeen) ? settings.keptSeen : []), kept])].slice(-50);
+  try { saveSettings(); } catch (e) { log(`kept-aside dismiss could not be saved: ${e.message}`); return res.status(503).json({ error: 'Pocket could not save that. Try again.' }); }
+  log(`kept-aside notice dismissed: ${kept}`);
+  res.json({ ok: true });
+});
 app.get('/api/documents', requireBoardAuth, docsOn, (req, res) => {
   const project = typeof req.query.project === 'string' ? req.query.project : '', q = typeof req.query.q === 'string' ? req.query.q : '';
   const owner = req.boardActor !== 'cli'; // PC-04: the requests waiting for the owner are the owner's to see
-  res.set('Cache-Control', 'private, no-store').json({ documents: docs.list({ project, q }), trash: docs.list({ trashed: true }), dir: DOCS_DIR, limits: { inlineHtml: DOC_LIMITS.inlineHtml, trashDays: DOC_LIMITS.trashDays }, thumbs: thumbs.capabilities(), ...(owner ? { requests: docs.pendingRequests(), answered: docs.answeredRequests() } : {}) });
+  res.set('Cache-Control', 'private, no-store').json({ documents: docs.list({ project, q }), trash: docs.list({ trashed: true }), dir: DOCS_DIR, limits: { inlineHtml: DOC_LIMITS.inlineHtml, trashDays: DOC_LIMITS.trashDays }, thumbs: thumbs.capabilities(), ...(owner ? { requests: docs.pendingRequests(), answered: docs.answeredRequests() } : {}), ...keptAside(req, 'documents') });
 });
 app.post('/api/documents', requireAuth, docsOn, express.raw({ type: () => true, limit: '30mb' }), (req, res) => {
   try {
@@ -5990,7 +6029,9 @@ app.post('/intake/:token', (req, res, next) => intakeForm(req, res, err => { if 
   }
   const who = r.for || 'Someone', asks = vault.effective(vault.items.find(i => i.id === out.item.id) || out.item) !== 'auto';
   log(`vault intake filled name=${r.name} request=${r.id} fields=${out.item.fields.join(',')}`);
-  pushRaw(`${who.slice(0, 40)} filled in ${r.name}`, `It is in the Vault now.${asks ? ' Agents still ask you before using it.' : ''}`, { tag: 'vault:intake:' + r.id, url: '/#/vault/item/' + encodeURIComponent(r.name), kind: 'vault' }).catch(() => {});
+  // 1.124.5: a link an agent or a terminal made says so, and which conversation asked.
+  const asked = r.by === 'agent' ? (t => t ? `The agent in "${t.slice(0, 80)}" asked for it. ` : 'An agent asked for it. ')(shownTitle(r.session) || r.sessionTitle) : r.by === 'terminal' ? 'A terminal asked for it. ' : '';
+  pushRaw(`${who.slice(0, 40)} filled in ${r.name}`, `${asked}It is in the Vault now.${asks ? ' Agents still ask you before using it.' : ''}`, { tag: 'vault:intake:' + r.id, url: '/#/vault/item/' + encodeURIComponent(r.name), kind: 'vault' }).catch(() => {});
   res.redirect(303, '/intake/done');
 });
 

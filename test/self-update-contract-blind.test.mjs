@@ -38,6 +38,8 @@ const M = {
   other: 'A CLI update check or upgrade is running. Try again when it finishes.',
   busy: 'Replies are running. Update when they finish, so the restart does not cut them short.',
   interrupted: 'The update stopped without finishing, probably because the server restarted. Check the version shown here before you try again.',
+  // 1.124.5: from installing on, the checkout may have moved and the packages may be gone (flow test b-12a)
+  interruptedInstalling: dir => `The update stopped while installing 1.1.0, probably because the server restarted. Pocket's files may have moved to 1.1.0 and its packages may not be installed, so Pocket may not start after its next restart. On the server, run npm ci in ${dir} before Pocket restarts, then check the version shown here.`,
   startFail: 'Could not start the update. Nothing was changed.',
   notStarted: "The update did not start. Nothing was changed. The log is pocket-self-update.log in Pocket's data folder.",
 };
@@ -171,9 +173,11 @@ describe('§3 job()', () => {
     const f = fixture(); writeJob(f, live({ updatedAt: T0 - STALE - 1, finishedAt: 777 }));
     const snap = snapshot(f.file);
     const j = f.make().job();
-    assert.equal(j.running, false); assert.equal(j.phase, 'interrupted'); assert.equal(j.error, M.interrupted);
+    assert.equal(j.running, false); assert.equal(j.phase, 'interrupted'); assert.equal(j.error, M.interruptedInstalling(f.checkout));
     assert.equal(j.finishedAt, 777);
     assert.ok(unchanged(f.file, snap));
+    writeJob(f, live({ phase: 'checking', updatedAt: T0 - STALE - 1 }));
+    assert.equal(f.make().job().error, M.interrupted, 'before installing nothing moved');
   });
   test('exactly 20 minutes is still running', () => {
     const f = fixture(); writeJob(f, live({ updatedAt: T0 - STALE }));
