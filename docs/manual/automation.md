@@ -667,7 +667,7 @@ The reply itself has its usual `reply` line, with `origin` and `rootOrigin` set 
 
 ## The audit file
 
-`automation-audit.jsonl` in `POCKET_DATA_DIR` records, one line each, every pause (what it stopped and held) and resume (what it re-armed, and whether Inbox Watch resumed), every change to these settings, every limit notice and every finished unattended reply (its origin, engine, model, duration, cost or tokens and how it ended). It never holds message text. It is yours to read or rotate; Pocket only appends to it.
+`automation-audit.jsonl` in `POCKET_DATA_DIR` records, one line each, every pause (what it stopped and held) and resume (what it re-armed, and whether Inbox Watch resumed), every change to these settings, every limit notice and every finished unattended reply (its origin, engine, model, duration, cost or tokens and how it ended). It never holds message text. It is yours to read or rotate; Pocket only appends to it. A line that cannot be written (a full disk, a file Pocket can no longer write) never stops the reply or change it records; the server log says how many lines were lost, at most once a minute, and a line cut short by a full disk is left on its own so the next one reads whole.
 
 Job keys add lines with `"action":"job"` and `"action":"job_auth"` ([Job audit lines](#job-audit-lines)). The `pause` line counts the job replies it stopped (`jobs`, which are also counted in `replies`).
 

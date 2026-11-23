@@ -428,5 +428,20 @@ export function appendAudit(file, entry) {
     const row = JSON.stringify({ at: new Date().toISOString(), ...clean }) + '\n';
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.appendFileSync(file, endsMidLine(file) ? '\n' + row : row, { mode: 0o600 });
-  } catch { /* the audit is best effort; it must never stop a turn */ }
+    return true;
+  } catch { return false; } // the audit is best effort; it must never stop a turn. 1.124.4: false says the line is lost
+}
+// 1.124.4: the audit as the server writes it. A line that could not be written is logged, never with its contents, at
+// most once a minute with the number lost since the last note, so a full disk or a lost permission does not go unseen.
+export function auditWriter(file, { log = (...a) => console.log(new Date().toISOString(), ...a), now = Date.now } = {}) {
+  let noted = -Infinity, lost = 0;
+  return entry => {
+    if (appendAudit(file, entry)) return true;
+    lost++;
+    if (now() - noted >= 60_000) {
+      log(`${file} could not be written: ${lost} audit line${lost === 1 ? '' : 's'} lost since the last note. Check that the data folder has space and can be written.`);
+      noted = now(); lost = 0;
+    }
+    return false;
+  };
 }

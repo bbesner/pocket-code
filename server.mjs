@@ -654,7 +654,7 @@ const ownerZone = () => settings.ownerTimezone || process.env.POCKET_TZ || '';
 // automation-audit.jsonl, never with message text. Every unattended start passes gateUnattended; owner sends never do.
 const AUTO_AUDIT_FILE = path.join(DATA_DIR, 'automation-audit.jsonl');
 const autoState = new auto.AutomationState(path.join(DATA_DIR, 'automation-state.json'), { zone: () => ownerZone(), log }); // 1.124.4: a failed save is logged
-const autoAudit = entry => auto.appendAudit(AUTO_AUDIT_FILE, entry);
+const autoAudit = auto.auditWriter(AUTO_AUDIT_FILE, { log }); // 1.124.4: a line that cannot be written is logged, at most once a minute
 const autoValues = group => auto.groupValues(settings.automation, group);
 const pausedNow = () => settings.paused && typeof settings.paused === 'object' && settings.paused.at ? settings.paused : null;
 const ownMessagesBlocked = () => Boolean(pausedNow()) && autoValues('pause').ownMessages === 'blocked';

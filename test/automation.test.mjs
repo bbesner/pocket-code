@@ -323,3 +323,26 @@ test('an audit line torn by a full disk does not swallow the next one', async ()
     assert.equal(lines.length, 4, 'the earlier line, the torn one, the new one');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+// 1.124.4: the audit stays best effort (it never stops a turn), but a line that could not be written is no longer
+// silent: appendAudit answers false, and the server's writer logs it at most once a minute, never with the line itself.
+test('an audit line that cannot be written is reported, at most once a minute and without its contents', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-')), file = path.join(dir, 'automation-audit.jsonl');
+  try {
+    assert.equal(auto.appendAudit(file, { action: 'pause' }), true);
+    fs.chmodSync(file, 0o400); // a file Pocket can no longer write
+    assert.equal(auto.appendAudit(file, { action: 'resume' }), false);
+    let now = NOW; const logged = [];
+    const write = auto.auditWriter(file, { now: () => now, log: (...a) => logged.push(a.join(' ')) });
+    assert.equal(write({ action: 'settings', group: 'limits', keys: ['dailyReplies'], sessionId: 'secret-session-id' }), false);
+    now += 30_000; write({ action: 'settings' }); write({ action: 'settings' });
+    assert.equal(logged.length, 1, 'once a minute at most');
+    assert.match(logged[0], /automation-audit\.jsonl could not be written: 1 audit line lost/);
+    assert.ok(!/limits|dailyReplies|secret-session-id|settings/.test(logged[0]), 'nothing of the line itself');
+    now += 30_000; write({ action: 'settings' });
+    assert.equal(logged.length, 2); assert.match(logged[1], /3 audit lines lost since the last note/);
+    fs.chmodSync(file, 0o600);
+    assert.equal(write({ action: 'resume' }), true); assert.equal(logged.length, 2);
+    assert.deepEqual(fs.readFileSync(file, 'utf8').trim().split('\n').map(l => JSON.parse(l).action), ['pause', 'resume']);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

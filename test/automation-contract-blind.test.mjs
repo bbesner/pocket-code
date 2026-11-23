@@ -806,7 +806,7 @@ test('appendAudit: scrubs top-level text keys and undefined, keeps others, creat
     kind: 'settings', group: 'limits', keys: ['dailyReplies'], nested: { a: [1, { b: 2 }] }, u: undefined, n: null, zero: 0,
     text: 'S1', userText: 'S2', prompt: 'S3', message: 'S4', body: 'S5', note: 'S6', reply: 'S7',
   }));
-  assert.equal(ret, undefined);
+  assert.equal(ret, true, 'true once the line is written (1.124.4)');
   const raw = fs.readFileSync(file, 'utf8');
   assert.ok(raw.endsWith('\n')); assert.equal(raw.split('\n').length, 2);
   for (const s of ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7']) assert.ok(!raw.includes(s), s);
@@ -837,7 +837,7 @@ test('appendAudit fail-step: mkdirSync throws -> no throw, no bytes', () => {
   const snap = snapshot(file);
   const restore = failFsFor('mkdirSync', dir);
   let res; try { res = tryCall(() => appendAudit(file, { kind: 'b' })); } finally { restore(); }
-  assert.equal(res.threw, false); assert.equal(res.ret, undefined);
+  assert.equal(res.threw, false); assert.equal(res.ret, false, 'false when the line was not written (1.124.4)');
   assert.ok(unchanged(file, snap));
 });
 
@@ -848,7 +848,7 @@ test('appendAudit fail-step: cyclic metadata -> no throw, no bytes', () => {
   const snap = snapshot(file);
   const cyc = { kind: 'b' }; cyc.self = cyc;
   const res = tryCall(() => appendAudit(file, cyc));
-  assert.equal(res.threw, false); assert.equal(res.ret, undefined);
+  assert.equal(res.threw, false); assert.equal(res.ret, false, 'false when the line was not written (1.124.4)');
   assert.ok(unchanged(file, snap));
   assert.equal(tryCall(() => appendAudit(file, { kind: 'big', n: 10n })).threw, false, 'BigInt');
   assert.ok(unchanged(file, snap));
@@ -861,7 +861,7 @@ test('appendAudit fail-step: appendFileSync throws before bytes -> no throw, old
   const snap = snapshot(file);
   const restore = patch(fs, 'appendFileSync', failing(fs.appendFileSync, { error: () => Object.assign(new Error('injected'), { code: 'ENOSPC' }) }));
   let res; try { res = tryCall(() => appendAudit(file, { kind: 'b' })); } finally { restore(); }
-  assert.equal(res.threw, false); assert.equal(res.ret, undefined);
+  assert.equal(res.threw, false); assert.equal(res.ret, false, 'false when the line was not written (1.124.4)');
   assert.ok(unchanged(file, snap));
   appendAudit(file, { kind: 'c' });
   assert.deepEqual(lines(file).map(l => JSON.parse(l).kind), ['a', 'c']);

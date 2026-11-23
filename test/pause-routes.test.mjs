@@ -870,3 +870,16 @@ test('Today\'s counts that cannot be saved: Settings → Automation warns, and t
   assert.equal((await s.call('/automation')).body.warnings.length, view.warnings.length);
   assert.equal(s.logs().match(/automation-state\.json could not be saved \(EISDIR\)/g)?.length, 1, s.logs().slice(-1500));
 });
+
+// 1.124.4: an audit line that cannot be written (here a directory sits where automation-audit.jsonl goes) does not stop
+// the change it records, and the log says so once, without the line itself.
+test('Automation audit lines that cannot be written: the settings change still saves, and the log says so once', { timeout: 60_000 }, async t => {
+  const dir = tmpDir();
+  fs.mkdirSync(path.join(dir, 'data', 'automation-audit.jsonl'), { recursive: true });
+  const s = await boot(t, 18989, { dir });
+  for (const n of [3, 4]) assert.equal((await s.call('/automation/settings', { group: 'limits', values: { dailyReplies: n } })).status, 200);
+  assert.equal(savedSettings(s).automation.limits.dailyReplies, 4);
+  const notes = s.logs().match(/automation-audit\.jsonl could not be written: 1 audit line lost since the last note/g) || [];
+  assert.equal(notes.length, 1, s.logs().slice(-1500));
+  assert.ok(!/dailyReplies/.test(s.logs()), 'nothing of the line itself');
+});
