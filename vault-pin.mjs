@@ -474,12 +474,17 @@ function interpreterArgs(fam, name, args) {
 const codeWords = code => String(code).split(/[\s;|&()<>`"'{}$=,]+/).filter(t => t && !t.startsWith('-') && t.length <= 4096).slice(0, PIN_LIMITS.tokens);
 
 // ---------- the pin ----------
-// prepareRun opens and hashes everything the command runs and returns { pin, verify(), close() }; with { forRun: true }
+// prepareRun opens and hashes everything the command runs and returns { pin, verify(), close(), closed() }; with { forRun: true }
 // it also says how to start it: { file, args, argv0, fds }. pinCommand is the pin alone, every handle closed.
 export async function prepareRun({ argv, cwd }, { PATH, forRun = false, tmpDir = os.tmpdir() } = {}) {
-  const opened = [], fds = []; // fds: { fd, copy } handed to the child as fd 3, 4, …; a copy's fd is ours to close
+  const opened = [], fds = [], closing = []; // fds: { fd, copy } handed to the child as fd 3, 4, …; a copy's fd is ours to close
   const plan = { pin: null, file: null, args: argv.slice(1), argv0: argv[0], fds: [],
-    verify: () => verifyOpened(opened), close: () => { for (const o of opened) if (o.fh) { o.fh.close().catch(() => {}); o.fh = null; } for (const fd of fds.splice(0)) if (fd.copy) try { fs.closeSync(fd.fd); } catch { } } };
+    // close() returns at once; FileHandle.close() finishes on the thread pool, so a caller that must not go on while the
+    // handles are open awaits closed() after it (settles when every close started so far is done; never rejects).
+    verify: () => verifyOpened(opened), closed: () => Promise.all(closing).then(() => {}), close: () => {
+      for (const o of opened) if (o.fh) { closing.push(o.fh.close().catch(() => {})); o.fh = null; }
+      for (const fd of fds.splice(0)) if (fd.copy) try { fs.closeSync(fd.fd); } catch { }
+    } };
   try {
     const files = [], seen = new Map(), skip = new Set();
     let inline = null, unknown = null, fdSafe = true;
@@ -617,7 +622,7 @@ export async function prepareRun({ argv, cwd }, { PATH, forRun = false, tmpDir =
     return plan;
   } catch (e) { plan.close(); throw e; }
 }
-export async function pinCommand(cmd, opts = {}) { const p = await prepareRun(cmd, { ...opts, forRun: false }); p.close(); return p.pin; }
+export async function pinCommand(cmd, opts = {}) { const p = await prepareRun(cmd, { ...opts, forRun: false }); p.close(); await p.closed(); return p.pin; }
 
 // Just before the start, synchronously: every pinned file still has the content that was hashed. The open handle must be
 // unchanged (size and times; a small file byte for byte), and its path must still lead to that same file; a file that
