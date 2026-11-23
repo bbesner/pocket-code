@@ -22,6 +22,8 @@ export async function runUiTestFixes({browser,base,rows,out,settingsState=()=>({
   catch(e){await page.screenshot({path:path.join(out,'ui-test-fixes-failure.png')}).catch(()=>{});e.message=name+': '+e.message;throw e;}
   finally{await context.close();}
  };
+ // POCKET_FIX_SHOTS=<dir> keeps a picture of the fixed state at the telling moment of a check (for a review report).
+ const snap=async(page,name)=>{if(process.env.POCKET_FIX_SHOTS)await page.screenshot({path:path.join(process.env.POCKET_FIX_SHOTS,name+'.png')}).catch(()=>{});};
  // Answer or delay chosen API calls; everything else goes to the fixture server.
  const intercept=async(page,handler)=>{
   await page.setRequestInterception(true);
@@ -349,7 +351,7 @@ export async function runUiTestFixes({browser,base,rows,out,settingsState=()=>({
    const after=await page.evaluate(()=>({summary:document.querySelector('.task-form [name=summary]').value,text:document.querySelector('.task-form [name=text]').value,note:document.querySelector('.task-form [data-stale]').textContent,toasts:[...document.querySelectorAll('.toast')].map(t=>t.textContent)}));
    assert.equal(after.summary,OTHER,'the context changed elsewhere now shows the new value (it kept the old one, and the next Save wrote it back)');
    assert.equal(after.text,MINE,'the field being edited keeps what was typed');
-   assert.match(after.note,/This task changed while you were editing\. Now showing the new context\./);
+   assert.match(after.note,/This task changed while you were editing\. Now showing the new context\./);await snap(page,'edit-task-conflict');
    assert.ok(!after.toasts.some(t=>/changed since/.test(t)),'the sheet explains it; no second message in a toast: '+JSON.stringify(after.toasts));
    await page.click(SHEET+' .task-form .primary');await page.waitForFunction(()=>!document.querySelector('.task-form'));
    const saved=await page.evaluate(id=>fetch('/api/tasks').then(r=>r.json()).then(s=>s.tasks.find(t=>t.id===id)),id);
@@ -377,6 +379,7 @@ export async function runUiTestFixes({browser,base,rows,out,settingsState=()=>({
     return {focus:document.activeElement?.id,onTop:top===pw,sheet:Boolean(document.querySelector('.task-form')),sheetInert:document.querySelector('.sheet').inert,typed:document.querySelector('.task-form [name=text]').value,
      dialog:document.querySelector('.login-over').getAttribute('role'),title:document.querySelector('#login-title').textContent,toast:document.querySelector('#toast.show')?.textContent||''};});
    assert.deepEqual(await state(),{focus:'pw',onTop:true,sheet:true,sheetInert:true,typed:MINE,dialog:'dialog',title:'Sign in again',toast:''});
+   await snap(page,'sign-in-over-sheet');
    await page.evaluate(()=>refreshSessions?.().catch(()=>{})); // a poll's 401 while the box is being typed into
    await page.type('#pw','wrong-one');await page.keyboard.press('Enter');
    await page.waitForFunction(()=>document.querySelector('.login-over #lerr')?.textContent.trim());
@@ -405,6 +408,7 @@ export async function runUiTestFixes({browser,base,rows,out,settingsState=()=>({
    if(!started||r.method()!=='GET')return;
    if(u.pathname==='/api/sessions'){const j=await real(u),row=(j.sessions||j).find(s=>s.id===idle.id);row.state={kind:'input',label:'Needs your answer',confirmed:true,startedAt:Date.now()-2000,questions:1,queued:0};await send(r,j);return true;}
    if(u.pathname==='/api/session/'+idle.id){reads++;const j=await real(u);j.active=true;await send(r,j);return true;}
+   if(u.pathname==='/api/session/'+idle.id+'/events'){await r.respond({status:200,contentType:'text/event-stream',body:': running\n\n'});return true;} // a live turn's stream, not the idle "watch"
    if(u.pathname==='/api/session/'+idle.id+'/questions'){await send(r,{supported:true,requests:[{id:'request-9',blocking:true,questions:[{question:'Which colour should the label be?',options:[{label:'Blue'},{label:'Red'}]}]}]});return true;}
   });
   await openChat(page,idle.id);
@@ -416,6 +420,7 @@ export async function runUiTestFixes({browser,base,rows,out,settingsState=()=>({
   await page.waitForFunction(()=>/Which colour/.test(document.querySelector('#questions-open')?.textContent||''),{timeout:6000}).catch(()=>assert.fail('the banner shows the question'));
   const banner=await page.$eval('#questions-open',e=>({hidden:e.hidden,text:e.textContent}));
   assert.ok(!banner.hidden&&!/0 questions/.test(banner.text),banner.text);
+  await pause(700);assert.equal(await page.evaluate(()=>composerWorking&&Boolean(document.querySelector('#stopb'))),true,'and it stays Working');await snap(page,'reply-started-elsewhere');
   const before=reads;await page.evaluate(()=>refreshSessions());await page.evaluate(()=>refreshSessions());await pause(400);
   assert.equal(reads,before,'a page that already shows the run does not read the conversation again on every list refresh');
  });
@@ -496,9 +501,13 @@ export async function runUiTestFixes({browser,base,rows,out,settingsState=()=>({
     const wrap=[...document.querySelectorAll('#msgs .codewrap')].at(-1),pre=wrap.querySelector('pre'),chip=wrap.querySelector('.copybtn').getBoundingClientRect();
     pre.scrollLeft=pre.scrollWidth;
     const r=document.createRange(),t=pre.querySelector('code').firstChild;r.setStart(t,n-1);r.setEnd(t,n);
-    out.push({n,scrolls:pre.scrollWidth>pre.clientWidth,clear:Math.round(chip.left-r.getBoundingClientRect().right)});
+    const whole=wrap.closest('.m-asst').querySelector('.msgcopy')?.getBoundingClientRect();
+    out.push({n,scrolls:pre.scrollWidth>pre.clientWidth,clear:Math.round(chip.left-r.getBoundingClientRect().right),apart:!whole||whole.bottom<=chip.top+1||whole.left>=chip.right});
    }
    return out;});
+  await page.evaluate(()=>{document.querySelectorAll('#msgs pre').forEach(p=>{p.scrollLeft=0;});document.querySelector('#msgs').lastElementChild.scrollIntoView();});
+  await pause(450);await snap(page,'code-block-copy');
+  assert.ok(gaps.every(g=>g.apart),'a reply that opens with code keeps its two copy buttons apart: '+JSON.stringify(gaps));
   for(const g of gaps)assert.ok(g.clear>=0,`a ${g.n}-character first line can be read to its end (${-g.clear}px of it stayed under Copy${g.scrolls?', scrolled to the end':', with nothing to scroll'}): ${JSON.stringify(gaps)}`);
  });
 
@@ -521,6 +530,7 @@ export async function runUiTestFixes({browser,base,rows,out,settingsState=()=>({
    await other.evaluate(()=>{renderChat(chatId);}); // the other window is left and come back to
    assert.ok(await until(other,()=>Boolean(document.querySelector('#delivery-status')?.textContent)&&Boolean(document.querySelector('#box')),1200),'the other window says a send is on its way');
    const during=await other.evaluate(()=>({text:document.querySelector('#delivery-status').textContent,retry:Boolean(document.querySelector('#retry-message')),readOnly:document.querySelector('#box').readOnly}));
+   await snap(other,'sending-from-another-window');
    assert.deepEqual(during,{text:'Sending from another window…',retry:false,readOnly:false},'a send on its way from the other window is not "Delivery was not confirmed"');
    assert.ok(await until(other,()=>!localStorage.getItem('pc-outbox-'+chatId)&&!document.querySelector('#retry-message')&&!/Sending/.test(document.querySelector('#delivery-status').textContent),5000),'the line goes when it is delivered');
    assert.equal(await boxOf(other),'','and the other window\'s box is empty too');
