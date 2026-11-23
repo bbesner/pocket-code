@@ -5,7 +5,7 @@ build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-co
 
 ## [1.124.7] — 2026-11-23 · build 229
 
-One fix, found by a test that failed once in CI.
+One fix, found by a test that failed once in CI, and a longer wait in one browser test.
 
 - **The vault's file check closes its files before it returns.** `pinCommand` (the check of what a vault command will
   run, made before a run is claimed) started closing the files it had opened and returned without waiting. A file
@@ -17,6 +17,9 @@ One fix, found by a test that failed once in CI.
   before.
 - **Tests:** the contract test `pinCommand does not resolve while its file handles are still open` now keeps the
   thread pool busy while it checks five runs, so it fails every time on 1.124.6 instead of once in a while.
+  CI on this release also hit an unrelated intermittent failure in the Inbox news browser test: "Continue the
+  conversation" sends the news once the conversation is open and its news has loaded (the app allows 20 s), and the
+  test waited only 4 s; on a slow runner it gave up just before. That step now waits up to 15 s. Test change only.
 - **Migration:** none. **Rollback to 1.124.6:** nothing to undo.
 
 ## [1.124.6] — 2026-11-23 · build 228

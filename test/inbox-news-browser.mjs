@@ -29,7 +29,7 @@ export async function runInboxNewsRegressions({browser,base,rows,out,settings,re
  const listRow=()=>page.evaluate(id=>{const r=document.querySelector(`.session-item[data-item="${id}"]`);return r?{label:r.querySelector('.session-status').firstChild?.textContent||'',detail:r.querySelector('.activity-detail').textContent,tick:Boolean(r.querySelector('.done-close'))}:null;},sid);
  const tabLabel=()=>page.evaluate(id=>document.querySelector(`.open-session[data-tab="${id}"] .tab-state`)?.getAttribute('aria-label')||'',sid);
  const sentSince=(n,re)=>received.slice(n).find(b=>typeof b.text==='string'&&re.test(b.text));
- const until=async(fn,what)=>{for(let i=0;i<80&&!await fn();i++)await new Promise(r=>setTimeout(r,50));assert.ok(await fn(),what);};
+ const until=async(fn,what,tries=80)=>{for(let i=0;i<tries&&!await fn();i++)await new Promise(r=>setTimeout(r,50));assert.ok(await fn(),what);};
  const prevInbox=settings.inbox;
  try{
   settings.inbox=true;
@@ -102,8 +102,10 @@ export async function runInboxNewsRegressions({browser,base,rows,out,settings,re
   before=received.length;
   await page.click('.inbox-sheet [data-continue]');
   await page.waitForFunction(id=>location.hash==='#/chat/'+id,{},sid);
-  await until(()=>sentSince(before,/^New on this Inbox story since this conversation started \("Harbor gate: fixed"\)/),'the choice on the sheet sent the news');
-  await until(()=>inboxStore.newsFor(sid).length===0,'and the conversation is caught up');
+  // The sheet's choice runs once the conversation is open and its news has loaded (the app allows 20 s): 4 s was not
+  // always enough on a loaded CI runner (1.124.7), so this step waits up to 15 s.
+  await until(()=>sentSince(before,/^New on this Inbox story since this conversation started \("Harbor gate: fixed"\)/),'the choice on the sheet sent the news',300);
+  await until(()=>inboxStore.newsFor(sid).length===0,'and the conversation is caught up',300);
   conversations.set(sid,[...kept]);
 
   console.log('Inbox news: hand-off from the sheet asks the conversation for a briefing with the new mail in it');
