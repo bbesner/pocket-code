@@ -2570,6 +2570,9 @@ function skipQuestions(questions) {
   catch (e) { log(`question skip failed: ${e.message}`); return 0; }
 }
 function steerTurn(turn, text) {
+  // 1.124.3: the CLI's result may already be written and not yet read (the log is read every 300 ms); read it now, so a
+  // message is never written to a CLI whose turn has ended. That narrows the window to the CLI's own write.
+  if (turn.runner && !turn.finalized) drainRunnerLog(turn.runner);
   if (turn.finalized || turn.stopped || turn.stalled) return false;
   if (!turn.stdin || turn.stdin.destroyed || turn.stdin.writableEnded) return false;
   try { turn.stdin.write(userJSON(text)); } catch { return false; }
@@ -4142,6 +4145,7 @@ app.post('/api/session/:id/message', requireAuth, ownerSendGate, validateApprova
   if (!file && !running) return res.status(404).json({ error: 'not found' });
   const meta = file ? await sessionMeta(file, id) : { cwd: running.cwd };
   const cwd = meta.cwd && fs.existsSync(meta.cwd) ? meta.cwd : HOME;
+  if (running?.runner && !running.finalized) drainRunnerLog(running.runner); // 1.124.3: a result written but not read yet ends the turn here
   if (running?.finalized) { await running.finalizeDone; running = turns.get(id); } // a turn that is just ending: send as the next turn, not a steer
   if (!running && busyElsewhere(id)) return res.status(409).json({ error: 'This conversation is being used in another app right now (code-server or a terminal). Send again once that reply has finished.' });
   if (running) {

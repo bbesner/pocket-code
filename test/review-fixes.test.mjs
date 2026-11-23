@@ -265,3 +265,22 @@ test('watch mode: a write that lands while the mirror reads the one before it st
  assert.ok(ok,'the reply\'s last message reached both viewers');
 });
 
+// 1.124.3 (turns-07): a message sent in the moment between the CLI writing its result and Pocket reading it was steered
+// into the idle CLI, which ran it as a reply the agent started (stopped at once while paused). It is the owner's next reply.
+test('a message sent just after the CLI wrote its result starts the next reply as yours, not as a steer',async t=>{
+ const f=await fixture(t,18489);
+ const id=(await f.call('/new',{cwd:repo,...msg('first')})).body.id;
+ assert.ok(await f.until(async()=>await f.state(id)==='finished'));
+ assert.equal((await f.call(`/session/${id}/message`,msg('__SLOW__ second'))).status,202);
+ const logDir=path.join(f.dir,'data','turnlogs');
+ const results=()=>fs.readdirSync(logDir).filter(n=>n.startsWith(id)&&n.endsWith('.out.ndjson')).map(n=>fs.readFileSync(path.join(logDir,n),'utf8')).join('').split('\n').filter(l=>l.includes('"type":"result"')).length;
+ const before=results();
+ for(const end=Date.now()+8000;results()===before&&Date.now()<end;)await sleep(2);
+ assert.equal(results(),before+1,'the CLI wrote the second reply\'s result');
+ const r=await f.call(`/session/${id}/message`,msg('third, sent at once'));
+ assert.equal(r.status,202,JSON.stringify(r.body));
+ assert.notEqual(r.body.steered,true,'not steered into the reply that had ended');
+ assert.ok(await f.until(async()=>f.calls().some(c=>c.text==='third, sent at once')&&await f.state(id)==='finished',6000));
+ assert.doesNotMatch(f.logs(),new RegExp(`turn start \\(started by the agent\\) session=${id}`),'the CLI did not run it as its own reply');
+});
+
