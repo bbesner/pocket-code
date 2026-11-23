@@ -920,10 +920,7 @@ done({ ok: true, ret, stopped, gone: !!gone, results: r.t.events.filter(e => e.t
     } finally { reap(w); }
   });
 
-  test('DIV-7: usage-limit retry marker failure must not arm an undurable retry (server.mjs scheduleRetry)', () => {
-    assert.equal(C.isCodexLimit('usageLimitExceeded'), true, 'precondition');
-    assert.fail('scheduleRetry lives in server.mjs; it cannot be driven from codex.mjs without starting the service, which this review forbids');
-  });
+  // DIV-7 (the retry marker in server.mjs's scheduleRetry) is tested in claude-limit.test.mjs, against the running server.
 
   test('DIV-8: adopted autonomous turn keeps its autonomous mark and the origin its hook gave it after restart', async () => {
     const w = newWorld(); const T = uid();

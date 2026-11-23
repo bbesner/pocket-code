@@ -1841,7 +1841,9 @@ function scheduleRetry(sessionId, turn, resetAt) {
     model: turn.model || turn.requestedModel || null, effort: turn.effort || null, approvalMode:turn.approvalMode, attempt: (turn.retryAttempt || 0) + 1, fork: turn.runner?.fork || null,
     rootOrigin: auto.normRoot(turn.rootOrigin), ...(turn.originRef ? { originRef: turn.originRef } : {}), // 1.117: a retry carries the root of the turn it retries
   };
-  try { fs.writeFileSync(turnFiles(sessionId).retry, JSON.stringify(m), { mode: 0o600 }); } catch { }
+  // 1.124.4: a failed write still arms the retry (a later continuation is better than none), but it is said in the log.
+  try { fs.writeFileSync(turnFiles(sessionId).retry, JSON.stringify(m), { mode: 0o600 }); }
+  catch (e) { log(`auto-resume marker not written session=${sessionId}: ${e.message}; the automatic continuation is armed but will not survive a restart`); }
   if (pausedNow()) holdRetry(m); else armRetry(m);
   log(`rate limited session=${sessionId} — ${heldRetries.has(sessionId) ? 'auto-resume held (paused)' : `auto-resume at ${fmtOwnerTime(resetAt)}`} (attempt ${m.attempt})`);
 }

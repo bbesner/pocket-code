@@ -139,6 +139,18 @@ test('A Claude reply that ends on an API error is not a finished reply: a usage 
   assert.equal(run.body.status, 'failed', JSON.stringify(run.body)); assert.equal(run.body.outcome, 'error');
 });
 
+// 1.124.4 (bug review, DIV-7): the retry marker could not be written. The retry is still armed and runs, and the log says
+// it will not survive a restart (before, the failure was silent). A directory where the marker goes makes the write fail.
+test('A retry whose marker cannot be written is still armed and runs, and the log says it will not survive a restart', { timeout: 60_000 }, async t => {
+  const s = await boot(t, 19134);
+  const id = await s.start('limited task __LIMIT__ __SLOW__');
+  fs.mkdirSync(path.join(s.data, 'turnlogs', id + '.retry.json'), { recursive: true });
+  await s.until(() => s.logs().includes(`rate limited session=${id}`), 10000, 'the limit to be seen');
+  assert.match(s.logs(), new RegExp(`auto-resume marker not written session=${id}: .+; the automatic continuation is armed but will not survive a restart`));
+  await s.until(() => s.calls().some(c => c.id === id && /interrupted by an API rate limit/.test(c.text)), 15000, 'the retry to run');
+  assert.equal((await s.idle(id)).state?.label, 'Response ready', 'the retry\'s reply finished');
+});
+
 test('End to end: the real limit result waits for the reset it names, the queue holds, Pocket closes the idle process meanwhile, and the retry still carries the conversation on', { timeout: 120_000 }, async t => {
   // The reset is the next whole hour (UTC), as the CLI words it; a negative buffer brings the retry to 30 s from now, so
   // the process's idle close (17 s after the reply, past the old 15 s grace) and its exit bookkeeping come first.
