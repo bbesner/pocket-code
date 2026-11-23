@@ -265,3 +265,17 @@ test('a-x-http-1: Resume resumes Inbox Watch when the only change while paused w
   assert.equal((await s.call('/inbox/watch', { settings: { ...w, paused: true, every: 30 } }, s.bearer())).status, 200);
   assert.equal((await s.call('/resume', {})).body.inboxWatch, 'left_paused');
 });
+
+// a-x-http-3: the push body was cut by its raw size, while the limit is on the escaped payload: a body heavy in quotes,
+// backslashes and control characters (each several bytes once escaped) arrived as just "…".
+test('a-x-http-3: a push body heavy in escaped characters is cut to what fits, not to nothing', { timeout: 60_000 }, async t => {
+  const { push, s } = await bootWithPush(t, 21189, { refuseOver: 4096 });
+  const text = '"\\\u0001'.repeat(700); // 2,100 characters, 7,000 bytes once escaped
+  const r = await s.call('/notify', { title: 'Escapes', body: text, tag: 'esc' }, { ...s.bearer() });
+  assert.equal(r.status, 200); assert.equal(r.body.push, 1, JSON.stringify(r.body));
+  const m = push.all.find(x => x.tag === 'alert:esc');
+  assert.ok(m, 'delivered: ' + JSON.stringify(push.all));
+  assert.ok(m.body.endsWith('…') && text.startsWith(m.body.slice(0, -1)), 'cut at a character, and says so');
+  assert.ok(m.body.length > 900, `about as much as fits (${m.body.length} characters)`);
+  assert.ok(!push.all.some(x => x.refused), 'none over the push service\'s limit');
+});

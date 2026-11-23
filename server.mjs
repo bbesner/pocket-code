@@ -996,8 +996,9 @@ async function pushRaw(title, body, { tag, url, kind = 'turns', badge, ...extra 
   // 1.124.3: a push service refuses a message over 4,096 bytes once encrypted (about 100 more than the text), and the
   // callers cap the body in characters: 2,000 CJK characters or emoji is 6 KB, and the phone got nothing. The body is cut
   // by bytes, at a character, leaving room for the badge.
-  const over = Buffer.byteLength(JSON.stringify(base)) + 32 - PUSH_TEXT_MAX;
-  if (over > 0 && typeof body === 'string') base.body = cutBytes(body, Buffer.byteLength(body) - over);
+  // 1.124.5: measured as the payload carries it, escaped: a body of quotes, backslashes or control characters was cut to "…"
+  const over = Buffer.byteLength(JSON.stringify(base)) + 32 - PUSH_TEXT_MAX, escaped = s => Buffer.byteLength(JSON.stringify(s)) - 2;
+  if (over > 0 && typeof body === 'string') base.body = cutBytes(body, escaped(body) - over, escaped);
   const options = kind === 'turns' || kind === 'automation' ? {} : { urgency: 'high' }; // 1.119: automation goes at normal priority
   const dead = [];
   let sent = 0;
@@ -1014,9 +1015,10 @@ async function pushRaw(title, body, { tag, url, kind = 'turns', badge, ...extra 
   return sent;
 }
 // The longest start of s that is at most max bytes in UTF-8, cut at a character, with … in the last 3 bytes.
-function cutBytes(s, max) {
+// 1.124.5: `size`, a character's bytes as they are counted (pushRaw: escaped in JSON)
+function cutBytes(s, max, size = ch => Buffer.byteLength(ch)) {
   let out = '', n = 0;
-  for (const ch of s) { n += Buffer.byteLength(ch); if (n > max - 3) break; out += ch; }
+  for (const ch of s) { n += size(ch); if (n > max - 3) break; out += ch; }
   return out + '…';
 }
 
