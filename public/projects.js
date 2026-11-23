@@ -23,11 +23,12 @@ function mergeProject(p){
  boardSnap.scheduled=boardSnap.projects.flatMap(q=>q.reminders.map(r=>({...r,due:Date.parse(r.dueAt)<=now,project:q.id,projectName:q.name,projectStatus:q.status,taskText:r.task?q.tasks.find(t=>t.id===r.task)?.text||'':''}))).sort((a,b)=>Date.parse(a.dueAt)-Date.parse(b.dueAt));
  boardSnap.dueCount=boardSnap.scheduled.filter(r=>r.due).length;
 }
-async function boardAct(body,done){
+// onStale (1.124.2): called with the current card when the server refuses a stale revision, so an open sheet can take it on.
+async function boardAct(body,done,onStale){
  try{const r=await api('/board/act',{method:'POST',body:JSON.stringify(body)});mergeProject(r.project);if(done)toast(done);paintProjectsView();paintProjectBadges();if(typeof repaintDue==='function')repaintDue();
   if(typeof boardChangedChatMode==='function')boardChangedChatMode(body,r.project); // 1.106: the open conversation's chip follows a link, unlink or switch
   return r.project;}
- catch(e){const cur=e.body?.project;if(e.status===409&&cur){mergeProject(cur);paintProjectsView();}toast(e.message||'Could not update the project');return null;}
+ catch(e){const cur=e.body?.project;if(e.status===409&&cur){mergeProject(cur);paintProjectsView();onStale?.(cur);}toast(e.message||'Could not update the project');return null;}
 }
 const boardDueCount=()=>boardSnap?.dueCount||0;
 // 1.50: while Tasks is on, the Tasks list is where reminders are listed and counted; Scheduled stays for installs without it.
@@ -336,6 +337,7 @@ function stepSheet(t,onSave){
 }
 // Track (p = null) or edit a project. The directory defaults to the session's workspace when tracking from a session.
 function projectEditor(p,{directory='',session=null,onDone}={}){
+ let revision=p?.revision; // 1.124.2: after a refused Save, the current revision, so the next Save is the owner's overwrite and not the same refusal
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet project-editor';
  const v=k=>esc(p?.[k]??'');
  sh.innerHTML=`<h2>${p?'Edit project':'Track a project'}</h2>
@@ -354,8 +356,8 @@ function projectEditor(p,{directory='',session=null,onDone}={}){
  sh.querySelector('form').onsubmit=async e=>{
   e.preventDefault();const f=Object.fromEntries(new FormData(e.target));const btn=e.target.querySelector('button');btn.disabled=true;
   if(p&&'worksIn' in f)f.worksIn=String(f.worksIn||'').split('\n').map(x=>x.trim()).filter(Boolean); // 1.106: one place per line
-  const body=p?{action:'update',project:p.id,expected_revision:p.revision,...f}:{action:'track',...f,requested:true,...(session?{session}:{})};
-  const out=await boardAct(body,p?'Project updated':'Project tracked');
+  const body=p?{action:'update',project:p.id,expected_revision:revision,...f}:{action:'track',...f,requested:true,...(session?{session}:{})};
+  const out=await boardAct(body,p?'Project updated':'Project tracked',cur=>{revision=cur.revision;});
   btn.disabled=false;if(!out)return;closeCurrentSheet?.();
   if(onDone)onDone(out);else if(!p)location.hash=viewHref('projects/'+out.id);
  };

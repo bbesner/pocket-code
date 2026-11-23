@@ -2450,6 +2450,37 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     assert.equal(await page.$eval('[data-note-add] input',e=>e.value),'');
    }finally{settings.projects=was;await page.evaluate(()=>fetch('/api/board/reset',{method:'POST'})).catch(()=>{});}
   });
+  // 1.124.2: Save in Edit project or Edit task after an agent changed it is refused once, and the sheet stays open with the
+  // owner's edit. The second Save is the owner's decision to overwrite, so it must not be refused again with the same revision.
+  await check('Projects stale edit (1.124.2): after a refused Save, the next Save in Edit project and Edit task goes through',async()=>{
+   await page.setViewport({width:1440,height:900});const settings=settingsState(),was={projects:settings.projects,tasks:settings.tasks};settings.projects=true;settings.tasks=true;
+   const ID='warehouse-stock-report',SUMMARY='Aisle 4 recounted twice; the shortfall is the Friday delivery.',TEXT='Chase the revised camera quote by Thursday';
+   const settle=async(fn,...a)=>{for(let i=0;i<40;i++){if(await page.evaluate(fn,...a))return true;await pause(100);}return false;};
+   const refused=re=>page.waitForFunction(re=>new RegExp(re).test(document.querySelector('#toast')?.textContent||''),{},re);
+   try{
+    await page.evaluate(()=>Promise.all(['/api/board/reset','/api/tasks/reset'].map(u=>fetch(u,{method:'POST'}))));
+    await page.goto(base+'/?stale-edit=1#/projects/'+ID);await page.waitForSelector('.project-card [data-edit]');
+    await clickControl(page,'.project-card [data-edit]');await page.waitForSelector('.project-editor form');
+    await page.$eval('.project-editor [name="summary"]',e=>{e.value='';});await page.type('.project-editor [name="summary"]',SUMMARY);
+    await page.evaluate(id=>fetch('/api/board/act',{method:'POST',body:JSON.stringify({project:id,action:'note',text:'Ledger re-imported by the agent.'})}),ID);
+    await clickControl(page,'.project-editor .primary');await refused('This project changed since you loaded it');
+    assert.equal(await page.$eval('.project-editor [name="summary"]',e=>e.value),SUMMARY,'the sheet stays open with the edit');
+    await clickControl(page,'.project-editor .primary');
+    assert.ok(await settle(()=>!document.querySelector('.project-editor')),'the second Save goes through and closes the sheet');
+    assert.equal(await page.evaluate(id=>fetch('/api/board').then(r=>r.json()).then(s=>s.projects.find(p=>p.id===id).summary),ID),SUMMARY);
+    // The same in Edit task.
+    await page.goto(base+'/?stale-edit=2#/tasks');await page.waitForSelector('.task-item');
+    const tid=await page.evaluate(()=>{const t=tasksSnap.tasks.find(x=>x.text==='Chase the revised camera quote');taskSheet(t.id);return t.id;});
+    await page.waitForSelector('.task-sheet [data-edit]');await clickControl(page,'.task-sheet [data-edit]');await page.waitForSelector('.task-form');
+    await page.$eval('.task-form [name="text"]',e=>{e.value='';});await page.type('.task-form [name="text"]',TEXT);
+    await page.evaluate(id=>fetch('/api/tasks/act',{method:'POST',body:JSON.stringify({action:'update',task:id,summary:'The vendor asked for the site plan first.'})}),tid);
+    await clickControl(page,'.task-form .primary');await refused('This task changed since you loaded it');
+    assert.equal(await page.$eval('.task-form [name="text"]',e=>e.value),TEXT,'the task sheet stays open with the edit');
+    await clickControl(page,'.task-form .primary');
+    assert.ok(await settle(()=>!document.querySelector('.task-form')),'the second Save goes through and closes the task sheet');
+    assert.equal(await page.evaluate(id=>fetch('/api/tasks').then(r=>r.json()).then(s=>s.tasks.find(t=>t.id===id).text),tid),TEXT);
+   }finally{Object.assign(settings,was);await page.evaluate(()=>Promise.all(['/api/board/reset','/api/tasks/reset'].map(u=>fetch(u,{method:'POST'})))).catch(()=>{});}
+  });
 
   await check('Documents (1.30): off by default, then the library, a sandboxed HTML document, Markdown and CSV views, sharing, keep from Results, the project section, tabs, split, rail, settings and the phone',async()=>{
    await page.setViewport({width:1440,height:900});const sleep=ms=>new Promise(r=>setTimeout(r,ms));

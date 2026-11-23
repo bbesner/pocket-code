@@ -24,9 +24,10 @@ function mergeTask(t){
  tasksSnap.tasks.sort((a,b)=>a.done!==b.done?(a.done?1:-1):a.done?Date.parse(b.doneAt)-Date.parse(a.doneAt):(a.dueAt&&b.dueAt)?Date.parse(a.dueAt)-Date.parse(b.dueAt):a.dueAt?-1:b.dueAt?1:Date.parse(b.created)-Date.parse(a.created));
  tasksSnap.openCount=tasksSnap.tasks.filter(x=>!x.done).length;tasksSnap.dueCount=tasksSnap.tasks.filter(x=>x.due).length;
 }
-async function taskAct(body,done){
+// onStale (1.124.2): called with the current task when the server refuses a stale revision, so an open sheet can take it on.
+async function taskAct(body,done,onStale){
  try{const r=await api('/tasks/act',{method:'POST',body:JSON.stringify(body)});mergeTask(r.task);if(done)toast(done);paintTasksView();paintRailTasks();paintTaskBadges();return r.task;}
- catch(e){const cur=e.body?.task;if(e.status===409&&cur){mergeTask(cur);paintTasksView();paintRailTasks();}toast(e.message||'Could not update the task');return null;}
+ catch(e){const cur=e.body?.task;if(e.status===409&&cur){mergeTask(cur);paintTasksView();paintRailTasks();onStale?.(cur);}toast(e.message||'Could not update the task');return null;}
 }
 const taskDueCount=()=>tasksSnap?.dueCount||0;
 // 1.50: the project reminders that belong in the list (open ones on projects that are not done), and the combined due count.
@@ -166,6 +167,7 @@ function startTask(t){
 }
 // New task, or edit one. From a session the editor can include a briefing on that session, written by the titles helper.
 function taskEditor(t,{session=null,sessionTitle='',directory=''}={}){
+ let revision=t?.revision; // 1.124.2: after a refused Save, the current revision, so the next Save is the owner's overwrite and not the same refusal
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet';
  const local=iso=>{if(!iso)return '';const d=new Date(iso);const p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;};
  const fromSession=!t&&session;
@@ -193,8 +195,8 @@ function taskEditor(t,{session=null,sessionTitle='',directory=''}={}){
    catch{toast('No summary could be written; task added without context.');}
    note.hidden=true;
   }
-  const body=t?{action:'update',task:t.id,expected_revision:t.revision,text,dueAt,summary}:{action:'add',text,dueAt,summary,...(session?{session,sessionTitle}:{}),directory};
-  const out=await taskAct(body,t?'Task updated':dueAt?'Task added for '+fmtDue(dueAt):'Task added');
+  const body=t?{action:'update',task:t.id,expected_revision:revision,text,dueAt,summary}:{action:'add',text,dueAt,summary,...(session?{session,sessionTitle}:{}),directory};
+  const out=await taskAct(body,t?'Task updated':dueAt?'Task added for '+fmtDue(dueAt):'Task added',cur=>{revision=cur.revision;});
   btn.disabled=false;if(!out)return;closeCurrentSheet?.();
  };
  mountSheet(scrim,sh);
