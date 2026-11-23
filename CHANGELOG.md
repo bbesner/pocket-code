@@ -3,7 +3,7 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
-## [1.123.1] — Unreleased · build 221
+## [1.123.1] — 2026-11-22 · build 221
 
 Seen on the owner's install with Antigravity (agy 1.5.14, Gemini 4 Neon). A reply rendered videos with a command that
 ran about four minutes, so agy moved it to the background and Pocket kept the reply open, as 1.120.0 intended. When the
