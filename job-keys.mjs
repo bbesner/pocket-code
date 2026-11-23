@@ -17,6 +17,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
+import { readStore } from './store-file.mjs';
 
 export const KEY_RE = /^pjk_[A-Za-z0-9_-]{43}$/;
 export const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,47}$/;
@@ -127,13 +128,12 @@ export function removeKeyFile(file, keyHash) {
 export class JobKeyStore {
   // keepMs(): how long finished runs are kept (the repeat window); at least a day.
   // proposalTtlMs: how long a proposal waits for the owner (24 hours; a test shortens it).
-  constructor(file, { now, keepMs, proposalTtlMs } = {}) {
+  constructor(file, { now, keepMs, proposalTtlMs, log } = {}) {
     this.file = file;
     this.now = now || Date.now;
     this.keepMs = keepMs || (() => 7 * 86400_000);
     this.proposalTtlMs = Number(proposalTtlMs) > 0 ? Number(proposalTtlMs) : PROPOSAL.ttlMs;
-    let d = {};
-    try { d = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { }
+    const d = readStore(file, { log, now: this.now }); // 1.124.4: one that does not parse is kept aside and logged, not read as no keys
     this.keys = Array.isArray(d.keys) ? d.keys.filter(k => k && KEY_ID_RE.test(k.id) && NAME_RE.test(k.name) && /^[0-9a-f]{64}$/.test(k.keyHash || '')) : [];
     this.runs = Array.isArray(d.runs) ? d.runs.filter(r => r && RUN_RE.test(r.run) && typeof r.keyId === 'string') : [];
     this.proposals = Array.isArray(d.proposals) ? d.proposals.filter(p => p && REQUEST_RE.test(p.id) && typeof p.session === 'string' && p.fields && typeof p.fields === 'object'

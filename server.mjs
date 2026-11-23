@@ -510,7 +510,7 @@ const checkbacksOn = () => checkbackSettings().checkbacks === true;
 const jobSettings = () => auto.groupValues(settings.automation, 'jobs');
 const jobsOn = () => jobSettings().jobs === true;
 // A proposal (pocket-jobkey propose) waits this long for the owner's Allow; POCKET_JOB_REQUEST_TTL_MS shortens it (the tests).
-const jobStore = new JobKeyStore(path.join(DATA_DIR, 'job-keys.json'), { keepMs: () => jobSettings().jobRepeatDays * 86400_000, proposalTtlMs: msSetting('POCKET_JOB_REQUEST_TTL_MS', 24 * 3600_000) });
+const jobStore = new JobKeyStore(path.join(DATA_DIR, 'job-keys.json'), { keepMs: () => jobSettings().jobRepeatDays * 86400_000, proposalTtlMs: msSetting('POCKET_JOB_REQUEST_TTL_MS', 24 * 3600_000), log });
 const JOBKEY_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-jobkey.mjs');
 // May this engine's conversations use check-backs? OpenRouter never (the spec leaves it out; its route answers engine_unsupported).
 const checkbackEngineOn = engine => { const v = checkbackSettings(); return v.checkbacks === true && (engine === 'claude' ? v.checkbackClaude : engine === 'codex' ? v.checkbackCodex : false) === true; };

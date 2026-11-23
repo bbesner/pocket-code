@@ -208,3 +208,17 @@ test('Every Job keys setting saves, refuses out of range naming the range, takes
   assert.equal(auto.homeFolder('~', os.homedir()), '~/');
   assert.equal(auto.homeFolder('~/a/../../x'), null);
 });
+
+test('1.124.4: a job-keys.json that does not parse is kept aside and logged, and the next change does not replace it', t => {
+  const dir = tmp(); t.after(() => rm(dir));
+  const file = path.join(dir, 'job-keys.json');
+  const a = new JobKeyStore(file);
+  a.addKey(fields()); a.addKey(fields({ name: 'nightly-report' }));
+  const torn = fs.readFileSync(file, 'utf8').slice(0, 40); fs.writeFileSync(file, torn);
+  const said = [], b = new JobKeyStore(file, { now: () => Date.parse('2026-11-23T10:15:30Z'), log: m => said.push(m) });
+  assert.deepEqual(b.keys, []);
+  const kept = path.join(dir, 'job-keys.json.corrupt-20261123-101530');
+  assert.equal(fs.readFileSync(kept, 'utf8'), torn, 'kept as it was'); assert.ok(said.length === 1 && said[0].includes(kept), said.join('\n'));
+  b.addKey(fields({ name: 'fresh-start' }));
+  assert.equal(fs.readFileSync(kept, 'utf8'), torn, 'the next change leaves the kept copy alone'); assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).keys.length, 1);
+});
