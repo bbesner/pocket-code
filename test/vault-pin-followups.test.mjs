@@ -217,6 +217,32 @@ test('forms: what Pocket cannot pin is not offered Always allow, and the request
   fs.rmSync(dir,{recursive:true,force:true});
 });
 
+// 1.124.4 (bug review DIV-2): scp and rsync ran a helper given in an attached or clustered spelling (scp -S./h, -qS./h,
+// rsync -ave./h) unasked after one Always; scp and sftp also start one for -D, a ProxyCommand-style -o, and sftp's batch file.
+test('forms: scp, sftp and rsync with a local helper program, in any spelling, are not offered Always allow',async()=>{
+  const dir=tmp();write(dir,'h','#!/bin/sh\nexit 1\n',0o755);write(dir,'src.txt','x\n');write(dir,'batch','!./h\n');
+  for(const n of ['scp','sftp','rsync'])if(!has(n))write(dir,'bin/'+n,'#!/bin/sh\nexit 0\n',0o755);
+  const P=[path.join(dir,'bin'),PATH].join(':'),dst='example.invalid:dst';
+  const refused=[
+    ['scp','-S./h','src.txt',dst],['scp','-qS./h','src.txt',dst],['scp','-S','./h','src.txt',dst],['scp','-D./h','src.txt',dst],['scp','-D','./h','src.txt',dst],
+    ['scp','-oProxyCommand=./h','src.txt',dst],['scp','-o','ProxyCommand=./h','src.txt',dst],['scp','-o','ProxyCommand ./h','src.txt',dst],['scp','-qoProxyCommand=./h','src.txt',dst],
+    ['sftp','-S./h','example.invalid'],['sftp','-S','./h','example.invalid'],['sftp','-D','./h','example.invalid'],['sftp','-oProxyCommand=./h','example.invalid'],
+    ['sftp','-bbatch','example.invalid'],['sftp','-b','batch','example.invalid'],
+    ['rsync','-ave./h','src.txt',dst],['rsync','-e./h','src.txt',dst],['rsync','-avze','./h','src.txt',dst],['rsync','-e','./h','src.txt',dst],['rsync','--rsh=./h','src.txt',dst],['rsync','src.txt',dst,'--rsh','./h'],
+  ];
+  for(const argv of refused){
+    const pin=await V.pinCommand({argv,cwd:dir},{PATH:P});
+    assert.equal(pin.refuse?.why,'starts',argv.join(' ')+': '+JSON.stringify(pin.refuse||null));
+    assert.equal(V.VaultStore.unpinnable(pin),true,argv.join(' ')+' is never allowed always');
+  }
+  // Still offered: copies that start no program of their own here (-J goes through ssh, like a plain copy).
+  for(const argv of [['scp','-q','-P','2222','src.txt',dst],['scp','-J','example.invalid','src.txt',dst],['sftp','-P','2222','example.invalid'],['rsync','-av','src.txt',dst],['rsync','-av','--delete','src.txt',dst]]){
+    const pin=await V.pinCommand({argv,cwd:dir},{PATH:P});
+    assert.equal(V.VaultStore.unpinnable(pin),false,argv.join(' ')+': '+JSON.stringify(pin.refuse||pin.unknown||null));
+  }
+  fs.rmSync(dir,{recursive:true,force:true});
+});
+
 test('forms over HTTP: the reviewer\'s four commands either ask again after a change or are never allowed always',async t=>{
   const s=await vaultServer(t,{port:22467});
   const loot=path.join(s.work,'loot'),leaked=()=>fs.existsSync(loot)&&fs.readFileSync(loot,'utf8')===SECRET;
