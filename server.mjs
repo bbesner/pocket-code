@@ -3015,7 +3015,8 @@ function stateFor(s) {
   const quietSince=!cx && !ac && !turn && outcome && s.mtimeMs > outcome.at + 5000 && quietSinceOwned(s.id, s.mtimeMs);
   const state=sessionState({ turn: turn ? {...turn,queue} : null, external: ac ? false : cx ? codex.codexExtActive(codex.bareId(s.id)) : extActive(s.id),
     retryAt, outcome, mtimeMs:s.mtimeMs, background: cx || ac ? [] : backgroundJobs(s.id), quietSince });
-  if(queue.length&&!turn && state.kind!=='failed')return {kind:'waiting',label:queue[0].status==='uncertain'?'Queue needs review':'Queue paused',queued:queue.length,confirmed:true};
+  // 1.124.5: a usage-limit wait keeps its label and retry time with messages queued (they follow the retry's reply)
+  if(queue.length&&!turn && state.kind!=='failed' && !(state.kind==='waiting'&&state.retryAt))return {kind:'waiting',label:queue[0].status==='uncertain'?'Queue needs review':'Queue paused',queued:queue.length,confirmed:true};
   return {...state,...(queue.length?{queued:queue.length}:{}),...(state.kind==='running'&&turn?.origin&&turn.origin!=='owner'?{origin:turn.origin,...(turn.originRef?{originRef:shownOriginRef(turn)}:{})}:{})}; // 1.117: who started the running reply
 }
 // 1.111: the push for a reply that ended with a Complete card: the word, then the agent's outcome line.
@@ -3821,12 +3822,15 @@ async function acpMessages(id, turn = null) {
 }
 // 1.89 (F-8): a reply's own text, held in the queue while it waits for the closing process (waitingTurn), is not a queued message.
 const shownQueue = id => { const t = turns.get(id); return followups.list(id).filter(x => !(x.held && t?.pending)); };
+// 1.124.5: when an armed usage-limit retry runs (its marker's time), or null: none armed, or held by Pause all
+const retryWaitAt = id => { if (!retryTimers.has(id)) return null; try { return JSON.parse(fs.readFileSync(turnFiles(id).retry, 'utf8')).at || null; } catch { return null; } };
 function queueError(res,e){return res.status(e.status||503).json({error:e.status?e.message:'Queue could not be saved. Refresh and try again.'});}
 app.get('/api/session/:id/queue',requireAuth,(req,res)=>{
   if(!anyId(req.params.id))return res.status(400).json({error:'Invalid conversation'});
   const id=req.params.id;
   const jobs=isCx(id)||isAcpId(id)?[]:staleJobs(id); // 1.89.2: what the queue is waiting for
-  res.json({items:shownQueue(id),active:Boolean(ownedTurn(id)),external:isCx(id)?codex.codexExtActive(codex.bareId(id)):extActive(id),...(jobs.length&&{waitingForJobs:jobList(jobs)})});
+  const retryAt=retryWaitAt(id); // 1.124.5: the queue waits for the usage-limit retry
+  res.json({items:shownQueue(id),active:Boolean(ownedTurn(id)),external:isCx(id)?codex.codexExtActive(codex.bareId(id)):extActive(id),...(jobs.length&&{waitingForJobs:jobList(jobs)}),...(retryAt&&{retryAt})});
 });
 app.patch('/api/session/:id/queue/:item',requireAuth,(req,res)=>{
   if(req.body.editing===true){try{return res.json({item:followups.beginEdit(req.params.id,req.params.item,req.body.revision)});}catch(e){return queueError(res,e);}}
@@ -3840,6 +3844,9 @@ app.post('/api/session/:id/queue/start',requireAuth,ownerSendGate,async(req,res)
   const id=req.params.id;if(!anyId(id))return res.status(400).json({error:'Invalid conversation'});
   if(ownedTurn(id)|| (isCx(id)?codex.codexExtActive(codex.bareId(id)):extActive(id)))return res.status(409).json({error:'A reply is running or activity was seen elsewhere. Wait before starting queued work.'});
   if(followups.list(id)[0]?.id!==req.body.itemId)return res.status(409).json({error:'The queue changed. Refresh before starting the next message.'});
+  // 1.124.5: during a usage-limit wait the row would only run into the same limit; the queue follows the retry's reply
+  const retryAt=retryWaitAt(id);
+  if(retryAt)return res.status(409).json({error:`Waiting for the usage limit to reset. Pocket retries the reply at ${fmtOwnerTime(retryAt)}, then runs the queue.`,code:'usage_wait',retryAt});
   try {const started=await runNextFollowup(id,undefined,{replaceStale:req.body?.replaceStaleLogin===true,by:'owner'});res.json({ok:true,started:Boolean(started)});}catch(e){queueError(res,e);}
 });
 
