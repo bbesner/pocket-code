@@ -362,7 +362,8 @@ then `pm2 restart <its pm_id>` (the stored PM2 environment is kept; Pocket reads
 to 90 seconds for a new process that serves the release and answers `/api/health`, and is still the same
 process 10 seconds later. Then `pm2 save`. If any step after the checkout moves fails, the checkout and
 packages go back to the previous commit; if the new version does not come up, the previous version is
-restarted too. The daemon refuses to start it while a reply or a CLI upgrade is running.
+restarted too. If the previous packages cannot be installed again either, the job says so (1.124.2): the running
+daemon carries on, but run `npm ci` in the checkout before it next restarts. The daemon refuses to start it while a reply or a CLI upgrade is running.
 
 Progress is in `pocket-self-update.json` in the data folder (a job silent for 20 minutes shows as
 interrupted) and the script's output in `pocket-self-update.log`; both are git-ignored. Requirements: PM2

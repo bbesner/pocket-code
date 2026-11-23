@@ -182,3 +182,22 @@ test('1.124.2: a backup tar gives up on (exit 2, a full disk) is removed and not
   assert.deepEqual(fs.existsSync(path.join(d,'backups'))?fs.readdirSync(path.join(d,'backups')):[],[],'the partial archive does not stay on the disk');
   assert.equal(sh(dir,'rev-parse','HEAD'),head,'the checkout did not move');
 });
+
+test('1.124.2: when npm ci fails and putting the old packages back fails too, the job says Pocket will not start again, not that it stays',{timeout:120000},async t=>{
+  const {d,dir,bin,run}=await setup(t,{port:freePort()});
+  const head=sh(dir,'rev-parse','HEAD');
+  // npm ci removes node_modules before it installs; the first FAIL_CI runs then fail (the registry is unreachable, the disk full).
+  const n=path.join(d,'npm-ci-runs');
+  const failCi=k=>wrap(bin,'npm',`if [ "$1" = ci ]; then c=$(cat '${n}' 2>/dev/null || echo 0); echo $((c+1)) > '${n}'; if [ "$c" -lt ${k} ]; then rm -rf node_modules; echo 'npm error network request failed' >&2; exit 1; fi; fi`);
+  failCi(2);
+  const r=run('1.1.0','1.0.0');
+  assert.equal(r.status,1,r.stdout+r.stderr);assert.equal(r.job.phase,'failed');
+  assert.doesNotMatch(r.job.error,/stays on/);
+  assert.match(r.job.error,/Installing v1\.1\.0's packages failed, and putting 1\.0\.0's packages back failed too/);
+  assert.ok(r.job.error.includes(`npm ci in ${dir}`),r.job.error);assert.ok(r.job.error.includes(r.job.backup),'the backup is named');
+  assert.equal(sh(dir,'rev-parse','HEAD'),head,'the checkout itself went back');
+  // when putting them back works, the job still says Pocket stays where it was
+  fs.writeFileSync(n,'0');failCi(1);
+  const ok=run('1.1.0','1.0.0');
+  assert.equal(ok.job.phase,'failed');assert.equal(ok.job.error,"Installing v1.1.0's packages failed. Pocket stays on 1.0.0.");
+});

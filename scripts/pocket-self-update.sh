@@ -43,11 +43,14 @@ wait_for() {
     fi
   done; return 1
 }
-put_back() { # return the checkout and its packages to what was running
+put_back() { # return the checkout and its packages to what was running; fails when either could not be put back
   [ "$moved" = 1 ] || return 0
-  if [ "$branch" = main ]; then git reset -q --hard "$prev"; else git checkout -q --detach "$prev"; fi
+  if [ "$branch" = main ]; then git reset -q --hard "$prev"; else git checkout -q --detach "$prev"; fi || return 1
   npm ci --silent --no-audit --no-fund
 }
+# 1.124.2: npm ci removes node_modules before it installs, so when putting the old packages back fails too, the running daemon
+# works only from what it has loaded and will not start again: say so, and what to run, instead of "Pocket stays on".
+not_back() { fail "$1, and putting $from's packages back failed too. Pocket keeps running for now but will not start again after a restart until you run npm ci in $dir on the server. Backup: $backup"; }
 
 cd "$dir" || fail 'Could not open the Pocket Code folder. Nothing was changed.'
 exec 9>"$status.lock"
@@ -91,8 +94,8 @@ say backing-up '' "$backup"
 say installing
 if [ "$branch" = main ]; then git merge --ff-only -q "$commit"; else git checkout -q --detach "$commit"; fi || fail "Could not move to $tag. Nothing was changed."
 moved=1
-npm ci --silent --no-audit --no-fund || { put_back; fail "Installing $tag's packages failed. Pocket stays on $from."; }
-npm run -s check:release -- --released || { put_back; fail "$tag did not pass its release check. Pocket stays on $from."; }
+npm ci --silent --no-audit --no-fund || { put_back || not_back "Installing $tag's packages failed"; fail "Installing $tag's packages failed. Pocket stays on $from."; }
+npm run -s check:release -- --released || { put_back || not_back "$tag did not pass its release check"; fail "$tag did not pass its release check. Pocket stays on $from."; }
 
 say restarting
 old_pid=$(app_pid)
