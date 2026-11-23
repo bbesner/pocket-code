@@ -3,6 +3,21 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.124.6] — 2026-11-23 · build 228
+
+One fix, contributed in #293.
+
+- **A shared video plays when opened by its own address.** A video opened on a share link (`/share/<token>`), a public
+  address (`/files/<name>`) or **Open in your viewer** showed a grey player that never loaded. A browser shows such a file
+  in a media document whose player loads the same address again as media, and the policy Pocket sends with every file
+  that is not HTML (`default-src 'none'`) blocked that load. A response whose type is `video/*` or `audio/*` now also
+  carries `media-src 'self'`; `.mp4` is the only such type Files accepts today. Every other kind of file gets exactly
+  the policy it had, and the video's own policy allows nothing else: no script, no image, no frame, no other origin.
+- **Tests:** `test/documents.test.mjs` checks the policy on the signed-in address, a public address and a share link for
+  a video, and that a file that is not media has no `media-src`; it fails on 1.124.5. Checked by hand in headless Chrome:
+  with the old policy the player stays at `readyState` 0 with a policy violation, with the new one it reaches 4.
+- **Migration:** none. **Rollback to 1.124.5:** nothing to undo.
+
 ## [1.124.5] — 2026-11-23 · build 227
 
 The UI/UX test, run on the code as the bug review left it (1.124.4). Two passes. A **layout sweep** opened 242 screens
