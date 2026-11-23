@@ -44,7 +44,7 @@ export async function runInboxNewsRegressions({browser,base,rows,out,settings,re
   await fixture('n=1&start=0123456789f0');
   await open(1440);await page.waitForSelector('.inbox-news');
   const c=await card();
-  assert.equal(c.title,'New mail on this story');assert.match(c.when,/^ · \d{1,2}:\d\d\s[ap]m$/u);
+  assert.equal(c.title,'New mail on this story');assert.match(c.when,/^ · \d{1,2}:\d\d\s[AP]M$/u);
   assert.equal(c.sum,'Kai is on site at 2 pm.','what the mail says, not the conversation’s own title');
   assert.deepEqual([c.afterReply,c.buttons,c.size],[true,['Bring it in','New conversation','Not now'],'']);
   assert.equal(await doneShown(),false,'a conversation with mail it has not read is not finished: no Complete card');
@@ -66,7 +66,7 @@ export async function runInboxNewsRegressions({browser,base,rows,out,settings,re
   await fixture('n=1&start=0123456789f0');
   await open(1440);await page.waitForSelector('.inbox-news');
   const two=await card();
-  assert.equal(two.title,'2 new on this story');assert.match(two.when,/^ · latest \d{1,2}:\d\d\s[ap]m$/u);
+  assert.equal(two.title,'2 new on this story');assert.match(two.when,/^ · latest \d{1,2}:\d\d\s[AP]M$/u);
   assert.equal(await doneShown(),false);
 
   console.log('Inbox news: Bring it in sends the news as the next message and marks the conversation caught up');
