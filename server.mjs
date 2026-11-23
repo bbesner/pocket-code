@@ -1585,7 +1585,7 @@ const ownedTranscriptSize = new Map((() => { try { return Object.entries(JSON.pa
 function rememberOwnedSize(id, size) {
   ownedTranscriptSize.delete(id); ownedTranscriptSize.set(id, size);
   while (ownedTranscriptSize.size > 500) ownedTranscriptSize.delete(ownedTranscriptSize.keys().next().value);
-  try { fs.writeFileSync(OWNED_FILE, JSON.stringify(Object.fromEntries(ownedTranscriptSize)), { mode: 0o600 }); } catch { }
+  try { atomicWrite(OWNED_FILE, Object.fromEntries(ownedTranscriptSize)); } catch { } // 1.124.3: replaced whole, so a crash mid-write cannot cut it short
 }
 const extActivity = new Map(); // sessionId -> last transcript write (ms)
 const tailers = new Map();     // sessionId -> Set<{res, offset, rem}>
@@ -1636,8 +1636,11 @@ if (CODEX_ON) {
 }
 
 const pumping = new Set();
+// 1.124.3: a write that lands while a read is on its way is read once that read ends. It used to be skipped, and nothing
+// read again until the next write: a reply's last message could stay missing from the mirror.
+const pumpAgain = new Set();
 async function pumpTail(id, file) {
-  if (pumping.has(id)) return;
+  if (pumping.has(id)) { pumpAgain.add(id); return; }
   pumping.add(id);
   try {
     const set = tailers.get(id);
@@ -1649,12 +1652,15 @@ async function pumpTail(id, file) {
       try {
         const buf = Buffer.alloc(size - t.offset);
         await fh.read(buf, 0, buf.length, t.offset);
-        let at = t.offset - Buffer.byteLength(t.rem);
+        let at = t.offset - t.rem.length, from = 0;
         t.offset = size;
-        const lines = (t.rem + buf.toString('utf8')).split('\n');
-        t.rem = lines.pop() ?? '';
-        for (const line of lines) {
-          at += Buffer.byteLength(line) + 1; // byte offset just past this line
+        // 1.124.3: cut on the newline byte, then decoded; the partial last line stays bytes (as in drainRunnerLog)
+        const data = Buffer.concat([t.rem, buf]), lines = [];
+        for (let nl; (nl = data.indexOf(10, from)) >= 0; from = nl + 1) lines.push(data.subarray(from, nl));
+        t.rem = Buffer.from(data.subarray(from));
+        for (const b of lines) {
+          const line = b.toString('utf8');
+          at += b.length + 1; // byte offset just past this line
           if (!line.trim()) continue;
           let o; try { o = JSON.parse(line); } catch { continue; }
           const m = normalizeLine(o);
@@ -1666,6 +1672,7 @@ async function pumpTail(id, file) {
     }
   } catch { } finally {
     pumping.delete(id);
+    if (pumpAgain.delete(id)) pumpTail(id, file);
   }
 }
 
@@ -2056,8 +2063,11 @@ function drainTurnLog(turn) {
       const buf = Buffer.alloc(size - turn.tailOffset);
       fs.readSync(fh, buf, 0, buf.length, turn.tailOffset);
       turn.tailOffset = size;
-      const lines = (turn.tailRem + buf.toString('utf8')).split('\n');
-      turn.tailRem = lines.pop() ?? '';
+      // 1.124.3: cut on the newline byte, then decoded; the partial last line stays bytes (as in drainRunnerLog)
+      const data = Buffer.concat([turn.tailRem, buf]), lines = [];
+      let from = 0;
+      for (let nl; (nl = data.indexOf(10, from)) >= 0; from = nl + 1) lines.push(data.toString('utf8', from, nl));
+      turn.tailRem = Buffer.from(data.subarray(from));
       for (const l of lines) if (l.trim()) handleTurnLine(turn, l);
     } finally { fs.closeSync(fh); }
   } catch { /* log file briefly absent — next tick */ }
@@ -2067,7 +2077,7 @@ function drainTurnLog(turn) {
 // them to the end, as before.
 function trackTurn(sessionId, turn) {
   turns.set(sessionId, turn);
-  turn.tailOffset = 0; turn.tailRem = '';
+  turn.tailOffset = 0; turn.tailRem = Buffer.alloc(0);
   turn.tailTimer = setInterval(() => drainTurnLog(turn), 300);
 }
 
@@ -2121,9 +2131,13 @@ function spawnRunner({ sessionId, cwd, resume, fork, model, effort, mode }) {
   else args.push(resume ? '--resume' : '--session-id', sessionId);
   const key = Date.now().toString(36);
   const files = runnerFiles(sessionId, key);
-  for (const file of [files.out, files.err]) { fs.writeFileSync(file, '', { mode: 0o600 }); fs.chmodSync(file, 0o600); }
-  ensurePipeDir(PIPE_DIR, PIPES.top);
-  execFileSync('mkfifo', ['-m', '600', files.fifo]);
+  // 1.124.3: nothing has started yet, so a failure here (a full disk, a refused pipe directory) is a start that did not happen
+  // (notStarted): the message routes answer 503 not_started and the delivery receipt is not kept, so Retry sends it again.
+  try {
+    for (const file of [files.out, files.err]) { fs.writeFileSync(file, '', { mode: 0o600 }); fs.chmodSync(file, 0o600); }
+    ensurePipeDir(PIPE_DIR, PIPES.top);
+    execFileSync('mkfifo', ['-m', '600', files.fifo]);
+  } catch (e) { throw Object.assign(e, { notStarted: true }); }
   // O_RDWR never blocks on a FIFO, and while it is open the read end opens without blocking too.
   const hold = fs.openSync(files.fifo, fs.constants.O_RDWR);
   const inFd = fs.openSync(files.fifo, 'r');
@@ -2140,7 +2154,7 @@ function spawnRunner({ sessionId, cwd, resume, fork, model, effort, mode }) {
   writer.on('error', () => { });
   const r = {
     sessionId, key, cliBin: CLAUDE_BIN, pid: proc.pid, keeperPid: keeper.pid, writer, cwd, model, effort, approvalMode: mode, files, runnerToken, fork: fork || null, policyKey: ctx.key,
-    startedAt: Date.now(), turn: null, bgTasks: [], lastLineAt: Date.now(), tailOffset: 0, tailRem: '', doneOffset: 0, spent: 0, procStart: startTime(proc.pid),
+    startedAt: Date.now(), turn: null, bgTasks: [], lastLineAt: Date.now(), tailOffset: 0, tailRem: Buffer.alloc(0), doneOffset: 0, spent: 0, procStart: startTime(proc.pid),
   };
   // 1.89 (F-11): the marker is written before the first prompt. A process Pocket could not record would outlive a restart
   // unmanaged (neither adopted nor stopped), so when the write fails the CLI and its keeper are killed and the start refused.
@@ -2151,7 +2165,7 @@ function spawnRunner({ sessionId, cwd, resume, fork, model, effort, mode }) {
     try { writer.destroy(); } catch { }
     for (const f of [files.fifo, files.meta + '.tmp', files.out, files.err]) { try { fs.unlinkSync(f); } catch { } }
     log(`session process refused session=${sessionId} pid=${proc.pid}: its marker could not be written (${e.message})`);
-    throw Object.assign(new Error(`Pocket Code could not record the Claude process on disk, so it did not start it (${e.code || e.message}). Check the server's free disk space, then send again.`), { code: 500 });
+    throw Object.assign(new Error(`Pocket Code could not record the Claude process on disk, so it did not start it (${e.code || e.message}). Check the server's free disk space, then send again.`), { code: 500, notStarted: true }); // 1.124.3: killed before the first prompt
   }
   runners.set(sessionId, r);
   r.tailTimer = setInterval(() => drainRunnerLog(r), 300);
@@ -2255,13 +2269,15 @@ function drainRunnerLog(r) {
     try {
       const buf = Buffer.alloc(size - r.tailOffset);
       fs.readSync(fh, buf, 0, buf.length, r.tailOffset);
-      const text = r.tailRem + buf.toString('utf8');
-      let at = r.tailOffset - Buffer.byteLength(r.tailRem);
+      // 1.124.3: lines are cut on the newline byte before they are decoded, and the partial last line is kept as bytes: a
+      // read that ends inside a character (a long line caught mid-write) turned it into U+FFFD, and the offsets drifted.
+      const data = Buffer.concat([r.tailRem, buf]), lines = [];
+      let at = r.tailOffset - r.tailRem.length, from = 0;
       r.tailOffset = size;
-      const lines = text.split('\n');
-      r.tailRem = lines.pop() ?? '';
-      for (const l of lines) {
-        const lineOffset = at; at += Buffer.byteLength(l) + 1;
+      for (let nl; (nl = data.indexOf(10, from)) >= 0; from = nl + 1) lines.push(data.subarray(from, nl));
+      r.tailRem = Buffer.from(data.subarray(from));
+      for (const b of lines) {
+        const lineOffset = at, l = b.toString('utf8'); at += b.length + 1;
         r.doneOffset = at; // 1.89 (F-9): a marker written while this line is handled counts it as handled
         // 1.124.2: one line that throws costs that line only; the offset is already past the batch, so the rest would be lost
         if (l.trim()) { try { handleRunnerLine(r, l, lineOffset); } catch (e) { log(`session output line not handled session=${r.sessionId}: ${e.message}`); } }
@@ -2566,6 +2582,9 @@ function skipQuestions(questions) {
   catch (e) { log(`question skip failed: ${e.message}`); return 0; }
 }
 function steerTurn(turn, text) {
+  // 1.124.3: the CLI's result may already be written and not yet read (the log is read every 300 ms); read it now, so a
+  // message is never written to a CLI whose turn has ended. That narrows the window to the CLI's own write.
+  if (turn.runner && !turn.finalized) drainRunnerLog(turn.runner);
   if (turn.finalized || turn.stopped || turn.stalled) return false;
   if (!turn.stdin || turn.stdin.destroyed || turn.stdin.writableEnded) return false;
   try { turn.stdin.write(userJSON(text)); } catch { return false; }
@@ -2575,8 +2594,10 @@ function steerTurn(turn, text) {
 function startTurn({ sessionId, cwd, text, resume, fork, model, effort, attachments, retryAttempt,approvalMode:requestedMode, replaceStale = false, from }) {
   from = startOrigin(from); // 1.117: owner unless a trusted caller (retry, queue, coordination) says otherwise
   refuseIfPaused(from); // 1.117: paused after the gate passed (no await from here to beginTurn)
-  if (claudeLogin.active) throw Object.assign(new Error('Claude account sign-in is in progress. Finish or cancel it in Accounts & instance.'), {code:409});
-  if (turns.has(sessionId)) throw Object.assign(new Error('busy'), { code: 409 });
+  // 1.124.3: both refusals come before anything is written, so a queued row they refuse goes back to pending (keepPending)
+  // instead of reading "Start was not confirmed" and holding up the queue.
+  if (claudeLogin.active) throw Object.assign(new Error('Claude account sign-in is in progress. Finish or cancel it in Accounts & instance.'), {code:409, status:409, keepPending:true});
+  if (turns.has(sessionId)) throw Object.assign(new Error('busy'), { code: 409, status: 409, keepPending: true });
   cancelRetry(sessionId, from); // a manually-started turn supersedes any pending auto-resume
   if (resume) text = coordNotice(sessionId, text); // 1.99
   if (resume && cwd && !fs.existsSync(cwd)) cwd = HOME; // 1.98: a queued or retried reply whose folder went away
@@ -2777,7 +2798,7 @@ function adoptOrphans() {
           // (outOffset), not from its end: a turn the CLI ran by itself while Pocket was down (a background job finished) is
           // opened and finished as it would have been live, so its transcript lines count as Pocket's, not another app's,
           // and its background-job list is current. Markers from before 1.89 have no offset and start at the end as before.
-          lastLineAt: Date.now(), tailOffset: m.turn ? Math.min(m.turn.offset || 0, size) : Number.isFinite(m.outOffset) ? Math.min(m.outOffset, size) : size, tailRem: '', adopted: true,
+          lastLineAt: Date.now(), tailOffset: m.turn ? Math.min(m.turn.offset || 0, size) : Number.isFinite(m.outOffset) ? Math.min(m.outOffset, size) : size, tailRem: Buffer.alloc(0), adopted: true,
           skipControlBefore: size, // requests answered (or lost) before the restart can't be answered now
           procStart: m.procStart || startTime(m.pid),
         };
@@ -3895,7 +3916,9 @@ async function startAcpFromApi({ id, sessionId, cwd, text, body, resume, from, e
   // acpRunning: a restart mid-reply is recorded as a stop (below). acpCwd and acpAt: the conversation's folder and last
   // activity, so the list asks that folder and shows the conversation even when OpenCode's answer misses it.
   const folder = resume ? knownCwd : cwd;
-  setSmeta(id || turn.fullId, { acpRunning: Date.now(), acpAt: Date.now(), ...(folder && path.isAbsolute(folder) && !smeta[id || turn.fullId]?.acpCwd ? { acpCwd: path.resolve(folder) } : {}) });
+  // 1.124.3: not for a reply that already ended (one that fails at once, e.g. a model OpenCode does not offer, ends before
+  // this line): nothing would clear it, and a restart would replace its error with "Pocket restarted during this reply".
+  setSmeta(id || turn.fullId, { ...(turn.done ? {} : { acpRunning: Date.now() }), acpAt: Date.now(), ...(folder && path.isAbsolute(folder) && !smeta[id || turn.fullId]?.acpCwd ? { acpCwd: path.resolve(folder) } : {}) });
   noteStart(id || turn.fullId, from); stampReplyLimit(turn); // 1.117
   return turn;
 }
@@ -4138,6 +4161,7 @@ app.post('/api/session/:id/message', requireAuth, ownerSendGate, validateApprova
   if (!file && !running) return res.status(404).json({ error: 'not found' });
   const meta = file ? await sessionMeta(file, id) : { cwd: running.cwd };
   const cwd = meta.cwd && fs.existsSync(meta.cwd) ? meta.cwd : HOME;
+  if (running?.runner && !running.finalized) drainRunnerLog(running.runner); // 1.124.3: a result written but not read yet ends the turn here
   if (running?.finalized) { await running.finalizeDone; running = turns.get(id); } // a turn that is just ending: send as the next turn, not a steer
   if (!running && busyElsewhere(id)) return res.status(409).json({ error: 'This conversation is being used in another app right now (code-server or a terminal). Send again once that reply has finished.' });
   if (running) {
@@ -4178,7 +4202,8 @@ app.post('/api/session/:id/message', requireAuth, ownerSendGate, validateApprova
     const turn = startTurn({ sessionId: id, cwd, text, resume: true, ...turnOpts(req.body), replaceStale: req.body?.replaceStaleLogin === true });
     res.status(202).json({ ok: true, ...(turn.modelFallback ? { modelFallback: turn.modelFallback } : {}), ...carriedOn(id, Boolean(meta.cwd) && cwd !== meta.cwd) });
   } catch (e) {
-    res.status(e.code === 409 ? 409 : 500).json({ error: String(e.message), ...(e.reason && { code: e.reason, jobs: e.jobs }) });
+    // 1.124.3: a start refused before anything reached the CLI is 503 not_started, which the delivery receipt does not keep
+    res.status(e.code === 409 ? 409 : e.notStarted ? 503 : 500).json({ error: String(e.message), ...(e.reason && { code: e.reason, jobs: e.jobs }), ...(e.code !== 409 && e.notStarted && { code: 'not_started' }) });
   }
 }));
 
@@ -4297,7 +4322,7 @@ app.post('/api/new', requireAuth, ownerSendGate, validateApprovalMode, validateT
     // the conversation never started: it leaves the project it was linked to
     if (ps.project && settings.projects) try { board.act({ action: 'unlink-session', project: ps.project, session: id }, { actor: 'ui' }); } catch { }
     if (smeta[id]?.projectMode) setSmeta(id, { projectMode: undefined });
-    res.status(e.code === 409 ? 409 : 500).json({ error: String(e.message) });
+    res.status(e.code === 409 ? 409 : e.notStarted ? 503 : 500).json({ error: String(e.message), ...(e.code !== 409 && e.notStarted && { code: 'not_started' }) }); // 1.124.3
   }
 })));
 
@@ -4774,7 +4799,7 @@ app.post('/api/session/:id/branch', requireAuth, ownerSendGate, validateApproval
     titler.request(nid, text);
     log(`branch session=${nid} from=${id}`);
     res.status(202).json({ id: nid, ...(turn.modelFallback ? { modelFallback: turn.modelFallback } : {}) });
-  } catch (e) { res.status(e.code === 409 ? 409 : 500).json({ error: String(e.message) }); }
+  } catch (e) { res.status(e.code === 409 ? 409 : e.notStarted ? 503 : 500).json({ error: String(e.message), ...(e.code !== 409 && e.notStarted && { code: 'not_started' }) }); } // 1.124.3
 }));
 
 // Attachments: raw body upload, filename via header. Files land in ~/pocket-uploads
@@ -4879,6 +4904,10 @@ app.get('/api/session/:id/events', requireAuth, async (req, res) => {
       req.on('close', () => { clearInterval(ka); cxTurn.subs.delete(res); });
       return;
     }
+    // 1.124.3: a bare number is a turn's event number (as for Claude below): the reply this browser followed ended while the
+    // connection was down. Read as an item id it matched nothing, every item counted as seen, and the reply's end never
+    // showed. Tell the browser the turn is over; it reads the conversation again.
+    if (/^\d+$/.test(String(req.headers['last-event-id'] ?? ''))) { clearInterval(ka); res.write(`data: {"type":"done"}\n\n`); return res.end(); }
     res.write(`data: {"type":"watch"}\n\n`);
     // id = item id: a reconnect (Last-Event-ID) or a reopen (?after) resumes after it
     const after = String(req.headers['last-event-id'] || req.query.after || '') || null;
@@ -4922,7 +4951,7 @@ app.get('/api/session/:id/events', requireAuth, async (req, res) => {
   let offset = Number.isFinite(last) ? last : Number(req.query.offset);
   if (!Number.isFinite(offset) || offset < 0 || offset > size) offset = size;
   res.write(`data: {"type":"watch"}\n\n`);
-  const t = { res, offset, rem: '' };
+  const t = { res, offset, rem: Buffer.alloc(0) };
   if (!tailers.has(id)) tailers.set(id, new Set());
   tailers.get(id).add(t);
   req.on('close', () => { clearInterval(ka); tailers.get(id)?.delete(t); if (!tailers.get(id)?.size) tailers.delete(id); });

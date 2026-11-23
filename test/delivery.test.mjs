@@ -73,3 +73,16 @@ test('long-running sessions are not trimmed from a full recent list', () => {
   const rows=[{id:'recent',state:{kind:'idle'}},{id:'older-running',state:{kind:'running'}},{id:'pinned',pinned:true,state:{kind:'idle'}}];
   assert.deepEqual(prioritizeSessions(rows,1).map(s=>s.id),['older-running','pinned']);
 });
+// 1.124.3: a start refused before anything reached the CLI (a full disk, a refused pipe directory) answers 503 not_started.
+// Like a refusal it dispatched nothing, so it is not kept: Retry same message runs it again once the cause is fixed. Any
+// other 5xx is still kept, since a failure after dispatch must not send the message twice.
+test('a start that never reached the CLI (503 not_started) is not kept; another 5xx still is', async t => {
+  const { receipts, file } = store(t); let calls = 0;
+  const once = async () => { calls++; return calls === 1 ? { status: 503, body: { error: 'Check the server\'s free disk space, then send again.', code: 'not_started' } } : { status: 202, body: { ok: true } }; };
+  assert.equal((await receipts.run('key', {text:'Go'}, once)).status, 503);
+  assert.equal(new DeliveryReceipts(file).records.key, undefined, 'no receipt kept');
+  assert.equal((await receipts.run('key', {text:'Go'}, once)).status, 202); assert.equal(calls, 2);
+  const failed = await receipts.run('other', {text:'Go'}, async () => ({ status: 500, body: { error: 'claude exited 1' } }));
+  assert.equal(failed.status, 500);
+  assert.deepEqual(await receipts.run('other', {text:'Go'}, () => assert.fail('an ambiguous failure is not run again')), failed);
+});

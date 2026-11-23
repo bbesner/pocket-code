@@ -32,7 +32,7 @@ async function fixture(t,port,env={}){
  t.after(async()=>{await stop();fs.rmSync(dir,{recursive:true,force:true});});
  fs.mkdirSync(path.join(dir,'sessions'),{recursive:true});
  await start();
- const events=(id,signal)=>fetch(`http://127.0.0.1:${port}/api/session/${id}/events`,{headers,signal}); // a browser with the conversation open
+ const events=(id,signal,extra={})=>fetch(`http://127.0.0.1:${port}/api/session/${id}/events`,{headers:{...headers,...extra},signal}); // a browser with the conversation open
  return {dir,call,calls,until,procs,idle,start,stop,events,logs:()=>logs};
 }
 const msg=(text,extra={})=>({text,clientMessageId:randomUUID(),...extra});
@@ -375,4 +375,18 @@ test('child thread lifecycle cannot complete the parent or replace its turn id',
  assert.equal(agents.total,1,'parent-owned subagent activity is still projected');assert.equal(agents.agents[0].status,'completed');
  await f.call(`/session/${id}/stop`,{});
  assert.ok(await f.until(()=>f.idle(id)));
+});
+
+// 1.124.3: a browser following a Codex reply numbers what it saw by the turn's events. When the reply ends while the connection
+// is down, the reconnect lands in watch mode carrying that number, which was read as an item id: nothing matched, every item
+// counted as already seen, and the end of the reply never showed. The browser is told the turn is over and reads it again.
+test('a reconnect carrying a turn event number after the Codex reply ended is told the turn is over',async t=>{
+ const f=await fixture(t,18883);
+ const id=(await f.call('/new',{cwd:repo,provider:'codex',...msg('first')})).body.id;
+ assert.ok(await f.until(async()=>f.calls().length===1&&await f.idle(id)));
+ const ac=new AbortController(),dec=new TextDecoder();let seen='';
+ const read=f.events(id,ac.signal,{'last-event-id':'3'}).then(async r=>{const reader=r.body.getReader();for(;;){const {value,done}=await reader.read();if(done)break;seen+=dec.decode(value,{stream:true});}}).catch(()=>{});
+ await sleep(3000);ac.abort();await read;
+ const data=seen.split('\n').filter(l=>l.startsWith('data: ')).map(l=>JSON.parse(l.slice(6)));
+ assert.ok(data.some(d=>d.type==='done'),'the browser is told the turn ended: '+JSON.stringify(data));
 });
