@@ -762,7 +762,7 @@ const DRAIN_MAX = 1 << 20;
 export function makeTransport({ pid, keeperPid, key, files, writer, offset, skipBefore = 0 }) { // exported for tests
   const stale = new Map(); // requests logged before a restart, minus those the log shows resolved
   const t = {
-    pid, keeperPid, key, files, writer, offset, rem: '', onData: null, onExit: null, exited: false,
+    pid, keeperPid, key, files, writer, offset, rem: Buffer.alloc(0), onData: null, onExit: null, exited: false,
     write: (line, cb) => writer.write(line, cb),
     writable: () => !writer.destroyed && !writer.writableEnded,
     close() { try { process.kill(-keeperPid, 'SIGTERM'); } catch { } try { writer.end(); } catch { } },
@@ -771,18 +771,21 @@ export function makeTransport({ pid, keeperPid, key, files, writer, offset, skip
       if (size <= t.offset) return;
       const fh = fs.openSync(files.out, 'r');
       try {
-        // 1.73.7: at most DRAIN_MAX per pass, cut on a character boundary; the next 150 ms pass reads on. A long log read on
-        // adoption no longer stalls the daemon in one synchronous read.
-        let n = Math.min(size - t.offset, DRAIN_MAX);
+        // 1.73.7: at most DRAIN_MAX per pass; the next 150 ms pass reads on. A long log read on adoption no longer stalls the
+        // daemon in one synchronous read.
+        const n = Math.min(size - t.offset, DRAIN_MAX);
         const buf = Buffer.alloc(n);
         fs.readSync(fh, buf, 0, n, t.offset);
-        if (n < size - t.offset) { let k = n; while (k > 0 && (buf[k - 1] & 0xC0) === 0x80) k--; if (k > 0 && buf[k - 1] >= 0xC0) k--; if (k > 0) n = k; }
-        let at = t.offset - Buffer.byteLength(t.rem);
+        // 1.124.4: lines are cut on the newline byte before they are decoded, and the partial last line is kept as bytes (as
+        // drainRunnerLog does): a read that ended inside a character (a long line caught mid-write, not only the DRAIN_MAX
+        // cut) turned it into U+FFFD, and the byte positions after it drifted.
+        const data = Buffer.concat([t.rem, buf]), lines = [];
+        let at = t.offset - t.rem.length, from = 0;
         t.offset += n;
-        const lines = (t.rem + buf.toString('utf8', 0, n)).split('\n');
-        t.rem = lines.pop() ?? '';
-        for (const l of lines) {
-          const lineAt = at; at += Buffer.byteLength(l) + 1;
+        for (let nl; (nl = data.indexOf(10, from)) >= 0; from = nl + 1) lines.push(data.subarray(from, nl));
+        t.rem = Buffer.from(data.subarray(from));
+        for (const b of lines) {
+          const lineAt = at, l = b.toString('utf8'); at += b.length + 1;
           // requests the app-server sent the previous server can't be relayed from here;
           // the ones it never saw resolved are declined below so the turn carries on
           if (lineAt < skipBefore) {

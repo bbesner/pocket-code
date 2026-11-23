@@ -78,6 +78,39 @@ test('the session transport drains a large backlog in bounded passes without bre
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+// 1.124.4: a read that ends inside a character (a long line caught mid-write) no longer turns it into U+FFFD. The log was
+// decoded read by read before it was split, so the character broke and every byte position after it drifted: a request
+// written just before the restart point was taken for a live one, or one after it for a stale one. Every split of a 2-, 3-
+// and 4-byte character is tried, and the position of the next line is checked from both sides of skipBefore.
+test('the session transport keeps a character a read cuts in two whole, and its line positions exact', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pocket-drain-'));
+  try {
+    for (const ch of ['é', '€', '😀']) {
+      const first = Buffer.from(JSON.stringify({ method: 'item/agentMessage/delta', params: { delta: `a${ch}b` } }) + '\n');
+      const request = Buffer.from(JSON.stringify({ jsonrpc: '2.0', id: 5, method: 'item/tool/requestUserInput', params: {} }) + '\n');
+      for (let cut = 1; cut < first.length; cut++) {
+        for (const skipBefore of [first.length, first.length + 1]) {
+          const out = path.join(dir, `x${cut}.out.ndjson`), writes = [];
+          fs.writeFileSync(out, first.subarray(0, cut));
+          const t = makeTransport({ pid: 0, keeperPid: 0, key: 'x', files: { out, fifo: path.join(dir, 'f'), meta: path.join(dir, 'm') }, writer: { write(s) { writes.push(s); }, destroy() { }, end() { } }, offset: 0, skipBefore });
+          clearInterval(t.timer);
+          const got = []; t.onData = l => got.push(l);
+          t.drain();
+          assert.equal(t.offset, cut, 'the offset is the bytes read');
+          fs.appendFileSync(out, Buffer.concat([first.subarray(cut), request]));
+          t.drain();
+          const where = `${JSON.stringify(ch)} cut at byte ${cut}, skipBefore ${skipBefore}`;
+          assert.equal(got[0], first.toString('utf8'), `the line arrives whole: ${where}`);
+          assert.equal(t.offset, first.length + request.length, where);
+          if (skipBefore === first.length) assert.deepEqual([got.length, writes.length], [2, 0], `a request starting at skipBefore is live: ${where}`);
+          else assert.deepEqual([got.length, writes.length], [1, 1], `a request starting before skipBefore is held and declined: ${where}`);
+          fs.rmSync(out);
+        }
+      }
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 // 1.73.8: a request whose write fails is rejected at once (it used to wait for its timeout, 30 s for a list); a usage file
 // whose root is not an object reads as empty (it used to stop the daemon at start).
 test('a failed write rejects its request at once; a malformed usage file does not stop the module loading', async () => {
