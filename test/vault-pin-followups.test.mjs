@@ -3,7 +3,7 @@
 //     by itself are refused; (2) a script an interpreter opens by its path can still be swapped as the command starts: the
 //     request says so when an agent could do it, and the docs say so plainly; (3) command forms that ran a changed file
 //     unasked either pin the file that runs or are not offered Always allow.
-import test from 'node:test';
+import test,{after} from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -14,7 +14,10 @@ import * as V from '../vault.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
 const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|CODEX)_/.test(k)));
-const tmp=()=>fs.mkdtempSync(path.join(os.tmpdir(),'pocket-vault-fu-'));
+// 1.124.4: every folder tmp() makes is removed when the file ends, also after a failed test (a test that removes its own
+// folder only at its end left it in the temp folder when it failed).
+const tmpDirs=[];after(()=>{for(const d of tmpDirs)try{fs.rmSync(d,{recursive:true,force:true,maxRetries:5});}catch{}});
+const tmp=()=>{const d=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-vault-fu-'));tmpDirs.push(d);return d;};
 const SECRET='sk-live-madeup-4b1d9e7c2a6f3085';
 const ROOT=process.getuid?.()===0;
 const LINUX=process.platform==='linux';

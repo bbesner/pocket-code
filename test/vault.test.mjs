@@ -1,6 +1,6 @@
 // 1.39 vault: the encrypted store's rules, the scrubber and the daemon-side run, the /api/vault routes (what the owner's
 // cookie and an agent's token may each do), runner tokens, the agent line, and the CLI. No value ever reaches an agent.
-import test from 'node:test';
+import test,{after} from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -13,7 +13,10 @@ import {agentEnv} from '../environment.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
 const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|CODEX)_/.test(k)));
-const tmp=()=>fs.mkdtempSync(path.join(os.tmpdir(),'pocket-vault-'));
+// 1.124.4: every folder tmp() makes is removed when the file ends, also after a failed test (a test that removed its own
+// folder only at its end left one behind in the temp folder on every failure, and one test never removed its own).
+const tmpDirs=[];after(()=>{for(const d of tmpDirs)try{fs.rmSync(d,{recursive:true,force:true,maxRetries:5});}catch{}});
+const tmp=()=>{const d=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-vault-'));tmpDirs.push(d);return d;};
 const S1='11111111-1111-4111-8111-111111111111';
 const SECRET='sk-live-hunter2-0123456789abcdef';
 
