@@ -10,7 +10,7 @@ const PHONE={width:390,height:844,deviceScaleFactor:1,isMobile:true,hasTouch:tru
 const COVER={width:344,height:882,deviceScaleFactor:1,isMobile:true,hasTouch:true};
 const DESKTOP={width:1440,height:900,deviceScaleFactor:1};
 
-export async function runUiTestFixes({browser,base,rows,out}) {
+export async function runUiTestFixes({browser,base,rows,out,settingsState=()=>({}),coord=null}) {
  const checks=[],errors=[];
  // Each check gets its own browser context: a clean localStorage, and request interception that ends with it.
  const check=async(name,viewport,fn)=>{
@@ -141,6 +141,91 @@ export async function runUiTestFixes({browser,base,rows,out}) {
   await page.evaluate(()=>{document.querySelector('.chatcol').style.maxWidth='470px';});await pause(150);
   const narrow=await rowOf();assert.equal(narrow.sameRow,false,'the box is on its own row');assert.ok(narrow.box>=400,'and is as wide as the column: '+narrow.box);
  });
+
+ // ---------- the library screens ----------
+ // Turn features on for one check, and put the fixture's settings back after.
+ const withSettings=async(patch,fn)=>{const settings=settingsState(),saved={...settings};Object.assign(settings,patch);
+  try{await fn();}finally{for(const k of Object.keys(settings))delete settings[k];Object.assign(settings,saved);}};
+ const post=(page,url,body)=>page.evaluate((url,body)=>fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body||{})}).then(r=>r.json().catch(()=>({}))),url,body);
+ const ID='warehouse-stock-report',SHEET='.sheet[role=dialog]';
+
+ await check('Edit project: a card changed elsewhere shows its new values in the sheet, and the second Save does not undo them',PHONE,page=>withSettings({projects:true},async()=>{
+  await page.goto(base+'/#/');await page.waitForSelector('[data-filter="all"]');await post(page,'/api/board/reset');
+  await page.goto(base+'/?ui-fix=1#/projects/'+ID);await page.waitForSelector('.project-card [data-edit]');
+  await page.click('.project-card [data-edit]');await page.waitForSelector('.project-editor form');
+  const OTHER='Changed on another device: aisle 4 recount finished.',MINE='Post the adjustment today.';
+  await post(page,'/api/board/act',{action:'update',project:ID,summary:OTHER});
+  await page.$eval('.project-editor [name=next]',e=>{e.value='';});await page.type('.project-editor [name=next]',MINE);
+  await page.click('.project-editor .primary');
+  await page.waitForFunction(()=>!document.querySelector('.project-editor [data-stale]')?.hidden);
+  const after=await page.evaluate(()=>({summary:document.querySelector('.project-editor [name=summary]').value,next:document.querySelector('.project-editor [name=next]').value,note:document.querySelector('.project-editor [data-stale]').textContent}));
+  assert.equal(after.summary,OTHER,'the field changed elsewhere now shows the new value (it kept the old one, and the next Save wrote it back)');
+  assert.equal(after.next,MINE,'the field being edited keeps what was typed');
+  assert.match(after.note,/changed while you were editing\. Now showing the new Where we left off\./);
+  await page.click('.project-editor .primary');await page.waitForFunction(()=>!document.querySelector('.project-editor'));
+  const saved=await page.evaluate(id=>fetch('/api/board').then(r=>r.json()).then(s=>s.projects.find(p=>p.id===id)),ID);
+  assert.equal(saved.summary,OTHER,'the other device\'s change is still there');assert.equal(saved.next,MINE);
+  await post(page,'/api/board/reset');
+ }));
+
+ await check('Edit project: a refused value is named in the sheet and its field is marked',PHONE,page=>withSettings({projects:true},async()=>{
+  await page.goto(base+'/#/');await page.waitForSelector('[data-filter="all"]');await post(page,'/api/board/reset');
+  await page.goto(base+'/?ui-fix=2#/projects/'+ID);await page.waitForSelector('.project-card [data-edit]');
+  await page.click('.project-card [data-edit]');await page.waitForSelector('.project-editor form');
+  // The answer the real server gives for a relative directory (projects.mjs), whatever the fixture's own check is.
+  await intercept(page,async(r,u)=>{if(r.method()==='POST'&&u.pathname==='/api/board/act'){await r.respond({status:400,contentType:'application/json',body:JSON.stringify({error:'The directory must be a full path.'})});return true;}});
+  await page.$eval('.project-editor [name=directory]',e=>{e.value='relative/folder';});
+  await page.click('.project-editor .primary');
+  await page.waitForFunction(()=>document.querySelector('.project-editor [data-error]')?.textContent);
+  assert.deepEqual(await page.evaluate(()=>({line:document.querySelector('.project-editor [data-error]').textContent,role:document.querySelector('.project-editor [data-error]').getAttribute('role'),invalid:document.querySelector('.project-editor [name=directory]').getAttribute('aria-invalid'),focus:document.activeElement?.name,open:Boolean(document.querySelector('.project-editor'))})),
+   {line:'The directory must be a full path.',role:'alert',invalid:'true',focus:'directory',open:true});
+  await page.type('.project-editor [name=directory]','x');
+  assert.deepEqual(await page.evaluate(()=>({line:document.querySelector('.project-editor [data-error]').textContent,invalid:document.querySelector('.project-editor [name=directory]').getAttribute('aria-invalid')})),{line:'',invalid:null},'typing clears the mark');
+ }));
+
+ await check('Reminder quick picks never offer the same time twice',PHONE,async page=>{
+  await page.goto(base+'/#/');await page.waitForSelector('[data-filter="all"]');
+  // A Monday, where "Next Monday" and "In a week" were the same morning; and a Wednesday, where all four differ.
+  const picks=day=>page.evaluate(day=>{const Real=Date;try{const fixed=new Real(day).getTime();globalThis.Date=class extends Real{constructor(...a){a.length?super(...a):super(fixed);}static now(){return fixed;}};return quickPicks().map(p=>[p[1],p[2].getTime()]);}finally{globalThis.Date=Real;}},day);
+  const monday=await picks('2026-11-23T10:00:00'),wednesday=await picks('2026-11-25T10:00:00');
+  assert.deepEqual(monday.map(p=>p[0]),['Tomorrow morning','In three days','Next Monday']);assert.equal(new Set(monday.map(p=>p[1])).size,monday.length);
+  assert.deepEqual(wednesday.map(p=>p[0]),['Tomorrow morning','In three days','Next Monday','In a week']);
+ });
+
+ if(coord)await check('Coordination: the empty line is inset, a link is a full-size target, and Release keeps the focus in the list',PHONE,page=>withSettings({coordination:true},async()=>{
+  try{
+   coord.reset();await page.goto(base+'/#/coordination');await page.waitForSelector('.coord-row [data-coord-release]');
+   const link=await page.$eval('.coord-who a',e=>e.getBoundingClientRect().height).catch(()=>null);
+   if(link!==null)assert.ok(link>=44,'the conversation link has a 44px tap area: '+link);
+   const names=await page.$$eval('[data-coord-release]',bs=>bs.map(b=>b.dataset.coordRelease));assert.ok(names.length>=2,'the fixture holds two or more');
+   await page.focus(`[data-coord-release="${names[0]}"]`);await page.keyboard.press('Enter');
+   await page.waitForFunction(n=>!document.querySelector(`[data-coord-release="${n}"]`),{},names[0]);
+   assert.equal(await page.evaluate(()=>document.activeElement?.dataset?.coordRelease||document.activeElement?.tagName),names[1],'focus is on the next hold\'s Release, not the page');
+   coord.reset([]);coord.recent=[];await page.goto(base+'/?ui-fix=3#/coordination');await page.waitForSelector('.project-empty');
+   assert.equal(await page.$eval('.project-empty',e=>getComputedStyle(e).paddingLeft),'18px','"Nothing is held" lines up with the heading, off the screen edge');
+  }finally{coord.reset();}
+ }));
+
+ await check('Library lists: one rule before a folded group, and a due step is amber',PHONE,page=>withSettings({projects:true,tasks:true},async()=>{
+  await page.goto(base+'/#/');await page.waitForSelector('[data-filter="all"]');await post(page,'/api/board/reset');await post(page,'/api/tasks/reset');
+  await page.goto(base+'/?ui-fix=4#/tasks');await page.waitForSelector('details.session-group.settings-details');
+  assert.deepEqual(await page.$eval('details.session-group.settings-details',e=>{const cs=getComputedStyle(e);return [cs.borderTopWidth,cs.marginTop];}),['0px','0px'],'the group above already draws the rule');
+  const colours=await page.evaluate(()=>{const mk=c=>{const e=document.createElement('small');e.className=c;document.body.append(e);const v=getComputedStyle(e).color;e.remove();return v;};const probe=document.createElement('i');probe.style.color='var(--warn)';document.body.append(probe);const warn=getComputedStyle(probe).color;probe.remove();return {due:mk('task-meta due-label'),warn};});
+  assert.equal(colours.due,colours.warn,'a due reminder on a step reads in the due amber, as in Tasks');
+ }));
+
+ await check('Files: a change in the Share sheet keeps the keyboard focus on the file\'s Share button afterwards',PHONE,page=>withSettings({documents:true,projects:true},async()=>{
+  await page.goto(base+'/#/');await page.waitForSelector('[data-filter="all"]');await post(page,'/api/documents/reset');
+  const id=await page.evaluate(()=>fetch('/api/documents').then(r=>r.json()).then(s=>(s.documents||[]).find(d=>!d.trashedAt&&d.visibility==='private')?.id));assert.ok(id,'the fixture has a private file');
+  await page.goto(base+'/?ui-fix=5#/documents/'+id);await page.waitForSelector('main [data-share]');
+  await page.focus('main [data-share]');await page.keyboard.press('Enter');await page.waitForSelector(SHEET+' [data-v="link"]');
+  await page.click(SHEET+' [data-v="link"]');await page.waitForSelector(SHEET+' #share-expiry');
+  await page.select(SHEET+' #share-expiry','7');
+  await page.waitForFunction(()=>document.querySelector('#share-expiry')?.value==='7'&&document.activeElement?.id==='share-expiry');
+  await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.sheet[role=dialog]'));
+  assert.equal(await page.evaluate(()=>document.activeElement?.matches('main [data-share]')),true,'Escape returns to Share, not to the top of the page');
+  await post(page,'/api/documents/reset');
+ }));
 
  assert.deepEqual(errors,[],'no page errors');
  fs.writeFileSync(path.join(out,'ui-test-fixes.json'),JSON.stringify({checks},null,2));

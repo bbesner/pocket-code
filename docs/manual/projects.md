@@ -88,7 +88,7 @@ A finished project accepts edits, notes and conversation links, but not new step
 
 Click **Remind me** on the card (or in its options), or **Remind me about this step** on a step. Pick one of:
 
-- **Tomorrow morning**, **In three days**, **Next Monday** or **In a week**, each at 9:00 in this device's time zone.
+- **Tomorrow morning**, **In three days**, **Next Monday** or **In a week**, each at 9:00 in this device's time zone. On a Monday the last two are the same morning, so only **Next Monday** is offered.
 - **Another time**: any date and time. A time more than a minute in the past is refused.
 
 **Says** is the reminder's text. It defaults to "Revisit *project name*", or to the step's text for a step reminder.
@@ -168,7 +168,7 @@ The **⋯** on a linked conversation offers **Open conversation**, **Open beside
 ## How it works
 
 - **Data.** Every project lives in `projects.json` in `POCKET_DATA_DIR`, which defaults to the Pocket Code directory. Pocket writes it atomically, mode `0600`. Edit cards only through Pocket or `pocket-board`; Pocket keeps the file in memory and overwrites hand edits.
-- **One writer.** The UI and `pocket-board` both go through the server. A change from the UI carries the card's revision; if the card changed since you loaded it, the change is refused and the current card is shown.
+- **One writer.** The UI and `pocket-board` both go through the server. A change from the UI carries the card's revision; if the card changed since you loaded it, the change is refused and the current card is shown. In **Edit project** the sheet stays open and says what changed: a field the other side changed and you had not touched now shows the new value, and a field you both changed keeps your words (saving again replaces the other change there).
 - **Project ids** come from the name: lowercase letters and digits joined by hyphens, up to 60 characters, with `-2`, `-3` added when the id is taken. Step and reminder ids are 12-character hex strings.
 - **Directory matching.** `pocket-board` finds "this directory's project" by looking for the project whose directory is the current directory or contains it. The deepest match wins. Finished projects never match.
 - **Refreshing.** An open list or card refreshes when the window regains focus, when a reply ends in any Pocket window on the device, and every 30 seconds while it is open, so a card an agent changes updates on its own.
@@ -315,5 +315,5 @@ pocket-board update -p acme-hoa-camera-upgrade --summary "Installed and tested."
 | No push for a due reminder | Push is not set up on the server, the device is not subscribed, or **Due tasks and reminders** is off for that device. | Check **Settings → Notifications & voice** on the device. The card still shows the reminder as due. |
 | No reminder email | `POCKET_SMTP_URL` is not set, or no address is saved. | Set it up (see [Settings](settings.md#notifications--voice)) and use **Send a test** in **Settings → Notifications & voice**. |
 | A push, email or hook run failed once and never came | Each reminder is announced once; a failed send is logged, not retried. | Check the server log; the card still shows the reminder as **Due**. |
-| "This project changed since you loaded it" | The card changed on another device or by an agent. | Review the current card, which is now shown, and make the change again. |
+| "This project changed since you loaded it" | The card changed on another device or by an agent. | Review the current card, which is now shown, and make the change again. In **Edit project** the sheet names the fields that changed and shows their new values; check the form and save again. |
 | Every project is gone after a restart, and the server log says `projects.json could not be read` | `projects.json` did not hold valid JSON when Pocket started (a hand edit, or a file damaged by a power cut). Since 1.124.2 Pocket keeps it beside the original as `projects.json.corrupt-<time>`, says so in the server log, and starts with an empty board. | Stop Pocket, fix the kept copy (or take `projects.json` from your backup), move it back to `projects.json`, then start Pocket. Projects tracked since then are replaced by the old file. |

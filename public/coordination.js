@@ -46,20 +46,25 @@ function coordHTML(){
 function paintCoordination(){
  const main=$('#coord-main');if(!main||!coordSnap||!coordView)return;
  const html=coordHTML();if(html===coordPainted)return;
- const focused=document.activeElement?.dataset?.coordRelease;
+ const focused=document.activeElement?.dataset?.coordRelease||coordReleasing,order=[...main.querySelectorAll('[data-coord-release]')].map(b=>b.dataset.coordRelease);
  main.innerHTML=html;coordPainted=html;
  main.querySelectorAll('[data-coord-release]').forEach(b=>b.onclick=()=>coordRelease(b));
- if(focused)[...main.querySelectorAll('[data-coord-release]')].find(b=>b.dataset.coordRelease===focused)?.focus();
+ if(focused){ // 1.124.5: a released hold's button is gone; focus goes to the next hold's Release (else the one before, else the heading), not the page
+  const now=[...main.querySelectorAll('[data-coord-release]')],at=order.indexOf(focused);
+  const next=now.find(b=>b.dataset.coordRelease===focused)||now.find(b=>order.indexOf(b.dataset.coordRelease)>at)||now.at(-1)||main.querySelector('h2,h3');
+  if(next){if(!next.matches('button'))next.tabIndex=-1;next.focus({preventScroll:true});}
+ }
 }
 async function loadCoordination(){coordSnap=await api('/coordination',{signal:AbortSignal.timeout(8000)});return coordSnap;}
 // One tap, as the plan says: the holder is told the next time it runs, and the next waiter is woken.
+let coordReleasing=''; // the hold whose Release was pressed: the button is disabled while it is released, which drops the browser's focus
 async function coordRelease(btn){
- const name=btn.dataset.coordRelease,hold=coordSnap?.holds.find(h=>h.name===name);btn.disabled=true;
+ const name=btn.dataset.coordRelease,hold=coordSnap?.holds.find(h=>h.name===name);coordReleasing=document.activeElement===btn?name:'';btn.disabled=true;
  try{
   const r=await api('/coordination/owner-release',{method:'POST',body:JSON.stringify({name})});
   toast([`Released ${name}.`,hold?.holder?.session?'Its conversation is told when it next runs.':'',r.woke?`Woke "${r.woke}".`:''].filter(Boolean).join(' '));
  }catch(e){toast(e.message||'Could not release that');}
- await loadCoordination().catch(()=>{});coordPainted='';paintCoordination();
+ await loadCoordination().catch(()=>{});coordPainted='';paintCoordination();coordReleasing='';
  if(typeof refreshSessions==='function')refreshSessions().catch(()=>{});
 }
 async function renderCoordination(view){

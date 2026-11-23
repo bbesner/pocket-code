@@ -330,7 +330,11 @@ function documentOptions(id){
 }
 // 1.118 (PC-05): `fresh` is the token of a link this device has just made; its address is shown this once, with Copy. A link
 // made earlier shows only that it is open and when it expires, with Make a new link (the old one stops) and Revoke link.
-function shareSheet(id,fresh){
+// 1.124.5: a change in the sheet repaints the file's tools and opens the sheet again, so the button that opened it is
+// gone. `again` says so: the new sheet returns focus to the file's current Share button (or its row's options), and
+// `focus` names the control inside the new sheet to land on.
+const shareOpener=id=>document.querySelector('main [data-share]')||[...document.querySelectorAll(`[data-item="${CSS.escape(id)}"] button`)].at(-1)||undefined;
+function shareSheet(id,fresh,{again=false,focus=''}={}){
  const d=docById(id);if(!d)return;
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet share-sheet';
  const link=d.visibility==='link',made=link&&fresh?location.origin+'/share/'+fresh:'';
@@ -352,12 +356,12 @@ function shareSheet(id,fresh){
   <p class="sheet-help share-note" role="status">${esc(note)}</p>`;
  const close=()=>closeCurrentSheet?.();
  bindRadioGroup(sh.querySelector('[role="radiogroup"]'));
- sh.querySelectorAll('[data-v]').forEach(b=>b.onclick=async()=>{if(b.dataset.v===d.visibility)return;close();const r=await docAct(id,{visibility:b.dataset.v},b.dataset.v==='private'?'Private now; links no longer work':b.dataset.v==='link'?'Link made. Copy it now: it is shown once':'Public now');if(r&&r.visibility!=='private')shareSheet(id,r.token);});
+ sh.querySelectorAll('[data-v]').forEach(b=>b.onclick=async()=>{if(b.dataset.v===d.visibility)return;close();const r=await docAct(id,{visibility:b.dataset.v},b.dataset.v==='private'?'Private now; links no longer work':b.dataset.v==='link'?'Link made. Copy it now: it is shown once':'Public now');if(r&&r.visibility!=='private')shareSheet(id,r.token,{again:true});else shareOpener(id)?.focus();});
  const input=sh.querySelector('#share-url');if(input){input.onfocus=()=>input.select();sh.querySelector('[data-copy-share]').onclick=e=>copyLink(url,e.currentTarget);}
- const expiry=sh.querySelector('#share-expiry');if(expiry){expiry.value=d.share?.expiresAt?(Math.abs(Date.parse(d.share.expiresAt)-Date.now()-7*86400000)<86400000?'7':'30'):'';expiry.onchange=async()=>{close();await docAct(id,{expiresAt:expiry.value?new Date(Date.now()+Number(expiry.value)*86400000).toISOString():null},'Expiry set');shareSheet(id,fresh);};}
- sh.querySelector('[data-reshare]')?.addEventListener('click',async()=>{close();const r=await docAct(id,{action:'reshare'},'New link made; the old one no longer works');if(r)shareSheet(id,r.token);});
- sh.querySelector('[data-revoke]')?.addEventListener('click',async()=>{close();await docAct(id,{visibility:'private'},'Link revoked; it no longer works');});
- mountSheet(scrim,sh);
+ const expiry=sh.querySelector('#share-expiry');if(expiry){expiry.value=d.share?.expiresAt?(Math.abs(Date.parse(d.share.expiresAt)-Date.now()-7*86400000)<86400000?'7':'30'):'';expiry.onchange=async()=>{close();await docAct(id,{expiresAt:expiry.value?new Date(Date.now()+Number(expiry.value)*86400000).toISOString():null},'Expiry set');shareSheet(id,fresh,{again:true,focus:'#share-expiry'});};}
+ sh.querySelector('[data-reshare]')?.addEventListener('click',async()=>{close();const r=await docAct(id,{action:'reshare'},'New link made; the old one no longer works');if(r)shareSheet(id,r.token,{again:true});else shareOpener(id)?.focus();});
+ sh.querySelector('[data-revoke]')?.addEventListener('click',async()=>{close();await docAct(id,{visibility:'private'},'Link revoked; it no longer works');shareOpener(id)?.focus();});
+ if(again){mountSheet(scrim,sh,shareOpener(id));if(focus)sh.querySelector(focus)?.focus();}else mountSheet(scrim,sh);
 }
 function docProjectSheet(id){
  const d=docById(id);if(!d||typeof boardSnap==='undefined')return;

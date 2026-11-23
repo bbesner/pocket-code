@@ -2503,3 +2503,14 @@ a.job-run:hover { background: var(--raised); }
     .composer-entry .send-mode { flex: 1 1 auto; min-width: 0; margin: 0; gap: 6px; }
   }
 }
+
+/* 1.124.5: the project editor says in the sheet what changed elsewhere, and marks the field a refusal names. */
+.project-stale { margin: 0; padding: 10px 12px; border: 1px solid var(--warn); border-radius: 10px; background: color-mix(in srgb, var(--warn) 12%, var(--surface)); color: var(--text); font-size: 14px; line-height: 1.45; }
+.project-stale[hidden] { display: none; }
+.project-form [aria-invalid=true] { border-color: var(--err); }
+
+/* 1.124.5, the library screens. */
+.session-group > .project-empty { padding-inline: 18px; } /* Coordination's empty line touched the screen edge: the inset rule reached only a direct child of the view */
+.task-meta.due-label { color: var(--warn); } /* a due step on the card: .task-meta's dim came later and won */
+.session-group.settings-details { border-top: 0; margin-top: 0; } /* the group above already draws the rule: two lines 20px apart before Done, Removed and Trash */
+.coord-who a, .task-facts a { display: inline-block; padding-block: 14px; margin-block: -14px; } /* a one-line link gets a 44px tap area without moving the line */

@@ -2087,7 +2087,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     // The editor: Who can use it has the same five, Vault default selected for a new secret.
     await clickControl(page,'#vt-add');await page.waitForSelector('.vault-editor [name=policy]');
     assert.deepEqual(await page.$eval('.vault-editor [name=policy]',s=>({value:s.value,options:[...s.options].map(o=>o.value),first:s.options[0].textContent,hint:document.querySelector('[data-policy-hint]').textContent})),
-     {value:'default',options:['default','auto','ask','every','owner'],first:'Vault default (currently: Ask every time)',hint:'Follows Agent access in Settings → Vault.'});
+     {value:'default',options:['default','auto','ask','every','owner'],first:'Vault default (currently: Ask every time)',hint:'Follows Agent access in Settings → Projects, files, tasks & vault.'});
     await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.vault-editor'));
     // A request on an item that asks every time: Allow once and Deny only.
     vaultFixture.extraRequests=[{id:'fixture-every',items:['fixture'],itemNames:['payroll-api'],argv:['node','run-payroll.mjs'],cwd:'/srv/payroll',session:rows[0].id,sessionTitle:rows[0].title,created:new Date().toISOString(),expiresAt:new Date(Date.now()+15*60000).toISOString(),answer:null,allowAlways:false}];
@@ -2346,7 +2346,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     settings.vault=false;await page.reload();await page.waitForSelector('#box');
     await paste('#box',KEY);await page.waitForSelector('.secret-sheet');
     assert.deepEqual(await page.evaluate(()=>({form:Boolean(document.querySelector('.secret-sheet form')),help:document.querySelector('.secret-sheet .secret-help').textContent,hint:document.querySelector('.secret-sheet .secret-hint').textContent,alt:[...document.querySelectorAll('.secret-sheet .secret-alt .opt')].length})),
-     {form:false,help:'Pasting it sends it to the model and keeps it in the transcript.',hint:'Turn on the Vault in Settings to store secrets instead.',alt:2});
+     {form:false,help:'Pasting it sends it to the model and keeps it in the transcript.',hint:'Turn on the Vault in Settings → Projects, files, tasks & vault, to store secrets instead.',alt:2});
     await untip();await scan('secret-paste-sheet-vault-off');await clickControl(page,'.secret-sheet [data-back]');await sheetGone();settings.vault=true;
     // The phone: both sheets fit at 390, and the queue editor's paste stacks over its dialog and returns to it.
     await page.setViewport({width:390,height:844});await page.reload();await page.waitForSelector('#box');await setBox('');

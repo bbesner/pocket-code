@@ -37,7 +37,7 @@ input:focus-visible,textarea:focus-visible{outline:none;border-color:var(--accen
 input[aria-invalid=true],textarea[aria-invalid=true]{border-color:var(--err)}
 .secret{position:relative;display:flex}
 .secret input{padding-right:84px;font-variant-ligatures:none}
-.reveal{position:absolute;right:4px;top:4px;bottom:4px;min-width:70px;padding:0 12px;font:inherit;font-size:14px;font-weight:600;
+.reveal{position:absolute;right:2px;top:2px;bottom:2px;min-width:70px;min-height:44px;padding:0 12px;font:inherit;font-size:14px;font-weight:600;
   color:var(--accent-text);background:transparent;border:0;border-radius:6px;cursor:pointer}
 .reveal:hover{background:color-mix(in srgb,var(--accent) 10%,#fff)}
 .reveal:focus-visible,.send:focus-visible{outline:3px solid var(--accent-text);outline-offset:2px}
