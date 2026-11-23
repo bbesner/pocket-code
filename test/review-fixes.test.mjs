@@ -284,3 +284,30 @@ test('a message sent just after the CLI wrote its result starts the next reply a
  assert.doesNotMatch(f.logs(),new RegExp(`turn start \\(started by the agent\\) session=${id}`),'the CLI did not run it as its own reply');
 });
 
+// 1.124.3 (turns-09): the log tails decoded each read before splitting lines, so a read that ended inside a character turned
+// it into U+FFFD, and the byte offsets kept from the decoded text drifted.
+test('a character cut by a read in mid-write arrives whole, in a running reply and in the mirror, at the right offset',async t=>{
+ const f=await fixture(t,18492);
+ const want='Grüße aus Köln: 日本語のテキスト';
+ const id=(await f.call('/new',{cwd:repo,...msg('__SPLITUTF8__ long output')})).body.id;
+ const s=openStream(f,id,'?offset=0&from=0');
+ assert.ok(await f.until(async()=>await f.state(id)==='finished',6000));
+ await sleep(200);await s.close();
+ const seen=s.data().join('\n');
+ assert.ok(!seen.includes('�'),'no replacement characters in the reply: '+seen.slice(0,800));
+ assert.ok(seen.includes(want),'the reply streamed whole');
+ // the mirror of a conversation written elsewhere: the same line, appended in two writes 400 ms apart
+ const wid=randomUUID(),file=path.join(f.dir,'sessions','test-workspace',wid+'.jsonl');
+ fs.writeFileSync(file,line(wid,'user','a question from a terminal'));
+ const w=openStream(f,wid,`?offset=${fs.statSync(file).size}`);
+ assert.ok(await f.until(()=>w.data().some(d=>d.includes('"watch"'))));
+ await sleep(200);
+ const b=Buffer.from(line(wid,'assistant',want)),cut=b.indexOf(Buffer.from('日'))+1,start=fs.statSync(file).size;
+ fs.appendFileSync(file,b.subarray(0,cut));await sleep(400);fs.appendFileSync(file,b.subarray(cut));
+ await f.until(()=>w.data().some(d=>d.includes('"assistant"')));
+ await sleep(200);await w.close();
+ const got=w.data().map(d=>JSON.parse(d)).filter(d=>d.type==='assistant');
+ assert.equal(got.length,1);assert.ok(JSON.stringify(got[0].msg).includes(want)&&!JSON.stringify(got[0].msg).includes('\uFFFD'),'the mirrored message is whole: '+JSON.stringify(got[0].msg));
+ assert.equal(got[0].offset,start+b.length,'its offset is the byte just past the line');
+});
+

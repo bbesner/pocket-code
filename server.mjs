@@ -1652,12 +1652,15 @@ async function pumpTail(id, file) {
       try {
         const buf = Buffer.alloc(size - t.offset);
         await fh.read(buf, 0, buf.length, t.offset);
-        let at = t.offset - Buffer.byteLength(t.rem);
+        let at = t.offset - t.rem.length, from = 0;
         t.offset = size;
-        const lines = (t.rem + buf.toString('utf8')).split('\n');
-        t.rem = lines.pop() ?? '';
-        for (const line of lines) {
-          at += Buffer.byteLength(line) + 1; // byte offset just past this line
+        // 1.124.3: cut on the newline byte, then decoded; the partial last line stays bytes (as in drainRunnerLog)
+        const data = Buffer.concat([t.rem, buf]), lines = [];
+        for (let nl; (nl = data.indexOf(10, from)) >= 0; from = nl + 1) lines.push(data.subarray(from, nl));
+        t.rem = Buffer.from(data.subarray(from));
+        for (const b of lines) {
+          const line = b.toString('utf8');
+          at += b.length + 1; // byte offset just past this line
           if (!line.trim()) continue;
           let o; try { o = JSON.parse(line); } catch { continue; }
           const m = normalizeLine(o);
@@ -2060,8 +2063,11 @@ function drainTurnLog(turn) {
       const buf = Buffer.alloc(size - turn.tailOffset);
       fs.readSync(fh, buf, 0, buf.length, turn.tailOffset);
       turn.tailOffset = size;
-      const lines = (turn.tailRem + buf.toString('utf8')).split('\n');
-      turn.tailRem = lines.pop() ?? '';
+      // 1.124.3: cut on the newline byte, then decoded; the partial last line stays bytes (as in drainRunnerLog)
+      const data = Buffer.concat([turn.tailRem, buf]), lines = [];
+      let from = 0;
+      for (let nl; (nl = data.indexOf(10, from)) >= 0; from = nl + 1) lines.push(data.toString('utf8', from, nl));
+      turn.tailRem = Buffer.from(data.subarray(from));
       for (const l of lines) if (l.trim()) handleTurnLine(turn, l);
     } finally { fs.closeSync(fh); }
   } catch { /* log file briefly absent — next tick */ }
@@ -2071,7 +2077,7 @@ function drainTurnLog(turn) {
 // them to the end, as before.
 function trackTurn(sessionId, turn) {
   turns.set(sessionId, turn);
-  turn.tailOffset = 0; turn.tailRem = '';
+  turn.tailOffset = 0; turn.tailRem = Buffer.alloc(0);
   turn.tailTimer = setInterval(() => drainTurnLog(turn), 300);
 }
 
@@ -2144,7 +2150,7 @@ function spawnRunner({ sessionId, cwd, resume, fork, model, effort, mode }) {
   writer.on('error', () => { });
   const r = {
     sessionId, key, cliBin: CLAUDE_BIN, pid: proc.pid, keeperPid: keeper.pid, writer, cwd, model, effort, approvalMode: mode, files, runnerToken, fork: fork || null, policyKey: ctx.key,
-    startedAt: Date.now(), turn: null, bgTasks: [], lastLineAt: Date.now(), tailOffset: 0, tailRem: '', doneOffset: 0, spent: 0, procStart: startTime(proc.pid),
+    startedAt: Date.now(), turn: null, bgTasks: [], lastLineAt: Date.now(), tailOffset: 0, tailRem: Buffer.alloc(0), doneOffset: 0, spent: 0, procStart: startTime(proc.pid),
   };
   // 1.89 (F-11): the marker is written before the first prompt. A process Pocket could not record would outlive a restart
   // unmanaged (neither adopted nor stopped), so when the write fails the CLI and its keeper are killed and the start refused.
@@ -2259,13 +2265,15 @@ function drainRunnerLog(r) {
     try {
       const buf = Buffer.alloc(size - r.tailOffset);
       fs.readSync(fh, buf, 0, buf.length, r.tailOffset);
-      const text = r.tailRem + buf.toString('utf8');
-      let at = r.tailOffset - Buffer.byteLength(r.tailRem);
+      // 1.124.3: lines are cut on the newline byte before they are decoded, and the partial last line is kept as bytes: a
+      // read that ends inside a character (a long line caught mid-write) turned it into U+FFFD, and the offsets drifted.
+      const data = Buffer.concat([r.tailRem, buf]), lines = [];
+      let at = r.tailOffset - r.tailRem.length, from = 0;
       r.tailOffset = size;
-      const lines = text.split('\n');
-      r.tailRem = lines.pop() ?? '';
-      for (const l of lines) {
-        const lineOffset = at; at += Buffer.byteLength(l) + 1;
+      for (let nl; (nl = data.indexOf(10, from)) >= 0; from = nl + 1) lines.push(data.subarray(from, nl));
+      r.tailRem = Buffer.from(data.subarray(from));
+      for (const b of lines) {
+        const lineOffset = at, l = b.toString('utf8'); at += b.length + 1;
         r.doneOffset = at; // 1.89 (F-9): a marker written while this line is handled counts it as handled
         // 1.124.2: one line that throws costs that line only; the offset is already past the batch, so the rest would be lost
         if (l.trim()) { try { handleRunnerLine(r, l, lineOffset); } catch (e) { log(`session output line not handled session=${r.sessionId}: ${e.message}`); } }
@@ -2784,7 +2792,7 @@ function adoptOrphans() {
           // (outOffset), not from its end: a turn the CLI ran by itself while Pocket was down (a background job finished) is
           // opened and finished as it would have been live, so its transcript lines count as Pocket's, not another app's,
           // and its background-job list is current. Markers from before 1.89 have no offset and start at the end as before.
-          lastLineAt: Date.now(), tailOffset: m.turn ? Math.min(m.turn.offset || 0, size) : Number.isFinite(m.outOffset) ? Math.min(m.outOffset, size) : size, tailRem: '', adopted: true,
+          lastLineAt: Date.now(), tailOffset: m.turn ? Math.min(m.turn.offset || 0, size) : Number.isFinite(m.outOffset) ? Math.min(m.outOffset, size) : size, tailRem: Buffer.alloc(0), adopted: true,
           skipControlBefore: size, // requests answered (or lost) before the restart can't be answered now
           procStart: m.procStart || startTime(m.pid),
         };
@@ -4930,7 +4938,7 @@ app.get('/api/session/:id/events', requireAuth, async (req, res) => {
   let offset = Number.isFinite(last) ? last : Number(req.query.offset);
   if (!Number.isFinite(offset) || offset < 0 || offset > size) offset = size;
   res.write(`data: {"type":"watch"}\n\n`);
-  const t = { res, offset, rem: '' };
+  const t = { res, offset, rem: Buffer.alloc(0) };
   if (!tailers.has(id)) tailers.set(id, new Set());
   tailers.get(id).add(t);
   req.on('close', () => { clearInterval(ka); tailers.get(id)?.delete(t); if (!tailers.get(id)?.size) tailers.delete(id); });

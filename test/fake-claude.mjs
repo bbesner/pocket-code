@@ -115,6 +115,11 @@ lines.on('line',line=>{
   working=true;
   if(text.includes('__HANG__'))return; // a stuck turn: no output, no result
   if(process.env.FAKE_CLAUDE_HANG_FILE&&fs.existsSync(process.env.FAKE_CLAUDE_HANG_FILE))return; // 1.119: while the file exists every new turn hangs (a retry's or a wake's fixed text)
+  // 1.124.3 __SPLITUTF8__: a long line caught mid-write, as a 300 ms read of a big tool output can be: the assistant line
+  // reaches stdout in two writes 700 ms apart, cut inside a three-byte character.
+  if(text.includes('__SPLITUTF8__')){const m={type:'assistant',message:{role:'assistant',content:[{type:'text',text:'Grüße aus Köln: 日本語のテキスト'}]}};append(m);console.log(JSON.stringify({type:'system',subtype:'init',session_id:id}));
+    const b=Buffer.from(JSON.stringify(m)+'\n'),cut=b.indexOf(Buffer.from('日'))+1;fs.writeSync(1,b.subarray(0,cut));
+    setTimeout(()=>{fs.writeSync(1,b.subarray(cut));console.log(JSON.stringify({type:'result',subtype:'success',result:'Test result',duration_ms:300}));working=false;},700);return;}
   // 1.82 __BG_ASK__: start a background subagent (with the transcript the real CLI writes for it), end the reply, then
   // have the agent ask permission for a Bash command while no reply runs. __BG_ASK_EARLY__ asks before the reply ends.
   if(text.includes('__BG_ASK')){
