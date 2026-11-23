@@ -325,3 +325,21 @@ test('the fork guard\'s record is replaced whole after a reply, never rewritten 
  assert.ok(!fs.existsSync(file+'.tmp'),'nothing left beside it');
 });
 
+// 1.124.3 (turns-11): a start refused before anything reached the CLI (here: the pipe directory is refused) answered 500, and
+// the delivery receipt kept it, so Retry same message replayed the failure for a week. It answers 503 not_started and keeps
+// no receipt: the same message goes through once the cause is fixed.
+test('a start that never reached the CLI keeps no delivery receipt, so Retry same message sends it',async t=>{
+ const pipes=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-pipes-'));t.after(()=>fs.rmSync(pipes,{recursive:true,force:true}));
+ const f=await fixture(t,18493,{POCKET_PIPE_DIR:pipes,POCKET_IDLE_CLOSE_MS:'300'});
+ const id=(await f.call('/new',{cwd:repo,...msg('first')})).body.id;
+ assert.ok(await f.until(async()=>await f.state(id)==='finished'&&(await f.health()).processes===0,6000),'its process closed when idle');
+ const claudeDir=path.join(pipes,'claude');fs.rmSync(claudeDir,{recursive:true,force:true});fs.writeFileSync(claudeDir,''); // a file where the pipe directory goes
+ const send=msg('send it once it can start');
+ const first=await f.call(`/session/${id}/message`,send);
+ assert.equal(first.status,503,JSON.stringify(first.body));assert.equal(first.body.code,'not_started');
+ assert.equal(f.calls().length,1,'only the first message reached a CLI');
+ fs.rmSync(claudeDir);
+ const again=await f.call(`/session/${id}/message`,send);
+ assert.equal(again.status,202,'Retry same message starts it: '+JSON.stringify(again.body));
+ assert.ok(await f.until(()=>f.calls().some(c=>c.text==='send it once it can start')));
+});

@@ -2131,9 +2131,13 @@ function spawnRunner({ sessionId, cwd, resume, fork, model, effort, mode }) {
   else args.push(resume ? '--resume' : '--session-id', sessionId);
   const key = Date.now().toString(36);
   const files = runnerFiles(sessionId, key);
-  for (const file of [files.out, files.err]) { fs.writeFileSync(file, '', { mode: 0o600 }); fs.chmodSync(file, 0o600); }
-  ensurePipeDir(PIPE_DIR, PIPES.top);
-  execFileSync('mkfifo', ['-m', '600', files.fifo]);
+  // 1.124.3: nothing has started yet, so a failure here (a full disk, a refused pipe directory) is a start that did not happen
+  // (notStarted): the message routes answer 503 not_started and the delivery receipt is not kept, so Retry sends it again.
+  try {
+    for (const file of [files.out, files.err]) { fs.writeFileSync(file, '', { mode: 0o600 }); fs.chmodSync(file, 0o600); }
+    ensurePipeDir(PIPE_DIR, PIPES.top);
+    execFileSync('mkfifo', ['-m', '600', files.fifo]);
+  } catch (e) { throw Object.assign(e, { notStarted: true }); }
   // O_RDWR never blocks on a FIFO, and while it is open the read end opens without blocking too.
   const hold = fs.openSync(files.fifo, fs.constants.O_RDWR);
   const inFd = fs.openSync(files.fifo, 'r');
@@ -2161,7 +2165,7 @@ function spawnRunner({ sessionId, cwd, resume, fork, model, effort, mode }) {
     try { writer.destroy(); } catch { }
     for (const f of [files.fifo, files.meta + '.tmp', files.out, files.err]) { try { fs.unlinkSync(f); } catch { } }
     log(`session process refused session=${sessionId} pid=${proc.pid}: its marker could not be written (${e.message})`);
-    throw Object.assign(new Error(`Pocket Code could not record the Claude process on disk, so it did not start it (${e.code || e.message}). Check the server's free disk space, then send again.`), { code: 500 });
+    throw Object.assign(new Error(`Pocket Code could not record the Claude process on disk, so it did not start it (${e.code || e.message}). Check the server's free disk space, then send again.`), { code: 500, notStarted: true }); // 1.124.3: killed before the first prompt
   }
   runners.set(sessionId, r);
   r.tailTimer = setInterval(() => drainRunnerLog(r), 300);
@@ -4194,7 +4198,8 @@ app.post('/api/session/:id/message', requireAuth, ownerSendGate, validateApprova
     const turn = startTurn({ sessionId: id, cwd, text, resume: true, ...turnOpts(req.body), replaceStale: req.body?.replaceStaleLogin === true });
     res.status(202).json({ ok: true, ...(turn.modelFallback ? { modelFallback: turn.modelFallback } : {}), ...carriedOn(id, Boolean(meta.cwd) && cwd !== meta.cwd) });
   } catch (e) {
-    res.status(e.code === 409 ? 409 : 500).json({ error: String(e.message), ...(e.reason && { code: e.reason, jobs: e.jobs }) });
+    // 1.124.3: a start refused before anything reached the CLI is 503 not_started, which the delivery receipt does not keep
+    res.status(e.code === 409 ? 409 : e.notStarted ? 503 : 500).json({ error: String(e.message), ...(e.reason && { code: e.reason, jobs: e.jobs }), ...(e.code !== 409 && e.notStarted && { code: 'not_started' }) });
   }
 }));
 
@@ -4313,7 +4318,7 @@ app.post('/api/new', requireAuth, ownerSendGate, validateApprovalMode, validateT
     // the conversation never started: it leaves the project it was linked to
     if (ps.project && settings.projects) try { board.act({ action: 'unlink-session', project: ps.project, session: id }, { actor: 'ui' }); } catch { }
     if (smeta[id]?.projectMode) setSmeta(id, { projectMode: undefined });
-    res.status(e.code === 409 ? 409 : 500).json({ error: String(e.message) });
+    res.status(e.code === 409 ? 409 : e.notStarted ? 503 : 500).json({ error: String(e.message), ...(e.code !== 409 && e.notStarted && { code: 'not_started' }) }); // 1.124.3
   }
 })));
 
@@ -4790,7 +4795,7 @@ app.post('/api/session/:id/branch', requireAuth, ownerSendGate, validateApproval
     titler.request(nid, text);
     log(`branch session=${nid} from=${id}`);
     res.status(202).json({ id: nid, ...(turn.modelFallback ? { modelFallback: turn.modelFallback } : {}) });
-  } catch (e) { res.status(e.code === 409 ? 409 : 500).json({ error: String(e.message) }); }
+  } catch (e) { res.status(e.code === 409 ? 409 : e.notStarted ? 503 : 500).json({ error: String(e.message), ...(e.code !== 409 && e.notStarted && { code: 'not_started' }) }); } // 1.124.3
 }));
 
 // Attachments: raw body upload, filename via header. Files land in ~/pocket-uploads

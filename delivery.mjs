@@ -50,7 +50,9 @@ export class DeliveryReceipts {
     const promise = Promise.resolve().then(action).then(response => {
       // 1.89.1: a refusal (4xx) dispatched nothing, so it is not kept: Retry same message asks the server again instead of
       // replaying the refusal (a conversation held by background jobs stayed refused after they finished).
-      if (refused(response.status)) { delete this.records[key]; try { this.save(); } catch { } return response; }
+      // 1.124.3: so does a start refused before anything reached the CLI (503 not_started: a full disk, a refused pipe
+      // directory), which replayed its failure for a week. Any other 5xx stays kept: it may follow a dispatch.
+      if (refused(response.status) || response.body?.code === 'not_started') { delete this.records[key]; try { this.save(); } catch { } return response; }
       this.records[key].response = response;
       try { this.save(); }
       catch {
