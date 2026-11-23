@@ -3826,7 +3826,7 @@ function setComposer(working) {
   modeButtons.forEach(b=>b.onclick=()=>{sendModes.set(chatId,b.dataset.mode);paintMode();const box=$('#box'),ph=b.dataset.mode==='queue'?'Run this after the current reply…':"Add to what it's doing…";box.dataset.basePh=ph;box.placeholder=b.dataset.mode!=='queue'&&$('#questions-open')&&!$('#questions-open').hidden?SKIP_PH:ph;});paintMode();
   const box = $('#box');
   const grow = () => sizeComposerBox();
-  const draft = sendsInFlight.has(chatId) ? laterDraft(chatId) : loadOutbox(chatId)?.text || loadDraft(chatId);
+  const draft = sendsInFlight.has(chatId) || sendingElsewhere(loadOutbox(chatId)) ? laterDraft(chatId) : loadOutbox(chatId)?.text || loadDraft(chatId); // 1.124.5: nor while another window sends it
   if (draft) { box.value = draft; grow(); }
   const slash = bindSlash(box, () => ({ where: 'chat', provider: tb?.provider || 'claude', cwd: slashCwd, working, onRun: t => sendMsg(t) }));
   box.oninput = () => {
@@ -3859,6 +3859,21 @@ function showUnsent(id, text) { // put an unsent message back in the box, keepin
 function loadAttachments(id) { try { return JSON.parse(localStorage.getItem('pc-attachments-' + id) || '[]'); } catch { return []; } }
 function stashAttachments() { if (tb?.key) { try { localStorage.setItem('pc-attachments-' + tb.key, JSON.stringify(tb.attachments)); } catch { } } }
 function loadOutbox(id) { try { return JSON.parse(localStorage.getItem('pc-outbox-' + id) || 'null'); } catch { return null; } }
+// 1.124.5: one conversation open in two windows (the main window and a pane, or two tabs) has one draft and one outbox.
+// Each window used to learn of the other's only when it was drawn again: its box then took the other's text and lost
+// its own, and a send still on its way from the other window read as "Delivery was not confirmed" with Retry.
+// Now the box follows the shared draft as it changes, and a send in flight carries the window that is sending it.
+const WINDOW_ID = crypto.randomUUID(), SENDING_ELSEWHERE_MS = 60000;
+const sendingElsewhere = pending => Boolean(pending?.sender && pending.sender !== WINDOW_ID && Date.now() - (pending.sendingAt || 0) < SENDING_ELSEWHERE_MS);
+let deliveryRecheckT = null;
+addEventListener('storage', e => {
+  if (!chatId || !e.key) return;
+  if (e.key === 'pc-outbox-' + chatId) paintDelivery(chatId);
+  else if (e.key === draftKey(chatId)) {
+    const box = $('#box'), text = e.newValue || '';
+    if (box && !box.readOnly && box.value !== text) { box.value = text; try { box.setSelectionRange(text.length, text.length); } catch { } sizeComposerBox(); } // the caret at the end: typing here carries on from it
+  }
+});
 function saveOutbox(id, value) {
   if (value) localStorage.setItem('pc-outbox-' + id, JSON.stringify(value));
   else localStorage.removeItem('pc-outbox-' + id);
@@ -3870,11 +3885,13 @@ function setConnection(message = '') {
 function paintDelivery(id = chatId) {
   if (id !== chatId) return;
   const el = $('#delivery-status'); if (!el) return;
-  const pending = loadOutbox(id), sending = sendsInFlight.has(id), notice = deliveryNotices.get(id);
+  const pending = loadOutbox(id), elsewhere = !sendsInFlight.has(id) && sendingElsewhere(pending), sending = sendsInFlight.has(id) || elsewhere, notice = deliveryNotices.get(id);
+  clearTimeout(deliveryRecheckT); // the other window never finished (closed mid-send): Retry is offered once its time is up
+  if (elsewhere) deliveryRecheckT = setTimeout(() => paintDelivery(id), Math.max(500, SENDING_ELSEWHERE_MS - (Date.now() - pending.sendingAt) + 200));
   el.hidden = !pending && !notice;
   el.classList.toggle('delivery-problem', Boolean(pending && !sending));
   if (pending) {
-    const label = sending ? 'Sending…' : pending.error || 'Delivery was not confirmed. Retry checks the same message.';
+    const label = elsewhere ? 'Sending from another window…' : sending ? 'Sending…' : pending.error || 'Delivery was not confirmed. Retry checks the same message.';
     el.innerHTML = `<p>${esc(label)}</p>${!sending ? `<div class="delivery-actions"><button class="chip" id="retry-message">Retry same message</button>${pending.rejected ? '<button class="chip" id="edit-message">Edit message</button>' : '<button class="chip" id="review-message">Review conversation</button>'}<button class="chip" id="discard-message">Discard message</button></div>` : ''}`;
     const retry = $('#retry-message'); if (retry) retry.onclick = () => submitPending(id);
     const edit = $('#edit-message'); if (edit) edit.onclick = () => { deliveryNotices.delete(id); const box = $('#box'), later = laterDraft(id); saveOutbox(id, null); if (box && later) box.value += '\n\n' + later; if (box) { saveDraft(id, box.value); sizeComposerBox(); } paintDelivery(id); box?.focus(); };
@@ -3922,8 +3939,11 @@ async function sendMsg(text, {allowSecrets = false, matches = null} = {}) {
 }
 async function submitPending(id) {
   if (sendsInFlight.has(id)) return;
-  const pending = loadOutbox(id); if (!pending) return;
-  sendsInFlight.add(id); deliveryNotices.delete(id); paintDelivery(id);
+  const pending = loadOutbox(id); if (!pending || sendingElsewhere(pending)) return;
+  delete pending.sender; delete pending.sendingAt;
+  sendsInFlight.add(id); deliveryNotices.delete(id);
+  try { saveOutbox(id, { ...pending, sender: WINDOW_ID, sendingAt: Date.now() }); } catch { } // other windows on this conversation say "Sending from another window…"
+  paintDelivery(id);
   recentSends = [...recentSends.slice(-4), { text: pending.text, at: Date.now() }];
   // Optimistic echo: show the message the instant Send is hit instead of after the server acknowledges and
   // the transcript is re-fetched. A message with files renders as two elements (bubble + file chips), so

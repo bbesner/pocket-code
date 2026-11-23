@@ -487,6 +487,46 @@ export async function runUiTestFixes({browser,base,rows,out,settingsState=()=>({
   }finally{await post(page,'/api/board/reset');}
  }));
 
+ await check('A code block keeps its first line clear of the Copy chip',PHONE,async page=>{
+  await openChat(page,idle.id);
+  const gaps=await page.evaluate(()=>{
+   const out=[];
+   for(const n of [38,44,48,60,90]){ // characters on the first line: from well short of the chip to far past it
+    document.querySelector('#msgs').insertAdjacentHTML('beforeend',msgHTML({role:'assistant',blocks:[{t:'text',text:'```js\n'+'x'.repeat(n)+'\nshort();\n```'}]}));
+    const wrap=[...document.querySelectorAll('#msgs .codewrap')].at(-1),pre=wrap.querySelector('pre'),chip=wrap.querySelector('.copybtn').getBoundingClientRect();
+    pre.scrollLeft=pre.scrollWidth;
+    const r=document.createRange(),t=pre.querySelector('code').firstChild;r.setStart(t,n-1);r.setEnd(t,n);
+    out.push({n,scrolls:pre.scrollWidth>pre.clientWidth,clear:Math.round(chip.left-r.getBoundingClientRect().right)});
+   }
+   return out;});
+  for(const g of gaps)assert.ok(g.clear>=0,`a ${g.n}-character first line can be read to its end (${-g.clear}px of it stayed under Copy${g.scrolls?', scrolled to the end':', with nothing to scroll'}): ${JSON.stringify(gaps)}`);
+ });
+
+ await check('One conversation in two windows: the box follows the shared draft, and a send from the other window is not offered for Retry',DESKTOP,async page=>{
+  const boxOf=p=>p.$eval('#box',e=>e.value);let other=null;
+  // Two tabs: only the front one runs animation frames, which waitForFunction polls on, so these waits poll from here.
+  const until=async(p,fn,ms=3000)=>{const end=Date.now()+ms;for(;;){if(await p.evaluate(fn))return true;if(Date.now()>end)return false;await pause(60);}};
+  // Coming to the front redraws the conversation (the page was away), so the box is waited for before it is used.
+  const front=async p=>{await p.bringToFront();await pause(150);assert.ok(await until(p,()=>Boolean(document.querySelector('#box'))&&document.querySelector('#ctitle')?.textContent!=='Conversation'),'the conversation is drawn');};
+  await intercept(page,async(r,u)=>{if(r.method()==='POST'&&u.pathname==='/api/session/'+idle.id+'/message'){await pause(1800);await r.respond({status:200,contentType:'application/json',body:'{"ok":true}'});return true;}});
+  try{
+   await openChat(page,idle.id);other=await page.browserContext().newPage();await other.setViewport(DESKTOP);await openChat(other,idle.id);
+   await page.evaluate(id=>{localStorage.removeItem('pc-draft-'+id);localStorage.removeItem('pc-outbox-'+id);},idle.id);
+   await front(page);await page.type('#box','Order the shelf labels');
+   assert.ok(await until(other,()=>document.querySelector('#box').value==='Order the shelf labels'),'what is typed in one window shows in the other (it stayed empty until redrawn, then overwrote): '+JSON.stringify(await boxOf(other)));
+   await front(other);await other.type('#box',' today');
+   assert.ok(await until(page,()=>document.querySelector('#box').value==='Order the shelf labels today'),'and the other way, carrying on from the end: '+JSON.stringify(await boxOf(page)));
+   await front(page);await page.click('#send'); // this window's send takes 1.8 s
+   await pause(300);
+   await other.evaluate(()=>{renderChat(chatId);}); // the other window is left and come back to
+   assert.ok(await until(other,()=>Boolean(document.querySelector('#delivery-status')?.textContent)&&Boolean(document.querySelector('#box')),1200),'the other window says a send is on its way');
+   const during=await other.evaluate(()=>({text:document.querySelector('#delivery-status').textContent,retry:Boolean(document.querySelector('#retry-message')),readOnly:document.querySelector('#box').readOnly}));
+   assert.deepEqual(during,{text:'Sending from another window…',retry:false,readOnly:false},'a send on its way from the other window is not "Delivery was not confirmed"');
+   assert.ok(await until(other,()=>!localStorage.getItem('pc-outbox-'+chatId)&&!document.querySelector('#retry-message')&&!/Sending/.test(document.querySelector('#delivery-status').textContent),5000),'the line goes when it is delivered');
+   assert.equal(await boxOf(other),'','and the other window\'s box is empty too');
+  }finally{await other?.close();await page.evaluate(id=>{localStorage.removeItem('pc-draft-'+id);localStorage.removeItem('pc-outbox-'+id);},idle.id);}
+ });
+
  // Voice: count the microphone tracks the page holds, and answer the recogniser with silence so nothing is sent.
  const voicePage=async page=>{
   await page.evaluateOnNewDocument(()=>{const real=navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);window.__mics=[];

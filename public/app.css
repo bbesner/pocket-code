@@ -648,6 +648,9 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .report-table [align=right] { text-align: right; font-variant-numeric: tabular-nums; }
 .report-table [align=center] { text-align: center; }
 .codewrap .copybtn { min-height: 36px; min-width: 44px; font-size: 13px; }
+/* 1.124.5: the Copy chip sat over the end of the first lines, and a line that just fitted could not be scrolled clear of
+   it. The code keeps the chip's width free on the right, so a line either ends before the chip or scrolls past it. */
+.codewrap pre code { width: max-content; min-width: 100%; box-sizing: border-box; padding-right: 44px; }
 .sheet-help { color: var(--dim); font-size: 14px; margin: 8px 0 16px; line-height: 1.5; }
 /* 1.124.5: a sheet's heading and rows start 14 px in; its help line, a Settings scope label and the Accounts sheet's
    body started at the sheet's own padding, 14 px to their left (the layout sweep now measures this). :where() keeps
