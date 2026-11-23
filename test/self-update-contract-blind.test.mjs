@@ -505,19 +505,11 @@ describe('divergences (class)', () => {
     const j = f.make().job();
     assert.equal(j.running, false); assert.equal(j.phase, 'failed'); assert.equal(j.error, M.notStarted);
   });
-  test('DIV-5: an exception after process creation must not leave the child alive', async () => {
-    const f = fixture(); let pid;
-    const su = f.make({ spawner: () => {
-      const c = spawn('/usr/bin/sleep', ['30'], { detached: true, stdio: 'ignore' }); pid = track(c.pid);
-      return { pid: c.pid, on() { throw new Error('injected on() failure'); }, unref() { c.unref(); } };
-    } });
-    let threw = false; try { begin11(su); } catch { threw = true; }
-    assert.ok(threw, 'harness: injected on() failure should surface');
-    const gone = await until(() => !alive(pid), 1500);
-    try { process.kill(pid, 'SIGKILL'); } catch {}
-    assert.ok(gone, 'begin threw after spawning, but the started child is still alive and untracked');
-  });
-  // Ruled not a fault (close of a local file does not fail in practice); 1.124.4's always-close in begin() makes it hold anyway.
+  // Removed after the 2026-11-23 review: DIV-5 (on()/unref() throwing) is guarded, since the daemon passes Node's spawn, whose
+  // ChildProcess does not throw there; DIV-14 (corrupt progress while the lock is held) is not a fault, since every writer is
+  // tmp + rename and a second script stops at flock (pinned by '§Shell flock rejects while another updater holds the lock').
+
+  // Ruled not a fault (DIV-6: close of a local file does not fail in practice); 1.124.4's always-close in begin() makes it hold.
   test('a log close failure after spawn does not report a failed start while the updater runs', async () => {
     const f = fixture(); let logFd = -1, pid;
     const su = f.make({ spawner: (cmd, args, opts) => {
@@ -550,24 +542,31 @@ describe('divergences (class)', () => {
     assert.equal(j.phase, 'failed'); assert.equal(j.error, M.notStarted);
     assert.equal(f.make().begin({ from: '1.0.0', to: '1.1.0' }).job.phase, 'queued', 'a second press is let through');
   });
-  test('DIV-13: the updater must run from a stable copy outside the checkout it moves', () => {
-    const f = fixture(); begin11(f.make());
-    const { args } = f.calls[0];
-    const scriptArg = args[args.indexOf('bash') + 1];
-    assert.ok(!path.resolve(scriptArg).startsWith(path.resolve(f.checkout) + path.sep), `updater script ${scriptArg} lives inside the checkout it moves`);
-  });
-  test('DIV-14: corrupt progress must not let a second begin overwrite while a live updater holds the lock', async () => {
-    const f = fixture();
-    const holder = spawn('/usr/bin/flock', [f.file + '.lock', '-c', 'echo ready; exec /usr/bin/sleep 30'], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] });
-    track(holder.pid);
-    try {
-      let out = ''; holder.stdout.on('data', d => { out += d; });
-      assert.ok(await until(() => out.includes('ready'), 3000), 'harness: lock holder ready');
-      fs.writeFileSync(f.file, '{\n  "id": "live-id",\n  "phase": "install');
-      const snap = snapshot(f.file);
-      let threw = false; try { begin11(f.make()); } catch { threw = true; }
-      assert.ok(threw && unchanged(f.file, snap), 'a second begin replaced the active updater\'s progress while that updater holds the lock');
-    } finally { try { process.kill(-holder.pid, 'SIGKILL'); } catch {} }
+  // Ruled not a fault (DIV-13): bash reads its script through one open descriptor, and git replaces a file it changes (unlink,
+  // then create) instead of rewriting it in place, so a running script finishes its own version. Each of the three moves the
+  // script makes (merge --ff-only, reset --hard, checkout --detach) is pinned here to give the script file a new inode.
+  test('each git move the script makes replaces the script file rather than rewriting it in place', () => {
+    const base = tmpDir('su-inode-'); const home = path.join(base, 'home'); fs.mkdirSync(home);
+    fs.writeFileSync(path.join(home, '.gitconfig'), gitconfig());
+    const co = path.join(base, 'co'); fs.mkdirSync(path.join(co, 'scripts'), { recursive: true });
+    const file = path.join(co, 'scripts', 'pocket-self-update.sh');
+    g(co, ['init', '-q', '-b', 'main'], home);
+    fs.writeFileSync(file, 'echo "v1"\n'); g(co, ['add', '-A'], home); g(co, ['commit', '-qm', 'v1'], home);
+    const v1 = g(co, ['rev-parse', 'HEAD'], home);
+    fs.writeFileSync(file, 'echo "v2, a different text at the same offset"\n'); g(co, ['commit', '-qam', 'v2'], home);
+    const v2 = g(co, ['rev-parse', 'HEAD'], home);
+    g(co, ['reset', '-q', '--hard', v1], home);
+    // A descriptor held open across the move, as bash holds the running script (with none held, the file system may hand
+    // the freed inode number straight to the new file).
+    for (const args of [['merge', '--ff-only', '-q', v2], ['reset', '-q', '--hard', v1], ['checkout', '-q', '--detach', v2]]) {
+      const text = fs.readFileSync(file, 'utf8'), fd = fs.openSync(file, 'r');
+      try {
+        g(co, args, home);
+        assert.notEqual(fs.readFileSync(file, 'utf8'), text, `harness: git ${args[0]} changed the script`);
+        assert.notEqual(fs.fstatSync(fd).ino, fs.statSync(file).ino, `git ${args[0]} rewrote the script in place`);
+        const buf = Buffer.alloc(200); assert.equal(buf.toString('utf8', 0, fs.readSync(fd, buf, 0, 200, 0)), text, `git ${args[0]}: the open script no longer reads its own text`);
+      } finally { fs.closeSync(fd); }
+    }
   });
 });
 
@@ -1063,14 +1062,11 @@ describe('shell (stand-in repository)', { concurrency: 6 }, () => {
     await expectFailure(E, await runShell(E), SM.backup, { hit: 'tarempty' });
     assert.deepEqual(backups(E), [], 'backup folder removed');
   }));
-  test('DIV-10: a backup metadata/permission write failure must fail before the checkout moves', () => withShell({ faults: ['chmod'] }, async E => {
-    const r = await runShell(E);
-    assert.match(hits(E), /chmod/, 'harness: chmod fault hit');
-    assert.equal(headOf(E), E.head, `checkout moved although chmod on the backup failed (exit ${r.code}, phase ${readStatus(E)?.phase})`);
-    assert.equal(r.code, 1);
-  }));
-  // Rewritten in 1.124.4 to the lead's decision (put to the owner): a daemon that cannot answer its health check is not helped
-  // by waiting, so an unknown count still restarts, but only after three tries a second apart, and the log says so.
+  // Removed after the 2026-11-23 review, as not faults: DIV-10 (chmod on the backup files fails: the folder is made 0700, so
+  // the files' modes widen nothing), DIV-15 (killing the shell leaves npm ci running: nothing in the real flow kills it, and
+  // stopping npm ci halfway would leave node_modules half removed), DIV-16 (a tool's output in the log: the log is 0600 in the
+  // data folder and the script's environment carries no secrets, both pinned by '§6/§7 begin() success'), DIV-17 (two runs
+  // in one second share a backup folder: flock serialises runs on one install).
   test('DIV-11: a health probe that keeps failing is retried, logged as unknown, and the restart goes ahead', () => withShell({ app: { health: 'bad' } }, async E => {
     const r = await runShell(E);
     assert.ok(E.server.badProbes >= 3 && E.server.badProbes % 3 === 0, `three tries per check, got ${E.server.badProbes} failed probes`);
@@ -1106,41 +1102,6 @@ describe('shell (stand-in repository)', { concurrency: 6 }, () => {
     assert.match(r.out, /waiting for 1 replies to finish/);
     assert.deepEqual(restarts(E).map(l => l.replace(/^.* busy=/, '')), ['0']);
   }));
-  test('DIV-15: killing the updater must not leave its blocking subprocess alive', () => withShell({ faults: ['npmhang'] }, async E => {
-    let shellPid;
-    const done = runShell(E, { onStart: c => { shellPid = c.pid; }, keepGroup: true, timeoutMs: 15_000 });
-    const pidFile = path.join(E.S, 'npmhang.pid');
-    try {
-      assert.ok(await until(() => fs.existsSync(pidFile) && fs.readFileSync(pidFile, 'utf8').length > 0, 12_000), 'harness: npm stand-in started');
-      const npmPid = track(Number(fs.readFileSync(pidFile, 'utf8')));
-      process.kill(shellPid, 'SIGTERM');
-      const gone = await until(() => !alive(npmPid), 3000);
-      assert.ok(gone, 'the updater shell was killed but its blocking npm subprocess is still running');
-    } finally { killGroup(shellPid); await done; killGroup(shellPid); }
-  }));
-  test('DIV-16: tool output must not put a secret into the log', () => withShell({ faults: ['npmsecret'] }, async E => {
-    const r = await runShell(E);
-    assert.ok(callLines(E).some(l => l.startsWith('npm ci')), 'harness: npm ran');
-    assert.ok(!r.out.includes(SECRET), 'a secret printed by a subprocess reached the update log verbatim');
-  }));
-  test('DIV-17: two runs for the same target in the same second must not share a backup folder', () => withShell({ faults: ['datefixed'] }, async A => {
-    const ra = await runShell(A);
-    assert.equal(ra.code, 0, tail(ra.out));
-    const [dA] = backups(A); const bdir = path.join(A.home, 'backups', dA);
-    const snaps = Object.fromEntries(fs.readdirSync(bdir).map(n => [n, snapshot(path.join(bdir, n))]));
-    await withShell({ home: A.home }, async B => {
-      fs.writeFileSync(path.join(B.co, '.env'), 'FICT_TOKEN=fict-second-run\n');
-      fs.writeFileSync(path.join(A.S, 'checkout'), B.co);
-      const st = JSON.parse(fs.readFileSync(A.appFile, 'utf8'));
-      fs.writeFileSync(B.appFile, JSON.stringify({ ...st, version: '1.0.0', ok: true, busy: 0, health: 'ok' }));
-      const rb = await runShell(B);
-      const stB = readStatus(B);
-      for (const [n, s] of Object.entries(snaps)) assert.ok(unchanged(path.join(bdir, n), s), `second run overwrote ${n} in the first run's backup ${dA} (exit ${rb.code})`);
-      if (rb.code === 0) assert.notEqual(stB.backup, bdir, 'both runs report the same backup folder');
-    });
-  }));
-
-  // ------------------------------------------------------------- class + shell end to end
   test('§6+Shell end to end: begin() launches the updater, restart view sees complete', () => withShell({ writeStatus: false }, async E => {
     const spawned = [];
     const opts = { checkout: E.co, dataDir: E.data, env: { POCKET_SELF_UPDATE: '1', pm_id: '7', PATH: E.bin, HOME: E.home, FICT_API_KEY: SECRET }, port: String(E.port), repo: REPO, node: E.nodeWrapper, script: SCRIPT, setsid: false };
