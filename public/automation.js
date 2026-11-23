@@ -194,8 +194,9 @@ const Automation = (() => {
       answeredAt = performance.now();
       apply({ paused: r.paused || { at: new Date().toISOString() } });
       // Replies and background jobs stop; retries and check-backs are held, not stopped:
-      // "Paused. Stopped 2 replies running (2 Claude), 1 background job. Held 1 usage-limit retry."
-      const s = r.stopped || {}, stopped = wouldText({ replies: s.replies, jobs: s.jobs, background: s.background });
+      // "Paused. Stopped 2 replies running (2 Claude), 1 background job, Inbox Watch. Held 1 usage-limit retry."
+      // 1.124.5: with Inbox Watch, which the sheet named
+      const s = r.stopped || {}, stopped = wouldText({ replies: s.replies, jobs: s.jobs, background: s.background, inboxWatch: s.inboxWatch });
       const held = wouldText({ retries: s.retries, checkbacks: s.checkbacks });
       toast(['Paused.', stopped && 'Stopped ' + stopped, held && 'Held ' + held, r.paused?.unsaved && UNSAVED].filter(Boolean).join(' '));
       poll(true); if (typeof refreshSessions === 'function') refreshSessions();

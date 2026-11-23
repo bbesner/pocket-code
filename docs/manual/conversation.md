@@ -299,6 +299,7 @@ permissions.
 |---|---|
 | After the current reply | Waiting; runs when the running reply finishes successfully. |
 | Paused | Waiting, with no reply running. Use **Run next instruction**. |
+| After the usage-limit retry | The last reply hit a usage limit. Pocket retries it after the reset, then runs the queue; the panel says when. **Run next instruction** is not offered meanwhile, since the message would only hit the same limit. |
 | After the background jobs | Waiting for background jobs the last Claude reply left running; it sends by itself when they finish. The panel names the jobs, and the button reads **Stop background jobs and run it**. |
 | Editing · paused | Someone opened it for editing. It will not run until saved or cancelled. |
 | Starting… | Being handed to the agent. |
@@ -308,7 +309,7 @@ permissions.
   paused, and **Continue editing** brings back this browser's unsaved text. Other devices see the paused row but not your
   unsaved text.
 - **Remove** deletes a row. A row that is starting cannot be removed.
-- **Run next instruction** appears when the first row is waiting and nothing is running. It is disabled while activity is
+- **Run next instruction** appears when the first row is waiting and nothing is running, except while the conversation waits for a usage-limit retry. It is disabled while activity is
   seen in another app (a terminal or code-server), and the panel says **Recent activity was seen elsewhere. Refresh after
   that reply finishes.**
 - Stopping a reply, or a reply that fails, pauses the queue. Use **Run next instruction** to continue.

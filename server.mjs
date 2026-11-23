@@ -747,6 +747,9 @@ function shownOriginRef(t) {
 }
 // A finished unattended reply: the day's totals and one audit line. Returns the label the push leads with (null for owner).
 function noteFinish(id, turn, { cost, tokens, durationMs, outcome }) {
+  if (turn?.ownerCheckback) { // 1.124.5: before, the next pass settled it as "Pocket lost track of its reply"
+    try { checkbackFinished(id, turn, outcome, { ref: turn.ownerCheckback, byOwner: true }); } catch (e) { log(`check-back not recorded id=${turn.ownerCheckback} session=${id}: ${e.message}`); }
+  }
   if (!turn?.origin || turn.origin === 'owner') return null;
   const engine = engineForSessionId(id), rootOrigin = auto.normRoot(turn.rootOrigin);
   autoState.recordFinish({ rootOrigin, engine, cost, tokens });
@@ -1008,8 +1011,9 @@ async function pushRaw(title, body, { tag, url, kind = 'turns', badge, ...extra 
   // 1.124.3: a push service refuses a message over 4,096 bytes once encrypted (about 100 more than the text), and the
   // callers cap the body in characters: 2,000 CJK characters or emoji is 6 KB, and the phone got nothing. The body is cut
   // by bytes, at a character, leaving room for the badge.
-  const over = Buffer.byteLength(JSON.stringify(base)) + 32 - PUSH_TEXT_MAX;
-  if (over > 0 && typeof body === 'string') base.body = cutBytes(body, Buffer.byteLength(body) - over);
+  // 1.124.5: measured as the payload carries it, escaped: a body of quotes, backslashes or control characters was cut to "…"
+  const over = Buffer.byteLength(JSON.stringify(base)) + 32 - PUSH_TEXT_MAX, escaped = s => Buffer.byteLength(JSON.stringify(s)) - 2;
+  if (over > 0 && typeof body === 'string') base.body = cutBytes(body, escaped(body) - over, escaped);
   const options = kind === 'turns' || kind === 'automation' ? {} : { urgency: 'high' }; // 1.119: automation goes at normal priority
   const dead = [];
   let sent = 0;
@@ -1026,9 +1030,10 @@ async function pushRaw(title, body, { tag, url, kind = 'turns', badge, ...extra 
   return sent;
 }
 // The longest start of s that is at most max bytes in UTF-8, cut at a character, with … in the last 3 bytes.
-function cutBytes(s, max) {
+// 1.124.5: `size`, a character's bytes as they are counted (pushRaw: escaped in JSON)
+function cutBytes(s, max, size = ch => Buffer.byteLength(ch)) {
   let out = '', n = 0;
-  for (const ch of s) { n += Buffer.byteLength(ch); if (n > max - 3) break; out += ch; }
+  for (const ch of s) { n += size(ch); if (n > max - 3) break; out += ch; }
   return out + '…';
 }
 
@@ -1641,6 +1646,8 @@ function watchDirs() {
       });
       w.on('error', () => { try { w.close(); } catch { } dirWatchers.delete(dir); });
       dirWatchers.set(dir, w);
+      // 1.124.5: a write before this watcher existed had no event: a mirror open on this folder reads what it missed
+      for (const id of tailers.keys()) { const f = path.join(dir, id + '.jsonl'); if (fs.existsSync(f)) pumpTail(id, f); }
     } catch { }
   }
 }
@@ -2473,7 +2480,9 @@ async function finalizeTurn(sessionId, turn, code) {
       for (const res of turn.subs) { try { res.end(); } catch { } }
       if (turns.get(sessionId) === turn) turns.delete(sessionId);
       if (r && !r.exited) { writeRunnerMeta(r); scheduleIdle(r); }
-      log(`turn done (background job's request answered) session=${sessionId}`);
+      // 1.124.5: Pause all stopped it with its background jobs: the conversation says Stopped, not answered
+      if (turn.stopped) { recordOutcome(sessionId, turn, null); log(`turn done (background job's request withdrawn: stopped) session=${sessionId}`); }
+      else log(`turn done (background job's request answered) session=${sessionId}`);
       carryRequests(r, carry);
     } finally { turn.finalizeResolve?.(); }
     return;
@@ -2558,7 +2567,8 @@ async function finalizeTurn(sessionId, turn, code) {
           : `Ready${result.cost != null ? ` · $${result.cost.toFixed(2)}` : ''}${result.duration_ms ? ` · ${Math.round(result.duration_ms / 1000)}s` : ''}`;
     findSessionFile(sessionId)
       .then(f => f ? sessionMeta(f, sessionId) : null)
-      .then(m => pushNotify(sessionId, m?.title || 'Claude conversation', withOriginLabel(originLabel, body))) // 1.117: names a non-owner origin
+      // 1.124.5: titled as the list titles it (a job's name, not its opening line "[cron:job-…] …"); the rename stays first
+      .then(m => pushNotify(sessionId, (m && finishTitle(m).title) || 'Claude conversation', withOriginLabel(originLabel, body))) // 1.117: names a non-owner origin
       .catch(() => { });
   }
   }
@@ -2769,7 +2779,7 @@ function waitingTurn({ sessionId, cwd, text, attachments, retryAttempt, resume, 
 }
 // After a restart: a reply that was waiting for its conversation's closing process (held in the queue, first in line) starts
 // now, as the next message would, once any process the restart stopped for that conversation has gone (at most the stop's
-// two steps). A start that fails marks the row for review, as any queued message does.
+// two steps). A start that fails marks the row for review, as any queued message does. 1.124.5: Resume calls it too.
 function resumeHeldReplies() {
   for (const id of new Set(followups.rows.filter(x => x.held && x.status === 'pending').map(x => x.sessionId))) {
     const head = followups.list(id)[0]; if (!head?.held || head.status !== 'pending') continue;
@@ -3030,7 +3040,8 @@ function stateFor(s) {
   const quietSince=!cx && !ac && !turn && outcome && s.mtimeMs > outcome.at + 5000 && quietSinceOwned(s.id, s.mtimeMs);
   const state=sessionState({ turn: turn ? {...turn,queue} : null, external: ac ? false : cx ? codex.codexExtActive(codex.bareId(s.id)) : extActive(s.id),
     retryAt, outcome, mtimeMs:s.mtimeMs, background: cx || ac ? [] : backgroundJobs(s.id), quietSince });
-  if(queue.length&&!turn && state.kind!=='failed')return {kind:'waiting',label:queue[0].status==='uncertain'?'Queue needs review':'Queue paused',queued:queue.length,confirmed:true};
+  // 1.124.5: a usage-limit wait keeps its label and retry time with messages queued (they follow the retry's reply)
+  if(queue.length&&!turn && state.kind!=='failed' && !(state.kind==='waiting'&&state.retryAt))return {kind:'waiting',label:queue[0].status==='uncertain'?'Queue needs review':'Queue paused',queued:queue.length,confirmed:true};
   return {...state,...(queue.length?{queued:queue.length}:{}),...(state.kind==='running'&&turn?.origin&&turn.origin!=='owner'?{origin:turn.origin,...(turn.originRef?{originRef:shownOriginRef(turn)}:{})}:{})}; // 1.117: who started the running reply
 }
 // 1.111: the push for a reply that ended with a Complete card: the word, then the agent's outcome line.
@@ -3760,8 +3771,8 @@ async function codexTurnFinished(id, turn, ev) {
 function rowStart(row, by) {
   if (by === 'owner' || !row) return { ...OWNER_START };
   // 1.119: a check-back's reply left in the queue (a restart while it waited, then a refusal) keeps that origin when the queue
-  // drains it, so its end settles the check-back. The owner's Start makes it the owner's reply; the next pass settles the
-  // check-back once that reply ends (settleOrphanCheckbacks).
+  // drains it, so its end settles the check-back. The owner's Start makes it the owner's reply; 1.124.5: that reply's end
+  // settles the check-back with its outcome (turn.ownerCheckback, noteFinish).
   if (row.origin === 'checkback' && row.originRef) return { origin: 'checkback', originRef: String(row.originRef), rootOrigin: 'checkback' };
   const origin = by === 'held' ? auto.normOrigin(row.origin) : row.origin === 'coordination' ? 'coordination' : 'queue';
   return origin === 'owner' ? { ...OWNER_START } : { origin, ...(row.originRef ? { originRef: row.originRef } : {}), rootOrigin: auto.normRoot(row.rootOrigin) };
@@ -3784,7 +3795,10 @@ async function runNextFollowup(id, cwd, { replaceStale = false, by = 'queue' } =
   return followups.dispatch(id, async row => {
     // 1.81: queued with Full access before it was turned off: it never starts, and the row says why (not "not confirmed").
     if (row.approvalMode === 'full' && !ALLOW_FULL_ACCESS) throw Object.assign(new Error('Full access is turned off on this server; send it again with Review actions.'), { status: 403, notStarted: true });
-    return engineOf(id).startQueued(id, cwd, row, { replaceStale, from });
+    const out = await engineOf(id).startQueued(id, cwd, row, { replaceStale, from });
+    // 1.124.5: a check-back's reply the owner started by hand is the owner's reply; its end settles the card (noteFinish)
+    if (from.origin === 'owner' && row.origin === 'checkback' && row.originRef) { const t = ownedTurn(id); if (t) t.ownerCheckback = String(row.originRef); }
+    return out;
   }).catch(e => { if (e?.paused) { log(`queue start held (paused) session=${id}`); return null; } throw e; });
 }
 // The ACP engine's side of the adapter below, for both of its runtimes (OpenRouter through OpenCode, Antigravity).
@@ -3836,12 +3850,15 @@ async function acpMessages(id, turn = null) {
 }
 // 1.89 (F-8): a reply's own text, held in the queue while it waits for the closing process (waitingTurn), is not a queued message.
 const shownQueue = id => { const t = turns.get(id); return followups.list(id).filter(x => !(x.held && t?.pending)); };
+// 1.124.5: when an armed usage-limit retry runs (its marker's time), or null: none armed, or held by Pause all
+const retryWaitAt = id => { if (!retryTimers.has(id)) return null; try { return JSON.parse(fs.readFileSync(turnFiles(id).retry, 'utf8')).at || null; } catch { return null; } };
 function queueError(res,e){return res.status(e.status||503).json({error:e.status?e.message:'Queue could not be saved. Refresh and try again.'});}
 app.get('/api/session/:id/queue',requireAuth,(req,res)=>{
   if(!anyId(req.params.id))return res.status(400).json({error:'Invalid conversation'});
   const id=req.params.id;
   const jobs=isCx(id)||isAcpId(id)?[]:staleJobs(id); // 1.89.2: what the queue is waiting for
-  res.json({items:shownQueue(id),active:Boolean(ownedTurn(id)),external:isCx(id)?codex.codexExtActive(codex.bareId(id)):extActive(id),...(jobs.length&&{waitingForJobs:jobList(jobs)})});
+  const retryAt=retryWaitAt(id); // 1.124.5: the queue waits for the usage-limit retry
+  res.json({items:shownQueue(id),active:Boolean(ownedTurn(id)),external:isCx(id)?codex.codexExtActive(codex.bareId(id)):extActive(id),...(jobs.length&&{waitingForJobs:jobList(jobs)}),...(retryAt&&{retryAt})});
 });
 app.patch('/api/session/:id/queue/:item',requireAuth,(req,res)=>{
   if(req.body.editing===true){try{return res.json({item:followups.beginEdit(req.params.id,req.params.item,req.body.revision)});}catch(e){return queueError(res,e);}}
@@ -3855,6 +3872,9 @@ app.post('/api/session/:id/queue/start',requireAuth,ownerSendGate,async(req,res)
   const id=req.params.id;if(!anyId(id))return res.status(400).json({error:'Invalid conversation'});
   if(ownedTurn(id)|| (isCx(id)?codex.codexExtActive(codex.bareId(id)):extActive(id)))return res.status(409).json({error:'A reply is running or activity was seen elsewhere. Wait before starting queued work.'});
   if(followups.list(id)[0]?.id!==req.body.itemId)return res.status(409).json({error:'The queue changed. Refresh before starting the next message.'});
+  // 1.124.5: during a usage-limit wait the row would only run into the same limit; the queue follows the retry's reply
+  const retryAt=retryWaitAt(id);
+  if(retryAt)return res.status(409).json({error:`Waiting for the usage limit to reset. Pocket retries the reply at ${fmtOwnerTime(retryAt)}, then runs the queue.`,code:'usage_wait',retryAt});
   try {const started=await runNextFollowup(id,undefined,{replaceStale:req.body?.replaceStaleLogin===true,by:'owner'});res.json({ok:true,started:Boolean(started)});}catch(e){queueError(res,e);}
 });
 
@@ -5023,6 +5043,7 @@ app.get('/api/session/:id/events', requireAuth, async (req, res) => {
   if (!tailers.has(id)) tailers.set(id, new Set());
   tailers.get(id).add(t);
   req.on('close', () => { clearInterval(ka); tailers.get(id)?.delete(t); if (!tailers.get(id)?.size) tailers.delete(id); });
+  if (!dirWatchers.has(path.dirname(file))) watchDirs(); // 1.124.5: a folder made since the last minute's look is watched now
   pumpTail(id, file); // catch anything written between transcript fetch and connect
 });
 
@@ -5317,8 +5338,15 @@ app.post('/api/inbox/watch', requireBoardAuth, inboxOn, (req, res) => {
       log(`inbox watch settings refused (paused) by=cli`);
       return res.status(409).json({ error: 'Pocket is paused, so Inbox Watch stays paused. The owner resumes it in Pocket Code.', code: 'paused' });
     }
+    const held = actor === 'cli' ? pausedNow()?.inboxWatch : null, before = held && inboxStore.watchView(src).revision;
     const view = inboxStore.setWatch(src, b.settings ?? null, { actor });
     log(`inbox watch settings source=${view.source} revision=${view.revision} by=${actor}${view.settings ? '' : ' (config file)'}`);
+    // 1.124.5: an agent's change that kept Pause all's hold (above) is not the owner's: Resume still resumes it, with the
+    // agent's settings. Before, Resume read it as changed while paused and left Inbox Watch off.
+    if (held && held.source === view.source && before === held.revision) {
+      held.revision = view.revision; held.wasNull = false;
+      try { saveSettings(); } catch (e) { log(`inbox watch: the pause record could not be saved (${e.message})`); }
+    }
     res.set('Cache-Control', 'private, no-store').json({ ok: true, ...view });
   } catch (e) { inboxError(res, e); }
 });
@@ -6128,7 +6156,8 @@ app.get('/api/file', requireAuth, (req, res) => {
 // tunnel included, learns only that Pocket answers.
 // 1.124.3: busy is every reply a restart would cut short, OpenRouter's and Antigravity's included: the self-update script asks
 // for it just before its PM2 restart, since replies can start in the minutes after the Update press was checked.
-const repliesRunning = () => turns.size + codex.codexTurns.size + [...acp.acpTurns.values()].filter(t => !t.stopped && !t.done).length;
+// 1.124.5: and a side chat that is answering (a restart ends it, and its answer with it)
+const repliesRunning = () => turns.size + codex.codexTurns.size + [...acp.acpTurns.values()].filter(t => !t.stopped && !t.done).length + liveSides().length;
 app.get('/api/health', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   if (!directLoopback(req) && !checkCookie(getCookie(req, 'pc_auth'))) return res.json({ ok: true });
@@ -6362,8 +6391,9 @@ app.post('/api/claude/stop-all',requireAuth,(req,res)=>{
 // own stop paths, holds pending usage-limit retries, and pauses Inbox Watch through its own Pause flag (recorded here,
 // so Resume clears only what Pause all set). While paused the gate refuses every unattended start: the queue does not
 // drain and coordination wakes only queue their message. The owner's own messages run, unless the owner chose Blocked.
+// 1.124.5: a control-only stand-in (a background agent's request waiting, no reply running) is background work, not a reply
 const liveTurns = () => ({
-  claude: [...turns.entries()].filter(([, t]) => !t.stopped && !t.finalized),
+  claude: [...turns.entries()].filter(([, t]) => !t.stopped && !t.finalized && !t.controlOnly),
   codex: CODEX_ON ? [...codex.codexTurns.entries()].filter(([, t]) => !t.stopped && !t.done) : [],
   openrouter: ACP_ON ? [...acp.acpTurns.entries()].filter(([, t]) => !t.stopped && !t.done && t.session.runtime.id === 'opencode') : [],
   antigravity: AGY_ON ? [...acp.acpTurns.entries()].filter(([, t]) => !t.stopped && !t.done && t.session.runtime.id === 'antigravity') : [],
@@ -6376,8 +6406,10 @@ const liveSides = () => [...sideChats.chats.values()].filter(c => c.busy && !c.c
 // Claude conversations Working in background: no reply runs, but their process has background jobs, and the CLI starts a
 // reply by itself when one finishes. Stopped through the same path as Stop background jobs (the process and its jobs end),
 // unless the owner turned that off; then the reply they start is stopped instead (handleRunnerLine).
+// 1.124.5: and one whose only turn is the stand-in for a background agent's request (left running when the switch is off)
+const standInOnly = r => !r.turn ? !turns.has(r.sessionId) : r.turn.controlOnly && turns.get(r.sessionId) === r.turn;
 const backgroundRunners = () => autoValues('pause').backgroundJobs
-  ? [...runners.values()].filter(r => !r.turn && !turns.has(r.sessionId) && !r.exited && !r.closing && r.bgTasks.length) : [];
+  ? [...runners.values()].filter(r => standInOnly(r) && !r.exited && !r.closing && r.bgTasks.length) : [];
 // A reply still running whose process has background jobs: stopping the reply (signalTurn on turn.pid, the runner's process
 // group, as Stop does) ends the process and its jobs with it, whatever the switch says. Counted here, once each.
 const runningJobRunners = live => live.claude.map(([id, turn]) => runners.get(id)).filter(r => r && r.turn && turns.get(r.sessionId) === r.turn && !r.exited && !r.closing && r.bgTasks.length);
@@ -6431,7 +6463,7 @@ function pauseAll() {
   for (const [tid] of live.codex) step(`stop failed thread=${tid}`, () => { codex.stopCodexTurn(tid); log(`stop requested (Pause all) thread=${tid}`); });
   for (const [sid, t] of [...live.openrouter, ...live.antigravity]) step(`stop failed session=${t.fullId}`, () => { acp.stopAcpTurn(sid, 'Stopped by Pause all'); log(`stop requested (Pause all) session=${t.fullId}`); });
   for (const c of sides) step(`side chat stop failed session=${c.parentId}`, () => { sideChats.stop(c); log(`side chat stop requested (Pause all) session=${c.parentId}`); });
-  for (const r of background) step(`background stop failed session=${r.sessionId}`, () => { signalTurn(r); log(`stopping ${r.bgTasks.length} background job(s) (Pause all) session=${r.sessionId}`); });
+  for (const r of background) step(`background stop failed session=${r.sessionId}`, () => { if (r.turn?.controlOnly) r.turn.stopped = true; signalTurn(r); log(`stopping ${r.bgTasks.length} background job(s) (Pause all) session=${r.sessionId}`); });
   for (const id of [...retryTimers.keys()]) step(`retry not held session=${id}`, () => {
     let m = null; try { m = JSON.parse(fs.readFileSync(turnFiles(id).retry, 'utf8')); } catch { }
     if (m?.sessionId) holdRetry(m); // without a readable marker the timer stays, and the gate holds it when it fires
@@ -6468,6 +6500,9 @@ function resumeAll() {
   if (autoValues('pause').rearmRetries) for (const m of [...heldRetries.values()]) { rearmRetry(m); rearmed++; }
   else for (const m of [...heldRetries.values()]) jobRetryDied(m, 'limit', 'held by Pause all and not re-armed at Resume'); // the retry stays held for the owner; the job's run ends
   const checkbacksOut = releaseCheckbacksOnResume(); // 1.119: overdue ones run within the catch-up window, or are missed (runOverdue)
+  // 1.124.5: a reply a restart left held in the queue (a check-back's among them) that the pause refused at boot starts now,
+  // through the same gate as at boot; before, it waited for the owner's next reply or Run next instruction.
+  if (was) resumeHeldReplies();
   if (was) autoAudit({ action: 'resume', rearmed, checkbacks: checkbacksOut, ...(inboxWatch ? { inboxWatch } : {}), pausedFor: Date.now() - Date.parse(was.at) || 0 });
   log(`Resume: re-armed ${rearmed} retr(ies)${inboxWatch === 'left_paused' ? '; Inbox Watch left paused' : ''}`);
   return { rearmed, inboxWatch, checkbacks: checkbacksOut };
@@ -6814,8 +6849,9 @@ async function startCheckbackHeld(c0, late) {
 // that is turned off, and whether or not a browser has it open: the owner asked to be told). The ordinary push is not sent.
 // turn.checkbackHandled (no ordinary push) is set only once this push is really going out, or was muted on purpose; a
 // check-back that is no longer running, or a save that failed, leaves the ordinary push in place. The caller catches a throw.
-function checkbackFinished(id, turn, outcome) {
-  const c = checkbacks.get(turn.originRef);
+// 1.124.5: byOwner, the owner started its reply from the queue by hand: the card is settled, and the owner's reply has its own push.
+function checkbackFinished(id, turn, outcome, { ref = turn.originRef, byOwner = false } = {}) {
+  const c = checkbacks.get(ref);
   if (!c || c.status !== 'running') return;
   const kind = { ok: 'ok', error: 'failed', stopped: 'stopped', limit: 'limit' }[outcome] || 'failed';
   const line = kind === 'ok' ? replyFirstLine(turn.events.filter(e => e.type === 'assistant').map(e => e.msg)) : '';
@@ -6824,7 +6860,7 @@ function checkbackFinished(id, turn, outcome) {
   const done = checkbacks.finish(c.id, 'done', kind, summary);
   checkbackUnsaved.delete(c.id);
   cbAudit('finished', done, { outcome: kind });
-  if (kind !== 'ok' && kind !== 'failed') return;
+  if (byOwner || (kind !== 'ok' && kind !== 'failed')) return;
   turn.checkbackHandled = true;
   if (mutes.has(id) && !checkbackSettings().pushWhenMuted) return log(`check-back push muted session=${id}`);
   checkbackTitle(id).then(title => pushRaw(`Checked back · ${title}`, kind === 'ok' ? line || 'Done' : 'Something went wrong. Tap to see what happened', { tag: id, url: '/#/chat/' + id, kind: 'automation' }))

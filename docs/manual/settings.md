@@ -267,9 +267,11 @@ changes nothing. If the new packages fail to install and the old ones cannot be 
 says so: Pocket keeps running, but run `npm ci` in its folder on the server before it next restarts. If the update
 itself was stopped (the server restarted under it) after it began installing, the row says so 20 minutes later, and that
 Pocket's files may have moved and its packages may be missing: run `npm ci` in its folder on the server before Pocket
-restarts (1.124.5). The button is not offered while a reply is running, while a Claude Code or Codex upgrade runs,
-or when Pocket cannot restart itself (it is not running under PM2, or the folder is not a git
-checkout); the row then says why. It needs at least 5 GB free on the server for the backup, and `flock` and GNU tar on the server (on a Mac, from Homebrew); the row says which is missing.
+restarts (1.124.5). The button is not offered when Pocket cannot restart itself (it is not running under PM2, the folder
+is not a git checkout, or `flock` or GNU tar is missing from the server); the row then says why. While a reply or a side
+chat is answering, or a Claude Code or Codex update check or upgrade runs, the button is still shown, but after you
+confirm nothing changes and the sheet says why, for example *Replies are running. Update when they finish, so the
+restart does not cut them short.* It needs at least 5 GB free on the server for the backup, and `flock` and GNU tar on the server (on a Mac, from Homebrew); the row says which is missing.
 
 For Claude Code and Codex, the review shows installed and available versions and links to the
 publisher's release notes. Choose either CLI or both, then **Upgrade selected**.
