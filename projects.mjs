@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { shellArg } from './skills.mjs';
+import { readStore } from './store-file.mjs';
 
 export const LIMITS = { name: 120, text: 600, task: 300, projects: 200, tasks: 200, reminders: 50, sessions: 50, history: 200, link: 1024, directory: 1024, doneWhen: 600, check: 300, places: 10, place: 1024 };
 export const MODES = ['off', 'conductor']; // Project mode (project-mode.mjs): off, or Conductor
@@ -94,13 +95,12 @@ export function projectInstructions(cli, sessionId) {
 }
 
 export class ProjectStore {
-  constructor(file, { write, now, zone } = {}) {
+  constructor(file, { write, now, zone, log } = {}) {
     this.file = file;
     this.now = now || Date.now;
     this.zone = zone || (() => undefined); // the owner's IANA zone, or undefined for parseWhen's default
     this.write = write || ((f, data) => { fs.mkdirSync(path.dirname(f), { recursive: true }); const tmp = f + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(data, null, 1), { mode: 0o600 }); fs.renameSync(tmp, f); });
-    let d = {};
-    try { d = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { }
+    const d = readStore(file, { log, now: this.now }); // 1.124.2: one that does not parse is kept aside and logged
     this.projects = Array.isArray(d.projects) ? d.projects.filter(p => p && typeof p.id === 'string' && typeof p.name === 'string').map(p => this.normalize(p)) : [];
   }
   normalize(p) {

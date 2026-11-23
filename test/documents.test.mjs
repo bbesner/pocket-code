@@ -231,3 +231,18 @@ test('DocumentStore (1.73.6): a refused add copies nothing; a failed check or wr
   failNext=true;assert.throws(()=>s.trash(d.id),/ENOSPC/);assert.equal(s.get(d.id).trashedAt,null,'the record stays in place even though the file moved');
   fs.rmSync(dir,{recursive:true,force:true});
 });
+
+test('DocumentStore (1.124.2): a documents.json that does not parse is kept aside and logged before the listing adopts the folder again',()=>{
+  const dir=tmp(),docsDir=path.join(dir,'documents'),meta=path.join(dir,'documents.json');
+  const a=new DocumentStore(docsDir,meta);
+  const doc=a.addFromBuffer('r.html',Buffer.from('<title>R</title>'),{visibility:'public',title:'Quarterly'});
+  assert.equal(a.resolvePublic('r.html')?.id,doc.id);
+  const torn='{"version":1,"documents":[';fs.writeFileSync(meta,torn);
+  const said=[],b=new DocumentStore(docsDir,meta,{now:()=>Date.parse('2026-11-23T10:15:30Z'),log:m=>said.push(m)});
+  const kept=path.join(dir,'documents.json.corrupt-20261123-101530');
+  assert.equal(fs.readFileSync(kept,'utf8'),torn,'kept as it was');assert.ok(said.length===1&&said[0].includes(meta)&&said[0].includes(kept),said.join('\n'));
+  b.list();
+  assert.equal(b.documents.length,1,'the folder is adopted again, as on a new library');
+  assert.equal(fs.readFileSync(kept,'utf8'),torn,'and the kept copy is not replaced');
+  fs.rmSync(dir,{recursive:true,force:true});
+});

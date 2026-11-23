@@ -112,3 +112,25 @@ test('status is cached for a minute, and a new commit is a new answer', async t 
   await s.w.status(d); await s.w.status(d); assert.equal(asked, 1);
   commit(d, 'c.txt'); assert.equal((await s.w.status(d)).group, 'work'); assert.equal(asked, 2);
 });
+
+test('1.124.2: without /proc (macOS) the working folders come from lsof, and when lsof cannot answer the worktree stays in Has work', async t => {
+  const s = setup(t), d = s.add('mac');
+  const bin = path.join(s.home, 'bin'); fs.mkdirSync(bin);
+  const lsof = body => fs.writeFileSync(path.join(bin, 'lsof'), '#!/bin/sh\n' + body + '\n', { mode: 0o755 });
+  // the real process scan, as the server builds it; only /proc is missing, the way it is on a Mac
+  const w = new Worktrees({ home: s.home, gh: '/nonexistent/gh', usage: async () => ({}) });
+  const readdir = fs.readdirSync, envPath = process.env.PATH;
+  fs.readdirSync = (p, ...rest) => { if (p === '/proc') throw Object.assign(new Error("ENOENT: no such file or directory, scandir '/proc'"), { code: 'ENOENT' }); return readdir.call(fs, p, ...rest); };
+  process.env.PATH = bin + path.delimiter + envPath;
+  try {
+    // lsof -F output: p<pid>, R<parent pid>, n<folder>. Pocket's own process and its own children (its git and gh checks) do not count.
+    lsof(`printf 'p${process.pid}\\nR1\\nn${d}\\np4242\\nR${process.pid}\\nn${d}\\n'`);
+    assert.equal((await w.status(d)).group, 'ready', 'only Pocket and its own checks are in the folder');
+    lsof(`printf 'p4242\\nR1\\nn${d}/src\\n'`); w.seen.at = 0; w.statuses.clear();
+    const busy = await w.status(d); assert.deepEqual([busy.group, busy.reason], ['use', 'A program is running here']);
+    lsof('exit 1'); w.seen.at = 0; w.statuses.clear();
+    const unknown = await w.status(d); assert.deepEqual([unknown.group, unknown.reason], ['work', 'Running programs could not be checked']);
+    const plan = await w.plan(d); assert.equal(plan.refused, 'Running programs could not be checked.');
+    await assert.rejects(w.remove(d, plan.check), e => e.status === 409); assert.ok(fs.existsSync(d));
+  } finally { fs.readdirSync = readdir; process.env.PATH = envPath; }
+});

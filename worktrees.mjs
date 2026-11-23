@@ -58,6 +58,7 @@ export function classify({ row, status, usage = {}, now = Date.now() }) {
   if (row.locked) return { group: 'work', reason: 'Locked' };
   if (status.changes) return { group: 'work', reason: `${status.changes} uncommitted ${status.changes === 1 ? 'change' : 'changes'}` };
   if (!status.safe) return { group: 'work', reason: 'Commits not safe elsewhere' };
+  if (usage.processes === null) return { group: 'work', reason: 'Running programs could not be checked' }; // 1.124.2: neither /proc nor lsof answered
   if (lastAt && now - lastAt < IDLE_MS) return { group: 'work', reason: `Used ${Math.max(1, Math.floor((now - lastAt) / DAY))} days ago` };
   return { group: 'ready', reason: status.safe };
 }
@@ -109,7 +110,7 @@ export class Worktrees {
 
   async processesIn(dir) {
     if (Date.now() - this.seen.at > PROCESSES_MS) this.seen = { at: Date.now(), dirs: await this.scan() };
-    return this.seen.dirs.filter(d => this.holds(dir, d)).length;
+    return this.seen.dirs ? this.seen.dirs.filter(d => this.holds(dir, d)).length : null; // null: unknown, so the row cannot be Ready
   }
 
   async inspect(row, rows) {
@@ -165,15 +166,29 @@ export class Worktrees {
 }
 
 // The working folder of every process we can see. Pocket's own git and gh children are its checks, not someone using the folder.
+// 1.124.2: macOS has no /proc, and reading it there failed every row's status and every removal plan; lsof answers instead,
+// and null (unknown) when it cannot either.
 async function scanProcesses() {
   const dirs = [];
-  for (const pid of fs.readdirSync('/proc').filter(n => /^\d+$/.test(n))) {
+  let pids; try { pids = fs.readdirSync('/proc'); } catch { return lsofDirs(); }
+  for (const pid of pids.filter(n => /^\d+$/.test(n))) {
     try {
       if (Number(pid) === process.pid) continue;
       const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
       if (Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[1]) === process.pid) continue;
       dirs.push(fs.readlinkSync(`/proc/${pid}/cwd`).replace(/ \(deleted\)$/, ''));
     } catch { /* gone, or not ours to read */ }
+  }
+  return dirs;
+}
+// `lsof -F` prints a p<pid> line, then R<parent pid> and n<folder> for that process's working folder.
+async function lsofDirs() {
+  let out; try { out = (await exec('lsof', ['-a', '-d', 'cwd', '-FpRn'], { timeout: 10_000, maxBuffer: 32 << 20, encoding: 'utf8' })).stdout; } catch { return null; }
+  const dirs = []; let pid = 0, ppid = 0;
+  for (const line of out.split('\n')) {
+    if (line[0] === 'p') { pid = Number(line.slice(1)); ppid = 0; }
+    else if (line[0] === 'R') ppid = Number(line.slice(1));
+    else if (line[0] === 'n' && pid !== process.pid && ppid !== process.pid) dirs.push(line.slice(1));
   }
   return dirs;
 }

@@ -15,6 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes, createHash } from 'node:crypto';
 import { shellArg } from './skills.mjs';
+import { readStore } from './store-file.mjs';
 import { LIMITS as VAULT_LIMITS } from './vault.mjs';
 import { openChecked } from './thumbnails.mjs';
 
@@ -57,11 +58,11 @@ export function documentInstructions(cli, sessionId) {
 }
 
 export class DocumentStore {
-  constructor(dir, metaFile, { write, now } = {}) {
+  constructor(dir, metaFile, { write, now, log } = {}) {
     this.dir = dir; this.file = metaFile; this.now = now || Date.now;
     this.write = write || ((f, data) => { fs.mkdirSync(path.dirname(f), { recursive: true }); const tmp = f + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(data, null, 1), { mode: 0o600 }); fs.renameSync(tmp, f); });
     fs.mkdirSync(dir, { recursive: true });
-    let d = {}; try { d = JSON.parse(fs.readFileSync(metaFile, 'utf8')); } catch { }
+    const d = readStore(metaFile, { log, now: this.now }); // 1.124.2: one that does not parse is kept aside and logged, before a listing adopts the folder anew
     this.documents = Array.isArray(d.documents) ? d.documents.filter(r => r && typeof r.id === 'string' && typeof r.file === 'string') : [];
     this.requests = new Map(); // PC-04: id -> a request for the owner; memory only, so a restart drops it and changes nothing
     this.migrated = this.dropStoredLinks();

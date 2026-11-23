@@ -8,6 +8,7 @@ import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { parseWhen } from './projects.mjs';
 import { shellArg } from './skills.mjs';
+import { readStore } from './store-file.mjs';
 
 export const LIMITS = { text: 600, summary: 2000, tasks: 500, title: 160 };
 export const ACTIONS = ['add', 'update', 'remove'];
@@ -40,13 +41,12 @@ export function taskInstructions(cli, sessionId, { choices = true, checkbacks = 
 }
 
 export class TaskStore {
-  constructor(file, { write, now, zone } = {}) {
+  constructor(file, { write, now, zone, log } = {}) {
     this.file = file;
     this.now = now || Date.now;
     this.zone = zone || (() => undefined); // 1.81: the owner's zone for a due time without an offset (see parseWhen)
     this.write = write || ((f, data) => { fs.mkdirSync(path.dirname(f), { recursive: true }); const tmp = f + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(data, null, 1), { mode: 0o600 }); fs.renameSync(tmp, f); });
-    let d = {};
-    try { d = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { }
+    const d = readStore(file, { log, now: this.now }); // 1.124.2: one that does not parse is kept aside and logged
     this.tasks = Array.isArray(d.tasks) ? d.tasks.filter(t => t && typeof t.id === 'string' && typeof t.text === 'string').map(t => this.normalize(t)) : [];
   }
   normalize(t) {

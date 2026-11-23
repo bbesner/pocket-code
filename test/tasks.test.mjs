@@ -198,3 +198,16 @@ test('TaskStore (1.73.6): a failed check or write leaves the list as it was',()=
   s.act({action:'update',task:t.id,text:'edited'});assert.equal(new TaskStore(file).get(t.id).text,'edited','a good change is written and installed');
   fs.rmSync(dir,{recursive:true,force:true});
 });
+
+test('TaskStore (1.124.2): a tasks.json that does not parse is kept aside and logged, and the next change does not replace it',()=>{
+  const dir=tmp(),file=path.join(dir,'tasks.json');
+  const a=new TaskStore(file);for(let i=0;i<3;i++)a.act({action:'add',text:'task '+i});
+  const torn=fs.readFileSync(file,'utf8').slice(0,20);fs.writeFileSync(file,torn);
+  const said=[],b=new TaskStore(file,{now:()=>Date.parse('2026-11-23T10:15:30Z'),log:m=>said.push(m)});
+  assert.equal(b.tasks.length,0);
+  const kept=path.join(dir,'tasks.json.corrupt-20261123-101530');
+  assert.equal(fs.readFileSync(kept,'utf8'),torn,'kept as it was');assert.ok(said.length===1&&said[0].includes(kept),said.join('\n'));
+  b.act({action:'add',text:'x'});
+  assert.equal(fs.readFileSync(kept,'utf8'),torn,'the next change leaves the kept copy alone');assert.equal(JSON.parse(fs.readFileSync(file,'utf8')).tasks.length,1);
+  fs.rmSync(dir,{recursive:true,force:true});
+});

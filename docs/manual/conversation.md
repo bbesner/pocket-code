@@ -239,7 +239,7 @@ and the date of its last commit. Assistant mode doesn't show it.
 | Group | Means | Row says |
 |---|---|---|
 | **In use** | A conversation is running there, one was active in the last 24 hours, a process has it open, or it is your live Pocket folder. | Which one, with a link to the conversation |
-| **Has work** | There are uncommitted changes, commits Pocket can't find anywhere else, the worktree is locked, or a conversation used it in the last 14 days. | What is keeping it: `2 uncommitted changes`, `Commits not safe elsewhere`, `Locked`, `Used 3 days ago` |
+| **Has work** | There are uncommitted changes, commits Pocket can't find anywhere else, the worktree is locked, a conversation used it in the last 14 days, or Pocket could not check which programs are running. | What is keeping it: `2 uncommitted changes`, `Commits not safe elsewhere`, `Locked`, `Used 3 days ago`, `Running programs could not be checked` |
 | **Ready to remove** | Nothing would be lost and it has been idle for 14 days. The commit is in the default branch or on a remote, or its pull request merged at exactly this commit. | Why it's safe: `Merged in PR #41`, `In origin/main`, `On a remote branch` |
 
 The list opens first and the groups fill in as each folder is checked. On a phone the groups start closed with their counts
