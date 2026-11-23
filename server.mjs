@@ -2410,8 +2410,11 @@ async function finalizeTurn(sessionId, turn, code) {
     log(`turn done session=${sessionId} code=${code} events=${turn.events.length}`);
   }
   // rate-limit auto-continue: schedule a resume for just after the reset
+  // 1.124.1: with a message queued too, as on Codex and OpenRouter: the queue holds through the wait and follows the retry's
+  // reply. It used to arm nothing then, which left the limit as a failed reply and the queue waiting for the owner. Not when
+  // the queued message was sent while background jobs held the earlier login: that one starts on the new login instead.
   let retryAt = null;
-  if (!turn.stopped && !followups.list(sessionId).length && (turn.retryAttempt || 0) < RETRY_MAX_ATTEMPTS) {
+  if (!turn.stopped && !followups.list(sessionId).some(f => f.afterJobs) && (turn.retryAttempt || 0) < RETRY_MAX_ATTEMPTS) {
     const failed = turn.events.find(e => e.type === 'result' && !e.ok);
     if (failed) {
       const rl = detectRateLimit(`${failed.error || ''} ${stderrTail}`);
@@ -6252,7 +6255,7 @@ function resumeAll() {
   delete settings.paused;
   try { saveSettings(); } catch (e) {
     if (was && !pauseUnsaved) { settings.paused = was; log(`Resume: not resumed, the settings could not be saved (${e.message}); still paused`); return { unsaved: true }; }
-    pauseUnsaved = false; log(`Resume: the settings could not be saved (${e.message}); the pause was never saved, so it resumes`);
+    pauseUnsaved = false; log(`Resume: the settings could not be saved (${e.message})${was ? '; the pause was never saved, so it resumes' : ''}`);
   }
   let inboxWatch = null;
   if (was?.inboxWatch) {

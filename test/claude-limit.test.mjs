@@ -98,13 +98,13 @@ test('A Claude reply that ends on an API error is not a finished reply: a usage 
   await s.until(async () => (await s.session(a))?.active, 8000, 'the reply to start');
   const q = await s.queue(a, 'queued follow-up');
   assert.equal(q.status, 202, JSON.stringify(q.body)); assert.equal(q.body.queued, true);
-  const ended = await s.idle(a);
-  await sleep(2500); // past the limit's reset
-  assert.notEqual(ended.state?.label, 'Response ready', 'a usage limit is not a finished reply');
-  assert.equal(ended.state?.kind, 'failed', JSON.stringify(ended.state));
-  assert.match(String(ended.state?.error), /usage limit reached/);
-  assert.ok(!s.calls().some(c => c.id === a && c.text === 'queued follow-up'), 'the queued message did not start into the limit');
-  assert.equal((await s.call(`/session/${s.e(a)}/queue`)).body.items[0]?.status, 'pending', 'it waits in the queue');
+  // 1.124.1: and the retry is armed with the queue waiting, as on the other agents; the message follows the retry's reply
+  await s.until(() => s.logs().includes(`rate limited session=${a}`), 10000, 'the limit to be seen with a message queued');
+  const order = () => s.calls().filter(c => c.id === a).map(c => /interrupted by an API rate limit/.test(c.text) ? 'retry' : c.text === 'queued follow-up' ? 'queued' : 'first');
+  assert.deepEqual(order(), ['first'], 'the queued message did not start into the limit');
+  await s.until(() => order().includes('queued'), 20000, 'the queued message to run');
+  assert.deepEqual(order(), ['first', 'retry', 'queued'], 'the retry ran first, then the queued message');
+  assert.equal((await s.idle(a)).state?.label, 'Response ready');
 
   // a limit with nothing queued: Waiting for usage reset, then the retry carries the task on
   const b = await s.start('second task __LIMIT__');
