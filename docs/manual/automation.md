@@ -63,6 +63,10 @@ When your own messages are **Blocked**, the banner reads *Your own messages wait
 
 The pause is saved. After Pocket restarts it is still paused, and a retry that was waiting is still held.
 
+**If the pause can't be saved.** When Pocket can't write its settings (a full disk, a read-only data folder), **Pause all** still stops and holds everything, and Pocket stays paused until it restarts. The toast and the banner add *Pocket could not save this pause, so a restart of Pocket would end it.* Once the disk is fixed, the next setting you save saves the pause with it, and the sentence goes away. **Resume** on a pause that was never saved resumes as usual, so you can also resume and pause again.
+
+**If Resume can't be saved.** Pocket stays paused, with everything still held, because a restart would read the saved pause again. It says *Pocket could not save its settings, so it is still paused and nothing was resumed. Check that its data folder has space and can be written, then press Resume again.* A change in **Settings → Automation** that can't be saved is not kept either: it says *Pocket could not save the change, so nothing changed.*
+
 ### Pause all settings
 
 **Settings → Automation → Pause all**. All apply to the whole install.

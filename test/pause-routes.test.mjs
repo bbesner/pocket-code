@@ -645,3 +645,126 @@ test('Paused after the gate passed on OpenRouter (a retry reopening its conversa
   await s.idle(lim); await sleep(500);
   assert.equal(s.prompts('acp').filter(x => RETRIED.test(x)).length, 1, 'once');
 });
+
+// 1.124.1 (unattended-01): Pause all is the emergency stop, so it must work when Pocket cannot write its settings (a full
+// disk, a read-only data folder). Here pocket-settings.json.tmp is a directory, so every settings save throws. The pause
+// still stops and holds everything, holds in memory, and says it was not saved; a later save or press saves it.
+const settingsWriteFails = s => fs.mkdirSync(path.join(s.data, 'pocket-settings.json.tmp'));
+const settingsWriteWorks = s => fs.rmdirSync(path.join(s.data, 'pocket-settings.json.tmp'));
+const savedSettings = s => JSON.parse(fs.readFileSync(path.join(s.data, 'pocket-settings.json'), 'utf8'));
+const armedRetry = async (s, text) => {
+  const id = await s.start('claude', text);
+  await s.until(async () => (await s.session(id))?.state?.label === 'Waiting for usage reset', 10000, 'the retry to be armed');
+  return id;
+};
+const retried = (s, id) => s.claudeCalls().some(c => c.id === id && /interrupted by an API rate limit/.test(c.text || ''));
+test('Pause all when the settings cannot be saved: everything stops and is held, the answer and the banner say it was not saved, and a later save keeps it', { timeout: 120_000 }, async t => {
+  const s = await boot(t, 18958);
+  assert.equal((await s.call('/automation/settings', { group: 'checkbacks', values: { checkbacks: true, spacingSec: 0 } })).status, 200);
+  const id = await s.start('claude', 'unsaved runaway __HANG__');
+  await s.running(id);
+  const token = await s.until(() => s.claudeCalls().filter(c => c.id === id).at(-1)?.runnerToken, 15000, 'the runner token');
+  const added = await s.call('/checkbacks/agent/add', { at: '+15m', note: 'Look again' }, { ...s.bearer(), 'x-pocket-runner': token });
+  assert.equal(added.status, 201, JSON.stringify(added.body));
+  const limited = await armedRetry(s, 'unsaved limit __LIMIT__');
+
+  settingsWriteFails(s);
+  const p = await s.call('/pause', {});
+  await s.idle(id); // the running reply stopped
+  assert.equal(p.status, 200, `the pause happens: ${JSON.stringify(p.body)}`);
+  assert.equal(p.body.paused.unsaved, true, 'and the answer says it was not saved');
+  assert.deepEqual([p.body.stopped.replies, p.body.stopped.retries, p.body.stopped.checkbacks], [{ claude: 1, codex: 0, openrouter: 0 }, 1, 1]);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(s.data, 'turnlogs', `${limited}.retry.json`), 'utf8')).held, true, 'the retry is held');
+  assert.equal((await s.call('/checkbacks')).body.checkbacks.find(c => c.id === added.body.checkback.id).status, 'held', 'the check-back is held');
+  assert.equal(s.audit().filter(x => x.action === 'pause').length, 1, 'the pause is in the audit');
+  assert.match(s.logs(), /Pause all: the pause could not be saved/);
+  assert.equal(savedSettings(s).paused, undefined, 'the saved file does not have it');
+  assert.equal((await s.call('/me')).body.paused.at, p.body.paused.at);
+  assert.equal((await s.call('/pause')).body.paused.unsaved, true, 'the confirmation and the banner read it too');
+  assert.equal((await s.call('/sessions')).body.pause.paused.unsaved, true);
+
+  // a second press while it still cannot be saved: no ordinary success
+  const again = await s.call('/pause', {});
+  assert.equal(again.status, 200);
+  assert.deepEqual([again.body.paused.at, again.body.paused.unsaved], [p.body.paused.at, true], 'still paused, still not saved');
+  assert.deepEqual(again.body.stopped.replies, { claude: 0, codex: 0, openrouter: 0 });
+  assert.equal(s.audit().filter(x => x.action === 'pause').length, 1, 'one audit line for one pause');
+  await sleep(6000); // past the retry's time: held, it does not run
+  assert.ok(!retried(s, limited), 'the held retry did not run');
+
+  // the write works again: the next settings change saves the pause with it, and the answer no longer warns
+  settingsWriteWorks(s);
+  assert.equal((await s.call('/automation/settings', { group: 'pause', values: { confirm: false } })).status, 200);
+  assert.equal(savedSettings(s).paused.at, p.body.paused.at, 'saved now, so a restart keeps it');
+  assert.equal((await s.call('/pause')).body.paused.unsaved, undefined);
+  const third = await s.call('/pause', {});
+  assert.deepEqual([third.status, third.body.paused.at, third.body.paused.unsaved], [200, p.body.paused.at, undefined]);
+  const r = await s.call('/resume', {});
+  assert.deepEqual(r.body, { ok: true, paused: null, rearmed: 1, inboxWatch: null, checkbacks: { run: 0, missed: 0 } });
+  assert.equal(savedSettings(s).paused, undefined);
+  await s.until(() => retried(s, limited), 15000, 'the retry to run after Resume');
+  assert.equal((await s.call('/checkbacks')).body.checkbacks.find(c => c.id === added.body.checkback.id).status, 'pending', 'the check-back is let go');
+});
+
+test('Resume when the settings cannot be saved: a saved pause stays paused and held, and says so; a pause that was never saved resumes', { timeout: 120_000 }, async t => {
+  const s = await boot(t, 18959);
+  // a pause that was never saved: the saved file already says running, so Resume goes ahead
+  const first = await armedRetry(s, 'resume unsaved limit __LIMIT__');
+  settingsWriteFails(s);
+  assert.equal((await s.call('/pause', {})).body.paused.unsaved, true);
+  const r1 = await s.call('/resume', {});
+  assert.deepEqual([r1.status, r1.body.paused, r1.body.rearmed], [200, null, 1], JSON.stringify(r1.body));
+  assert.equal((await s.call('/me')).body.paused, null);
+  await s.until(() => retried(s, first), 15000, 'the retry to run after Resume');
+  await s.idle(first);
+
+  // a saved pause, then the write fails: Resume refuses, and Pocket stays paused with everything held
+  settingsWriteWorks(s);
+  const limited = await armedRetry(s, 'resume saved limit __LIMIT__');
+  const p = await s.call('/pause', {});
+  assert.deepEqual([p.status, p.body.paused.unsaved, p.body.stopped.retries], [200, undefined, 1]);
+  assert.equal(savedSettings(s).paused.at, p.body.paused.at);
+  settingsWriteFails(s);
+  const r = await s.call('/resume', {});
+  assert.equal(r.status, 503, JSON.stringify(r.body));
+  assert.match(r.body.error, /could not save/i); assert.match(r.body.error, /still paused/i);
+  assert.equal(r.body.paused.at, p.body.paused.at);
+  assert.equal((await s.call('/me')).body.paused.at, p.body.paused.at, 'still paused');
+  assert.deepEqual((await s.call('/pause')).body.held, { retries: 1, checkbacks: 0 }, 'the retry is still held, and the banner shows it with Resume');
+  assert.ok(!s.audit().some(x => x.action === 'resume' && Date.parse(x.at) >= Date.parse(p.body.paused.at)), 'no resume in the audit');
+  // a settings change that cannot be saved is not kept either
+  const before = (await s.call('/automation')).body.groups[0].settings.find(x => x.key === 'confirm').value;
+  const change = await s.call('/automation/settings', { group: 'pause', values: { confirm: !before } });
+  assert.equal(change.status, 503, JSON.stringify(change.body)); assert.match(change.body.error, /could not save/i);
+  assert.equal((await s.call('/automation')).body.groups[0].settings.find(x => x.key === 'confirm').value, before, 'nothing changed');
+  await sleep(6000);
+  assert.ok(!retried(s, limited), 'the held retry did not run');
+  const again = await s.call('/resume', {});
+  assert.equal(again.status, 503, 'a second Resume still sees the pause');
+
+  settingsWriteWorks(s);
+  const ok = await s.call('/resume', {});
+  assert.deepEqual(ok.body, { ok: true, paused: null, rearmed: 1, inboxWatch: null, checkbacks: { run: 0, missed: 0 } });
+  assert.equal(savedSettings(s).paused, undefined);
+  await s.until(() => retried(s, limited), 15000, 'the retry to run after Resume');
+});
+
+test('Pause all when the check-backs cannot be saved: the rest is still stopped and held, and the pause is recorded', { timeout: 60_000 }, async t => {
+  const s = await boot(t, 18960);
+  assert.equal((await s.call('/automation/settings', { group: 'checkbacks', values: { checkbacks: true, spacingSec: 0 } })).status, 200);
+  const id = await s.start('claude', 'cb store runaway __HANG__');
+  await s.running(id);
+  const token = await s.until(() => s.claudeCalls().filter(c => c.id === id).at(-1)?.runnerToken, 15000, 'the runner token');
+  for (const at of ['+15m', '+30m']) assert.equal((await s.call('/checkbacks/agent/add', { at, note: 'Look again' }, { ...s.bearer(), 'x-pocket-runner': token })).status, 201);
+  const limited = await armedRetry(s, 'cb store limit __LIMIT__');
+  fs.mkdirSync(path.join(s.data, 'checkbacks.json.tmp')); // the check-back store's write fails
+  const p = await s.call('/pause', {});
+  assert.equal(p.status, 200, JSON.stringify(p.body));
+  assert.deepEqual([p.body.stopped.replies.claude, p.body.stopped.retries, p.body.paused.unsaved], [1, 1, undefined]);
+  await s.idle(id);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(s.data, 'turnlogs', `${limited}.retry.json`), 'utf8')).held, true);
+  assert.equal(s.audit().filter(x => x.action === 'pause').length, 1, 'the pause is in the audit');
+  assert.equal((s.logs().match(/pause: check-back not held/g) || []).length, 2, 'each check-back it could not hold is logged');
+  fs.rmdirSync(path.join(s.data, 'checkbacks.json.tmp'));
+  assert.equal((await s.call('/resume', {})).body.rearmed, 1);
+});

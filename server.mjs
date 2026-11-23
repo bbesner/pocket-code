@@ -436,7 +436,10 @@ const SETTINGS_FILE = path.join(DATA_DIR, 'pocket-settings.json');
 const SETTINGS_DEFAULTS = { contextPolicy: null, handoffOffer: null, titleSync: false, projects: false, documents: false, tasks: false, inbox: false, coordination: false, ownerTimezone: '', vault: false, vaultAutoLockMinutes: 0, vaultAccess: 'once', secretGuard: true, markAllReviewed: true, remindAhead: 0, notifyEmail: '', offeredClaudeModels: null, trustedActions: null }; // 1.116: markAllReviewed (false hides the bar in Attention and New); 1.50: remindAhead (hours, 0 or 24), notifyEmail; 1.52: offeredClaudeModels (null = the server default); 1.56: trustedActions (null = the server default)
 const loadSettings = () => { try { return { ...SETTINGS_DEFAULTS, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch { return { ...SETTINGS_DEFAULTS }; } };
 let settings = loadSettings();
-const saveSettings = () => atomicWrite(SETTINGS_FILE, settings);
+// 1.124.1: true while Pause all holds a pause in memory that the settings file does not have (its save failed). Any later
+// save that works writes the pause with everything else, so it clears here.
+let pauseUnsaved = false;
+const saveSettings = () => { atomicWrite(SETTINGS_FILE, settings); pauseUnsaved = false; };
 // 1.60: Assistant mode, a simpler Pocket for people who don't write code (docs/plans/assistant-mode.md).
 // POCKET_ASSISTANT_MODE=locked keeps it on and out of Settings; on (or 1) sets the starting value until Settings
 // changes it; off or unset starts with the full workbench.
@@ -6135,7 +6138,9 @@ const liveTurns = () => ({
   openrouter: ACP_ON ? [...acp.acpTurns.entries()].filter(([, t]) => !t.stopped && !t.done && t.session.runtime.id === 'opencode') : [],
   antigravity: AGY_ON ? [...acp.acpTurns.entries()].filter(([, t]) => !t.stopped && !t.done && t.session.runtime.id === 'antigravity') : [],
 });
-const pausedView = () => pausedNow() ? { at: pausedNow().at, by: pausedNow().by || 'owner' } : null;
+// 1.124.1: `unsaved` while the pause holds in memory only (its save failed), so the answer, the banner and the confirmation
+// say a restart of Pocket would end it.
+const pausedView = () => pausedNow() ? { at: pausedNow().at, by: pausedNow().by || 'owner', ...(pauseUnsaved ? { unsaved: true } : {}) } : null;
 // Side chats answering now count with the replies of their engine; they are stopped the same way.
 const liveSides = () => [...sideChats.chats.values()].filter(c => c.busy && !c.closed);
 // Claude conversations Working in background: no reply runs, but their process has background jobs, and the CLI starts a
@@ -6167,8 +6172,12 @@ function pauseView() {
 }
 const NOTHING_STOPPED = Object.freeze({ replies: { claude: 0, codex: 0, openrouter: 0 }, background: 0, retries: 0, checkbacks: 0, jobs: 0, inboxWatch: false });
 function pauseAll() {
-  // Already paused: nothing new is started while paused, so there is nothing to stop, and no second audit line.
-  if (pausedNow()) return structuredClone(NOTHING_STOPPED);
+  // Already paused: nothing new is started while paused, so there is nothing to stop, and no second audit line. A pause
+  // whose save failed is saved again here (1.124.1), so a press once the disk is fixed keeps it across a restart.
+  if (pausedNow()) {
+    if (pauseUnsaved) try { saveSettings(); log('Pause all: the pause is saved now'); } catch (e) { log(`Pause all: the pause still could not be saved: ${e.message}`); }
+    return structuredClone(NOTHING_STOPPED);
+  }
   const would = pauseWould(), live = liveTurns(), sides = liveSides(), background = backgroundRunners();
   const record = { at: new Date().toISOString(), by: 'owner' };
   // Inbox Watch: its own Pause, set only when it is running and the owner wants it paused with everything else.
@@ -6180,18 +6189,24 @@ function pauseAll() {
       inboxRunner.kick?.();
     } catch (e) { log(`pause: Inbox Watch not paused: ${e.message}`); }
   }
-  settings.paused = record; saveSettings(); // saved before anything stops, so nothing new starts behind it
+  // Set before anything stops, so nothing new starts behind it: the gate reads this flag in memory. 1.124.1: so the stops
+  // never wait on the disk. A save that fails (a full disk, a read-only data folder) leaves the pause holding until Pocket
+  // restarts, and the answer says so (pausedView); every step below still runs, each on its own, so one that throws
+  // leaves the rest to stop.
+  settings.paused = record;
+  try { saveSettings(); } catch (e) { pauseUnsaved = true; log(`Pause all: the pause could not be saved (${e.message}); it holds until Pocket restarts`); }
+  const step = (what, fn) => { try { fn(); } catch (e) { log(`Pause all: ${what}: ${e.message}`); } };
   for (const r of runningJobRunners(live)) log(`stopping ${r.bgTasks.length} background job(s) with the running reply (Pause all) session=${r.sessionId}`);
-  for (const [id, turn] of live.claude) { turn.stopped = true; signalTurn(turn); log(`stop requested (Pause all) session=${id}`); }
-  for (const [tid] of live.codex) { codex.stopCodexTurn(tid); log(`stop requested (Pause all) thread=${tid}`); }
-  for (const [sid, t] of [...live.openrouter, ...live.antigravity]) { acp.stopAcpTurn(sid, 'Stopped by Pause all'); log(`stop requested (Pause all) session=${t.fullId}`); }
-  for (const c of sides) { sideChats.stop(c); log(`side chat stop requested (Pause all) session=${c.parentId}`); }
-  for (const r of background) { signalTurn(r); log(`stopping ${r.bgTasks.length} background job(s) (Pause all) session=${r.sessionId}`); }
-  for (const id of [...retryTimers.keys()]) {
+  for (const [id, turn] of live.claude) step(`stop failed session=${id}`, () => { turn.stopped = true; signalTurn(turn); log(`stop requested (Pause all) session=${id}`); });
+  for (const [tid] of live.codex) step(`stop failed thread=${tid}`, () => { codex.stopCodexTurn(tid); log(`stop requested (Pause all) thread=${tid}`); });
+  for (const [sid, t] of [...live.openrouter, ...live.antigravity]) step(`stop failed session=${t.fullId}`, () => { acp.stopAcpTurn(sid, 'Stopped by Pause all'); log(`stop requested (Pause all) session=${t.fullId}`); });
+  for (const c of sides) step(`side chat stop failed session=${c.parentId}`, () => { sideChats.stop(c); log(`side chat stop requested (Pause all) session=${c.parentId}`); });
+  for (const r of background) step(`background stop failed session=${r.sessionId}`, () => { signalTurn(r); log(`stopping ${r.bgTasks.length} background job(s) (Pause all) session=${r.sessionId}`); });
+  for (const id of [...retryTimers.keys()]) step(`retry not held session=${id}`, () => {
     let m = null; try { m = JSON.parse(fs.readFileSync(turnFiles(id).retry, 'utf8')); } catch { }
     if (m?.sessionId) holdRetry(m); // without a readable marker the timer stays, and the gate holds it when it fires
-  }
-  holdCheckbacksForPause(); // 1.119: every waiting check-back is held until Resume
+  });
+  step('check-backs not held', holdCheckbacksForPause); // 1.119: every waiting check-back is held until Resume
   const stopped = { ...would, inboxWatch: Boolean(record.inboxWatch) };
   autoAudit({ action: 'pause', replies: stopped.replies, background: stopped.background, retries: stopped.retries, checkbacks: stopped.checkbacks, jobs: stopped.jobs, inboxWatch: stopped.inboxWatch });
   log(`Pause all: stopped ${Object.values(would.replies).reduce((a, n) => a + n, 0)} repl(ies) and ${would.background} background job(s), held ${would.retries} retr(ies) and ${would.checkbacks} check-back(s)`);
@@ -6202,6 +6217,14 @@ function pauseAll() {
 // it, or the owner's change already resumed it).
 function resumeAll() {
   const was = pausedNow();
+  // 1.124.1: saved before anything is let go. A saved pause the file cannot drop stays paused, with everything still held,
+  // since a restart would read it paused again; the route says so and Resume can be pressed again. A pause that was never
+  // saved resumes: the file already says running.
+  delete settings.paused;
+  try { saveSettings(); } catch (e) {
+    if (was && !pauseUnsaved) { settings.paused = was; log(`Resume: not resumed, the settings could not be saved (${e.message}); still paused`); return { unsaved: true }; }
+    pauseUnsaved = false; log(`Resume: the settings could not be saved (${e.message}); the pause was never saved, so it resumes`);
+  }
   let inboxWatch = null;
   if (was?.inboxWatch) {
     try {
@@ -6210,7 +6233,6 @@ function resumeAll() {
       else { inboxWatch = inboxStore.paused(w.source) ? 'left_paused' : null; log(`resume: Inbox Watch settings changed while paused; left as they are${inboxWatch ? ', paused' : ', running'}`); }
     } catch (e) { inboxWatch = 'left_paused'; log(`resume: Inbox Watch not resumed: ${e.message}`); }
   }
-  delete settings.paused; saveSettings();
   if (was) resumeAfterJobs(); // a message the owner sent while background jobs held the login, kept while Blocked
   let rearmed = 0;
   if (autoValues('pause').rearmRetries) for (const m of [...heldRetries.values()]) { rearmRetry(m); rearmed++; }
@@ -6228,7 +6250,11 @@ const ownerControl = (req, res, next) => {
 };
 app.get('/api/pause', requireAuth, (_req, res) => { res.setHeader('Cache-Control', 'private, no-store'); res.json(pauseView()); });
 app.post('/api/pause', requireAuth, ownerControl, (_req, res) => { const stopped = pauseAll(); res.json({ ok: true, paused: pausedView(), stopped }); });
-app.post('/api/resume', requireAuth, ownerControl, (_req, res) => { const { rearmed, inboxWatch, checkbacks: cb } = resumeAll(); res.json({ ok: true, paused: null, rearmed, inboxWatch, checkbacks: cb }); });
+app.post('/api/resume', requireAuth, ownerControl, (_req, res) => {
+  const { rearmed, inboxWatch, checkbacks: cb, unsaved } = resumeAll();
+  if (unsaved) return res.status(503).json({ error: 'Pocket could not save its settings, so it is still paused and nothing was resumed. Check that its data folder has space and can be written, then press Resume again.', paused: pausedView() }); // 1.124.1
+  res.json({ ok: true, paused: null, rearmed, inboxWatch, checkbacks: cb });
+});
 
 // ---------- 1.117: Settings → Automation ----------
 function automationView() {
@@ -6241,8 +6267,14 @@ app.post('/api/automation/settings', requireAuth, ownerControl, (req, res) => {
   const r = auto.applySave(settings.automation, req.body);
   if (r.error) return res.status(r.status || 400).json({ error: r.error });
   const engineSwitches = () => ['claude', 'codex'].map(checkbackEngineOn).join(','), before = engineSwitches();
+  const prev = settings.automation;
   if (Object.keys(r.automation).length) settings.automation = r.automation; else delete settings.automation;
-  saveSettings();
+  // 1.124.1: a change that cannot be saved is not kept in memory either, so what runs is what the file says
+  try { saveSettings(); } catch (e) {
+    if (prev === undefined) delete settings.automation; else settings.automation = prev;
+    log(`automation settings not saved: ${e.message}`);
+    return res.status(503).json({ error: 'Pocket could not save the change, so nothing changed. Check that its data folder has space and can be written, then try again.' });
+  }
   let released = 0; try { released = releaseCheckbackHolds(); } catch (e) { log(`check-backs: ${e.message}`); } // 1.119: a held check-back is looked at again (the limits may have changed)
   if (req.body.group === 'checkbacks') { // 1.119: the skill and the instruction lines follow the switches; a pending one may now be due
     syncAgentSkills();
@@ -6564,18 +6596,23 @@ function checkbackFinished(id, turn, outcome) {
 function holdCheckbacksForPause() {
   if (!checkbacksOn()) return 0;
   let n = 0;
-  for (const c of checkbacks.waiting()) { if (!(c.status === 'held' && c.held?.reason === 'paused')) n++; holdCheckback(c, 'paused'); }
+  // 1.124.1: one that cannot be written (a full disk) is left to the gate, which holds it while paused; the rest are held.
+  for (const c of checkbacks.waiting()) {
+    if (!(c.status === 'held' && c.held?.reason === 'paused')) n++;
+    try { holdCheckback(c, 'paused'); } catch (e) { log(`pause: check-back not held id=${c.id}: ${e.message}`); }
+  }
   return n;
 }
 function releaseCheckbacksOnResume() {
   const runOverdue = autoValues('pause').runOverdue, out = { run: 0, missed: 0 }, late = [], catchUp = checkbackSettings().catchUpHours * 3600_000;
-  for (const c of checkbacks.items.filter(x => x.status === 'held' && x.held?.reason === 'paused')) {
+  // 1.124.1: one that cannot be written (a full disk) stays held, and is logged; the rest are let go
+  for (const c of checkbacks.items.filter(x => x.status === 'held' && x.held?.reason === 'paused')) try {
     const overdue = Date.parse(c.dueAt) <= cbNow(), by = cbNow() - Date.parse(c.dueAt) - (c.busyMs || 0);
     if (overdue && !runOverdue) { missCheckback(c, 'paused', 'Pocket was paused when it fell due'); out.missed++; }
     // past the catch-up window: the pass would mark it missed, so it is counted (and pushed) as missed here, not as run
     else if (overdue && by > CHECKBACK_GRACE_MS && by > catchUp) { missCheckback(c, 'late', lateReason(c, by), late); out.missed++; }
     else { checkbacks.update(c.id, { status: 'pending', held: undefined }); if (overdue) out.run++; }
-  }
+  } catch (e) { log(`resume: check-back not released id=${c.id}: ${e.message}`); }
   if (late.length) pushMissed(late).catch(e => log(`check-back push: ${e.message}`));
   if (out.run) setImmediate(() => checkbackPass().catch(e => log(`check-backs: ${e.message}`)));
   return out;
