@@ -747,6 +747,9 @@ function msSetting(name, dflt) { // same rule as server.mjs: milliseconds, 0 dis
 }
 const IDLE_CLOSE_MS = msSetting('POCKET_IDLE_CLOSE_MS', 60 * 60_000);
 const STALL_MS = msSetting('POCKET_STALL_MS', 30 * 60_000);
+// 1.124.4: how long a stopped reply whose interrupt was answered may take to end before its process is closed; the same
+// 20 s as an unanswered interrupt here and ACP's STOP_GRACE_MS.
+const STOP_GRACE_MS = msSetting('POCKET_CODEX_STOP_GRACE_MS', 20_000);
 export const codexTurns = new Map(); // threadId -> active turn
 export const codexSessions = new Map(); // threadId -> {conn, approvalMode, cwd, model, effort, turn, hooks}
 
@@ -957,6 +960,7 @@ export function adoptCodexSessions(hooksFor) {
 function finish(turn, ev) {
   if (turn.done) return;
   turn.done = true;
+  clearTimeout(turn.stopTimer); // 1.124.4
   if (usageTimer) saveCodexUsage(); // 1.124.4: the reply's token updates, written together
   ownedFinishedAt.set(turn.threadId,Date.now());
   if(ownedFinishedAt.size>1000)ownedFinishedAt.delete(ownedFinishedAt.keys().next().value);
@@ -1389,7 +1393,12 @@ export function stopCodexTurn(threadId) {
   turn.questions?.clear(); turn.approvals?.clear(); // 1.73.8: no card stays answerable after Stop, even if the interrupt is ignored
   if (turn.turnId) {
     turn.conn.request('turn/interrupt', { threadId, turnId: turn.turnId }, 20_000)
-      .catch(e => { log(`interrupt failed thread=${threadId}: ${e.message}`); closeCodexSession(turn.session, 'interrupt failed'); });
+      .then(() => { // 1.124.4: answered, but a wedged app-server may never end the turn; it stayed busy until the 30-minute stall check
+        if (turn.done || !turn.session || !(STOP_GRACE_MS > 0)) return;
+        clearTimeout(turn.stopTimer);
+        turn.stopTimer = setTimeout(() => { if (!turn.done) { log(`stopped turn did not end ${Math.round(STOP_GRACE_MS / 1000)} s after its interrupt; closing thread=${threadId}`); closeCodexSession(turn.session, 'stop not completed'); } }, STOP_GRACE_MS);
+        turn.stopTimer.unref?.();
+      }, e => { log(`interrupt failed thread=${threadId}: ${e.message}`); closeCodexSession(turn.session, 'interrupt failed'); });
   } else if (turn.session) closeCodexSession(turn.session, 'stopped before the turn began');
   else turn.conn.close();
   return true;

@@ -899,7 +899,8 @@ const r = await startTurn(); await sleep(300); done({ ok: r.ok, err: r.err, code
     } finally { reap(w); }
   });
 
-  test('DIV-6: stop whose interrupt succeeds but never completes is ended by a grace (timers scaled 1/20)', async () => {
+  // 1.124.4: the grace is POCKET_CODEX_STOP_GRACE_MS (20 s by default, as ACP's), shortened here.
+  test('DIV-6: stop whose interrupt succeeds but never completes is ended by a grace, as stopped by the owner', async () => {
     const w = newWorld(); const T = uid();
     setCtl(w, { threadId: T, on: { 'turn/start': [STARTED] } });
     try {
@@ -908,11 +909,14 @@ const r = await startTurn(); if (!r.ok) done({ ok: false, err: r.err });
 const ret = C.stopCodexTurn(r.t.threadId);
 const stopped = !!r.t.stopped;
 const gone = await until(() => !C.codexTurns.size, 4500);
-done({ ok: true, ret, stopped, gone: !!gone, results: r.t.events.filter(e => e.type === 'result') });`, { env: { SCALE_TIMERS: '20' } }), 'child');
+done({ ok: true, ret, stopped, gone: !!gone, results: r.t.events.filter(e => e.type === 'result') });`, { env: { POCKET_CODEX_STOP_GRACE_MS: '800' } }), 'child');
       assert.equal(R.ok, true, R.err);
       assert.equal(R.ret, true); assert.equal(R.stopped, true);
       assert.ok(frames(w).some(f => f.method === 'turn/interrupt' && f.params.threadId === T), 'interrupt sent');
-      assert.equal(R.gone, true, 'stopped turn still active ~90 s (scaled) after a successful interrupt with no completion');
+      assert.equal(R.gone, true, 'stopped turn still active 4.5 s after a successful interrupt with no completion (grace 0.8 s)');
+      assert.deepEqual(R.results.map(e => [e.ok, e.error]), [[false, 'Stopped by you']], 'it ends once, as stopped by the owner');
+      const pid = pidForThread(w, T);
+      assert.ok(await until(() => !alive(pid), 3000), 'its process closed');
     } finally { reap(w); }
   });
 
