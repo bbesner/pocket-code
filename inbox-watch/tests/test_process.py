@@ -1,13 +1,15 @@
 """The judge's decisions through the real process(): quiet hours hold an alert, Check now sends it, and a batch that fails
 part-way leaves nothing behind (1.77.1); a judge reply that does not parse is asked for again (1.77.6); `notify --dry-run` keeps nothing (1.77.8); resolving an entry in Pocket closes its story (1.77.10).
 A run killed outright (SIGKILL) or left with a closed output pipe still gets its alerts out exactly once (1.124.1): those
-runs go through the real run() in a forked child. A fake archive, judge and Pocket; no Gmail, model or network.
+runs go through the real run() in a forked child. An alert Pocket could not take is tried again at the next runs, a few
+times (1.124.2). A fake archive, judge and Pocket; no Gmail, model or network.
 
     python3 tests/test_process.py
 """
 import json
 import os
 import signal
+import subprocess
 import sys
 import tempfile
 import time
@@ -207,6 +209,50 @@ def test_resolving_in_pocket_closes_the_story():
     assert status("story-c") == "open", "restore reopens"
 
 
+def test_the_owner_s_decisions_on_an_entry_the_tidy_took_off_are_applied():
+    # Review 2026-11-23 (inbox-04): apply_feedback acked every decision on an entry the tidy pass had once acted on as the
+    # tidy's own, so Restore, Not useful and a merge on it were never applied. Only the tidy's own act is skipped now.
+    store, pocket = setup()
+    for k in ("inv-42", "inv-43", "inv-44", "inv-45"):
+        store.upsert_story({"issue_key": k, "status": "open", "priority": "normal", "new_fact": f"{k} opened."}, None)
+    store.link("inv-43", B)
+    tidied = E.now_utc() - E.dt.timedelta(minutes=10)
+    at = lambda minutes: (tidied + E.dt.timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731 - Pocket's form
+    for eid, key, verdict in (("e1", "inv-42", "resolved"), ("e3", "inv-43", "handled"), ("e4", "inv-45", "resolved")):
+        if verdict == "resolved":  # what tidy() does after Pocket took the entry off
+            store.db.execute("update issues set status='resolved' where issue_key=?", (key,))
+        store.db.execute("insert into tidy_log(at,entry_id,issue_key,title,verdict,reason,evidence,acted) values(?,?,?,?,?,?,?,?)",
+                         (E.iso(tidied), eid, key, f"Invoice {key[-2:]}", verdict, "paid", "[]", 1))
+    store.commit()
+    acked = []
+    pocket.ack = acked.extend
+    item = lambda eid, key, action, minutes, **kw: {"id": eid, "action": action, "at": at(minutes), "note": "", "title": f"Invoice {key[-2:]}",  # noqa: E731
+                                                     "story": key, "source": "inbox-monitor", "kind": "alert", **kw}
+    owner_said = lambda key: [r["fact"] for r in store.events(key) if r["kind"] == "feedback"]  # noqa: E731
+    # the tidy's own act, read back on the next run: acked, and not told to the story as the owner's
+    pocket.feedback = lambda: [item("e1", "inv-42", "resolved", 0), item("e3", "inv-43", "dismissed", 0)]
+    E.apply_feedback(store)
+    assert acked == ["e1", "e3"] and owner_said("inv-42") == [], (acked, owner_said("inv-42"))
+    # the owner restores e1, then marks it Not useful
+    pocket.feedback = lambda: [item("e1", "inv-42", "restore", 2)]
+    E.apply_feedback(store)
+    assert store.story("inv-42")["status"] == "open", "Restore on a tidied entry reopens its story"
+    pocket.feedback = lambda: [item("e1", "inv-42", "not_useful", 3)]
+    E.apply_feedback(store)
+    assert store.story("inv-42")["not_useful_at"], "Not useful on a tidied entry keeps its story off the list"
+    assert store.db.execute("select count(*) from lessons where ref='not_useful:e1'").fetchone()[0] == 1, "no lesson learned"
+    # e3, handled by the tidy, restored and then merged into another entry: its story joins that one
+    pocket.feedback = lambda: [item("e3", "inv-43", "dismissed", 4, mergedInto="e9", intoStory="inv-44")]
+    E.apply_feedback(store)
+    joined = store.db.execute("select 1 from story_threads where issue_key='inv-44' and thread_id=?", (B,)).fetchone()
+    assert store.story("inv-43")["status"] == "resolved" and joined, "the merge was not applied"
+    # e4, resolved by the tidy, restored and resolved again by the owner: the same action, later, is the owner's
+    pocket.feedback = lambda: [item("e4", "inv-45", "resolved", 5)]
+    E.apply_feedback(store)
+    assert any("marked this resolved" in f for f in owner_said("inv-45")), owner_said("inv-45")
+    assert acked == ["e1", "e3", "e1", "e1", "e3", "e4"], acked
+
+
 def test_two_labelled_copies_share_one_entry():
     # 2026-10-28: both copies of a reply labelled in Gmail, folded into one alert; the second follows the first's entry.
     store, pocket = setup()
@@ -298,17 +344,24 @@ class LedgerPocket:
 
     def __init__(self, path, die_after_send=False):
         self.path, self.die_after_send = Path(path), die_after_send
+        self.down = self.slow = False  # not answering at all; or (1.124.2) storing the entry and answering too late
+        self.tries = 0
 
     def entries(self):
         return [json.loads(x) for x in self.path.read_text().splitlines()] if self.path.exists() else []
 
     def send_alert(self, a, pocket_url=None, held_note=False):
+        self.tries += 1
+        if self.down:
+            raise RuntimeError("pocket-inbox add: Pocket is not answering")
         if any(e["dedupe"] == a["dedupe_key"] for e in self.entries()):
             return "duplicate"
         with self.path.open("a") as f:
             f.write(json.dumps({"title": a["subject"], "dedupe": a["dedupe_key"]}) + "\n")
         if self.die_after_send:
             die()
+        if self.slow:
+            raise subprocess.TimeoutExpired(["node", "pocket-inbox.mjs", "add"], 30)  # delivery.py's _node
         return "e"
 
 
@@ -452,6 +505,64 @@ def test_an_alert_sent_just_before_the_run_was_killed_is_not_sent_again():
         assert E.run(False, False) == 0
         assert alerts_now() == {"gate": "sent"}, alerts_now()
         assert [e["title"] for e in pocket.entries()] == ["Gate down"], pocket.entries()
+    with_run_fakes(check)
+
+
+def test_an_alert_pocket_could_not_take_is_sent_again_at_the_next_run():
+    # 1.124.2: an alert whose delivery failed (Pocket not answering, as during its own restart) was marked 'failed' and
+    # never tried again, so it reached only the watcher's own store.
+    def check():
+        pocket, mailed = run_setup()
+        pocket.down = True
+        mailed.append(GATE)
+        assert E.run(False, False) == 0
+        assert alerts_now() == {"gate": "failed"} and pocket.entries() == [], (alerts_now(), pocket.entries())
+        pocket.down = False
+        assert E.run(False, False) == 0  # the next check, with no new mail of its own
+        assert alerts_now() == {"gate": "sent"} and [e["title"] for e in pocket.entries()] == ["Gate down"], (alerts_now(), pocket.entries())
+        tries = pocket.tries
+        assert E.run(False, False) == 0 and pocket.tries == tries, "a sent alert is not sent again"
+    with_run_fakes(check)
+
+
+def test_an_alert_pocket_took_but_answered_too_late_for_is_not_listed_twice():
+    # Review 2026-11-23 (inbox-06): Pocket stores the entry, then waits on the push and the email before it answers; past the
+    # command's 30 seconds the watcher recorded the alert as failed. The next run sends it again under the same key, Pocket
+    # answers that it already has it, and the watcher records it as sent.
+    def check():
+        pocket, mailed = run_setup()
+        pocket.slow = True
+        mailed.append(GATE)
+        assert E.run(False, False) == 0
+        assert alerts_now() == {"gate": "failed"} and len(pocket.entries()) == 1, (alerts_now(), pocket.entries())
+        pocket.slow = False
+        assert E.run(False, False) == 0
+        assert alerts_now() == {"gate": "sent"} and len(pocket.entries()) == 1, (alerts_now(), pocket.entries())
+    with_run_fakes(check)
+
+
+def test_an_alert_pocket_keeps_refusing_is_tried_a_few_times_then_left():
+    def check():
+        pocket, mailed = run_setup()
+        pocket.down = True
+        mailed.append(GATE)
+        for _ in range(E.FAILED_TRIES + 2):
+            assert E.run(False, False) == 0
+        assert pocket.tries == E.FAILED_TRIES, f"{pocket.tries} tries"
+        assert alerts_now() == {"gate": "failed"}, alerts_now()
+        assert f"after {E.FAILED_TRIES} tries" in E.LOG_PATH.read_text()
+        # a failure older than the retries (before 1.124.2) or one past Pocket's day of duplicate keys is left alone too
+        s = E.Store(E.DB_PATH)
+        s.queue_alert("inv-7|old", issue_key="inv-7", thread_id=INVOICE, kind="notify", priority="high", text="Invoice 7.", subject="Invoice 7",
+                      sender="site@example.com", status="failed")
+        s.queue_alert("inv-8|late", issue_key="inv-8", thread_id=INVOICE, kind="notify", priority="high", text="Invoice 8.", subject="Invoice 8",
+                      sender="site@example.com", status="failed")
+        s.db.execute("update alerts set tries=1, created_at=? where dedupe_key='inv-8|late'", (E.iso(E.now_utc() - E.dt.timedelta(hours=23)),))
+        s.commit()
+        s.db.close()
+        pocket.down = False
+        tries = pocket.tries
+        assert E.run(False, False) == 0 and pocket.tries == tries and pocket.entries() == [], (pocket.tries, pocket.entries())
     with_run_fakes(check)
 
 
