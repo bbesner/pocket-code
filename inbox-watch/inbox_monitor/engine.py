@@ -3381,6 +3381,15 @@ def run(dry_run: bool, baseline_only: bool, why: str = "", request: str | None =
             log("first run: baseline from the last 2 days")
             threads = gmail.baseline_threads()
             new_cursor = head
+        # 1.124.1: the threads are in the backlog before anything else can fail or take time (label sync, a log line), and
+        # only then does the connector record their mail as seen: a run that dies at any point leaves the mail to be judged
+        # by the next one, never used up. (The Gmail-API source keeps its cursor with the backlog, below, as before.)
+        if not baseline_only:
+            for tid in threads:
+                store.db.execute("insert or ignore into backlog(thread_id,added_at) values(?,?)", (tid, iso()))
+            store.commit()
+        if hasattr(gmail, "commit_seen"):
+            gmail.commit_seen()
         if not dry_run:
             note_arrived(store, gmail)
         added = label_sync(store, gmail, bring_in=not baseline_only, dry_run=dry_run, force=bool(request), fresh=set(threads))

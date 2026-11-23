@@ -446,7 +446,8 @@ an earlier Not useful on its story: your own hand wins.
 1. The watcher applies the decisions you made in Pocket (Resolved, Not useful, Restore), notes which alerts you started a
    conversation from, and learns from new examples.
 2. The watcher finds threads with new messages since the last check (through a connector, by searching by date from
-   the day before the last check and skipping the messages it has already seen) and syncs the Gmail label.
+   the day before the last check and skipping the messages it has already seen) and syncs the Gmail label. Mail counts
+   as seen only once its thread is in the backlog, so a check that stops part-way leaves it to the next one.
 3. The [first pass](#first-pass), when on, sets aside clearly routine mail.
 4. The judge reads the rest in batches. With each thread it gets related mail from the archive, the open stories with
    their timelines, the alerts already sent (the newest few, and others from the last day that share a word with the
