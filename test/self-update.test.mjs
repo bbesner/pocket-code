@@ -108,7 +108,9 @@ case "$1" in
 esac`;
 
 async function setup(t,{port}){
-  const d=tmp(t),origin=path.join(d,'origin.git'),src=path.join(d,'src'),dir=path.join(d,'checkout'),st=path.join(d,'pm2'),bin=path.join(d,'bin'),data=path.join(dir,'data');
+  // Not tmp(t): after-hooks run in the order they were added, so the folder was removed before the stand-in's pid could be read
+  // from it, and every run left one stand-in Pocket running. The stand-in is stopped first, then the folder goes (1.124.3).
+  const d=fs.mkdtempSync(path.join(os.tmpdir(),'self-update-')),origin=path.join(d,'origin.git'),src=path.join(d,'src'),dir=path.join(d,'checkout'),st=path.join(d,'pm2'),bin=path.join(d,'bin'),data=path.join(dir,'data');
   for(const x of [src,st,bin,path.join(src,'public')])fs.mkdirSync(x,{recursive:true});
   sh(d,'init','-q','--bare','-b','main',origin);
   sh(src,'init','-q','-b','main');sh(src,'config','user.email','t@test');sh(src,'config','user.name','t');
@@ -122,7 +124,7 @@ async function setup(t,{port}){
   fs.writeFileSync(path.join(st,'server.mjs'),SERVER);fs.writeFileSync(path.join(bin,'pm2'),PM2,{mode:0o755});
   const env={...process.env,PATH:bin+':'+process.env.PATH,HOME:d,FAKE_PM2_STATE:st,FAKE_PM2_DIR:dir,FAKE_PM2_PORT:String(port),POCKET_SELF_UPDATE_TRIES:'8',POCKET_SELF_UPDATE_SETTLE:'1'};
   spawnSync('pm2',['restart','0'],{env});
-  t.after(()=>{try{process.kill(Number(fs.readFileSync(path.join(st,'pid'),'utf8')),'SIGKILL');}catch{}});
+  t.after(()=>{try{process.kill(Number(fs.readFileSync(path.join(st,'pid'),'utf8')),'SIGKILL');}catch{}fs.rmSync(d,{recursive:true,force:true});});
   for(let i=0;i<50;i++){try{if((await(await fetch(`http://127.0.0.1:${port}/release.json`)).json()).version==='1.0.0')break;}catch{}await new Promise(r=>setTimeout(r,100));}
   const status=path.join(data,'pocket-self-update.json');
   const run=(to,from,head=sh(dir,'rev-parse','HEAD'))=>{
