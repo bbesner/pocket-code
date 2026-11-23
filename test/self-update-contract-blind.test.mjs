@@ -591,9 +591,11 @@ const WRAP = {
     'if [ ! -e "$S/tar.created" ]; then : > "$S/tar.created"',
     '  if [ -e "$S/f.tarrc2" ]; then echo tarrc2 >> "$S/hits"; echo "tar: fict fatal" >&2; exit 2; fi',
     '  if [ -e "$S/f.tarrc1" ]; then /usr/bin/tar "$@"; echo tarrc1 >> "$S/hits"; exit 1; fi',
+    '  if [ -e "$S/f.tarrc2ok" ]; then /usr/bin/tar "$@"; echo tarrc2ok >> "$S/hits"; exit 2; fi',
     '  if [ -e "$S/f.tarempty" ]; then echo tarempty >> "$S/hits"; o=""; p=""; for a in "$@"; do [ "$p" = -czf ] && o=$a; p=$a; done; exec /usr/bin/tar -czf "$o" -T /dev/null; fi', 'fi',
     'exec /usr/bin/tar "$@"']),
   df: sh([
+    'if [ -e "$HOME/.standin/space" ]; then printf "Filesystem     1024-blocks    Used Available Capacity Mounted on\\n/dev/fict 20000000 1000 %s 50%% /\\n" "$(cat "$HOME/.standin/space")"; exit 0; fi',
     'if [ -e "$HOME/.standin/f.lowspace" ]; then echo lowspace >> "$HOME/.standin/hits"',
     '  for a in "$@"; do case "$a" in --output*) printf "Avail\\n1000\\n"; exit 0;; esac; done',
     '  printf "Filesystem     1024-blocks    Used Available Capacity Mounted on\\n/dev/fict 10000000 9999000 1000 100%% /\\n"; exit 0; fi',
@@ -951,6 +953,19 @@ describe('shell (stand-in repository)', { concurrency: 6 }, () => {
   test('§Shell less than 5 GB free', () => withShell({ faults: ['lowspace'] }, async E => {
     await expectFailure(E, await runShell(E), SM.space, { hit: 'lowspace' });
     assert.deepEqual(backups(E), []);
+  }));
+  // Mutation misses of 2026-11-23 (second pass): the floor is exactly 5 GB, and tar's own status 2 fails the backup even when
+  // the archive it left is whole and lists back.
+  test('one KB under 5 GB free is refused before the backup; exactly 5 GB is enough', () => withShell({ prep: E => fs.writeFileSync(path.join(E.S, 'space'), '5242879') }, async E => {
+    await expectFailure(E, await runShell(E), SM.space);
+    assert.deepEqual(backups(E), []);
+    fs.writeFileSync(path.join(E.S, 'space'), '5242880');
+    const ok = await runShell(E);
+    assert.equal(ok.code, 0, tail(ok.out)); assert.equal(readStatus(E).phase, 'complete');
+  }));
+  test('GNU tar exit 2 fails the backup even when the archive it left lists back', () => withShell({ faults: ['tarrc2ok'] }, async E => {
+    await expectFailure(E, await runShell(E), SM.backup, { hit: 'tarrc2ok' });
+    assert.deepEqual(backups(E), [], 'backup folder removed');
   }));
   test('§Shell backup folder cannot be made', () => withShell({ faults: ['mkdir'] }, async E => {
     await expectFailure(E, await runShell(E), SM.mkdir, { hit: 'mkdir' });
