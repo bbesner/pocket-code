@@ -357,9 +357,12 @@ the checkout on `main` (fast-forwarded) or on a detached release, tracked files 
 was when the button was pressed; the tag `v<version>` must be on `origin/main`; at least 5 GB must be free.
 It backs up the git-ignored private files to `~/backups/pocket-code-<version>-update-<time>/`
 (`private-state.tar.gz`, `prev-head.txt`, `prev-branch.txt`); a backup `tar` could not finish, or one that does
-not list back, is removed and the update stops with nothing changed (1.124.2). It then runs `npm ci` and `check:release --released`,
+not list back, is removed and the update stops with nothing changed (1.124.2), as it does when the private files cannot be
+listed or the archive holds none of the files listed (1.124.4). It then runs `npm ci` and `check:release --released`,
 then waits until no reply is running (`busy` from `/api/health`; a reply can start after the button was pressed) for up to
-10 minutes, putting the previous version back if replies keep running (1.124.3), then `pm2 restart <its pm_id>` (the stored PM2 environment is kept; Pocket reads `.env` itself) and waits up
+10 minutes, putting the previous version back if replies keep running (1.124.3); it asks once more right before the
+restart and goes back to waiting if a reply started meanwhile (1.124.4). When `/api/health` does not answer after three
+tries a second apart, the number is unknown: the restart goes ahead and the log says so (1.124.4). Then `pm2 restart <its pm_id>` (the stored PM2 environment is kept; Pocket reads `.env` itself) and waits up
 to 90 seconds for a new process that serves the release and answers `/api/health`, and is still the same
 process 10 seconds later. Then `pm2 save`. If any step after the checkout moves fails, the checkout and
 packages go back to the previous commit; if the new version does not come up, the previous version is
@@ -367,7 +370,9 @@ restarted too. If the previous packages cannot be installed again either, the jo
 daemon carries on, but run `npm ci` in the checkout before it next restarts. When the new version did not start and the previous one cannot be put back, the job says so and does not restart (1.124.3): check out the commit in the backup's `prev-head.txt`, run `npm ci` and restart with PM2. The daemon refuses to start it while a reply or a CLI upgrade is running.
 
 Progress is in `pocket-self-update.json` in the data folder (the script touches `pocket-self-update.json.lock`
-every minute while it runs; a job with neither for 20 minutes died with its server and shows as interrupted, 1.124.3) and the script's output in `pocket-self-update.log`; both are git-ignored. Requirements: PM2
+every minute while it runs; a job with neither for 20 minutes died with its server and shows as interrupted, 1.124.3;
+a job still queued two minutes after the press, with no lock file newer than the press, never started and shows as failed,
+1.124.4) and the script's output in `pocket-self-update.log`; both are git-ignored. Requirements: PM2
 (the daemon must run under it), a git checkout, `git`, `npm`, `pm2`, GNU `tar` and `flock` on the daemon's
 PATH (on macOS, Homebrew's `gnu-tar`, used as `gtar`, and `flock`; the job names what is missing). Running an operator update on such an install works as before; an operator script that expects a
 particular `HEAD` will find the owner may already have moved it.
