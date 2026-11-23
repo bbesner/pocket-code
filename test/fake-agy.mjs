@@ -17,7 +17,10 @@
 //
 // Env: FAKE_AGY_STORE (required, dir) · FAKE_AGY_SIGNED_OUT (a marker file: while it exists nobody is signed in) ·
 // FAKE_AGY_HISTORY_DELAY_MS (a session/load that only reads the history answers this much later) ·
-// FAKE_AGY_LIST_DELAY_MS (session/list answers this much later, with the list as it was when asked)
+// FAKE_AGY_LIST_DELAY_MS (session/list answers this much later, with the list as it was when asked) ·
+// FAKE_AGY_CANCEL_WAITS (on session/cancel the reply ends, but a permission it is asking about waits for the client's
+// answer, which ACP requires the client to send as the cancelled outcome) · FAKE_AGY_IGNORE_CANCEL (session/cancel is
+// ignored: a wedged agent)
 // Prompt markers, the same the Claude, Codex and OpenCode fakes take (test/engine-parity.test.mjs): __SLOW__ (1.5 s) ·
 // __HANG__ (waits to be stopped or steered) · __CHOICES__ / __DONE__ (ends with that block) · __QUESTION__ (asks "Which
 // color?" with Blue and Red) · __PLAN__ (a plan of two steps) · __EDIT__ (edits parity.txt, "old line" to "new line") ·
@@ -222,7 +225,10 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
   }
   if (!m.method) return;
   if (m.id == null) { // notification
-    if (m.method === 'session/cancel' && m.params?.sessionId) { const r = running.get(m.params.sessionId); if (r) r.cancelled = true; abortAsks(m.params.sessionId); }
+    if (m.method === 'session/cancel' && m.params?.sessionId && !process.env.FAKE_AGY_IGNORE_CANCEL) {
+      const r = running.get(m.params.sessionId); if (r) r.cancelled = true;
+      if (!process.env.FAKE_AGY_CANCEL_WAITS) abortAsks(m.params.sessionId);
+    }
     return;
   }
   const p = m.params || {};

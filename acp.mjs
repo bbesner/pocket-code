@@ -369,7 +369,7 @@ function makeAcpTurn(session, { text, model, approvalMode, executionMode, hooks,
   const client = session.client;
   const turn = {
     sessionId: session.sessionId, fullId: session.fullId, cwd: session.cwd, startedAt: Date.now(), userText: text,
-    openPrompts: 0, promptStarted: false, lastStop: null, settling: false, settleTimer: null, afterStep: false, // steering and background commands (runPrompt, settleOrFinish)
+    openPrompts: 0, promptStarted: false, lastStop: null, settling: false, settleTimer: null, afterStep: false, stopTimer: null, // steering and background commands (runPrompt, settleOrFinish); Stop's grace (stopAcpTurn)
     model, approvalMode: approvalMode === 'full' ? 'full' : 'review', events: [], subs: new Set(), done: false, turnId: randomUUID(),
     client, session, onFinish, text: '', thought: '', costStart: session.costTotal ?? null, costTotal: null, usage: null,
     executionMode: executionMode === 'plan' ? 'plan' : 'work', stopped: false, stopNote: null, lastActivityAt: Date.now(), context: null, asks: new Map(),
@@ -744,14 +744,14 @@ export async function startAcpTurn({ sessionId, cwd, text, prompt = null, images
 
 function finishAcpTurn(turn, result) {
   if (turn.done) return;
-  turn.done = true; turn.settling = false; clearTimeout(turn.settleTimer);
+  turn.done = true; turn.settling = false; clearTimeout(turn.settleTimer); clearTimeout(turn.stopTimer);
   // Stopped (by you, or by the watchdog): a stop, not a finished reply, the way the other engines report it.
   if (turn.stopped || result.stopReason === 'cancelled') { turn.stopped = true; result = { ...result, stopReason: 'cancelled', error: turn.stopNote || 'Stopped by you' }; }
   turn.session.lastActivityAt = Date.now();
   endAsks(turn);
   for (const t of turn.tools.values()) if (!t.shown) { t.shown = true; turn.showTool(t.info); }
   turn.flush();
-  turn.approvals?.clear();
+  cancelApprovals(turn);
   // Cost: OpenCode reports the session's running total, so this reply's cost is the change across it. With no
   // known starting total (a conversation reopened before Pocket kept one) there is no cost line, never a wrong one.
   if (turn.costTotal != null) turn.session.costTotal = turn.costTotal;
@@ -780,16 +780,35 @@ export function steerAcpTurn(sessionId, text, { prompt = null, images = [] } = {
   return true;
 }
 
+// 1.124.2: how long a stopped reply's agent has to end it after the cancel before its process is closed, as Codex closes
+// a session whose interrupt goes unanswered in 20 s. Stop, Pause all, the stall watchdog and the longest-reply limit all
+// come here; before, an agent that did not act on the cancel kept the reply running until its one-hour prompt timeout.
+const STOP_GRACE_MS = Number(process.env.POCKET_ACP_STOP_GRACE_MS) || 20_000;
 export function stopAcpTurn(sessionId, note = null) {
   const turn = acpTurns.get(bareAcpId(sessionId));
   if (!turn) return false;
   turn.stopped = true; if (note) turn.stopNote = note;
-  turn.approvals?.clear();
   endAsks(turn);
   try { turn.client.cancel(turn.sessionId); } catch { }
+  cancelApprovals(turn);
   // No prompt is open (the reply was waiting on a background command): nothing will answer the cancel, so end it here.
   if (turn.promptStarted && turn.openPrompts === 0) finishAcpTurn(turn, { stopReason: 'cancelled' });
+  else if (!turn.stopTimer) {
+    turn.stopTimer = setTimeout(() => {
+      if (turn.done) return;
+      log(`stopped reply not ended by the agent session=${turn.fullId}: closing its process`);
+      if (acpSessions.get(turn.sessionId) === turn.session) closeAcpSession(turn.fullId);
+      else { try { turn.client.close(); } catch { } finishAcpTurn(turn, { stopReason: 'cancelled' }); }
+    }, STOP_GRACE_MS);
+    turn.stopTimer.unref?.();
+  }
   return true;
+}
+// 1.124.2: approval cards still waiting when a reply is stopped or ends are answered with ACP's cancelled outcome, which
+// the protocol requires after session/cancel; clearing a card used to send the agent nothing, and it could wait for ever.
+function cancelApprovals(turn) {
+  for (const r of turn.approvals?.pending?.values() || []) if (r.status === 'pending' && turn.client.writable()) { try { turn.client.respond(r.nativeId, declineFor('session/request_permission')); } catch { } }
+  turn.approvals?.clear();
 }
 
 export function closeAcpSession(sessionId) {

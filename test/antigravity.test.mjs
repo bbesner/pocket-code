@@ -12,6 +12,7 @@ import path from 'node:path';
 process.env.POCKET_ACP_SETTLE_QUIET_MS = '700'; // read when acp.mjs loads
 process.env.POCKET_ACP_SETTLE_MAX_MS = '900';
 process.env.POCKET_ACP_SETTLE_STEP_MS = '300';
+process.env.POCKET_ACP_STOP_GRACE_MS = '1000';
 const acp = await import('../acp.mjs');
 const { ENGINES, engineForSessionId, takesUnattended, validateModelForEngine } = await import('../engines.mjs');
 const { unattendedGate } = await import('../automation.mjs');
@@ -342,6 +343,36 @@ test('stop: while a prompt runs, and while only a background command does', asyn
   acp.stopAcpTurn('agy:' + bg.sessionId, 'Stopped by Pause all');
   assert.equal(bg.done, true, 'no prompt is open to answer the cancel, so it ends at once');
   assert.deepEqual([results(b.ev)[0].stopReason, results(b.ev)[0].error], ['cancelled', 'Stopped by Pause all']);
+});
+
+// 1.124.2: Stop cleared the approval card without answering the agent, which ACP requires (the cancelled outcome), and
+// nothing followed a cancel the agent did not act on: the reply stayed running until its one-hour prompt timeout.
+test('1.124.2: Stop answers a waiting approval as cancelled, so an agent that waits for that answer ends the reply', async () => {
+  const store = mkStore(), { emit, ev } = collect();
+  const turn = await acp.startAcpTurn(opts(store, { addEnv: { FAKE_AGY_CANCEL_WAITS: '1' }, hooks: { emit } }));
+  assert.ok(await waitFor(() => turn.approvals.list().length === 1));
+  const pid = turn.client.pid;
+  acp.stopAcpTurn('agy:' + turn.sessionId);
+  assert.ok(await waitFor(() => turn.done, 700), 'the reply ended on the agent\'s own answer, before the grace');
+  assert.equal(sessOf(store, turn.sessionId).permission, 'cancelled', 'the agent was told the request was cancelled');
+  assert.deepEqual([results(ev)[0].stopReason, results(ev)[0].error], ['cancelled', 'Stopped by you']);
+  assert.equal(acp.acpSessions.get(turn.sessionId)?.client.pid, pid, 'its process is kept for the next message');
+});
+
+test('1.124.2: Stop on an agent that does not act on the cancel closes its process after the grace and ends the reply', async () => {
+  const store = mkStore(), { emit, ev } = collect(), finished = [];
+  const turn = await acp.startAcpTurn(opts(store, { text: 'wait __HANG__', addEnv: { FAKE_AGY_IGNORE_CANCEL: '1' }, hooks: { emit, onFinish: r => finished.push(r) } }));
+  try {
+    assert.ok(await waitFor(() => turn.openPrompts === 1));
+    acp.stopAcpTurn('agy:' + turn.sessionId, 'Stopped: no activity for 30 minutes');
+    acp.stopAcpTurn('agy:' + turn.sessionId, 'Stopped: no activity for 30 minutes'); // the watchdog asks again a minute later
+    await new Promise(r => setTimeout(r, 400));
+    assert.equal(turn.done, false, 'the agent gets its grace to end the reply itself');
+    assert.ok(await waitFor(() => turn.done, 3000), 'then the reply ends');
+    assert.deepEqual([results(ev)[0].stopReason, results(ev)[0].error], ['cancelled', 'Stopped: no activity for 30 minutes']);
+    assert.equal(finished.length, 1);
+    assert.ok(!acp.acpSessions.has(turn.sessionId) && !acp.acpTurns.has(turn.sessionId), 'its process was closed; the next message opens a new one');
+  } finally { for (const [, p] of turn.client.pending) clearTimeout(p.timer); }
 });
 
 test('the list and the history come from agy itself, under the Antigravity prefix', async () => {
