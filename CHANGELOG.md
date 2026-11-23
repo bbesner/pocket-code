@@ -71,7 +71,8 @@ no redesign, no new tokens.
 **Projects, Tasks, Files, Vault and Coordination**
 - **Edit project and Edit task: a second Save no longer undoes the other side's change** (high, medium). After *This
   project changed*, the sheet stays open, takes the new values for fields the owner had not touched, keeps the owner's
-  edits, and says which is which. A refused value is named in the sheet and its field marked.
+  edits, and says which is which, in the sheet and not also in a toast. A refused value is named in the sheet and its
+  field marked.
 - **A second step entered before the first is saved is added**, not refused as a change from elsewhere.
 - **A list that could not be read says so.** A `documents.json`, `projects.json`, `tasks.json` or `coordination.json`
   that does not parse is kept aside and the list starts empty (1.124.2); only the log said so. Its screen now names
@@ -117,6 +118,9 @@ no redesign, no new tokens.
 - **The layout sweep is in the repository**: `POCKET_SWEEP=<area|all> node test/browser.mjs` opens every surface in
   `test/sweep/` at each layout and theme, takes a picture and reports what it measured.
 - Tests that picked a random port in the suite's fixed range take a free one from the system.
+- The fix checks run against the fixture as it starts, also in the full browser run. Older checks that pinned something
+  a fix changed on purpose now check what the fix does: the reminder picks on a Monday, the refused-Save note, the
+  Inbox news time, and the check-back card after the page reads the conversation again.
 - `DESIGN.md` has a section on what this pass settled.
 
 **Left as built**
