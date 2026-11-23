@@ -904,7 +904,8 @@ test('malformed daily-state bytes are preserved for repair and logged, not overw
   assert.equal(logged.filter(l => /could not be read \(not valid JSON\)/.test(l)).length, 1, JSON.stringify(logged));
 });
 
-test('DIV-3: a torn audit append must not corrupt the next successful row', () => {
+// D3, fixed in 1.124.4; test/automation.test.mjs proves the same through a real file-size limit.
+test('a torn audit append does not corrupt the next successful row', () => {
   const dir = tmpDir('auto-');
   const file = path.join(dir, 'audit.jsonl');
   appendAudit(file, { kind: 'first' });

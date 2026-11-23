@@ -303,3 +303,23 @@ test('a daily-state file that cannot be read or parsed is kept aside and logged,
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
 });
+
+// 1.124.4: a full disk (here a real 1 KB file-size limit, `ulimit -f 1`) can leave part of an audit line in the file.
+// The next line starts on a line of its own, so only the torn line is lost, not the first good one after it.
+test('an audit line torn by a full disk does not swallow the next one', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-')), file = path.join(dir, 'automation-audit.jsonl');
+  try {
+    fs.writeFileSync(file, JSON.stringify({ at: '2026-11-21T15:00:00.000Z', action: 'pause', pad: 'x'.repeat(880) }) + '\n', { mode: 0o600 });
+    const script = `const auto = await import(process.env.MOD); auto.appendAudit(process.env.FILE, { action: 'settings', group: 'limits', keys: ['dailyReplies', 'openrouterDaily', 'longestReply', 'countWaiting'] });`;
+    const r = spawnSync('bash', ['-c', 'ulimit -f 1; exec "$0" --input-type=module -e "$1"', process.execPath, script], { env: { ...process.env, MOD: new URL('../automation.mjs', import.meta.url).href, FILE: file }, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(fs.statSync(file).size, 1024, 'the limit cut the line short');
+    auto.appendAudit(file, { action: 'resume', rearmed: 0 }); // space is back
+    const lines = fs.readFileSync(file, 'utf8').split('\n');
+    assert.equal(lines.at(-1), '', 'the file ends with a newline');
+    assert.deepEqual(JSON.parse(lines.at(-2)), { at: JSON.parse(lines.at(-2)).at, action: 'resume', rearmed: 0 }, 'the line after the torn one reads whole');
+    assert.equal(JSON.parse(lines[0]).action, 'pause');
+    assert.equal(lines.length, 4, 'the earlier line, the torn one, the new one');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

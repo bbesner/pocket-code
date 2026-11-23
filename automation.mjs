@@ -414,10 +414,19 @@ export class AutomationState {
 // One line per pause, resume, settings change and finished unattended reply. Never message text: callers pass counts,
 // ids, origins and outcomes only, and any key that could carry text is dropped here as well.
 const NO_TEXT = new Set(['text', 'userText', 'prompt', 'message', 'body', 'note', 'reply']);
+// 1.124.4: a line a full disk cut short ends without a newline. The next line then starts on a line of its own, so only
+// the torn line is lost and not the first good one after it. One byte is read per audit line; audit lines are rare.
+function endsMidLine(file) {
+  try {
+    const fd = fs.openSync(file, 'r');
+    try { const { size } = fs.fstatSync(fd), b = Buffer.alloc(1); return size > 0 && fs.readSync(fd, b, 0, 1, size - 1) === 1 && b[0] !== 10; } finally { fs.closeSync(fd); }
+  } catch { return false; } // no file yet, or it cannot be read: the append says whether it can be written
+}
 export function appendAudit(file, entry) {
   const clean = Object.fromEntries(Object.entries(entry || {}).filter(([k, v]) => !NO_TEXT.has(k) && v !== undefined));
   try {
+    const row = JSON.stringify({ at: new Date().toISOString(), ...clean }) + '\n';
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.appendFileSync(file, JSON.stringify({ at: new Date().toISOString(), ...clean }) + '\n', { mode: 0o600 });
+    fs.appendFileSync(file, endsMidLine(file) ? '\n' + row : row, { mode: 0o600 });
   } catch { /* the audit is best effort; it must never stop a turn */ }
 }
