@@ -3,6 +3,133 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.124.5] — 2026-11-23 · build 227
+
+The UI/UX test, run on the code as the bug review left it (1.124.4). Two passes. A **layout sweep** opened 242 screens
+and states at six sizes (344, 390, 690 and 820 px touch, 1440 desktop, a 480 px split pane) in light and dark, and measured
+each for sideways scroll, controls off the screen, touch targets under 44 px, cut text, covered controls, sheet insets
+and WCAG 2.2 AA. Then **56 fragile flows**, chosen from the two reviews before it, were driven against a real server
+with stand-in agents: two devices on one conversation, restarts mid-reply, Pause all, usage limits, updates, Vault
+fills, voice, split view, a sign-in that runs out. **74 findings: 3 high, 22 medium, 49 low.** 70 are fixed, each with
+a check that failed before it; what was left, and why, is at the end. The design was held to `DESIGN.md` as written:
+no redesign, no new tokens.
+
+**Conversation**
+- **A message the server did not start says so** (high). A 503 `not_started` (a full disk, a missing folder) read
+  *Delivery not confirmed* in a chat and *Start request not yet confirmed* on New, and the server's reason was
+  dropped. Both read **Not sent:** with the reason. **Discard retry** is **Discard message**, which is what it does.
+- **The sign-in box is drawn like the app** (high): it had no styling and no label. A wrong password is announced on
+  the field.
+- **A sign-in that runs out under an open sheet covers the sheet** (medium). The sign-in was drawn into the inert page
+  under the sheet, where it could not be reached, and closing the sheet lost the edit. It now covers the sheet
+  (**Sign in again**) and gives it back, with what was typed, after Unlock. No bare *login* toast.
+- **A reply started somewhere else shows on a page that has the conversation open** (medium): Working, Stop and its
+  question appear within a few seconds, on every agent. The question banner said *0 questions*.
+- **Words typed while a message is sending are kept** (medium), and survive a failed send. The box was locked and the
+  keys were dropped.
+- **One conversation in two windows has one draft.** Each window overwrote the other's text when it was drawn again,
+  and a send on its way from the other window read *Delivery was not confirmed* with Retry. The box follows the shared
+  draft, and the other window says **Sending from another window…**.
+- **A reply with choices never shows a Complete card as well**, whichever part of the text each is in; a done block
+  above a question is dropped instead of shown as code.
+- **Report tables keep their columns on a phone** (medium): the last column was squeezed to a character per line.
+- **A code block keeps its first line clear of Copy**, and a reply that opens with code keeps its two copy buttons
+  apart.
+- **On a 344 px phone** the header keeps the state word whole and the counts readable, and New keeps Start on the icon
+  row. **Running is clay in the header**, as everywhere else. Open tabs shorten with an ellipsis, a narrow main column
+  in split view gets the two-row composer, and a dock tab never breaks inside its pill.
+
+**Usage limits, Pause all and the queue**
+- **A usage-limit wait with messages queued reads Waiting for usage reset** (medium), with its time, not *Queue
+  paused*. The queue sheet says the queue follows the retry, and **Run next instruction** is not offered (or
+  accepted) into the limit.
+- **Pause all leaves a background agent that is waiting for permission alone** when *stop background jobs* is off
+  (medium). Its waiting request was counted as a reply and killed. With the switch on it is a background job, and the
+  conversation reads Stopped.
+- **Resume starts a reply a restart left held in the queue** (a check-back's among them), through the same gate as
+  at start-up. A check-back whose reply the owner starts by hand is settled by that reply, not as *Pocket lost track
+  of its reply*.
+- The toast after Pause all names Inbox Watch when it paused it, as the confirmation did. Resume resumes Inbox Watch
+  when the only change while paused was an agent's.
+- **Pushes.** A Claude reply's push is titled as the list titles the conversation (a job's name, not its opening
+  `[cron:…]` line). A push body heavy in quotes, backslashes or control characters is cut to what fits, not to *…*.
+- The mirror of a conversation in a folder made after Pocket started shows its writes at once; it missed those of
+  its first minute.
+
+**Voice**
+- **Mute closes a hands-free microphone** (medium), in this tab and in every other Pocket tab. A mute from another tab
+  did not reach a tab that was speaking, which then opened its microphone while muted.
+- **A tap on the mic finishes a recording** (medium). *Tap the mic when you're done* worked only from the keyboard.
+- Cancel in the voice strip returns the focus.
+
+**The conversation list**
+- **Undo after Mark all reviewed** keeps the keyboard focus, and a list the server answered before the Undo that
+  arrives after it no longer hides the rows again.
+- The bell says whether notifications are on. The All filter and the waiting banner's buttons are full-size targets
+  on touch.
+
+**Projects, Tasks, Files, Vault and Coordination**
+- **Edit project and Edit task: a second Save no longer undoes the other side's change** (high, medium). After *This
+  project changed*, the sheet stays open, takes the new values for fields the owner had not touched, keeps the owner's
+  edits, and says which is which, in the sheet and not also in a toast. A refused value is named in the sheet and its
+  field marked.
+- **A second step entered before the first is saved is added**, not refused as a change from elsewhere.
+- **A list that could not be read says so.** A `documents.json`, `projects.json`, `tasks.json` or `coordination.json`
+  that does not parse is kept aside and the list starts empty (1.124.2); only the log said so. Its screen now names
+  what was reset and the kept copy, until Dismiss. Nothing is restored automatically.
+- **Coordination: a wake that cannot start does not keep the name.** A waiter woken while Pocket was paused held the
+  name from the next in line for 10 minutes, with nothing on screen. The next waiter is offered it, and a free name
+  that has a line or a recent offer is shown (`pocket-coord list` too).
+- **Vault: Links sent says who made a link** (an agent, in which conversation, or a terminal) and which link it is
+  when it was replaced; the push for a filled link says who asked. The Vault request push and the Ready push for an
+  OpenRouter or Antigravity conversation use the conversation's title, not *An agent* and *OpenRouter conversation*.
+- **Files: Allow on a share request already answered elsewhere** says what that answer did, not an error.
+- Focus stays where the owner was after a change in the Share sheet and after Release. Reminder quick picks never
+  offer the same time twice. Coordination's empty line is inset, a due step's reminder is amber, one rule before a
+  folded group, text links are full-size targets, and Vault hints name the real Settings page.
+
+**Browser relay** (`scripts/pocket-mcp-proxy.mjs`)
+- **After a Vault fill, the tools that capture the page another way are refused too** (medium):
+  `browser_run_code_unsafe`, video, tracing and `browser_annotate`, as screenshots and PDFs are. `browser_evaluate` and
+  text snapshots still run.
+
+**Settings, Updates and Inbox**
+- **Update: a message sent while Pocket restarts is refused and kept**, for up to 90 seconds from the moment the
+  restart is announced, so the restart cannot cut its reply short. **A side chat that is
+  answering counts as a running reply**, so Update waits for it instead of cutting it.
+- **An update that stopped after it began installing says what to run** (`npm ci` in the checkout) before the next
+  restart. **No Update button without `flock` or GNU tar** on Pocket's PATH (a stock Mac), with what to install.
+- A failed update no longer puts *The update did not finish.* in front of the server's own reason. A hidden chip is
+  hidden (*Retry name-sync setting* showed all the time). Settings in a split pane says where Automation is.
+- **Inbox:** focus goes to the next entry after Dismiss, Resolved or Not useful; a conversation opened while another
+  one's news is loading asks for its own at once (it waited up to 30 s); times read PM; item buttons are 44 px on
+  touch. A decision changed again in the same second is stamped after
+  the one it replaces, so the watcher's acknowledgement of the first cannot settle the second. A finished **Check now**
+  whose report was lost to a restart is reported again within a minute, not left showing *Checking*.
+- Sheet help lines, scope labels and the Accounts body start at the heading's edge. The notification email box names
+  a wrong address under the field. Resume on the home list keeps the focus; Assistant mode's chat header no longer
+  starts with a stray separator.
+
+**Loading**
+- **The app's scripts, styles and page are sent gzipped**: 413 KB on the wire instead of 1.35 MB, and the first screen
+  in 0.9 s instead of 1.7 s on a throttled phone profile, where no proxy compresses for it.
+
+**Tests and tools**
+- **The layout sweep is in the repository**: `POCKET_SWEEP=<area|all> node test/browser.mjs` opens every surface in
+  `test/sweep/` at each layout and theme, takes a picture and reports what it measured.
+- Tests that picked a random port in the suite's fixed range take a free one from the system.
+- The fix checks run against the fixture as it starts, also in the full browser run. Older checks that pinned something
+  a fix changed on purpose now check what the fix does: the reminder picks on a Monday, the refused-Save note, the
+  Inbox news time, and the check-back card after the page reads the conversation again.
+- `DESIGN.md` has a section on what this pass settled.
+
+**Left as built**
+- The / picker does not take `role="combobox"`: ARIA does not allow it on a multi-line text box.
+- On a 344 px phone the side-chat icon stays in the header, and on a desktop the rail's Hidden filter still wraps.
+- A pane closed with X drops its unsent New text without asking, and Assistant mode's home list draws a running
+  conversation green and a ready one clay, the reverse of the rest of the app. Both are the owner's to choose.
+- Corner radii and font sizes have drifted between the tokens across the app. They are listed in `DESIGN.md`.
+
 ## [1.124.4] — 2026-11-23 · build 226
 
 The bug review of the risky files, run on the code as the whole-code review left it (1.124.3). Seven blind runs: one

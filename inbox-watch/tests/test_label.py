@@ -250,6 +250,43 @@ def test_check_now_runs_once():
     assert len(calls) == 1, "done: not again"
 
 
+def test_check_now_done_is_reported_after_a_failed_report():
+    """1.124.5 (a-16): a Check now whose last report failed (Pocket restarting) is reported by the next minute's tick, not
+    after the half-hour heartbeat; Pocket's chip read Checking… until then."""
+    _, _, p = setup()
+    reports, down = [], [False]
+
+    def seen(prof):
+        if down[0]:
+            raise OSError("connection refused")
+        reports.append(prof["status"]["checkRequestDone"])
+    p.seen = seen
+    saved = E.load_settings, E.run, E.profile, E.SETTINGS, E.CHECK_REQUEST
+    runs = []
+    E.load_settings = lambda fetch=True: None
+    E.run = lambda dry_run, baseline_only, why="", request=None: runs.append(why) or 0
+    E.profile = lambda store: {"status": {"checkRequestDone": store.get("check_request_done")}}
+    E.SETTINGS = {**E.SETTINGS, "paused": True}  # no scheduled check is due
+    try:
+        store = E.Store(E.DB_PATH)
+        E.heartbeat(store)  # a recent report, at this revision
+        assert reports == [None]
+        E.CHECK_REQUEST = "2026-11-23T17:00:00Z"
+        store.set("check_request_done", E.CHECK_REQUEST)  # the run took it and finished while Pocket was down
+        store.commit()
+        down[0] = True
+        E.heartbeat(store)  # the run's own report fails
+        down[0] = False
+        store.db.close()
+        E.tick(False)
+        assert reports == [None, "2026-11-23T17:00:00Z"], f"the next tick reports it: {reports}"
+        E.tick(False)
+        assert len(reports) == 2, "once"
+        assert runs == [], "no check is run for it again"
+    finally:
+        E.load_settings, E.run, E.profile, E.SETTINGS, E.CHECK_REQUEST = saved
+
+
 def test_check_now_skips_quiet_hours():
     _, _, p = setup()
     store = E.Store(E.DB_PATH)  # the run's own store

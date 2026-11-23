@@ -780,6 +780,23 @@ function showLibraryError(main,error,label,retry,hasData) {
  panel.querySelector('[data-library-settings]')?.addEventListener('click',()=>settingsSheet({category:assistantMode()?'features':'libraries'}));
  panel.querySelector('[data-library-retry]').onclick=async e=>{e.currentTarget.disabled=true;e.currentTarget.textContent='Retrying…';await retry();const again=document.querySelector('[data-library-retry]');if(again)again.focus();else{document.getElementById(main.id)?.focus();toast(label+' loaded');}};
 }
+// 1.124.5: a list that did not parse was kept aside and its feature started empty (store-file.mjs); only the server log said
+// so. Its view says what was reset and where the kept copy is, until the owner dismisses it (server.mjs keptAside). Shown with
+// the load-error panel above. Nothing is restored from here: a kept copy may need a hand edit before it parses.
+const KEPT_RESET={documents:'Files could not read its list, so it started a new one: titles, sharing and links were reset, and every file is private.',
+ projects:'Projects could not read its list and started empty.',tasks:'Tasks could not read its list and started empty.',coordination:'Coordination could not read what was held and started empty.'};
+function keptAsideHTML(list){
+ return (list||[]).map(k=>`<div class="library-error" role="status" data-kept="${esc(k.kept)}"><p>${esc(KEPT_RESET[k.store]||'A list could not be read and started empty.')} The old one was kept as <code>${esc(k.kept)}</code>. To get it back, stop Pocket, fix the kept copy and move it back to <code>${esc(k.file)}</code>.</p><button class="chip" data-kept-dismiss aria-label="Dismiss the notice about ${esc(k.kept)}">Dismiss</button></div>`).join('');
+}
+function bindKeptAside(root,snap,repaint){
+ root.querySelectorAll('[data-kept-dismiss]').forEach(b=>b.onclick=async()=>{
+  const kept=b.closest('[data-kept]').dataset.kept;b.disabled=true;
+  try{await api('/kept-aside/dismiss',{method:'POST',body:JSON.stringify({kept})});}
+  catch(e){b.disabled=false;if(e.message!=='login')toast(e.message||'Could not dismiss the notice');return;}
+  if(snap?.keptAside)snap.keptAside=snap.keptAside.filter(k=>k.kept!==kept);
+  root.querySelector(`[data-kept="${CSS.escape(kept)}"]`)?.remove();repaint?.();
+ });
+}
 function bindRailNavigation() {
  const group=document.querySelector('.rail-switch');if(!group)return;
  group.onkeydown=e=>{const items=[...group.querySelectorAll('button')],i=items.indexOf(document.activeElement);if(i<0||!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;

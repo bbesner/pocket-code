@@ -630,7 +630,8 @@ value has been typed, the relay withholds images, audio and blobs from that serv
 of its life, because a screenshot of the page cannot be scrubbed. Since 1.124.2 it also refuses
 the calls that make a picture (`browser_take_screenshot`, `browser_pdf_save`, `screenshot`, plus
 `POCKET_VAULT_PICTURE_TOOLS`): Playwright MCP saves every screenshot and PDF to a file and names
-it, and the agent could open that file with its own tools. Since 1.124.3 it also refuses any call
+it, and the agent could open that file with its own tools; since 1.124.5 also the tools that capture
+the page another way (`browser_run_code_unsafe`, video, tracing, `browser_annotate`). Since 1.124.3 it also refuses any call
 that names a `filename` (Playwright MCP saves a snapshot, an evaluate result or a log there), as
 the relay scrubs only what comes back to the agent, never a file the server writes. Since 1.124.4
 the browser tool running calls side by side cannot slip such a call past a fill: one that arrives

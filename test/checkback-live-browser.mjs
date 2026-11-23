@@ -167,15 +167,17 @@ try {
   advance(6 * 60_000);
   await until(async () => (await one(b.id))?.status === 'running', 'the check-back to run');
   await p.waitForFunction(s => document.querySelector(s + ' .checkback-text')?.textContent === 'Checking back now', { timeout: 15000 }, card(b.id));
-  assert.equal(await node.evaluate(x => x.isConnected && x.dataset.state), 'running', 'the same card');
-  assert.equal(await node.evaluate(x => x.getBoundingClientRect().height), h0, 'no shift');
+  // 1.124.5: the page now reads the conversation again when a reply starts that it did not send (so it shows Working
+  // and Stop), which redraws the transcript. The card is the same card to the eye: one of it, same place in the
+  // transcript, same height, no fade-in.
+  const seen = async () => p.evaluate(s => { const all = [...document.querySelectorAll(s)], x = all[0]; return { count: all.length, state: x?.dataset.state, height: x?.getBoundingClientRect().height, fading: Boolean(x?.closest('.enter')) }; }, card(b.id));
+  assert.deepEqual(await seen(), { count: 1, state: 'running', height: h0, fading: false }, 'the same card, no shift');
   await shot('card-running-1440-dark');
   fs.rmSync(hangFile);
   assert.equal((await call(`/session/${e(convo)}/stop`, {})).status, 200); await idle(convo);
   const ran = await until(async () => { const c = await one(b.id); return c?.status === 'done' ? c : null; }, 'the check-back to finish');
   await p.waitForFunction((s, w) => document.querySelector(s + ' .checkback-text')?.textContent === w, { timeout: 15000 }, card(b.id), backText(ran.startedAt) + (ran.outcome?.kind === 'stopped' ? ' · stopped' : ''));
-  assert.equal(await node.evaluate(x => x.isConnected), true, 'the same card');
-  assert.equal(await node.evaluate(x => x.getBoundingClientRect().height), h0, 'no shift');
+  { const { count, height, fading } = await seen(); assert.deepEqual({ count, height, fading }, { count: 1, height: h0, fading: false }, 'the same card, no shift'); }
   await shot('card-done-stopped-1440-dark');
   // One that runs to the end says plainly that it checked back.
   const c = await ownerSets(convo, 'live set one that finishes', '+5m', 'Look at the nightly report');

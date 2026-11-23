@@ -67,7 +67,14 @@ function inboxBehindFor(sid){
 }
 const INBOX_DOT='<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/></svg>';
 async function inboxAct(body,done){
- try{const r=await api('/inbox/act',{method:'POST',body:JSON.stringify(body)});mergeInbox(r.entry);if(done)toast(done);paintInboxView();paintRailInbox();paintInboxBadges();if(typeof paintAssistantHome==='function')paintAssistantHome();return r.entry;}
+ // 1.124.5: an action that takes the row off the list (Resolved, Not useful, Dismiss, the row's X) left keyboard focus on
+ // the page. It goes to the row now in that place, else the one before it, else the Inbox heading.
+ const rowsOf=()=>[...document.querySelectorAll('#inbox-main [data-inbox-open]')],at=body.item?-1:rowsOf().findIndex(b=>b.dataset.inboxOpen===body.id);
+ try{const r=await api('/inbox/act',{method:'POST',body:JSON.stringify(body)});mergeInbox(r.entry);if(done)toast(done);paintInboxView();
+  if(at>=0&&!document.querySelector('.sheet[role=dialog]')&&(document.activeElement===document.body||!document.activeElement?.isConnected)){
+   const rows=rowsOf(),head=document.querySelector('#inbox-main .session-home-head h2');if(head)head.tabIndex=-1;
+   (rows.find(b=>b.dataset.inboxOpen===body.id)||rows[Math.min(at,rows.length-1)]||head)?.focus({preventScroll:true});}
+  paintRailInbox();paintInboxBadges();if(typeof paintAssistantHome==='function')paintAssistantHome();return r.entry;}
  catch(e){toast(e.message||'Could not update the inbox');return null;}
 }
 const inboxNewCount=()=>inboxSnap?.newCount||0;
@@ -122,7 +129,7 @@ function inboxItemsHTML(e){
  return groups.map(g=>`<section class="inbox-items"><h3>${esc(INBOX_SECTION[g.sec]||g.sec)} <span>${g.items.length}</span></h3>${g.items.map(it=>inboxItemHTML(it,e)).join('')}</section>`).join('')+(rest.length?`<div class="inbox-body inbox-rest">${inboxText(rest.join('\n'))}</div>`:'');
 }
 const inboxFirst=text=>{const t=String(text||'').replace(/\[([^\]\n]{1,80})\]\(msg:[0-9a-f]{6,24}\)/g,'$1').replace(/^#{1,3}[ \t]+.*$/gm,'').replace(/^[ \t]*[-*][ \t]+/gm,'').replace(/\s+/g,' ').trim();const m=/^(.{20,220}?[.!?])(\s|$)/.exec(t);return m?m[1]:t.slice(0,220);};
-const inboxWhen=iso=>{const d=new Date(iso);return d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}).replace(' ',' ').toLowerCase();};
+const inboxWhen=iso=>{const d=new Date(iso);return d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}).replace(' ',' ');};
 const inboxDay=iso=>{const d=new Date(iso),t=new Date();const same=(a,b)=>a.toDateString()===b.toDateString();const y=new Date(t);y.setDate(t.getDate()-1);return same(d,t)?'Today':same(d,y)?'Yesterday':d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});};
 // Where Open goes: the start link (a Pocket path or this Pocket's own address), the Files document, else the entry itself.
 function inboxTarget(e){
@@ -530,15 +537,15 @@ async function inboxWatchSheet(){
    (hand-off from this one, or a separate subject) and Not now, which puts the Complete card back until more mail comes.
    The Inbox entry's sheet offers the same three before the conversation opens; a choice made there arrives as `go`. */
 const InboxNews=(()=>{
- const cache=new Map();let loading=null,intent=null;
+ const cache=new Map(),loading=new Set();let intent=null; // 1.124.5: one load per conversation; one guard for all made the second conversation opened wait for the 30 s refresh
  const cur=()=>typeof chatId==='undefined'?null:chatId; // app.js's; this file loads first, and a page can run without it
  const later=()=>readLocal('pc-inbox-news-later',{});
  const repaint=()=>{if(typeof paintChoices==='function')paintChoices();else paint();}; // the Complete card gives way, so both repaint
  async function load(id=cur()){
-  if(!id||typeof inboxOn!=='function'||!inboxOn()||loading)return;
-  loading=api('/inbox/news?session='+encodeURIComponent(id),{signal:AbortSignal.timeout(8000)})
+  if(!id||typeof inboxOn!=='function'||!inboxOn()||loading.has(id))return;
+  loading.add(id);api('/inbox/news?session='+encodeURIComponent(id),{signal:AbortSignal.timeout(8000)})
    .then(r=>{cache.set(id,{at:Date.now(),news:Array.isArray(r.news)?r.news:[]});if(id===cur())repaint();})
-   .catch(()=>{}).finally(()=>{loading=null;});
+   .catch(()=>{}).finally(()=>{loading.delete(id);});
  }
  function pick(){
   const c=cache.get(chatId);if(!c)return null;

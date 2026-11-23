@@ -259,6 +259,7 @@ function mountSheet(scrim, sh, trigger = document.activeElement) {
   const close = () => {
     sh.removeEventListener('keydown', keydown); scrim.remove(); sh.remove(); app.inert = false;
     if (closeCurrentSheet === close) { closeCurrentSheet = null; sheetReturnFocus = null; }
+    if ($('.login-over')) { $('.login-over')._release(); renderLogin(); return; } // 1.124.5: the sign-in that covered this sheet becomes the sign-in screen
     const target = [trigger, $('#chatmore'), $('#railsettings'), $('#settings'), $('#box'), $('#first')]
       .find(el => el?.isConnected && el.getClientRects().length && !el.disabled);
     target?.focus({preventScroll:true});
@@ -684,6 +685,7 @@ let toastT;
 // 1.111: a toast may carry one action (Undo). It then stays ten seconds, like the Mark all reviewed bar, and takes
 // clicks; the button leaves with the toast, so nothing invisible stays in the tab order.
 function toast(msg, { action, onAction } = {}) {
+  if (msg === 'login') return; // 1.124.5: api()'s marker for "the sign-in screen is up"; several callers toasted the bare word
   const t = $('#toast'), hide = () => { t.classList.remove('show', 'has-action'); t.querySelector('button')?.remove(); };
   t.textContent = msg; t.classList.toggle('has-action', Boolean(action));
   if (action) {
@@ -737,20 +739,48 @@ function reportTimezone() {
   api('/timezone', { method: 'POST', body: JSON.stringify({ tz }) }).catch(() => { zoneReported = false; });
 }
 /* ---------- login ---------- */
+// 1.124.5: with a sheet open, the sign-in screen was drawn into #app, which is inert under the sheet: the password box
+// could not be reached, the sheet's Save did nothing, and closing the sheet to sign in lost what was typed in it. The
+// sign-in now covers the sheet instead; the sheet and its fields are still there after Unlock.
 function renderLogin() {
-  app.innerHTML = `
+  const over = Boolean(closeCurrentSheet);
+  if (over && $('.login-over')) return;            // a poll's 401 must not redraw the box being typed into
+  if (!over) $('.login-over')?.remove();
+  let host = app, held = null, back = null;
+  if (over) {
+    host = document.createElement('div'); host.className = 'login-over'; host.setAttribute('role', 'dialog'); host.setAttribute('aria-modal', 'true'); host.setAttribute('aria-labelledby', 'login-title');
+    back = document.activeElement; held = [...document.querySelectorAll('.sheet,.scrim')].filter(el => !el.inert); held.forEach(el => { el.inert = true; });
+    host._release = () => { held.forEach(el => { el.inert = false; }); host.remove(); };
+    host.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); }
+      if (e.key !== 'Tab') return;
+      const first = host.querySelector('#pw'), last = host.querySelector('#go');
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
+    document.body.append(host);
+  }
+  host.innerHTML = `
     <div class="login">
-      <h1>${appName()}</h1>
-      <p class="sub">${assistantMode() ? 'Sign in to pick up where you left off.' : 'Your Claude Code and Codex conversations, from anywhere.'}</p>
-      <input type="password" id="pw" placeholder="Password" autocomplete="current-password" enterkeyhint="go">
-      <p class="err" id="lerr"></p>
+      <h1 id="login-title">${over ? 'Sign in again' : appName()}</h1>
+      <p class="sub">${over ? 'Your sign-in ran out. What you had open is kept, and nothing unsaved is lost.' : assistantMode() ? 'Sign in to pick up where you left off.' : 'Your Claude Code and Codex conversations, from anywhere.'}</p>
+      <label class="login-field" for="pw"><span>Password</span>
+        <input type="password" id="pw" autocomplete="current-password" enterkeyhint="go" aria-describedby="lerr"></label>
+      <p class="err" id="lerr" role="alert"></p>
       <button class="primary" id="go">Unlock</button>
     </div>`;
   const go = async () => {
+    $('#pw').removeAttribute('aria-invalid'); $('#lerr').textContent = '';
     try {
       await api('/login', { method: 'POST', body: JSON.stringify({ password: $('#pw').value }) });
+      if (over && host.isConnected) { host._release(); if (back?.isConnected) back.focus({ preventScroll: true }); if (!document.activeElement?.closest('.sheet')) { const top = [...document.querySelectorAll('.sheet')].at(-1); (top?.querySelector('input:not([type=hidden]):not([disabled]),textarea:not([disabled])') || top)?.focus({ preventScroll: true }); } return; } // the sheet carries on; its own refresh reloads it
       route();
-    } catch (e) { $('#lerr').textContent = e.code === 'busy' ? 'Too many sign-in attempts right now. Try again in a minute.' : e.status === 429 ? 'Too many attempts — wait an hour.' : 'Wrong password.'; }
+    } catch (e) {
+      // 1.124.5: the field is marked and the reason is read out. A wrong password redraws this screen (api's 401), so
+      // the box is looked up again here; it keeps focus, and the next try is one keystroke away.
+      $('#lerr').textContent = e.code === 'busy' ? 'Too many sign-in attempts right now. Try again in a minute.' : e.status === 429 ? 'Too many attempts. Wait an hour.' : 'Wrong password.';
+      const pw = $('#pw'); pw.setAttribute('aria-invalid', 'true'); pw.focus(); pw.select();
+    }
   };
   $('#go').onclick = go;
   $('#pw').onkeydown = e => { if (e.key === 'Enter') go(); };
@@ -783,6 +813,11 @@ async function pushState() {
     return sub;
   } catch { return null; }
 }
+// 1.124.5: the bell says its state (pressed, and in its name), not only by which icon it draws.
+function paintBell(bell, on) {
+  bell.innerHTML = on ? IC.bell : IC.bellOff; bell.classList.toggle('on', on);
+  bell.setAttribute('aria-pressed', String(on)); bell.setAttribute('aria-label', on ? 'Notifications on for this device' : 'Notifications off for this device');
+}
 async function togglePush(btn) {
   if (btn) btn.disabled = true;
   try {
@@ -804,7 +839,7 @@ async function togglePush(btn) {
       toast('This device will get notifications');
     }
     const now = await pushState();
-    if (btn?.id === 'bell') { btn.innerHTML = now ? IC.bell : IC.bellOff; btn.classList.toggle('on', Boolean(now)); }
+    if (btn?.id === 'bell') paintBell(btn, Boolean(now));
   } catch (e) { toast('Notification setup failed: ' + e.message); }
   finally { if (btn) btn.disabled = false; }
 }
@@ -932,7 +967,8 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     </div>
     <button class="opt" id="s-badge" aria-pressed="false"><span class="dot"></span><span>Count on the app icon<span class="sub" id="s-badge-state">How many tasks and reminders are due, on the installed app's icon</span></span></button>
     <button class="opt" id="s-ahead" disabled aria-pressed="false"><span class="dot"></span><span>Notice a day before<span class="sub" id="s-ahead-state">Loading the reminder setting…</span></span></button>
-    <div class="title-settings" id="s-email-wrap"><form class="email-form" id="s-email-form"><label class="voice-field">Email due tasks and reminders to<input type="email" name="to" id="s-email" placeholder="you@example.com" maxlength="200" autocomplete="email" disabled></label>
+    <div class="title-settings" id="s-email-wrap"><form class="email-form" id="s-email-form" novalidate><label class="voice-field">Email due tasks and reminders to<input type="email" name="to" id="s-email" placeholder="you@example.com" maxlength="200" autocomplete="email" aria-describedby="s-email-err" disabled></label>
+      <p class="vault-field-error" id="s-email-err" role="alert"></p>
       <span class="vault-set-actions"><button class="chip" type="submit" id="s-email-save" disabled>Save</button><button class="chip" type="button" id="s-email-test" disabled>Send a test</button></span>
       <p class="title-note" id="s-email-note" role="status">Loading the email setting…</p></form></div>
     <button class="opt" id="s-review-all" disabled aria-pressed="false"><span class="dot"></span><span>Mark all reviewed bar<span class="sub" id="s-review-all-state">Loading this setting…</span></span></button>
@@ -1098,11 +1134,18 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     catch (err) { toast('Could not save: ' + (err.message || 'error')); }
     finally { paintNotifySettings(); }
   };
+  sh.querySelector('#s-email').addEventListener('input', () => { sh.querySelector('#s-email-err').textContent = ''; sh.querySelector('#s-email').removeAttribute('aria-invalid'); });
   sh.querySelector('#s-email-form').onsubmit = async e => {
-    e.preventDefault(); if (!srv) return; const to = sh.querySelector('#s-email').value.trim(), save = sh.querySelector('#s-email-save'); save.disabled = true;
+    e.preventDefault(); if (!srv) return; const input = sh.querySelector('#s-email'), to = input.value.trim(), save = sh.querySelector('#s-email-save'), errEl = sh.querySelector('#s-email-err');
+    // 1.124.5: a wrong address is named under the field and the field keeps focus; the browser's own bubble and a toast
+    // were the only signs, and both are gone in seconds.
+    const refuse = msg => { errEl.textContent = msg; input.setAttribute('aria-invalid', 'true'); input.focus(); };
+    errEl.textContent = ''; input.removeAttribute('aria-invalid');
+    if (to && !input.validity.valid) { refuse('That does not look like an email address.'); return; }
+    save.disabled = true; let refused = '';
     try { srv = await api('/settings', { method: 'POST', body: JSON.stringify({ notifyEmail: to }), signal: AbortSignal.timeout(8000) }); toast(to ? 'Reminders will be emailed to ' + to : 'Email reminders off'); }
-    catch (err) { toast(err.message || 'Could not save the address'); }
-    finally { paintNotifySettings(); }
+    catch (err) { refused = err.message || 'Could not save the address.'; }
+    finally { paintNotifySettings(); if (refused) { input.value = to; refuse(refused); } } // the repaint puts the saved address back; a refused one stays to be corrected
   };
   sh.querySelector('#s-email-test').onclick = async e => {
     const btn = e.currentTarget; btn.disabled = true; sh.querySelector('#s-email-note').textContent = 'Sending a test message…';
@@ -1650,13 +1693,17 @@ let sessionProofReceivedAt=0,sessionProofReceivedWallAt=0;
 // every device agrees; this browser keeps a copy so the list is right before the server answers or offline.
 // Unsent changes wait in seenPending (only moves forward) and seenRestore (Undo, exact) until a save succeeds.
 const serverSeen = new Map(), seenPending = new Map(), seenRestore = new Map();
+// 1.124.5: an Undo's restore lowers a marker, so a list the server answered before the Undo and that arrives after it
+// would put the marker back up (the rows left Attention for a few seconds). The time each restore was saved is kept,
+// and only a list asked for after it may speak for that conversation again.
+const seenRestoredAt = new Map();
 let seenFlushT = null, seenFlushing = null, seenFlushAgain = false;
 const localSeen = id => { try { return Number(localStorage.getItem('pc-seen-' + id)) || 0; } catch { return 0; } };
 const seenAt = id => Math.max(localSeen(id), serverSeen.get(id) || 0);
 function setSeen(id, at) {
   if (!at || at <= seenAt(id)) return;
   try { localStorage.setItem('pc-seen-' + id, String(at)); } catch { }
-  seenRestore.delete(id); seenPending.set(id, at); clearTimeout(seenFlushT); seenFlushT = setTimeout(flushSeen, 250);
+  seenRestore.delete(id); seenRestoredAt.delete(id); seenPending.set(id, at); clearTimeout(seenFlushT); seenFlushT = setTimeout(flushSeen, 250);
 }
 async function flushSeen() {
   if (seenFlushing) { seenFlushAgain = true; return seenFlushing; }
@@ -1666,7 +1713,7 @@ async function flushSeen() {
     try {
       const r = await api('/seen', { method: 'POST', body: JSON.stringify({ seen, restore }) });
       for (const [id, at] of Object.entries(seen)) if (seenPending.get(id) === at) seenPending.delete(id);
-      for (const [id, at] of Object.entries(restore)) if (seenRestore.get(id) === at) seenRestore.delete(id);
+      for (const [id, at] of Object.entries(restore)) if (seenRestore.get(id) === at) { seenRestore.delete(id); seenRestoredAt.set(id, performance.now()); }
       for (const [id, at] of Object.entries(r.seen || {})) if (!seenRestore.has(id)) serverSeen.set(id, at);
     } catch { } // kept for the next session refresh
     finally {
@@ -1678,9 +1725,10 @@ async function flushSeen() {
 }
 // Take the server's markers, and send up any this browser has that the server lacks (including markers
 // saved before they were shared), so a reply opened here is cleared everywhere.
-function syncSeen() {
+function syncSeen(askedAt = performance.now()) {
   for (const s of allSessions) {
     if (seenRestore.has(s.id)) continue;
+    if (seenRestoredAt.has(s.id)) { if (askedAt <= seenRestoredAt.get(s.id)) continue; seenRestoredAt.delete(s.id); }
     serverSeen.set(s.id, s.seenAt || 0);
     const mine = localSeen(s.id);
     if (mine > (s.seenAt || 0) && !seenPending.has(s.id)) seenPending.set(s.id, mine);
@@ -1862,6 +1910,7 @@ function bindSessionRows(container) {
   });
   container.querySelector('[data-undo-reviewed]')?.addEventListener('click', () => {
     clearTimeout(reviewUndoT); if (reviewUndo) restoreReviewed(reviewUndo); reviewUndo = null; paintSessionPanels();
+    document.querySelector('[data-mark-all-reviewed]')?.focus({preventScroll:true}); // 1.124.5: Undo removed itself, so focus fell to the page
   });
 }
 // Shown in Attention and New: clears every listed reply or failure at once, then offers Undo.
@@ -1961,7 +2010,15 @@ function paintSessionPanels() {
   });
   document.querySelectorAll('[data-session-warning]').forEach(el => { el.textContent = sessionWarnings.join(' '); el.hidden = !sessionWarnings.length; });
   const current = allSessions.find(s => s.id === chatId);
-  const qb=$('#questions-open');if(qb){qb.hidden=!current?.state?.questions;if(!qb.hidden&&!qb.querySelector('.wb-cta'))paintWaitBanner(qb,{title:(ENGINE_LABELS[providerOf(chatId)])+' is waiting for your answer',note:current.state.label==='Needs your answer'?'The reply is paused until you answer.':'',cta:'Answer'});} // refreshQuestions fills in the count
+  // 1.124.5: a reply started somewhere else (another device, a job key, the API) on the conversation this page has open.
+  // The page's stream was opened while nothing ran (watch mode; or closed after "idle" for an OpenRouter or Antigravity
+  // conversation), so the page never showed Working, Stop or the reply. The list is what reports the run, so the
+  // conversation is read again when it does; at most once in 8 seconds, in case the list is the one that is behind.
+  const startedElsewhere = current?.state?.confirmed === true && (current.state.kind === 'running' || current.state.kind === 'input' && current.state.startedAt)
+    && !composerWorking && !sessionsStale && $('#msgs') && tb?.key === chatId && !sendsInFlight.has(chatId) && !loadOutbox(chatId);
+  if (startedElsewhere && !(runSeenElsewhere.id === chatId && Date.now() - runSeenElsewhere.at < 8000)) { runSeenElsewhere = { id: chatId, at: Date.now() }; resyncChat(chatId); }
+  // The banner shown again asks for its questions: one drawn earlier with none read "has 0 questions for you".
+  const qb=$('#questions-open');if(qb){const wasHidden=qb.hidden;qb.hidden=!current?.state?.questions;if(wasHidden&&!qb.hidden&&!startedElsewhere&&typeof refreshQuestions==='function')refreshQuestions(chatId);if(!qb.hidden&&!qb.querySelector('.wb-cta'))paintWaitBanner(qb,{title:(ENGINE_LABELS[providerOf(chatId)])+' is waiting for your answer',note:current.state.label==='Needs your answer'?'The reply is paused until you answer.':'',cta:'Answer'});} // refreshQuestions fills in the count
   const ab=$('#approvals-open');if(ab){ab.hidden=!current?.state?.approvals;if(current?.state?.approvals&&!ab.querySelector('.wb-cta'))paintWaitBanner(ab,{title:current.state.label||'Action needs approval',note:current.state.label==='Needs approval'?'The reply is paused until you allow or deny it.':'',cta:'Review',mark:IC.info});} // refreshApprovals paints the request itself
   if(typeof paintAgents==='function')paintAgents(); // 1.82: the row under the controls also reports background jobs
   if (current && $('#chat-statebar') && !sessionsStale) markRead(chatId, current.state); // 1.35: the header's run status names the state; no second copy
@@ -1971,7 +2028,8 @@ function paintSessionPanels() {
   paintRunConfirmation();
   paintDone();
   const quick = $('#session-switch');
-  if (quick) { const c = sessionCounts(); quick.textContent = sessionsStale ? 'Conversations · status unavailable' : `Conversations · ${c.running} running${c.background ? ` · ${c.background} in background` : ''}${c.observed ? ` · ${c.observed} elsewhere` : ''}`; }
+  // 1.124.5: two parts, so on a narrow header the word shortens before the counts it is there to show
+  if (quick) { const c = sessionCounts(); const counts = sessionsStale ? 'status unavailable' : `${c.running} running${c.background ? ` · ${c.background} in background` : ''}${c.observed ? ` · ${c.observed} elsewhere` : ''}`; quick.innerHTML = `<span class="ss-word">Conversations</span><span class="ss-sep"> · </span><span class="ss-counts">${counts}</span>`; quick.setAttribute('aria-label', 'Conversations · ' + counts); }
   if (typeof paintOpenSessions === 'function') paintOpenSessions(); // tabs show pins and follow the pinned order
   if (typeof CheckBacks !== 'undefined') CheckBacks.onList(); // 1.119: the open conversation's check-back cards follow
 }
@@ -2017,7 +2075,7 @@ async function refreshSessions() {
   if (sessionFetch) return sessionFetch;
   const askedAt = performance.now(); // 1.117: a list asked for before this device's Pause or Resume was answered keeps its old pause out
   sessionFetch = (async () => {
-    try { const d = await fetchSessionList(); allSessions = d.sessions; coordHeld = d.held || []; sessionsHome = d.home || ''; sessionWarnings = d.warnings || []; sessionsPause = d.pause || null; if(!Number.isFinite(d.checkedAt)||d.checkedAt<=0||d.checkedAt<=sessionCheckedAt)throw new Error('No fresh server confirmation');sessionCheckedAt = d.checkedAt;serverSkew = d.checkedAt - Date.now();sessionProofReceivedAt=performance.now();sessionProofReceivedWallAt=Date.now(); sessionsStale = false; syncSeen(); const current = allSessions.find(s => s.id === chatId); if (current) markRead(chatId, current.state); }
+    try { const d = await fetchSessionList(); allSessions = d.sessions; coordHeld = d.held || []; sessionsHome = d.home || ''; sessionWarnings = d.warnings || []; sessionsPause = d.pause || null; if(!Number.isFinite(d.checkedAt)||d.checkedAt<=0||d.checkedAt<=sessionCheckedAt)throw new Error('No fresh server confirmation');sessionCheckedAt = d.checkedAt;serverSkew = d.checkedAt - Date.now();sessionProofReceivedAt=performance.now();sessionProofReceivedWallAt=Date.now(); sessionsStale = false; syncSeen(askedAt); const current = allSessions.find(s => s.id === chatId); if (current) markRead(chatId, current.state); }
     catch { sessionsStale = true; }
     finally { sessionFetch = null; paintSessionPanels(); followChatTitle(); if (!sessionsStale) Voice.onSessions(allSessions); if (!sessionsStale && sessionsPause) Automation.fromList(sessionsPause, askedAt); else Automation.poll(); } // 1.117: a second device sees Pause all too, from the list itself
   })();
@@ -2099,7 +2157,7 @@ function sessionPanelHTML(rail = false) {
   const filters = `<div data-workspace-filters></div><nav class="session-filters" data-session-filters aria-label="Filter conversations">${filterButtons()}</nav>`;
   return `<div class="session-panel ${rail ? 'compact' : ''}">
     ${rail ? '' : summary}${held}
-    <div class="session-search">${IC.search}<input type="search" data-session-search aria-label="Search recent conversations" placeholder="Search recent conversations" value="${esc(sessionQuery)}" autocomplete="off"></div>
+    <div class="session-search">${IC.search}<input type="search" data-session-search aria-label="Search recent conversations" placeholder="Search conversations" value="${esc(sessionQuery)}" autocomplete="off"></div>
     ${rail ? `<div id="rail-filter-summary" class="rail-filter-summary" hidden><span></span><button id="clear-rail-filters">Clear filters</button></div><div id="rail-filter-controls">${summary}${filters}</div>` : `<nav class="session-filters" data-session-filters data-filter-keys="all active attention" aria-label="Conversation shortcuts">${filterButtons(['all','active','attention'])}</nav><details class="session-more-filters" data-more-filters ${readLocal('pc-session-filters-open',false)?'open':''}><summary>Filters<span data-filter-summary></span></summary>${`<div data-workspace-filters></div><nav class="session-filters" data-session-filters data-filter-keys="new pinned hidden" aria-label="More conversation filters">${filterButtons(['new','pinned','hidden'])}</nav>`}</details><button class="chip clear-more-filters" data-clear-more-filters hidden>Clear filters</button>`}
     <p class="session-warning" data-session-warning hidden></p>
     <div class="session-results" data-session-results></div>
@@ -2185,7 +2243,7 @@ function bindSessionPanel(container) {
 async function renderList() {
   Voice.onLeave();
   app.innerHTML = `<header class="bar">${assistantMode() ? `<button class="icon" id="back" aria-label="Back">${IC.back}</button><h1>Conversations</h1>` : '<h1>Pocket Code</h1>'}
-    <button class="icon bell" id="bell" aria-label="Toggle notifications for this device">${IC.bellOff}</button>
+    <button class="icon bell" id="bell" aria-pressed="false" aria-label="Notifications off for this device">${IC.bellOff}</button>
     ${Automation.on() ? `<button class="icon bell" id="listmore" aria-label="More: Pause all and automation" aria-haspopup="dialog">${IC.more}</button>` : ''}<button class="icon bell" id="settings" aria-label="Settings and version">${IC.cog}</button></header>
     <main class="scroll session-home"><div class="session-home-head"><h2>Your conversations</h2><span class="project-head-actions">${projectsOn() ? '<a class="chip" href="#/projects" data-projects-home>Projects</a>' : ''}${documentsOn() ? '<a class="chip" href="#/documents">Files</a>' : ''}${tasksOn() ? '<a class="chip" href="#/tasks" data-tasks-home>Tasks</a>' : ''}${vaultOn() ? '<a class="chip" href="#/vault" data-vault-home>Vault</a>' : ''}${inboxOn() ? '<a class="chip" href="#/inbox" data-inbox-home>Inbox</a>' : ''}${coordOn() ? '<a class="chip" href="#/coordination" data-coord-home>Coordination</a>' : ''}<button class="chip" id="refresh-sessions">Refresh</button></span></div>
     <div id="resume-last"></div>${sessionPanelHTML()}</main><button class="fab" id="new" aria-label="New conversation">${IC.plus}</button>`;
@@ -2193,7 +2251,7 @@ async function renderList() {
   if (assistantMode()) $('#back').onclick = () => { location.hash = '#/'; };
   $('#settings').onclick = settingsSheet; $('#refresh-sessions').onclick = refreshSessions;
   if ($('#listmore')) $('#listmore').onclick = Automation.moreMenu; // 1.117
-  pushState().then(sub => { const bell = $('#bell'); if (bell && sub) { bell.innerHTML = IC.bell; bell.classList.add('on'); } });
+  pushState().then(sub => { const bell = $('#bell'); if (bell) paintBell(bell, Boolean(sub)); });
   $('#bell').onclick = () => togglePush($('#bell'));
   bindSessionPanel(app); if (projectsOn()) loadBoard().then(paintProjectBadges).catch(() => { }); if (tasksOn()) loadTasks().then(paintTaskBadges).catch(() => { }); if (vaultOn()) loadVault().then(paintVaultBadges).catch(() => { }); if (inboxOn()) loadInbox().then(paintInboxBadges).catch(() => { }); await refreshSessions();
   const last=openSessions.find(s=>s.id===readLocal('pc-last-session',''));if(last&&$('#resume-last'))$('#resume-last').innerHTML=`<a class="resume-last" href="#/chat/${esc(last.id)}">Resume: ${esc(last.title)}</a>`;
@@ -2223,9 +2281,11 @@ async function openQueue(id) {
     try{
       const d=await api('/session/'+encodeURIComponent(id)+'/queue');if(!sh.isConnected)return;
       const target=sh.querySelector('#queue-items');
-      target.innerHTML=d.items.length?d.items.map((r,i)=>`<article class="queue-item"><div class="result-detail">${i+1} · ${r.status==='pending'?(d.active?'After the current reply':d.waitingForJobs?'After the background jobs':'Paused'):r.status==='editing'?'Editing · paused':r.status==='dispatching'?'Starting…':'Needs review'}</div><p>${esc(r.text)}</p><div class="result-detail">${permissionLabel(r.approvalMode||approvalPolicy.defaultMode)}</div>${r.error?`<p class="sheet-help">${esc(r.error)}</p>`:''}<div class="queue-actions">${['pending','editing'].includes(r.status)?`<button class="chip" data-edit="${r.id}">${r.status==='editing'?'Continue editing':'Edit'}</button>`:''}${r.status!=='dispatching'?`<button class="chip" data-remove="${r.id}">Remove</button>`:''}</div></article>`).join(''):'<p class="empty">No queued instructions. While the agent works, choose After this reply before sending.</p>';
+      target.innerHTML=d.items.length?d.items.map((r,i)=>`<article class="queue-item"><div class="result-detail">${i+1} · ${r.status==='pending'?(d.active?'After the current reply':d.waitingForJobs?'After the background jobs':d.retryAt?'After the usage-limit retry':'Paused'):r.status==='editing'?'Editing · paused':r.status==='dispatching'?'Starting…':'Needs review'}</div><p>${esc(r.text)}</p><div class="result-detail">${permissionLabel(r.approvalMode||approvalPolicy.defaultMode)}</div>${r.error?`<p class="sheet-help">${esc(r.error)}</p>`:''}<div class="queue-actions">${['pending','editing'].includes(r.status)?`<button class="chip" data-edit="${r.id}">${r.status==='editing'?'Continue editing':'Edit'}</button>`:''}${r.status!=='dispatching'?`<button class="chip" data-remove="${r.id}">Remove</button>`:''}</div></article>`).join(''):'<p class="empty">No queued instructions. While the agent works, choose After this reply before sending.</p>';
       const held=d.waitingForJobs; // 1.89.2: background jobs keep this conversation on the earlier Claude login
-      if(d.items[0]?.status==='pending'&&!d.active)target.insertAdjacentHTML('beforeend',`${held?`<p class="sheet-help">${esc(heldForJobsText(held).replace(/^Held/,'Waiting'))}</p>`:''}<button class="primary" id="queue-start" ${d.external?'disabled':''}>${held?'Stop background jobs and run it':'Run next instruction'}</button>${d.external?'<p class="sheet-help">Recent activity was seen elsewhere. Refresh after that reply finishes.</p>':''}`);
+      // 1.124.5: a usage-limit wait: the queue follows the retry's reply, so it is not offered to run into the limit
+      if(d.items[0]?.status==='pending'&&!d.active&&d.retryAt)target.insertAdjacentHTML('beforeend',`<p class="sheet-help" id="queue-retry-wait">Waiting for the usage limit to reset. Pocket retries the reply at ${esc(new Date(d.retryAt).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}))}, then runs the queue.</p>`);
+      else if(d.items[0]?.status==='pending'&&!d.active)target.insertAdjacentHTML('beforeend',`${held?`<p class="sheet-help">${esc(heldForJobsText(held).replace(/^Held/,'Waiting'))}</p>`:''}<button class="primary" id="queue-start" ${d.external?'disabled':''}>${held?'Stop background jobs and run it':'Run next instruction'}</button>${d.external?'<p class="sheet-help">Recent activity was seen elsewhere. Refresh after that reply finishes.</p>':''}`);
       target.querySelectorAll('[data-remove]').forEach(b=>b.onclick=async()=>{const r=d.items.find(x=>x.id===b.dataset.remove);b.disabled=true;
         try{await api('/session/'+id+'/queue/'+r.id,{method:'DELETE',body:JSON.stringify({revision:r.revision})});await load();refreshSessions();}catch(e){toast(e.message);b.disabled=false;}
       });
@@ -3734,7 +3794,7 @@ const sendModes = new Map();
 const canSteer = () => !assistantMode() && engineHas(providerOf(chatId), 'steer');
 const canQueue = () => engineHas(providerOf(chatId), 'unattended');
 const defaultSendMode = () => canSteer() || !canQueue() ? 'steer' : 'queue';
-let composerWorking = false;
+let composerWorking = false, runSeenElsewhere = { id: '', at: 0 };
 function setComposer(working) {
   const c = $('#comp'); if (!c) return;
   composerWorking = working;
@@ -3768,7 +3828,7 @@ function setComposer(working) {
   modeButtons.forEach(b=>b.onclick=()=>{sendModes.set(chatId,b.dataset.mode);paintMode();const box=$('#box'),ph=b.dataset.mode==='queue'?'Run this after the current reply…':"Add to what it's doing…";box.dataset.basePh=ph;box.placeholder=b.dataset.mode!=='queue'&&$('#questions-open')&&!$('#questions-open').hidden?SKIP_PH:ph;});paintMode();
   const box = $('#box');
   const grow = () => sizeComposerBox();
-  const draft = loadOutbox(chatId)?.text || loadDraft(chatId);
+  const draft = sendsInFlight.has(chatId) || sendingElsewhere(loadOutbox(chatId)) ? laterDraft(chatId) : loadOutbox(chatId)?.text || loadDraft(chatId); // 1.124.5: nor while another window sends it
   if (draft) { box.value = draft; grow(); }
   const slash = bindSlash(box, () => ({ where: 'chat', provider: tb?.provider || 'claude', cwd: slashCwd, working, onRun: t => sendMsg(t) }));
   box.oninput = () => {
@@ -3788,9 +3848,34 @@ function setComposer(working) {
 }
 
 const sendsInFlight = new Set(), deliveryNotices = new Map();
+// 1.124.5: the box stays open while a message is being sent (it was read-only for the whole send, so keys typed then
+// were dropped). While an unsent message is in the outbox, the saved draft holds only what was typed after it; when the
+// send fails the box shows the unsent message again and those newer words wait in the draft until it is retried,
+// edited or discarded.
+function laterDraft(id) { const d = loadDraft(id) || '', out = loadOutbox(id); return out && d.trim() === String(out.text || '').trim() ? '' : d; }
+function showUnsent(id, text) { // put an unsent message back in the box, keeping what was typed since
+  const box = $('#box'); if (chatId !== id || !box) return;
+  if (box.value.trim() !== text.trim()) saveDraft(id, box.value);
+  box.value = text; sizeComposerBox();
+}
 function loadAttachments(id) { try { return JSON.parse(localStorage.getItem('pc-attachments-' + id) || '[]'); } catch { return []; } }
 function stashAttachments() { if (tb?.key) { try { localStorage.setItem('pc-attachments-' + tb.key, JSON.stringify(tb.attachments)); } catch { } } }
 function loadOutbox(id) { try { return JSON.parse(localStorage.getItem('pc-outbox-' + id) || 'null'); } catch { return null; } }
+// 1.124.5: one conversation open in two windows (the main window and a pane, or two tabs) has one draft and one outbox.
+// Each window used to learn of the other's only when it was drawn again: its box then took the other's text and lost
+// its own, and a send still on its way from the other window read as "Delivery was not confirmed" with Retry.
+// Now the box follows the shared draft as it changes, and a send in flight carries the window that is sending it.
+const WINDOW_ID = crypto.randomUUID(), SENDING_ELSEWHERE_MS = 60000;
+const sendingElsewhere = pending => Boolean(pending?.sender && pending.sender !== WINDOW_ID && Date.now() - (pending.sendingAt || 0) < SENDING_ELSEWHERE_MS);
+let deliveryRecheckT = null;
+addEventListener('storage', e => {
+  if (!chatId || !e.key) return;
+  if (e.key === 'pc-outbox-' + chatId) paintDelivery(chatId);
+  else if (e.key === draftKey(chatId)) {
+    const box = $('#box'), text = e.newValue || '';
+    if (box && !box.readOnly && box.value !== text) { box.value = text; try { box.setSelectionRange(text.length, text.length); } catch { } sizeComposerBox(); } // the caret at the end: typing here carries on from it
+  }
+});
 function saveOutbox(id, value) {
   if (value) localStorage.setItem('pc-outbox-' + id, JSON.stringify(value));
   else localStorage.removeItem('pc-outbox-' + id);
@@ -3802,16 +3887,18 @@ function setConnection(message = '') {
 function paintDelivery(id = chatId) {
   if (id !== chatId) return;
   const el = $('#delivery-status'); if (!el) return;
-  const pending = loadOutbox(id), sending = sendsInFlight.has(id), notice = deliveryNotices.get(id);
+  const pending = loadOutbox(id), elsewhere = !sendsInFlight.has(id) && sendingElsewhere(pending), sending = sendsInFlight.has(id) || elsewhere, notice = deliveryNotices.get(id);
+  clearTimeout(deliveryRecheckT); // the other window never finished (closed mid-send): Retry is offered once its time is up
+  if (elsewhere) deliveryRecheckT = setTimeout(() => paintDelivery(id), Math.max(500, SENDING_ELSEWHERE_MS - (Date.now() - pending.sendingAt) + 200));
   el.hidden = !pending && !notice;
   el.classList.toggle('delivery-problem', Boolean(pending && !sending));
   if (pending) {
-    const label = sending ? 'Sending…' : pending.error || 'Delivery was not confirmed. Retry checks the same message.';
-    el.innerHTML = `<p>${esc(label)}</p>${!sending ? `<div class="delivery-actions"><button class="chip" id="retry-message">Retry same message</button>${pending.rejected ? '<button class="chip" id="edit-message">Edit message</button>' : '<button class="chip" id="review-message">Review conversation</button>'}<button class="chip" id="discard-message">Discard retry</button></div>` : ''}`;
+    const label = elsewhere ? 'Sending from another window…' : sending ? 'Sending…' : pending.error || 'Delivery was not confirmed. Retry checks the same message.';
+    el.innerHTML = `<p>${esc(label)}</p>${!sending ? `<div class="delivery-actions"><button class="chip" id="retry-message">Retry same message</button>${pending.rejected ? '<button class="chip" id="edit-message">Edit message</button>' : '<button class="chip" id="review-message">Review conversation</button>'}<button class="chip" id="discard-message">Discard message</button></div>` : ''}`;
     const retry = $('#retry-message'); if (retry) retry.onclick = () => submitPending(id);
-    const edit = $('#edit-message'); if (edit) edit.onclick = () => { saveOutbox(id, null); deliveryNotices.delete(id); paintDelivery(id); $('#box')?.focus(); };
+    const edit = $('#edit-message'); if (edit) edit.onclick = () => { deliveryNotices.delete(id); const box = $('#box'), later = laterDraft(id); saveOutbox(id, null); if (box && later) box.value += '\n\n' + later; if (box) { saveDraft(id, box.value); sizeComposerBox(); } paintDelivery(id); box?.focus(); };
     const review = $('#review-message'); if (review) review.onclick = () => renderChat(id);
-    const discard = $('#discard-message'); if (discard) discard.onclick = () => { saveOutbox(id, null); clearDraft(id); deliveryNotices.delete(id); const box = $('#box'); if (box) box.value = ''; paintDelivery(id); };
+    const discard = $('#discard-message'); if (discard) discard.onclick = () => { const later = laterDraft(id), box = $('#box'); saveOutbox(id, null); saveDraft(id, later); deliveryNotices.delete(id); if (box) { box.value = later; sizeComposerBox(); } paintDelivery(id); };
   } else if (notice?.itemId) {
     el.innerHTML = `<p>${esc(notice.text)}</p><div class="delivery-actions"><button class="chip" id="stop-jobs-now">Stop background jobs and send now</button></div>`;
     const stop = $('#stop-jobs-now'); stop.onclick = async () => {
@@ -3821,7 +3908,7 @@ function paintDelivery(id = chatId) {
     };
   } else el.textContent = notice || '';
   const box = $('#box'), send = $('#send');
-  if (box) box.readOnly = Boolean(pending);
+  if (box) box.readOnly = Boolean(pending && !sending); // 1.124.5: open while sending, closed only while an unsent message waits for Retry
   document.querySelectorAll('#c-att,#c-model,#c-eff,#attrow button,[data-mode]').forEach(b => { b.disabled = Boolean(pending); });
   if (send) { send.disabled = Boolean(pending); send.setAttribute('aria-label', pending ? 'Resolve pending delivery first' : 'Send'); }
 }
@@ -3854,8 +3941,11 @@ async function sendMsg(text, {allowSecrets = false, matches = null} = {}) {
 }
 async function submitPending(id) {
   if (sendsInFlight.has(id)) return;
-  const pending = loadOutbox(id); if (!pending) return;
-  sendsInFlight.add(id); deliveryNotices.delete(id); paintDelivery(id);
+  const pending = loadOutbox(id); if (!pending || sendingElsewhere(pending)) return;
+  delete pending.sender; delete pending.sendingAt;
+  sendsInFlight.add(id); deliveryNotices.delete(id);
+  try { saveOutbox(id, { ...pending, sender: WINDOW_ID, sendingAt: Date.now() }); } catch { } // other windows on this conversation say "Sending from another window…"
+  paintDelivery(id);
   recentSends = [...recentSends.slice(-4), { text: pending.text, at: Date.now() }];
   // Optimistic echo: show the message the instant Send is hit instead of after the server acknowledges and
   // the transcript is re-fetched. A message with files renders as two elements (bubble + file chips), so
@@ -3868,13 +3958,15 @@ async function submitPending(id) {
       msgs.insertAdjacentHTML('beforeend', msgHTML({ role: 'user', text: pending.text, files: pending.files }));
       for (let n = mark ? mark.nextElementSibling : msgs.firstElementChild; n; n = n.nextElementSibling) { n.classList.add('pending'); ghost.push(n); }
       paintChoices();
-      const box = $('#box'); if (box) box.value = '';
       scrollBottom();
     }
   }
+  // The box is emptied as the send starts (it holds only what is typed from here on), also for a message steered into
+  // a running reply, which has no echo: the "Sending…" line stands in for it.
+  if (chatId === id) { const box = $('#box'); if (box) { box.value = laterDraft(id); saveDraft(id, box.value); sizeComposerBox(); } }
   try {
     const result = await api(`/session/${id}/message`, { method: 'POST', body: JSON.stringify({ text: pending.text, ...pending.opts, clientMessageId: pending.clientMessageId }) });
-    saveOutbox(id, null); clearDraft(id);
+    { const later = laterDraft(id); saveOutbox(id, null); saveDraft(id, chatId === id && $('#box') ? $('#box').value : later); } // the draft is now only the next message, if one was begun
     if (pending.files.length) localStorage.removeItem('pc-attachments-' + id);
     if (result.steered) steeredEchoes.set(id, [...(steeredEchoes.get(id) || []), { text: pending.text.trim(), at: Date.now() }]);
     // 1.89.2: held for background jobs on the earlier Claude login: it sends by itself when they finish, or now with Stop
@@ -3884,7 +3976,6 @@ async function submitPending(id) {
     if (result.modelFallback) modelFellBack(id, result.modelFallback);
     if (chatId === id) {
       if (tb?.key === id && pending.files.length) tb.attachments = [];
-      const box = $('#box'); if (box) box.value = '';
       // Show the canonical transcript after acknowledgment; no unsent ghost
       // bubble remains on failure, and a replayed receipt adds no duplicate.
       await resyncChat(id);
@@ -3893,11 +3984,13 @@ async function submitPending(id) {
   } catch (e) {
     if (e.code === 'secret_detected') { // 1.42: held by the server before any receipt: not delivered, never retried by itself
       saveOutbox(id, null); ghost.forEach(n => n.remove());
-      if (chatId === id && $('#box')) $('#box').value = pending.text;
+      showUnsent(id, pending.text);
       sendsInFlight.delete(id); holdSecretSend(id, pending.text, e.body?.matches || []);
       return;
     }
-    const rejected = e.status >= 400 && e.status < 500 && e.code !== 'delivery_uncertain';
+    // 1.124.5: 503 not_started is the server saying for certain that nothing ran (a full disk, a missing folder) and that
+    // it kept no receipt. That is "Not sent" with the server's reason, not "Delivery not confirmed"; Retry sends it again.
+    const rejected = e.code === 'not_started' || (e.status >= 400 && e.status < 500 && e.code !== 'delivery_uncertain');
     pending.rejected = rejected;
     pending.error = e.code === 'delivery_uncertain' ? e.message
       : e.status === 409 && e.body?.paused ? Automation.refused() // 1.117: own messages blocked while paused; Retry sends it after Resume
@@ -3905,7 +3998,7 @@ async function submitPending(id) {
     try { saveOutbox(id, pending); } catch { }
     if (e.body?.code === 'signin') loadAgyModels(true).then(() => { if (chatId === id) renderToolbar(); }); // Antigravity signed out: the model row says so too
     ghost.forEach(n => n.remove());
-    if (chatId === id && $('#box')) $('#box').value = pending.text;
+    showUnsent(id, pending.text);
   } finally { sendsInFlight.delete(id); paintDelivery(id); if (chatId === id) paintChoices(); }
 }
 
@@ -4338,7 +4431,7 @@ async function renderNew({ home = false, slot = '' } = {}) {
     if (!note) return;
     note.hidden = !pending;
     note.classList.toggle('delivery-problem', Boolean(pending));
-    note.innerHTML = pending ? '<p>Start request not yet confirmed. Retry checks the same request.</p><div class="delivery-actions"><button class="chip" id="retry-new">Retry start</button><button class="chip" id="discard-new">Discard retry</button></div>' : '';
+    note.innerHTML = pending ? '<p>Start request not yet confirmed. Retry checks the same request.</p><div class="delivery-actions"><button class="chip" id="retry-new">Retry start</button><button class="chip" id="discard-new">Discard start</button></div>' : '';
     const retry = $('#retry-new'); if (retry) retry.onclick = () => startSession();
     const discard = $('#discard-new'); if (discard) discard.onclick = () => { saveOutbox(NK, null); clearDraft(NK); localStorage.removeItem(SK); localStorage.removeItem(BK); renderNew({ slot }); };
     app.querySelectorAll('.pane input,.pane textarea,.pane button,#comp textarea,#comp button:not(#start):not(#composer-toggle)').forEach(el => { el.disabled = Boolean(pending); });
@@ -4496,7 +4589,10 @@ async function renderNew({ home = false, slot = '' } = {}) {
       if (projectLinkError && payload.project) toast(`Started, but not linked to ${payload.projectName || 'the project'}: ${projectLinkError}`);
       return true;
     } catch (e) {
-      if (e.status >= 400 && e.status < 500 && e.code !== 'delivery_uncertain') saveOutbox(NK, null);
+      // 1.124.5: not_started is certain (nothing ran, no receipt kept), so nothing is left to check: the draft stays in the
+      // box to change or start again, and the reason stays on the page instead of a note that said "not yet confirmed".
+      if (e.code === 'not_started' || (e.status >= 400 && e.status < 500 && e.code !== 'delivery_uncertain')) saveOutbox(NK, null);
+      if (e.code === 'not_started') { hint(`Not sent: ${e.message}`); return false; }
       if (e.code === 'start_used') { clearDraft(NK); localStorage.removeItem(SK); localStorage.removeItem(BK); if (slot) forgetNewSlot(slot); location.hash = '#/chat/' + e.body.id; return false; } // 1.96: another tap or device started it
       if (e.code === 'secret_detected') holdSecretStart(newPending?.payload.text || text, e.body?.matches || []);
       else if (e.status === 409 && e.body?.paused) { hint(Automation.refused()); toast('Pocket is paused.', { action: 'Resume', onAction: () => Automation.resume() }); } // 1.117: the draft stays in the box

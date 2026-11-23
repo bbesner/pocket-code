@@ -182,7 +182,12 @@ function bindDocRequests(root){
   card.querySelectorAll('button').forEach(x=>x.disabled=true);
   const decision=b.dataset.docAnswer;
   try{await api('/documents/requests/'+encodeURIComponent(r.id)+'/answer',{method:'POST',body:JSON.stringify({decision})});toast(decision==='allow'?(r.change?.to==='public'?'Allowed. Published ':'Allowed. Shared ')+r.title:'Denied. '+r.title+' was not shared');}
-  catch(e){toast(e.message||'Could not answer the request');}
+  catch(e){
+   // 1.124.5: answered elsewhere (the notification's Allow, another device): say what was done, not an error.
+   if(e.code==='request_answered'){await loadDocs(true).catch(()=>{});const a=(docsSnap?.answered||[]).find(x=>x.id===r.id);
+    toast(a?.decision==='allow'?`Already allowed. ${r.change?.to==='public'?'Published':'Shared'} ${r.title}.`:a?.decision==='deny'?`Already denied. ${r.title} was not shared.`:a?`Already answered. ${r.title} was not shared.`:'Already being answered.');}
+   else toast(e.message||'Could not answer the request');
+  }
   loadDocs(true).then(()=>{paintDocumentsView();paintRailDocuments();}).catch(()=>{if(card.isConnected)card.querySelectorAll('button').forEach(x=>x.disabled=false);});
  }));
 }
@@ -196,7 +201,7 @@ function libraryHTML(){
  const filtered=docFilterProject||docFilterVis||docFilterKind||q;
  const heading=docFilterProject?projects.find(p=>p.id===docFilterProject)?.name||'Project':docFilterVis?visLong[docFilterVis]:docFilterKind?KIND_GROUPS.find(g=>g[0]===docFilterKind)[1]:q?'Matching':'All';
  const grid=gridOn();
- return `<div class="session-home-head"><h2>Files</h2><span class="project-head-actions"><span class="doc-layout" role="group" aria-label="Layout"><button class="icon" data-layout="list" aria-pressed="${!grid}" aria-label="List" title="List">${IC.list}</button><button class="icon" data-layout="grid" aria-pressed="${grid}" aria-label="Grid with previews" title="Grid with previews">${IC.grid}</button></span>${all.length||pick?`<button class="chip" id="doc-select" aria-pressed="${pick}">${pick?IC.tick+'Done':IC.task+'Select'}</button>`:''}${pick?'':`<button class="chip" id="doc-upload">${IC.up}Upload</button>`}${pick?'':'<input type="file" id="doc-file" multiple hidden>'}</span></div>
+ return keptAsideHTML(docsSnap.keptAside)+`<div class="session-home-head"><h2>Files</h2><span class="project-head-actions"><span class="doc-layout" role="group" aria-label="Layout"><button class="icon" data-layout="list" aria-pressed="${!grid}" aria-label="List" title="List">${IC.list}</button><button class="icon" data-layout="grid" aria-pressed="${grid}" aria-label="Grid with previews" title="Grid with previews">${IC.grid}</button></span>${all.length||pick?`<button class="chip" id="doc-select" aria-pressed="${pick}">${pick?IC.tick+'Done':IC.task+'Select'}</button>`:''}${pick?'':`<button class="chip" id="doc-upload">${IC.up}Upload</button>`}${pick?'':'<input type="file" id="doc-file" multiple hidden>'}</span></div>
   ${pick?'':docRequestsHTML()}
   <div class="documents-tools"><div class="session-search">${IC.search}<input type="search" id="doc-query" placeholder="Search files" aria-label="Search files by title, file name, project or conversation" value="${esc(docQuery)}" autocomplete="off"></div>
    ${projects.length?`<label class="voice-field doc-project-filter">Project<select id="doc-project"><option value="">All projects</option>${projects.map(p=>`<option value="${esc(p.id)}" ${docFilterProject===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>`:''}
@@ -213,6 +218,7 @@ function bindDocRows(root){
  root.querySelectorAll('a[data-document]').forEach(a=>a.onclick=e=>{const id='documents/'+a.dataset.document;openViewPreferred(id,'pc-documents-open',e,isWide()&&docView!==id);});
 }
 function bindLibrary(main){
+ bindKeptAside(main,docsSnap,paintDocumentsView); // 1.124.5
  main.querySelector('#doc-query').oninput=e=>{docQuery=e.target.value;paintDocumentsViewSoon();};
  main.querySelector('#doc-project')?.addEventListener('change',e=>{docFilterProject=e.target.value;paintDocumentsView();});
  main.querySelector('#doc-kind').onchange=e=>{docFilterKind=e.target.value;paintDocumentsView();};
@@ -330,7 +336,11 @@ function documentOptions(id){
 }
 // 1.118 (PC-05): `fresh` is the token of a link this device has just made; its address is shown this once, with Copy. A link
 // made earlier shows only that it is open and when it expires, with Make a new link (the old one stops) and Revoke link.
-function shareSheet(id,fresh){
+// 1.124.5: a change in the sheet repaints the file's tools and opens the sheet again, so the button that opened it is
+// gone. `again` says so: the new sheet returns focus to the file's current Share button (or its row's options), and
+// `focus` names the control inside the new sheet to land on.
+const shareOpener=id=>document.querySelector('main [data-share]')||[...document.querySelectorAll(`[data-item="${CSS.escape(id)}"] button`)].at(-1)||undefined;
+function shareSheet(id,fresh,{again=false,focus=''}={}){
  const d=docById(id);if(!d)return;
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet share-sheet';
  const link=d.visibility==='link',made=link&&fresh?location.origin+'/share/'+fresh:'';
@@ -352,12 +362,12 @@ function shareSheet(id,fresh){
   <p class="sheet-help share-note" role="status">${esc(note)}</p>`;
  const close=()=>closeCurrentSheet?.();
  bindRadioGroup(sh.querySelector('[role="radiogroup"]'));
- sh.querySelectorAll('[data-v]').forEach(b=>b.onclick=async()=>{if(b.dataset.v===d.visibility)return;close();const r=await docAct(id,{visibility:b.dataset.v},b.dataset.v==='private'?'Private now; links no longer work':b.dataset.v==='link'?'Link made. Copy it now: it is shown once':'Public now');if(r&&r.visibility!=='private')shareSheet(id,r.token);});
+ sh.querySelectorAll('[data-v]').forEach(b=>b.onclick=async()=>{if(b.dataset.v===d.visibility)return;close();const r=await docAct(id,{visibility:b.dataset.v},b.dataset.v==='private'?'Private now; links no longer work':b.dataset.v==='link'?'Link made. Copy it now: it is shown once':'Public now');if(r&&r.visibility!=='private')shareSheet(id,r.token,{again:true});else shareOpener(id)?.focus();});
  const input=sh.querySelector('#share-url');if(input){input.onfocus=()=>input.select();sh.querySelector('[data-copy-share]').onclick=e=>copyLink(url,e.currentTarget);}
- const expiry=sh.querySelector('#share-expiry');if(expiry){expiry.value=d.share?.expiresAt?(Math.abs(Date.parse(d.share.expiresAt)-Date.now()-7*86400000)<86400000?'7':'30'):'';expiry.onchange=async()=>{close();await docAct(id,{expiresAt:expiry.value?new Date(Date.now()+Number(expiry.value)*86400000).toISOString():null},'Expiry set');shareSheet(id,fresh);};}
- sh.querySelector('[data-reshare]')?.addEventListener('click',async()=>{close();const r=await docAct(id,{action:'reshare'},'New link made; the old one no longer works');if(r)shareSheet(id,r.token);});
- sh.querySelector('[data-revoke]')?.addEventListener('click',async()=>{close();await docAct(id,{visibility:'private'},'Link revoked; it no longer works');});
- mountSheet(scrim,sh);
+ const expiry=sh.querySelector('#share-expiry');if(expiry){expiry.value=d.share?.expiresAt?(Math.abs(Date.parse(d.share.expiresAt)-Date.now()-7*86400000)<86400000?'7':'30'):'';expiry.onchange=async()=>{close();await docAct(id,{expiresAt:expiry.value?new Date(Date.now()+Number(expiry.value)*86400000).toISOString():null},'Expiry set');shareSheet(id,fresh,{again:true,focus:'#share-expiry'});};}
+ sh.querySelector('[data-reshare]')?.addEventListener('click',async()=>{close();const r=await docAct(id,{action:'reshare'},'New link made; the old one no longer works');if(r)shareSheet(id,r.token,{again:true});else shareOpener(id)?.focus();});
+ sh.querySelector('[data-revoke]')?.addEventListener('click',async()=>{close();await docAct(id,{visibility:'private'},'Link revoked; it no longer works');shareOpener(id)?.focus();});
+ if(again){mountSheet(scrim,sh,shareOpener(id));if(focus)sh.querySelector(focus)?.focus();}else mountSheet(scrim,sh);
 }
 function docProjectSheet(id){
  const d=docById(id);if(!d||typeof boardSnap==='undefined')return;

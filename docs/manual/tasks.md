@@ -103,7 +103,7 @@ Click a task to open its sheet: the text, the date, the conversation it came fro
 ## How it works
 
 - **Data.** Tasks live in `tasks.json` in `POCKET_DATA_DIR`, which defaults to the Pocket Code directory. Pocket writes it atomically, mode `0600`, and keeps it in memory, so edit tasks only through Pocket or `pocket-tasks`.
-- **One writer.** The UI and `pocket-tasks` both go through the server. A change from the UI carries the task's revision; if the task changed since you loaded it, the change is refused and the current task is shown.
+- **One writer.** The UI and `pocket-tasks` both go through the server. A change from the UI carries the task's revision; if the task changed since you loaded it, the change is refused and the current task is shown. In **Edit task** the sheet stays open: fields the other side changed and you had not touched take the new values, fields you edited keep what you typed, and a note at the top says which is which. **Save** again saves it.
 - **Conversation facts.** When an agent adds a task with `--session`, the server fills in that conversation's title and workspace, as the **Add task** button does.
 - **Due checks.** The server checks for due tasks every minute and a few seconds after it starts. Each task is marked as announced before it is sent, so a crash never announces it twice; a failed push, email or hook is logged and not retried.
 - **Check-backs.** The group is not in `tasks.json`: the server adds the waiting and running check-backs from `checkbacks.json` to the list's response, for the app only (the `pocket-tasks` command doesn't see them). Cancelling one there is the same as cancelling it on its card.

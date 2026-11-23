@@ -40,9 +40,17 @@ const Voice = (() => {
   /* ---------- quick mute: one tap silences every spoken reply, announcement and prompt on this device.
      The other voice settings are kept, so unmuting brings back exactly what was configured. ---------- */
   const isMuted = () => Boolean(prefs().mute);
+  // 1.124.5: muting ended a hands-free conversation in name only: its microphone stayed open (and the screen awake) until
+  // silence or the time limit. A dictation that is not hands-free is input, not speech, and carries on.
+  function quietForMute() {
+    const conversation = Boolean(handsFree) || Boolean(rec?.handsFree);
+    handsFree = null; pendingSend = null; stopSpeaking(); queue.length = 0;
+    if (conversation) { starting = null; if (rec) release(); if (state !== 'idle') setState('idle'); }
+    else if (state === 'speaking') setState('idle');
+  }
   function setMuted(on) {
     setPref('mute', Boolean(on));
-    if (on) { handsFree = null; pendingSend = null; stopSpeaking(); queue.length = 0; if (state === 'speaking') setState('idle'); }
+    if (on) quietForMute();
     paint();
     if (typeof toast === 'function') toast(on ? 'Voice muted on this device until you turn it back on' : 'Voice is back on');
   }
@@ -62,7 +70,9 @@ const Voice = (() => {
       b.onclick = () => { unlockAudio(); setMuted(!isMuted()); };
     });
   }
-  addEventListener('storage', e => { if (e.key === PREF_KEY) paint(); });   // muted in one tab: every tab shows it
+  // Muted in one tab: every tab shows it, and (1.124.5) every tab stops speaking and listening, not only the one tapped.
+  const muteIn = raw => { try { return Boolean(JSON.parse(raw || '{}').mute); } catch { return false; } };
+  addEventListener('storage', e => { if (e.key !== PREF_KEY) return; if (!muteIn(e.oldValue) && muteIn(e.newValue)) quietForMute(); paint(); });
 
   async function loadStatus(force = false) {
     if (status && !force) return status;
@@ -83,10 +93,10 @@ const Voice = (() => {
     loadStatus().then(s => { if (b.isConnected) b.hidden = !s.available; if (hf?.isConnected) hf.hidden = !s.available; paint(); });
     if (hf) hf.onclick = () => handsFreeTap();
     boxEl()?.addEventListener('input', syncDraft);
-    let downAt = 0, holdTimer = null;
+    let downAt = 0, holdTimer = null, downListening = false; // 1.124.5: a press that began while listening ends the recording
     b.onpointerdown = e => {
       if (e.button || starting) return;
-      downAt = Date.now();
+      downAt = Date.now(); downListening = state === 'listening';
       unlockAudio();
       if (handsFree) { handsFree = null; paint(); }                              // the plain mic is always one message
       if (state === 'idle' || state === 'speaking') holdTimer = setTimeout(() => { holdTimer = null; start('hold'); }, HOLD_MS);
@@ -94,10 +104,11 @@ const Voice = (() => {
     const up = () => {
       if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; tap(); }        // short press: a tap
       else if (state === 'holding') finish();                                     // release ends push-to-talk
-      downAt = 0;
+      else if (downListening && state === 'listening') finish();                  // "Tap the mic when you're done": only the keyboard did this
+      downAt = 0; downListening = false;
     };
     b.onpointerup = up;
-    b.onpointercancel = () => { if (holdTimer) clearTimeout(holdTimer); holdTimer = null; if (state === 'holding') finish(); };
+    b.onpointercancel = () => { if (holdTimer) clearTimeout(holdTimer); holdTimer = null; downListening = false; if (state === 'holding') finish(); };
     b.onclick = e => { if (e.detail === 0) tap(); };                             // keyboard Enter/Space
     paint();
   }
@@ -144,7 +155,7 @@ const Voice = (() => {
         : pend && state === 'idle' && !note ? '<span class="voice-confirm"><button class="chip voice-send" id="voice-send" type="button">Send</button><button class="chip" id="voice-edit" type="button">Edit</button><button class="chip" id="voice-discard" type="button">Cancel</button></span>'
         : conv && state === 'idle' ? '<button class="chip" id="voice-end" type="button">End hands-free</button>' : ''}` : '';
     if (pend && (live || state === 'speaking')) strip.querySelector('.voice-label')?.insertAdjacentHTML('beforeend', `<span class="voice-pending"> · Waiting to send: “${esc(pend.text)}”</span>`);
-    const c = document.getElementById('voice-cancel'); if (c) c.onclick = () => cancel();
+    const c = document.getElementById('voice-cancel'); if (c) c.onclick = () => { const back = handsFree ? 'hfb' : 'micb'; cancel(); document.getElementById(back)?.focus(); }; // 1.124.5: Cancel removes itself, so focus goes back to the button that started listening
     const s = document.getElementById('voice-stop'); if (s) s.onclick = () => { handsFree = null; stopSpeaking(); paint(); };
     const e = document.getElementById('voice-end'); if (e) e.onclick = () => endHandsFree('Hands-free is off.');
     const vs = document.getElementById('voice-send'); if (vs) vs.onclick = () => sendPending();
@@ -417,7 +428,7 @@ const Voice = (() => {
     } catch { if (!me.cancelled) say('The reply could not be spoken. It’s on screen.', 6000); }
     // Listening again needs both: a caller that asked for it (a reply, never an alert) and a hands-free
     // conversation still on for the open session.
-    if (speech === me) { speech = null; setState('idle'); if (!me.cancelled && listenAfter && inHandsFree()) start('auto', { waitMs: replyWaitMs(), reopened: true }); }
+    if (speech === me) { speech = null; setState('idle'); if (!me.cancelled && listenAfter && inHandsFree() && !isMuted()) start('auto', { waitMs: replyWaitMs(), reopened: true }); }
     return true;
   }
   // Any tap or click anywhere unlocks audio for later alerts (browser autoplay rules).

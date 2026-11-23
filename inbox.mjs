@@ -73,6 +73,8 @@ const line = (v, max) => str(typeof v === 'string' ? v.replace(/\s+/g, ' ') : v,
 const shortId = () => randomBytes(6).toString('hex');
 const iso = ms => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 const ms = v => v ? Date.parse(v) : NaN;
+// 1.124.5: a decision's stamp, after the one it replaces: stamps are whole seconds, and the watcher acks '<id>@<at>'
+const after = (prev, at) => prev && ms(prev) >= ms(at) ? iso(ms(prev) + 1000) : at;
 // A link the row opens: a Pocket path (/#/start/<id>, /#/chat/<id>) or an absolute web address. `//host` is neither.
 const checkUrl = v => { const u = str(v, URL_MAX); if (!u) return ''; if ((u.startsWith('/') && !u.startsWith('//')) || /^https?:\/\/[^\s/]+/i.test(u)) return u; throw fail('The link must be a Pocket path (/#/…) or a web address.', 400, { code: 'bad_url' }); };
 const checkGmail = v => { const u = str(v, URL_MAX); if (!u) return ''; if (u.startsWith('https://mail.google.com/')) return u; throw fail('The Gmail link must start with https://mail.google.com/.', 400, { code: 'bad_gmail' }); };
@@ -592,12 +594,12 @@ export class InboxStore {
       if (e.state === 'opened') { e.state = 'new'; changed = true; } // a finished entry stays finished; restore it first
     } else if (a === 'restore') {
       if (ACTED.includes(e.state)) {
-        e.state = 'opened'; e.seenAt ||= at; e.actedAt = at; e.ackedAt = null; e.lastAction = 'restore'; if (n != null) e.note = n; changed = true; this.mirrorToCards(e, 'restore', at); this.foldCards(e);
+        e.state = 'opened'; e.seenAt ||= at; e.actedAt = after(e.actedAt, at); e.ackedAt = null; e.lastAction = 'restore'; if (n != null) e.note = n; changed = true; this.mirrorToCards(e, 'restore', at); this.foldCards(e);
         if (e.mergedInto) { const h = this.entries.find(x => x.id === e.mergedInto); if (h) { h.merged = h.merged.filter(m => m.id !== e.id); h.sessions = h.sessions.filter(x => !(x.story && e.sessions.some(y => y.id === x.id))); h.revision += 1; } e.mergedInto = ''; } // 1.113: out of the entry it went into
       }
     } else {
       const target = TARGET[a];
-      if (e.state !== target || (n != null && n !== e.note)) { e.state = target; e.actedAt = at; e.ackedAt = null; e.lastAction = target; if (n != null) e.note = n; changed = true; this.mirrorToCards(e, a, at); }
+      if (e.state !== target || (n != null && n !== e.note)) { e.state = target; e.actedAt = after(e.actedAt, at); e.ackedAt = null; e.lastAction = target; if (n != null) e.note = n; changed = true; this.mirrorToCards(e, a, at); }
     }
     if (changed) { e.revision += 1; e.actedBy = actor === 'cli' ? 'cli' : 'ui'; this.save(); }
     return this.view(e);
@@ -612,8 +614,8 @@ export class InboxStore {
     const was = it.state;
     let changed = false;
     if (action === 'restore') {
-      if (ITEM_ACTED.includes(it.state)) { it.state = 'open'; it.actedAt = at; it.ackedAt = null; it.lastAction = 'restore'; if (n != null) it.note = n; changed = true; }
-    } else if (it.state !== target || (n != null && n !== it.note)) { it.state = target; it.actedAt = at; it.ackedAt = null; it.lastAction = action; if (n != null) it.note = n; changed = true; }
+      if (ITEM_ACTED.includes(it.state)) { it.state = 'open'; it.actedAt = after(it.actedAt, at); it.ackedAt = null; it.lastAction = 'restore'; if (n != null) it.note = n; changed = true; }
+    } else if (it.state !== target || (n != null && n !== it.note)) { it.state = target; it.actedAt = after(it.actedAt, at); it.ackedAt = null; it.lastAction = action; if (n != null) it.note = n; changed = true; }
     // The same story on another morning's digest follows this card. The worker hears the decision once, from this card.
     if (it.state !== was) for (const { e: o, it: c } of this.cards(it, e.source, it)) {
       if (c.section === 'listed' || c.state !== was) continue;

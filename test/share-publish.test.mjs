@@ -8,6 +8,7 @@ import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {createHash,createHmac,randomUUID} from 'node:crypto';
 import {DocumentStore} from '../documents.mjs';
+import {freePort} from './free-port.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
 const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|CODEX)_/.test(k)));
@@ -18,7 +19,7 @@ const T2='legacyTokenTwo_abcdefghijklmnopqrstuvwxyz0123456';
 
 // A Pocket server on a scratch data dir with Files on; `seed` runs before start (a documents.json to migrate).
 async function server(t,{seed}={}){
-  const dir=tmp();let port=19431+Math.floor(Math.random()*400);
+  const dir=tmp();let port=await freePort();
   const secret=randomUUID(),exp=Date.now()+3600000;
   const cookie=exp+'.'+createHmac('sha256',secret).update(String(exp)).digest('hex');
   const owner={'content-type':'application/json',cookie:'pc_auth='+cookie};
@@ -115,7 +116,7 @@ test('PC-04 store: which changes expose a file more; Deny, timeout and a changed
   assert.equal(s.collectRequest(row.id,AGENT),null,'nothing to collect before the answer');
   await s.answerRequest(row.id,'deny');assert.equal(s.get(a.id).visibility,'link');assert.equal(s.resolvePublic('plan.md'),null);assert.equal(s.resolveShare(linked.token).id,a.id,'the existing link is untouched');
   assert.throws(()=>s.collectRequest(row.id,AGENT),e=>e.status===403&&e.code==='denied');
-  await assert.rejects(s.answerRequest(row.id,'allow'),e=>e.status===409,'a denied request cannot be allowed later');
+  await assert.rejects(s.answerRequest(row.id,'allow'),e=>e.status===409&&e.code==='request_answered','a denied request cannot be allowed later'); // 1.124.5: with a code the card reads
   // Timeout: unanswered after the request time, it ends as expired and changes nothing.
   row=await s.raiseRequest(b.id,{to:'link',expiresAt:null},{caller:AGENT});
   clock+=15*60*1000+1;assert.equal(s.pendingRequests().length,0);

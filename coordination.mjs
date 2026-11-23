@@ -50,7 +50,7 @@ export class CoordStore {
   constructor(file, { write, now, log } = {}) {
     this.file = file; this.now = now || Date.now;
     this.write = write || ((f, data) => { fs.mkdirSync(path.dirname(f), { recursive: true }); const tmp = f + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(data, null, 1), { mode: 0o600 }); fs.renameSync(tmp, f); });
-    this.state = { holds: [], waits: {}, offers: {}, recent: [], names: [], notices: {} };
+    this.state = { holds: [], waits: {}, offers: {}, offeredTo: {}, recent: [], names: [], notices: {} };
     const d = readStore(file, { log, now: this.now }); // 1.124.2: one that does not parse is kept aside and logged
     for (const k of Object.keys(this.state)) if (d[k] && typeof d[k] === typeof this.state[k]) this.state[k] = d[k];
   }
@@ -85,6 +85,7 @@ export class CoordStore {
     if (!first || first.block) return null;
     s.waits[name].shift(); if (!s.waits[name].length) delete s.waits[name];
     s.offers[name] = this.now();
+    s.offeredTo[name] = { session: first.session || null, at: s.offers[name] }; // 1.124.5: who was told, for the views
     return { name, ...first };
   }
   hold(value, { reason, ttl, isNew = false, holder }) {
@@ -100,7 +101,7 @@ export class CoordStore {
     if (held) Object.assign(held, { reason: text || held.reason, ttlMs, expiresAt: t + ttlMs });
     else s.holds.push({ name, reason: text, holder, heldAt: t, ttlMs, expiresAt: t + ttlMs });
     if (holder.session && s.waits[name]) { s.waits[name] = s.waits[name].filter(w => w.session !== holder.session); if (!s.waits[name].length) delete s.waits[name]; }
-    delete s.offers[name];
+    delete s.offers[name]; delete s.offeredTo[name];
     this.commit(s);
     return { hold: this.live(name), renewed: Boolean(held) };
   }
@@ -112,7 +113,7 @@ export class CoordStore {
     let mine = rows.find(w => id ? w.id === id : sameHolder(w, waiter));
     const offered = t - (s.offers[name] || 0) < LIMITS.offerMs; // the one just told has a while to claim it
     if (!held && !offered && (!rows.length || rows[0] === mine)) {
-      if (mine) { s.waits[name] = rows.slice(1); if (s.waits[name].length) s.offers[name] = t; else delete s.waits[name]; this.commit(s); }
+      if (mine) { s.waits[name] = rows.slice(1); if (s.waits[name].length) { s.offers[name] = t; s.offeredTo[name] = { session: mine.session || null, at: t }; } else delete s.waits[name]; this.commit(s); }
       return { free: true, name };
     }
     if (!mine) {
@@ -171,8 +172,17 @@ export class CoordStore {
       if (next) { woken.push(next); changed = true; }
     }
     for (const name of Object.keys(s.offers)) if (t - s.offers[name] >= LIMITS.offerMs && !s.waits[name]) { delete s.offers[name]; changed = true; }
+    for (const name of Object.keys(s.offeredTo)) if (t - s.offeredTo[name].at >= LIMITS.offerMs && !s.offers[name]) { delete s.offeredTo[name]; changed = true; }
     if (changed) this.commit(s);
     return woken;
+  }
+  // 1.124.5: the one just offered it was told, but its start is held (Pocket paused, its queue stopped, a limit): no
+  // window keeps the name from the next in line, whom the next sweep offers it to. The views say the start is held.
+  offerHeld(name, session) {
+    const s = this.draft(), o = s.offeredTo[name];
+    if (!o || o.session !== session || this.live(name, s)) return false;
+    delete s.offers[name]; o.held = true;
+    this.commit(s); return true;
   }
   // The one just offered it couldn't be told, so the next in line gets it.
   wakeNext(name) {
@@ -189,11 +199,18 @@ export class CoordStore {
     return rows;
   }
   snapshot() {
-    const { holds, waits, recent } = this.state, t = this.now();
+    const { holds, waits, recent, offeredTo = {} } = this.state, t = this.now();
+    const shown = rows => rows.map(({ run, ...w }) => w); // eslint-disable-line no-unused-vars
+    const line = name => shown((waits[name] || []).filter(w => t - w.at < LIMITS.waitMs && !(w.block && t - (w.seenAt || w.at) > LIMITS.blockStaleMs)));
+    // 1.124.5: a free name that still has a line or was offered lately, so the line is not invisible while nobody holds it.
+    const free = [...new Set([...Object.keys(waits), ...Object.keys(offeredTo)])].filter(name => !this.live(name)).map(name => {
+      const o = offeredTo[name] && t - offeredTo[name].at < LIMITS.offerMs ? offeredTo[name] : null;
+      return { name, waiters: line(name), offer: o ? { session: o.session, at: o.at, held: Boolean(o.held) } : null };
+    }).filter(f => f.waiters.length || f.offer);
     return {
       now: t, seeds: SEEDS,
-      holds: holds.map(h => ({ ...h, waiters: (waits[h.name] || []).map(({ run, ...w }) => w) })), // eslint-disable-line no-unused-vars
-      recent,
+      holds: holds.map(h => ({ ...h, waiters: shown(waits[h.name] || []) })),
+      free, recent,
     };
   }
 }

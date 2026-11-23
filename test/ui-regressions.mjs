@@ -737,36 +737,40 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
   await check('Attention filter includes Response ready replies until they are opened',async()=>{
    const done=rows.find(r=>r.state.kind==='finished')||rows[4];const saved=done.state,at=Date.now();
    done.state={kind:'finished',label:'Response ready',at};
+   await page.setViewport({width:1440,height:900}); // its own size: run alone (POCKET_CHECK) it had the browser's 800x600, where the row's More did not open
    await page.goto(base+'/#/');await page.waitForSelector('[data-filter="attention"]');
    delete done.seenAt;await page.evaluate(id=>{localStorage.removeItem('pc-seen-'+id);serverSeen.delete(id);seenPending.delete(id);},done.id);await page.evaluate(()=>refreshSessions());await pause(300);
    await clickControl(page,'[data-filter="attention"]');await pause(200);
    const listed=()=>page.evaluate(id=>filteredSessions().some(s=>s.id===id)&&[...document.querySelectorAll('.session-item .row')].some(b=>b.dataset.id===id),done.id);
-   assert.equal(await listed(),true,'an unopened reply is in Attention');
+   const listedIs=async want=>{for(let k=0;k<100;k++){if(await listed()===want)return want;await pause(50);}return !want;}; // the list repaints after a refresh or a click: wait for it, up to 5 s, instead of a fixed pause
+   assert.equal(await listedIs(true),true,'an unopened reply is in Attention');
    assert.match(await page.$eval('[data-filter="attention"]',e=>e.textContent),/Attention\s*\d+/,'counted');
    await page.evaluate(([id,at])=>{localStorage.setItem('pc-seen-'+id,String(at));},[done.id,at]);await page.evaluate(()=>refreshSessions());await pause(300);
-   assert.equal(await listed(),false,'leaves Attention once opened');
+   assert.equal(await listedIs(false),false,'leaves Attention once opened');
    await clickControl(page,'[data-filter="all"]');done.state=saved;
   });
   await check('Mark reviewed clears Response ready without opening it, singly or all at once with Undo',async()=>{
    const done=rows.find(r=>r.state.kind==='finished')||rows[4];const saved=done.state,at=Date.now();
    done.state={kind:'finished',label:'Response ready',at};
+   await page.setViewport({width:1440,height:900}); // its own size: run alone (POCKET_CHECK) it had the browser's 800x600, where the row's More did not open
    await page.goto(base+'/#/');await page.waitForSelector('[data-filter="attention"]');
    delete done.seenAt;await page.evaluate(id=>{localStorage.removeItem('pc-seen-'+id);serverSeen.delete(id);seenPending.delete(id);},done.id);await page.evaluate(()=>refreshSessions());await pause(300);
    await clickControl(page,'[data-filter="attention"]');await pause(200);
    const listed=()=>page.evaluate(id=>filteredSessions().some(s=>s.id===id),done.id);
-   assert.equal(await listed(),true,'starts in Attention');
+   const listedIs=async want=>{for(let k=0;k<100;k++){if(await listed()===want)return want;await pause(50);}return !want;}; // the list repaints after a refresh or a click: wait for it, up to 5 s, instead of a fixed pause
+   assert.equal(await listedIs(true),true,'starts in Attention');
    await clickControl(page,`[data-more="${done.id}"]`);await page.waitForSelector('#so-reviewed');await page.screenshot({path:path.join(out,'review-option.png')});await clickControl(page,'#so-reviewed');await pause(200);
-   assert.equal(await listed(),false,'single mark leaves Attention');
+   assert.equal(await listedIs(false),false,'single mark leaves Attention');
    assert.equal(await page.evaluate(()=>location.hash),'#/','did not open the conversation');
    delete done.seenAt;await page.evaluate(id=>{localStorage.removeItem('pc-seen-'+id);serverSeen.delete(id);seenPending.delete(id);},done.id);await page.evaluate(()=>paintSessionPanels());
    await page.waitForSelector('[data-mark-all-reviewed]');await page.screenshot({path:path.join(out,'review-bar.png')});
    await clickControl(page,'[data-mark-all-reviewed]');await pause(200);await page.screenshot({path:path.join(out,'review-bar-undo.png')});
-   assert.equal(await listed(),false,'bulk mark leaves Attention');
+   assert.equal(await listedIs(false),false,'bulk mark leaves Attention');
    for(let attempt=0;attempt<100&&done.seenAt!==at;attempt++)await pause(50);
    assert.equal(done.seenAt,at,'saved on the server for other devices');
    await clickControl(page,'[data-undo-reviewed]');
    for(let attempt=0;attempt<100&&done.seenAt!==undefined;attempt++)await pause(50);
-   assert.equal(await listed(),true,'Undo brings it back');
+   assert.equal(await listedIs(true),true,'Undo brings it back');
    assert.equal(done.seenAt,undefined,'Undo also clears it on the server');
    // 1.116: Settings hides the bar; the row stays in Attention and its own Mark as reviewed still works
    await page.evaluate(()=>settingsSheet());await page.waitForSelector('[data-settings-category=conversation]');await clickControl(page,'[data-settings-category=conversation]');await page.waitForSelector('#s-review-all:not(:disabled)');await pause(250);
@@ -778,7 +782,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.equal(settingsState().markAllReviewed,false,'saved on the server');
    assert.match(await page.$eval('#s-review-all-state',e=>e.textContent),/^Hidden\./);
    await page.evaluate(()=>closeCurrentSheet?.());await pause(200);
-   assert.equal(await listed(),true,'still in Attention');
+   assert.equal(await listedIs(true),true,'still in Attention');
    assert.equal(await page.$('.review-bar'),null,'the bar is hidden');await page.screenshot({path:path.join(out,'review-bar-hidden.png')});
    await page.evaluate(()=>refreshSessions());await pause(300);assert.equal(await page.$('.review-bar'),null,'and stays hidden after a refresh');
    assert.ok(await page.$(`[data-more="${done.id}"]`),'Conversation options are still on the row');
@@ -1491,9 +1495,11 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.waitForSelector('.task-item');
    // Remind later on a dated task: the project reminder's quick picks, the task re-dated.
    const later=await page.evaluate(()=>{const t=tasksSnap.tasks.find(x=>x.text==='Chase the revised camera quote');taskSheet(t.id);return t.dueAt;});
-   await page.waitForSelector('.task-sheet [data-later]');await clickControl(page,'.task-sheet [data-later]');await page.waitForSelector('.sheet [data-pick="week"]');
-   assert.deepEqual(await page.$$eval('.sheet [data-pick]',els=>els.map(e=>e.dataset.pick)),['tomorrow','three','monday','week']);
-   await clickControl(page,'.sheet [data-pick="week"]');await page.waitForFunction(prev=>tasksSnap.tasks.find(x=>x.text==='Chase the revised camera quote').dueAt!==prev,{},later);
+   await page.waitForSelector('.task-sheet [data-later]');await clickControl(page,'.task-sheet [data-later]');await page.waitForSelector('.sheet [data-pick="monday"]');
+   // 1.124.5: on a Monday "In a week" is the same morning as "Next Monday" and is left out, so the last pick depends on the day
+   const lastPick=await page.evaluate(()=>new Date().getDay()===1?'monday':'week');
+   assert.deepEqual(await page.$$eval('.sheet [data-pick]',els=>els.map(e=>e.dataset.pick)),lastPick==='week'?['tomorrow','three','monday','week']:['tomorrow','three','monday']);
+   await clickControl(page,`.sheet [data-pick="${lastPick}"]`);await page.waitForFunction(prev=>tasksSnap.tasks.find(x=>x.text==='Chase the revised camera quote').dueAt!==prev,{},later);
    const moved=new Date(await page.evaluate(()=>tasksSnap.tasks.find(x=>x.text==='Chase the revised camera quote').dueAt));assert.equal(moved.getHours(),9,'9 AM in the device zone');assert.ok(moved.getTime()-Date.now()>6*86400000,'a week out');
    // The sheet: facts and the briefing; Start writes the New session draft in the task's workspace.
    await clickControl(page,'.task-item [data-task-open]');await page.waitForSelector('.task-sheet');
@@ -2085,7 +2091,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     // The editor: Who can use it has the same five, Vault default selected for a new secret.
     await clickControl(page,'#vt-add');await page.waitForSelector('.vault-editor [name=policy]');
     assert.deepEqual(await page.$eval('.vault-editor [name=policy]',s=>({value:s.value,options:[...s.options].map(o=>o.value),first:s.options[0].textContent,hint:document.querySelector('[data-policy-hint]').textContent})),
-     {value:'default',options:['default','auto','ask','every','owner'],first:'Vault default (currently: Ask every time)',hint:'Follows Agent access in Settings → Vault.'});
+     {value:'default',options:['default','auto','ask','every','owner'],first:'Vault default (currently: Ask every time)',hint:'Follows Agent access in Settings → Projects, files, tasks & vault.'});
     await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.vault-editor'));
     // A request on an item that asks every time: Allow once and Deny only.
     vaultFixture.extraRequests=[{id:'fixture-every',items:['fixture'],itemNames:['payroll-api'],argv:['node','run-payroll.mjs'],cwd:'/srv/payroll',session:rows[0].id,sessionTitle:rows[0].title,created:new Date().toISOString(),expiresAt:new Date(Date.now()+15*60000).toISOString(),answer:null,allowAlways:false}];
@@ -2344,7 +2350,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     settings.vault=false;await page.reload();await page.waitForSelector('#box');
     await paste('#box',KEY);await page.waitForSelector('.secret-sheet');
     assert.deepEqual(await page.evaluate(()=>({form:Boolean(document.querySelector('.secret-sheet form')),help:document.querySelector('.secret-sheet .secret-help').textContent,hint:document.querySelector('.secret-sheet .secret-hint').textContent,alt:[...document.querySelectorAll('.secret-sheet .secret-alt .opt')].length})),
-     {form:false,help:'Pasting it sends it to the model and keeps it in the transcript.',hint:'Turn on the Vault in Settings to store secrets instead.',alt:2});
+     {form:false,help:'Pasting it sends it to the model and keeps it in the transcript.',hint:'Turn on the Vault in Settings → Projects, files, tasks & vault, to store secrets instead.',alt:2});
     await untip();await scan('secret-paste-sheet-vault-off');await clickControl(page,'.secret-sheet [data-back]');await sheetGone();settings.vault=true;
     // The phone: both sheets fit at 390, and the queue editor's paste stacks over its dialog and returns to it.
     await page.setViewport({width:390,height:844});await page.reload();await page.waitForSelector('#box');await setBox('');
@@ -2400,7 +2406,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.type('[data-task-add] input','Post the inventory adjustment');await page.keyboard.press('Enter');
    await page.waitForFunction(()=>document.querySelectorAll('.task-row').length===3);c=await card();assert.deepEqual(c.steps[2],['Post the inventory adjustment',false,'']);
    await clickControl(page,'[data-remind]');await page.waitForSelector('.sheet [data-pick="tomorrow"]');
-   const picks=await page.$$eval('.sheet [data-pick]',els=>els.map(e=>e.textContent.replace(/\s+/g,' ').trim()));assert.equal(picks.length,4);assert.match(picks[0],/^Tomorrow morning/);
+   const picks=await page.$$eval('.sheet [data-pick]',els=>els.map(e=>e.textContent.replace(/\s+/g,' ').trim()));assert.equal(picks.length,await page.evaluate(()=>new Date().getDay()===1?3:4),'four picks, three on a Monday (1.124.5)');assert.match(picks[0],/^Tomorrow morning/);
    await clickControl(page,'.sheet [data-pick="tomorrow"]');await page.waitForFunction(()=>document.querySelectorAll('.reminder-title').length===1);
    c=await card();assert.deepEqual(c.reminders,['Revisit Warehouse stock report']);
    await clickControl(page,'[data-finish]');await page.waitForSelector('.sheet [data-yes]');await clickControl(page,'.sheet [data-yes]');
@@ -2531,14 +2537,15 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.setViewport({width:1440,height:900});const settings=settingsState(),was={projects:settings.projects,tasks:settings.tasks};settings.projects=true;settings.tasks=true;
    const ID='warehouse-stock-report',SUMMARY='Aisle 4 recounted twice; the shortfall is the Friday delivery.',TEXT='Chase the revised camera quote by Thursday';
    const settle=async(fn,...a)=>{for(let i=0;i<40;i++){if(await page.evaluate(fn,...a))return true;await pause(100);}return false;};
-   const refused=re=>page.waitForFunction(re=>new RegExp(re).test(document.querySelector('#toast')?.textContent||''),{},re);
+   // 1.124.5: both sheets say it in place (the note under the form) instead of a toast
+   const refused=re=>page.waitForFunction(re=>{const n=document.querySelector('.sheet [data-stale]');return Boolean(n)&&!n.hidden&&new RegExp(re).test(n.textContent);},{},re);
    try{
     await page.evaluate(()=>Promise.all(['/api/board/reset','/api/tasks/reset'].map(u=>fetch(u,{method:'POST'}))));
     await page.goto(base+'/?stale-edit=1#/projects/'+ID);await page.waitForSelector('.project-card [data-edit]');
     await clickControl(page,'.project-card [data-edit]');await page.waitForSelector('.project-editor form');
     await page.$eval('.project-editor [name="summary"]',e=>{e.value='';});await page.type('.project-editor [name="summary"]',SUMMARY);
     await page.evaluate(id=>fetch('/api/board/act',{method:'POST',body:JSON.stringify({project:id,action:'note',text:'Ledger re-imported by the agent.'})}),ID);
-    await clickControl(page,'.project-editor .primary');await refused('This project changed since you loaded it');
+    await clickControl(page,'.project-editor .primary');await refused('This project changed while you were editing');
     assert.equal(await page.$eval('.project-editor [name="summary"]',e=>e.value),SUMMARY,'the sheet stays open with the edit');
     await clickControl(page,'.project-editor .primary');
     assert.ok(await settle(()=>!document.querySelector('.project-editor')),'the second Save goes through and closes the sheet');
@@ -2549,7 +2556,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await page.waitForSelector('.task-sheet [data-edit]');await clickControl(page,'.task-sheet [data-edit]');await page.waitForSelector('.task-form');
     await page.$eval('.task-form [name="text"]',e=>{e.value='';});await page.type('.task-form [name="text"]',TEXT);
     await page.evaluate(id=>fetch('/api/tasks/act',{method:'POST',body:JSON.stringify({action:'update',task:id,summary:'The vendor asked for the site plan first.'})}),tid);
-    await clickControl(page,'.task-form .primary');await refused('This task changed since you loaded it');
+    await clickControl(page,'.task-form .primary');await refused('This task changed while you were editing');
     assert.equal(await page.$eval('.task-form [name="text"]',e=>e.value),TEXT,'the task sheet stays open with the edit');
     await clickControl(page,'.task-form .primary');
     assert.ok(await settle(()=>!document.querySelector('.task-form')),'the second Save goes through and closes the task sheet');

@@ -24,11 +24,13 @@ function mergeProject(p){
  boardSnap.dueCount=boardSnap.scheduled.filter(r=>r.due).length;
 }
 // onStale (1.124.2): called with the current card when the server refuses a stale revision, so an open sheet can take it on.
-async function boardAct(body,done,onStale){
+// onError (1.124.5): called with any other refusal; a sheet that shows the reason itself returns true and there is no toast.
+const boardAddQueue=new Map(); // project id -> the step or note being added; the next one waits for it (1.124.5)
+async function boardAct(body,done,onStale,onError){
  try{const r=await api('/board/act',{method:'POST',body:JSON.stringify(body)});mergeProject(r.project);if(done)toast(done);paintProjectsView();paintProjectBadges();if(typeof repaintDue==='function')repaintDue();
   if(typeof boardChangedChatMode==='function')boardChangedChatMode(body,r.project); // 1.106: the open conversation's chip follows a link, unlink or switch
   return r.project;}
- catch(e){const cur=e.body?.project;if(e.status===409&&cur){mergeProject(cur);paintProjectsView();onStale?.(cur);}toast(e.message||'Could not update the project');return null;}
+ catch(e){const cur=e.body?.project;if(e.status===409&&cur){mergeProject(cur);paintProjectsView();if(onStale?.(cur)===true)return null;}else if(onError?.(e)===true)return null;toast(e.message||'Could not update the project');return null;}
 }
 const boardDueCount=()=>boardSnap?.dueCount||0;
 // 1.50: while Tasks is on, the Tasks list is where reminders are listed and counted; Scheduled stays for installs without it.
@@ -37,7 +39,8 @@ const dueListView=()=>typeof tasksOn==='function'&&tasksOn()?'tasks':'projects/s
 function quickPicks(){
  const at=(days,hour)=>{const d=new Date();d.setDate(d.getDate()+days);d.setHours(hour,0,0,0);return d;};
  const nextMonday=()=>at(((8-new Date().getDay())%7)||7,9);
- return [['tomorrow','Tomorrow morning',at(1,9)],['three','In three days',at(3,9)],['monday','Next Monday',nextMonday()],['week','In a week',at(7,9)]];
+ // 1.124.5: on a Monday "Next Monday" and "In a week" are the same morning; the later of two equal picks is left out
+ return [['tomorrow','Tomorrow morning',at(1,9)],['three','In three days',at(3,9)],['monday','Next Monday',nextMonday()],['week','In a week',at(7,9)]].filter((p,i,a)=>a.findIndex(q=>+q[2]===+p[2])===i);
 }
 const viewTitle=id=>id.startsWith('new/')?(typeof openSessions!=='undefined'&&openSessions.find(t=>t.id===id)?.title)||'New conversation':id==='vault'?'Vault':id==='tasks'?'Tasks':id==='coordination'?'Coordination':id.startsWith('link/')?(typeof linkViewTitle==='function'?linkViewTitle(id):'Link'):id.startsWith('documents')?(typeof docViewTitle==='function'?docViewTitle(id):'Files'):id==='projects'?'Projects':id==='projects/scheduled'?'Scheduled':projectById(id.slice(9))?.name||'Project';
 const fmtDue=iso=>{const d=new Date(iso),now=new Date();const sameYear=d.getFullYear()===now.getFullYear();return d.toLocaleDateString('en-US',{month:'short',day:'numeric',...(sameYear?{}:{year:'numeric'})})+' '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});};
@@ -84,6 +87,7 @@ function paintProjectsView(){
  else if(kind==='scheduled')main.innerHTML=scheduledHTML();
  else{const p=projectById(boardView.slice(9));if(!p)return;main.innerHTML=projectCardHTML(p);const t=$('#ptitle');if(t)t.textContent=p.name;const g=$('#ptag');if(g)g.textContent=statusWord[p.status]+(p.directory?' · '+projShort(p.directory):'');}
  bindProjectsView(main);
+ bindKeptAside(main,boardSnap,paintProjectsView); // 1.124.5: a list kept aside is named until dismissed
  if(refocus)main.querySelector(refocus)?.focus({preventScroll:true});
  paintProjectBadges();
  if(typeof paintOpenSessions==='function')paintOpenSessions();
@@ -106,7 +110,7 @@ function projectListHTML(){
  const body=groups.map(([k,label,rows])=>!rows.length?'':k==='done'
   ?`<details class="session-group project-group settings-details"><summary><h2>${label} <span>${rows.length}</span></h2></summary>${rows.map(projectRowHTML).join('')}</details>`
   :`<section class="session-group project-group"><h2>${label} <span>${rows.length}</span></h2>${rows.map(projectRowHTML).join('')}</section>`).join('');
- return `<div class="session-home-head"><h2>Projects</h2><span class="project-head-actions"><a class="chip ${due?'due':''}" href="${viewHref(dueListView())}" data-view-link>${dueListView()==='tasks'?'Reminders':'Scheduled'}${due?' · '+due+' due':''}</a><button class="chip" id="pj-track">Track a project</button></span></div>
+ return keptAsideHTML(boardSnap.keptAside)+`<div class="session-home-head"><h2>Projects</h2><span class="project-head-actions"><a class="chip ${due?'due':''}" href="${viewHref(dueListView())}" data-view-link>${dueListView()==='tasks'?'Reminders':'Scheduled'}${due?' · '+due+' due':''}</a><button class="chip" id="pj-track">Track a project</button></span></div>
   ${boardSnap.projects.length?body:`<p class="sheet-help project-empty">No tracked projects yet. Track one here, or from a conversation's options, when there is work you want to keep a card for. Agents can keep a card current with <code>pocket-board</code>.</p>`}`;
 }
 function scheduledHTML(){
@@ -195,7 +199,11 @@ function bindProjectsView(main){
  // 1.124.2: a step or a note only adds to the card, so it goes with the current revision (the card is not repainted while
  // its box has text, so p can be older). A refusal repaints the card first: the text goes back into the new box, not the old one.
  const add=(sel,action,msg)=>main.querySelector(sel)?.addEventListener('submit',e=>{e.preventDefault();const input=e.target.elements.text;const text=input.value.trim();if(!text)return;input.value='';
-  boardAct({action,text,project:id,expected_revision:(projectById(id)||p).revision},msg).then(ok=>{const box=main.querySelector(sel+' input')||input;if(!ok&&!box.value)box.value=text;});});
+  // 1.124.5: a second step entered before the first one's answer went with the revision the first was about to change,
+  // and was refused as "changed since you loaded it" (the owner's own step). It now waits for the one before it.
+  const run=(boardAddQueue.get(id)||Promise.resolve()).then(()=>boardAct({action,text,project:id,expected_revision:(projectById(id)||p).revision},msg));
+  const tail=run.catch(()=>null);boardAddQueue.set(id,tail);tail.then(()=>{if(boardAddQueue.get(id)===tail)boardAddQueue.delete(id);});
+  tail.then(ok=>{const box=main.querySelector(sel+' input')||input;if(!ok&&!box.value)box.value=text;});});
  add('[data-task-add]','task-add','Step added');
  add('[data-note-add]','note','Note added');
  main.querySelectorAll('[data-remind-later]').forEach(b=>b.onclick=()=>reminderSheet(id,p.reminders.find(r=>r.id===b.dataset.remindLater)?.task||null));
@@ -345,6 +353,7 @@ function projectEditor(p,{directory='',session=null,onDone}={}){
  sh.innerHTML=`<h2>${p?'Edit project':'Track a project'}</h2>
   ${p?'':'<p class="sheet-help">A card for work you want to keep track of: where you left off, the next step, remaining steps and reminders. Conversations can be linked to it.</p>'}
   <form class="project-form">
+   <p class="project-stale" data-stale role="status" hidden></p>
    <label class="voice-field">Name<input name="name" maxlength="120" required value="${v('name')}" autocomplete="off"></label>
    <label class="voice-field">Where we left off<textarea name="summary" maxlength="600" rows="3">${v('summary')}</textarea></label>
    <label class="voice-field">Next step<textarea name="next" maxlength="600" rows="2">${v('next')}</textarea></label>
@@ -353,13 +362,37 @@ function projectEditor(p,{directory='',session=null,onDone}={}){
    ${assistantMode()?'':`<div class="voice-field"><label for="pe-works">Works in</label><textarea id="pe-works" name="worksIn" maxlength="4000" rows="3" spellcheck="false" autocapitalize="off" placeholder="One per line" aria-describedby="pe-works-help">${esc((p.worksIn||[]).join('\n'))}</textarea><p class="title-note" id="pe-works-help">Folders and web addresses the lead may change without asking. The project's directory is always included.</p></div>`}`:''}
    <label class="voice-field">Directory<input name="directory" maxlength="1024" value="${p?v('directory'):esc(directory)}" placeholder="/full/path, so agents working there find this card"></label>
    <label class="voice-field">Link<input name="link" maxlength="1024" type="url" value="${v('link')}" placeholder="https://"></label>
+   <p class="vault-form-error" data-error role="alert"></p>
    <button class="primary" type="submit">${p?'Save changes':'Track project'}</button>
   </form>`;
+ // 1.124.5: a card that changed elsewhere while this sheet was open. The refused Save used to leave every field as it
+ // was, so the second Save wrote the old values back over the other change. Now each field the other side changed and
+ // the owner had not touched takes the new value; a field both changed keeps the owner's words, and the sheet says which.
+ const FIELDS=[['name','Name'],['summary','Where we left off'],['next','Next step'],['waitingFor','Waiting for'],['doneWhen','Done when'],['worksIn','Works in'],['directory','Directory'],['link','Link']];
+ const shown=(card,k)=>k==='worksIn'?(card?.worksIn||[]).join('\n'):String(card?.[k]??'');
+ let base=p;
+ const takeCurrent=cur=>{
+  const form=sh.querySelector('form'),took=[],kept=[];
+  for(const [k,label] of FIELDS){const el=form.elements[k];if(!el||shown(cur,k)===shown(base,k))continue;
+   if(el.value.trim()===shown(base,k).trim()){el.value=shown(cur,k);took.push(label);}else if(el.value.trim()!==shown(cur,k).trim())kept.push(label);}
+  base=cur;revision=cur.revision;
+  const note=form.querySelector('[data-stale]');
+  note.textContent=`This project changed while you were editing.${took.length?` Now showing the new ${took.join(', ')}.`:''}${kept.length?` Your ${kept.join(', ')} ${kept.length>1?'are':'is'} kept; saving replaces the other change there.`:''} Check the form, then save again.`;
+  note.hidden=false;note.scrollIntoView({block:'nearest'});return true; // the sheet says it, so no toast repeats it (as Edit task)
+ };
+ const refusal=e=>{
+  const form=sh.querySelector('form'),line=form.querySelector('[data-error]'),msg=e.message||'Could not save the project';
+  const field=/director/i.test(msg)?'directory':/place|works in/i.test(msg)?'worksIn':/link|address/i.test(msg)?'link':/name/i.test(msg)?'name':'';
+  line.textContent=msg;const el=field&&form.elements[field];
+  if(el){el.setAttribute('aria-invalid','true');el.focus();el.addEventListener('input',()=>{el.removeAttribute('aria-invalid');line.textContent='';},{once:true});}
+  return true;
+ };
  sh.querySelector('form').onsubmit=async e=>{
   e.preventDefault();const f=Object.fromEntries(new FormData(e.target));const btn=e.target.querySelector('button');btn.disabled=true;
+  e.target.querySelector('[data-error]').textContent='';e.target.querySelectorAll('[aria-invalid]').forEach(el=>el.removeAttribute('aria-invalid'));
   if(p&&'worksIn' in f)f.worksIn=String(f.worksIn||'').split('\n').map(x=>x.trim()).filter(Boolean); // 1.106: one place per line
   const body=p?{action:'update',project:p.id,expected_revision:revision,...f}:{action:'track',...f,requested:true,...(session?{session}:{})};
-  const out=await boardAct(body,p?'Project updated':'Project tracked',cur=>{revision=cur.revision;});
+  const out=await boardAct(body,p?'Project updated':'Project tracked',takeCurrent,refusal);
   btn.disabled=false;if(!out)return;closeCurrentSheet?.();
   if(onDone)onDone(out);else if(!p)location.hash=viewHref('projects/'+out.id);
  };

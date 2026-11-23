@@ -74,7 +74,7 @@ test('F-13 delivery note: kept while the reply works in background (not finished
  assert.equal(bg.kind,'background');assert.equal(clearOn.includes(bg.kind),false);
  // The guard on "cannot tell whether a later message was delivered": sending clears the note first (app.js:3385) and sets the new outcome (:3407).
  const send=appJs.slice(appJs.indexOf('async function submitPending'),appJs.indexOf("deliveryNotices.set(id, result.queued"));
- assert.match(send,/sendsInFlight\.add\(id\); deliveryNotices\.delete\(id\); paintDelivery\(id\);[\s\S]*await api\(`\/session\/\$\{id\}\/message`/,'the old note is gone before the next message is sent');
+ assert.match(send,/sendsInFlight\.add\(id\); deliveryNotices\.delete\(id\);[\s\S]*paintDelivery\(id\);[\s\S]*await api\(`\/session\/\$\{id\}\/message`/,'the old note is gone before the next message is sent');
 });
 
 test('F-18 Git control: a conversation whose repository is outside home is not offered a Git control that always fails',async t=>{

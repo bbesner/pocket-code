@@ -97,6 +97,12 @@ switch (cmd) {
       console.log(held(h, d.now));
       if (h.waiters.length) console.log('  Waiting: ' + h.waiters.map(w => w.session ? `"${w.title || 'a conversation'}"` : 'a terminal session').join(', '));
     }
+    // 1.124.5: a free name with a line, or offered to someone lately.
+    for (const f of d.free || []) {
+      const o = f.offer, to = o && (o.session ? `"${o.title || 'a conversation'}"` : 'a terminal session');
+      console.log(`${f.name} is free.${o ? ` Offered to ${to} ${age(d.now - o.at)} ago${o.held ? '; its start is held, so the next in line may have it' : ''}.` : ''}`);
+      if (f.waiters.length) console.log('  Waiting: ' + f.waiters.map(w => w.session ? `"${w.title || 'a conversation'}"` : 'a terminal session').join(', '));
+    }
     for (const r of d.recent.slice(0, 5)) console.log(`Lately: ${r.name} ${ENDED[r.event] || r.event} ${age(d.now - r.endedAt)} ago${r.note ? `: ${r.note}` : ''}`);
     if (d.seeds.length) console.log(`Known from the start: ${d.seeds.join(', ')}. Other names are learned the first time each is held.`);
     break;

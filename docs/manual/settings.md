@@ -87,7 +87,7 @@ Everything here applies to the whole install.
 | **Actions that run without asking** | Read-only actions Claude Code, Codex, OpenRouter and Antigravity run without an approval card in **Review actions** (Codex and OpenRouter since 1.87, Antigravity since 1.120, for commands). Type a rule (`Bash(command:*)`, `Bash(exact command)`, `mcp__server__tool`, `mcp__server__*`, `WebSearch`) and press **Add**; **Remove** takes one off. Edit and Write always ask; Codex is not covered. **Use the server's list** goes back to `POCKET_TRUSTED_ACTIONS` |
 | **Automatic model choice** | In Assistant mode, sends a request typed from scratch to a small decision model that picks one of four levels; see below. Assistant mode shows only its switch, under **Features** |
 | **One sign-in** | Lets a Cloudflare Access sign-in replace Pocket's password; see below |
-| **Sign out** | 1.118. **Sign out** signs this browser out and turns off its notifications. **Sign out everywhere** asks first, then signs out every browser and phone, this one included, and turns off notifications on all of them; turn **Push to this device** on again on the ones you keep. Conversations and replies in progress carry on. Changing `POCKET_PASSWORD` and restarting signs every browser out too. With **One sign-in** on, a signed-out browser is let back in by Cloudflare Access, so revoke Access sessions in Cloudflare as well |
+| **Sign out** | 1.118. **Sign out** signs this browser out and turns off its notifications. **Sign out everywhere** asks first, then signs out every browser and phone, this one included, and turns off notifications on all of them; turn **Push to this device** on again on the ones you keep. Conversations and replies in progress carry on. Changing `POCKET_PASSWORD` and restarting signs every browser out too. With **One sign-in** on, a signed-out browser is let back in by Cloudflare Access, so revoke Access sessions in Cloudflare as well. If the sign-in runs out while a sheet is open (another device signed out everywhere, or the password changed), **Sign in again** covers the sheet; after **Unlock** the sheet is still there with what you typed, and you save again |
 
 **Defaults.** The picker offers every Claude model, or the list in `POCKET_CLAUDE_MODELS`. No
 action runs without asking, unless `POCKET_TRUSTED_ACTIONS` lists some. A list saved in Settings
@@ -256,15 +256,22 @@ instead of the link to the upgrade steps. Pocket asks you to confirm, then does 
 it checks that the Pocket Code folder is unchanged and on `main` (or on a release), that the release is
 on `main`, and that no reply is running; backs up its private data to `~/backups`; installs the release
 and its packages; waits for any reply that started meanwhile to finish (up to 10 minutes; if replies keep
-running it goes back and changes nothing); and restarts. The sheet shows each step. While Pocket restarts the page loses
+running it goes back and changes nothing); and restarts. The sheet shows each step. From the moment it begins the
+restart until the new version runs, a message you send is not sent: it says *Pocket is restarting for its update; your
+message is kept* and stays in the box for you to send again (1.124.5), so the restart cannot cut its reply short. If the restart has not happened within 90 seconds, messages send again. While Pocket restarts the page loses
 contact for a moment and reconnects by itself; open conversations reconnect too. If the new version
 does not start, Pocket goes back to the one it was running and says so in the row, and you can try
 again; if it cannot go back either, the row says so and what to run on the server. If the update could not start at all,
 the row says so within two minutes, nothing was changed, and you can try again. If the backup cannot be written (the server ran out of room, say), Pocket removes it and
 changes nothing. If the new packages fail to install and the old ones cannot be put back either, the row
-says so: Pocket keeps running, but run `npm ci` in its folder on the server before it next restarts. The button is not offered while a reply is running, while a Claude Code or Codex upgrade runs,
-or when Pocket cannot restart itself (it is not running under PM2, or the folder is not a git
-checkout); the row then says why. It needs at least 5 GB free on the server for the backup, and `flock` and GNU tar on the server (on a Mac, from Homebrew); the row says which is missing.
+says so: Pocket keeps running, but run `npm ci` in its folder on the server before it next restarts. If the update
+itself was stopped (the server restarted under it) after it began installing, the row says so 20 minutes later, and that
+Pocket's files may have moved and its packages may be missing: run `npm ci` in its folder on the server before Pocket
+restarts (1.124.5). The button is not offered when Pocket cannot restart itself (it is not running under PM2, the folder
+is not a git checkout, or `flock` or GNU tar is missing from the server); the row then says why. While a reply or a side
+chat is answering, or a Claude Code or Codex update check or upgrade runs, the button is still shown, but after you
+confirm nothing changes and the sheet says why, for example *Replies are running. Update when they finish, so the
+restart does not cut them short.* It needs at least 5 GB free on the server for the backup, and `flock` and GNU tar on the server (on a Mac, from Homebrew); the row says which is missing.
 
 For Claude Code and Codex, the review shows installed and available versions and links to the
 publisher's release notes. Choose either CLI or both, then **Upgrade selected**.

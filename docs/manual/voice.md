@@ -106,7 +106,7 @@ Announcements wait until you finish speaking or a reply finishes, are said once 
 
 ### Mute voice on this device
 
-When voice is available, the row above the message box has a **Voice** chip beside **Alerts** (an icon beside the bell while a reply runs). One tap mutes every spoken reply, announcement and prompt on this device, stops anything being spoken and ends hands-free. Your other voice settings are kept and apply again when you unmute. While muted, quick commands show their answer in the voice strip instead of speaking it, and **Play a sample** still plays. Starting hands-free or saying "unmute" turns voice back on.
+When voice is available, the row above the message box has a **Voice** chip beside **Alerts** (an icon beside the bell while a reply runs). One tap mutes every spoken reply, announcement and prompt on this device, stops anything being spoken and ends hands-free: its microphone closes at once, in this tab and in every other Pocket tab on the device. A plain dictation you started with the mic carries on, since it is something you are saying, not something Pocket is. Your other voice settings are kept and apply again when you unmute. While muted, quick commands show their answer in the voice strip instead of speaking it, and **Play a sample** still plays. Starting hands-free or saying "unmute" turns voice back on.
 
 ### Voice settings
 

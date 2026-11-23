@@ -39,7 +39,10 @@ const FILL_TOOLS = [...new Set((process.env.POCKET_VAULT_FILL_TOOLS || 'browser_
 // 1.124.2: the tools that make a picture of the page, refused once a value has been typed. Playwright MCP saves every screenshot
 // and PDF to a file and names it in its answer, so withholding the inline image alone left the picture where the agent could
 // open it. POCKET_VAULT_PICTURE_TOOLS (comma-separated) adds a server's own picture tools to these; it never removes one.
-const PICTURE_TOOLS = [...new Set(['browser_take_screenshot', 'browser_pdf_save', 'screenshot', ...(process.env.POCKET_VAULT_PICTURE_TOOLS || '').split(',').map(s => s.trim()).filter(Boolean)])];
+// 1.124.5: and the Playwright MCP tools that capture the page by another route: code run in the browser tool (it can take a
+// screenshot to a file or hand back the page as base64), video, tracing (its snapshots hold field values) and annotate.
+const CAPTURE_TOOLS = ['browser_run_code_unsafe', 'browser_start_video', 'browser_stop_video', 'browser_start_tracing', 'browser_stop_tracing', 'browser_annotate'];
+const PICTURE_TOOLS = [...new Set(['browser_take_screenshot', 'browser_pdf_save', 'screenshot', ...CAPTURE_TOOLS, ...(process.env.POCKET_VAULT_PICTURE_TOOLS || '').split(',').map(s => s.trim()).filter(Boolean)])];
 // 1.124.4: the browser tool runs calls side by side, so a picture (or a call that saves to a file) sent before the first fill
 // and still running when the value is typed could hold it. A fill waits this many seconds for such calls to answer, then is
 // refused with nothing typed.

@@ -20,12 +20,17 @@ Type in the message box at the bottom and press the send button.
   Enter adds a line and only the send button sends.
 - Your draft is saved on this browser as you type, per conversation, so it survives a reload, a closed tab or a phone that
   killed the app in the background. Drafts are not shared with your other devices.
+- A conversation open in two windows of the same browser (the main window and a pane, or two tabs) has one draft: what
+  you type in one shows in the other. While one window is sending, the other says **Sending from another window…**.
+- A reply started somewhere else (another device, a job key, a check-back) shows on a page that already has the
+  conversation open, with **Working** and **Stop**, within a few seconds.
 - The chips above the box set the next reply: model, reasoning effort, permissions (**Review actions** or **Full access**,
   see [Questions and approvals](approvals.md#choose-review-actions-or-full-access)) and, on Codex, OpenRouter and Antigravity, **Work normally**
   or **Plan first**. These choices are remembered per conversation on this browser.
 - When delivery cannot be confirmed (the network dropped mid-send), the message stays on the device and the box shows
-  **Retry same message**, **Review conversation** and **Discard retry**. Retry resends with the same request id, so the
-  server does not start a second reply for a message it already received. A message the server refused shows **Edit
+  **Retry same message**, **Review conversation** and **Discard message** (which deletes the unsent message). Retry resends with the same request id, so the
+  server does not start a second reply for a message it already received. A message the server refused, or could not
+  start at all (a full disk, a folder that is gone), reads **Not sent:** with the server's reason and shows **Edit
   message** instead of Review conversation.
 - When the last reply failed, the end of the conversation says so and offers **Send again** (the same text as a new reply)
   and **Edit message** (puts it back in the box). This notice comes from the server, so every device shows it.
@@ -294,6 +299,7 @@ permissions.
 |---|---|
 | After the current reply | Waiting; runs when the running reply finishes successfully. |
 | Paused | Waiting, with no reply running. Use **Run next instruction**. |
+| After the usage-limit retry | The last reply hit a usage limit. Pocket retries it after the reset, then runs the queue; the panel says when. **Run next instruction** is not offered meanwhile, since the message would only hit the same limit. |
 | After the background jobs | Waiting for background jobs the last Claude reply left running; it sends by itself when they finish. The panel names the jobs, and the button reads **Stop background jobs and run it**. |
 | Editing · paused | Someone opened it for editing. It will not run until saved or cancelled. |
 | Starting… | Being handed to the agent. |
@@ -303,7 +309,7 @@ permissions.
   paused, and **Continue editing** brings back this browser's unsaved text. Other devices see the paused row but not your
   unsaved text.
 - **Remove** deletes a row. A row that is starting cannot be removed.
-- **Run next instruction** appears when the first row is waiting and nothing is running. It is disabled while activity is
+- **Run next instruction** appears when the first row is waiting and nothing is running, except while the conversation waits for a usage-limit retry. It is disabled while activity is
   seen in another app (a terminal or code-server), and the panel says **Recent activity was seen elsewhere. Refresh after
   that reply finishes.**
 - Stopping a reply, or a reply that fails, pauses the queue. Use **Run next instruction** to continue.

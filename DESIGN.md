@@ -8,6 +8,44 @@ terminal green-on-black. Chat reads like a document. The machine's activity (too
 visibly *machinery*: small monospace ledger lines, dim, truthful. One living element: the
 clay ember that breathes while Claude works.
 
+## UI/UX test pass (1.124.5)
+
+Pinned Operate audit (design-studio → impeccable): variance 3, motion 2, density 6; held to this file as written, no
+redesign, no new tokens, no new pattern unless a flow was broken without one. 242 surfaces were swept at six widths in
+both themes and 56 fragile flows were driven by hand. What the pass settled, so the next change does not reopen it:
+
+- **Target sizes.** A control is 44px on touch and may drop to 36px only inside `@media (pointer: fine)`. This holds for
+  chips inside cards and sheets too (Inbox entry actions, tab close, sheet close, the code block's Copy).
+- **Sheet insets.** Every line of a sheet starts on its heading's text edge. A help line, a scope label or an environment
+  block gets the 14px inset from one weak rule (`:where(.sheet) > .sheet-help`); a sheet that pads itself opts out by
+  name. The layout sweep measures this (`inset`), so a new sheet that misses it fails the sweep.
+- **A hidden chip is hidden.** `.chip[hidden]` is `display: none`; `display: inline-flex` no longer beats the attribute.
+- **Conflicts are explained where the edit is.** Edit project and Edit task keep the sheet open after a refused Save, take
+  the other side's values for fields the owner had not touched, keep the owner's edits, and say which is which in a
+  `role="status"` note at the top of the form (`.project-stale`). No second message in a toast.
+- **"Not sent" is not "not confirmed".** When the server says for certain that nothing started, the line reads
+  **Not sent:** with the server's reason, and offers Retry / Edit / Discard. "Delivery not confirmed" is kept for the
+  case where Pocket cannot tell. A send on its way from another window of the same browser reads **Sending from another
+  window…** with no Retry.
+- **Sign-in over a sheet.** A sign-in that runs out while a sheet is open covers the sheet with the sign-in screen
+  (`.login-over`, the same `.login` layout, titled **Sign in again**) and gives the sheet back after Unlock. It is the
+  only layer between sheets (z 41-45) and banners (z 60).
+- **Field errors sit on the field.** The sign-in box and the notification email box mark themselves `aria-invalid`,
+  point at their message with `aria-describedby`, and the message is `role="alert"` in `--err`.
+- **Code blocks.** The code keeps the Copy chip's width free on the right, so a line ends before the chip or scrolls
+  clear of it.
+- **Declined: `role="combobox"` on the message box.** ARIA does not allow it on a multi-line textarea; the / picker
+  keeps `aria-controls` and `aria-activedescendant` on the box as it is.
+
+**Colour of state, as built.** Clay is the working colour (the ember, the header's run status, a running row in the
+list and on a tab) and the colour of anything a tap sends. Green (`--ok`) is finished, connected or on. One surface
+still has it the other way round: Assistant mode's home list draws a running conversation with a green dot and a ready
+one in clay (the 1.60 section below). It is left as built until the owner chooses; new work follows clay = working.
+
+**Known drift, not changed in this pass.** Corner radii and font sizes have grown values between the tokens (radii of
+5, 6, 8, 9, 10, 12, 14 and 16px; text from 11 to 17px in half steps). Each is locally reasoned, and changing them all
+at once is a redesign, so they are listed here and left. New work uses 14px for surfaces and 10px for chips.
+
 ## Tab reorder (1.112)
 
 Pinned Operate refinement (design-studio → impeccable): variance 2, motion 2, density 7; existing tokens, no new colour,
@@ -157,7 +195,7 @@ mark, status bar): 1px `--warn` border, fill `--warn` 12% over `--surface` (18% 
 (question mark; info mark for approvals), a 15px/600 title naming what is waiting with its count, a 13.5px `--dim` note
 saying whether the reply is paused, and a 36px `--warn` button in `--on-warn` ink (**Answer**, **Answer all**,
 **Review**, **Retry**) with a chevron. The whole banner is the control. Not clay-deep: that is your own message's
-material, which is why the old banner read as one. Not green: `--ok` means working or done. Below 420px the mark goes.
+material, which is why the old banner read as one. Not green: `--ok` means finished or connected. Below 420px the mark goes.
 
 ## Your rules (1.73)
 
@@ -654,7 +692,7 @@ may keep their earlier login. Only current Claude turns block starting sign-in.
 | `--faint` | `#AA9C91` | readable timestamps and ledger |
 | `--clay` | `#D97757` | accent: send, ember, active dot, links |
 | `--clay-deep` | `#3A241C` | user message surface |
-| `--ok` | `#7FB069` | success flashes only |
+| `--ok` | `#7FB069` | finished, connected, on (see "Colour of state" in the 1.124.5 section) |
 | `--err` | `#E2685C` | errors |
 
 Type: system-ui stack (Operate mode: native feel + zero font payload on mobile).

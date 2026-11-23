@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 
 export const SELF_UPDATE_FILE = 'pocket-self-update.json';
@@ -17,10 +17,20 @@ const STALE_MS = 20 * 60 * 1000; // a job that has said nothing for this long di
 const START_MS = 2 * 60 * 1000; // a queued job whose script has not taken its lock by then did not start (1.124.4)
 const version = v => typeof v === 'string' && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(v) ? v : null;
 const fail = (message, status = 409) => Object.assign(new Error(message), { status });
+const BREW = { flock: 'flock', 'GNU tar': 'gnu-tar' };
+const gnuTar = bin => { try { return /GNU tar/.test(spawnSync(bin, ['--version'], { encoding: 'utf8', timeout: 5000 }).stdout || ''); } catch { return false; } };
+// 1.124.5: what an update that stopped without finishing left behind. From installing on, the checkout may have moved and
+// npm ci (the install's, or putting the old packages back) may have removed node_modules, so the next restart would not start.
+const MOVED = { installing: j => `installing ${j.to}`, restarting: j => `restarting on ${j.to}`, 'rolling-back': j => `going back to ${j.from}` };
+function interrupted(j, checkout) {
+  if (!MOVED[j.phase]) return 'The update stopped without finishing, probably because the server restarted. Check the version shown here before you try again.';
+  const files = j.phase === 'rolling-back' ? `may be on ${j.to} or ${j.from}` : `may have moved to ${j.to}`;
+  return `The update stopped while ${MOVED[j.phase](j)}, probably because the server restarted. Pocket's files ${files} and its packages may not be installed, so Pocket may not start after its next restart. On the server, run npm ci in ${checkout} before Pocket restarts, then check the version shown here.`;
+}
 
 export class SelfUpdate {
-  constructor({ checkout, dataDir, env = process.env, port, repo = 'bbesner/pocket-code', now = () => Date.now(), spawner = spawn, node = process.execPath, script, setsid }) {
-    Object.assign(this, { checkout, env, port, repo, now, spawner, node });
+  constructor({ checkout, dataDir, env = process.env, port, repo = 'bbesner/pocket-code', now = () => Date.now(), spawner = spawn, node = process.execPath, script, setsid, tarProbe = gnuTar }) {
+    Object.assign(this, { checkout, env, port, repo, now, spawner, node, tarProbe, tars: new Map() });
     this.script = script || path.join(checkout, 'scripts', 'pocket-self-update.sh');
     this.file = path.join(dataDir, SELF_UPDATE_FILE);
     this.log = path.join(dataDir, SELF_UPDATE_LOG);
@@ -33,7 +43,18 @@ export class SelfUpdate {
     if (this.env.pm_id === undefined) return 'Pocket is not running under PM2 here, so it cannot restart itself. Update it from the server.';
     if (!fs.existsSync(path.join(this.checkout, '.git'))) return 'This install is not a git checkout. Update it from the server.';
     if (!['linux', 'darwin'].includes(process.platform)) return 'Updating from Pocket works on Linux and macOS servers only.';
+    // 1.124.5: the script needs flock and GNU tar, and without them failed every press (a stock Mac has neither); the button
+    // was offered all the same. They are looked for on the PATH the script gets; tar's --version is read once per binary.
+    const missing = this.missingTools();
+    if (missing.length) return `${missing.join(' and ')} ${missing.length > 1 ? 'are' : 'is'} not on Pocket's PATH, so it cannot update itself. Install ${missing.length > 1 ? 'them' : 'it'} (on macOS: brew install ${missing.map(t => BREW[t]).join(' ')}), or update Pocket from the server.`;
     return null;
+  }
+  missingTools() {
+    const dirs = (this.env.PATH || '/usr/local/bin:/usr/bin:/bin').split(':').filter(d => path.isAbsolute(d));
+    const which = name => dirs.map(d => path.join(d, name)).find(f => { try { fs.accessSync(f, fs.constants.X_OK); return fs.statSync(f).isFile(); } catch { return false; } });
+    const tar = which('gtar') || which('tar'); // as the script picks it
+    if (tar && !this.tars.has(tar)) this.tars.set(tar, this.tarProbe(tar));
+    return [!which('flock') && 'flock', !(tar && this.tars.get(tar)) && 'GNU tar'].filter(Boolean);
   }
   job() {
     let j;
@@ -47,7 +68,7 @@ export class SelfUpdate {
     // queued two minutes after the press, with no lock file newer than the press, never started (bash could not read the
     // script, node was gone): say so then, instead of showing it preparing and refusing every press for 20 minutes.
     if (out.phase === 'queued' && beat < (j.startedAt || 0) && this.now() - (j.startedAt || 0) > START_MS) Object.assign(out, { running: false, phase: 'failed', error: `The update did not start. Nothing was changed. The log is ${SELF_UPDATE_LOG} in Pocket's data folder.` });
-    else if (out.running && this.now() - Math.max(j.updatedAt || j.startedAt || 0, beat) > STALE_MS) Object.assign(out, { running: false, phase: 'interrupted', error: 'The update stopped without finishing, probably because the server restarted. Check the version shown here before you try again.' });
+    else if (out.running && this.now() - Math.max(j.updatedAt || j.startedAt || 0, beat) > STALE_MS) Object.assign(out, { running: false, phase: 'interrupted', error: interrupted(out, this.checkout) });
     return out;
   }
   // The checked-out commit, read from .git without running git (a route must not start a process per request).

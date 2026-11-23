@@ -289,7 +289,7 @@ export async function runCheckbackRegressions({p,base,out,repo,rows,conversation
  assert.equal(await p.$eval('[data-pause-would]',e=>e.textContent),'This stops 3 replies running (2 Claude, 1 Codex), 2 background jobs, Inbox Watch. It holds 1 usage-limit retry, 3 check-backs.');
  await shot('pause-sheet-1440-dark');
  a.heldCheckbacks=3;await p.click('[data-pause-go]');await p.waitForSelector('.pause-banner');
- await p.waitForFunction(()=>document.querySelector('#toast')?.textContent==='Paused. Stopped 3 replies running (2 Claude, 1 Codex), 2 background jobs. Held 1 usage-limit retry, 3 check-backs.');
+ await p.waitForFunction(()=>document.querySelector('#toast')?.textContent==='Paused. Stopped 3 replies running (2 Claude, 1 Codex), 2 background jobs, Inbox Watch. Held 1 usage-limit retry, 3 check-backs.');
  await p.waitForFunction(()=>document.querySelector('.pause-banner .pause-text')?.textContent==='Pocket is paused. Your own messages still run. 1 usage-limit retry and 3 check-backs are held.');
  a.heldCheckbacks=0;a.resumeCheckbacks={run:2,missed:1};
  await p.click('.pause-banner [data-resume]');await p.waitForFunction(()=>!document.querySelector('.pause-banner'));

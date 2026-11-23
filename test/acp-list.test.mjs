@@ -28,7 +28,7 @@ const cleanEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k
 async function server(t, port, { seed = null, outsideTmp = false, homeInSrv = false, env = {} } = {}) {
   const base = outsideTmp ? path.join(repo, 'node_modules', '.cache') : os.tmpdir();
   fs.mkdirSync(base, { recursive: true });
-  const dir = fs.mkdtempSync(path.join(base, 'acp-list-')), srv = path.join(dir, 'srv'), home = homeInSrv ? path.join(srv, 'home') : path.join(dir, 'home'), store = path.join(dir, 'acp-store');
+  const dir = fs.mkdtempSync(path.join(fs.realpathSync(base), 'acp-list-')), srv = path.join(dir, 'srv'), home = homeInSrv ? path.join(srv, 'home') : path.join(dir, 'home'), store = path.join(dir, 'acp-store');
   fs.mkdirSync(path.join(srv, '.git'), { recursive: true }); fs.mkdirSync(home, { recursive: true }); fs.mkdirSync(store, { recursive: true });
   const probe = path.join(srv, 'data', 'acp-probe');
   seed?.({ store, probe, srv, home });

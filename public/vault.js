@@ -43,7 +43,7 @@ const vaultEff=i=>VAULT_POLICY[i.effectivePolicy]?i.effectivePolicy:!i.policy||i
 const vaultPolicyWord=i=>i.policyWord||VAULT_POLICY_WORD[vaultEff(i)];
 const vaultOwnPolicy=i=>Boolean(i.policy)&&i.policy!=='default';
 // The five choices for an item, the first naming what the Vault default is now.
-const vaultPolicyChoices=()=>[['default',`Vault default (currently: ${vaultAccessWord(vaultAccessNow())})`,'Follows Agent access in Settings → Vault'],...Object.entries(VAULT_POLICY).map(([v,[l,sub]])=>[v,l,sub])];
+const vaultPolicyChoices=()=>[['default',`Vault default (currently: ${vaultAccessWord(vaultAccessNow())})`,`Follows Agent access in Settings → ${assistantMode()?'Features':'Projects, files, tasks & vault'}`],...Object.entries(VAULT_POLICY).map(([v,[l,sub]])=>[v,l,sub])];
 // Settings saved a new Agent access: the items that follow it change, so reload them.
 function vaultSetAccess(a){vaultAccess=a;if(vaultSnap){vaultSnap.access=a;loadVault(true).then(repaintVault).catch(()=>{});}}
 const VAULT_NAME_RE=/^[a-z0-9-]{1,64}$/;
@@ -350,7 +350,9 @@ const VAULT_INTAKE_STATE={pending:'Waiting',filled:'Filled in',cancelled:'Cancel
 const vaultIntakes=()=>vaultSnap?.intakes||[];
 function vaultIntakeRowHTML(r){
  const when=r.state==='pending'?`Expires ${vaultDate(r.expiresAt)}`:r.state==='expired'?vaultDate(r.expiresAt):vaultDate(r.endedAt);
- const facts=[r.for?`For ${esc(r.for)}`:'',esc(VAULT_KIND_WORD[r.kind]||'Secret'),`<span class="${r.state==='pending'?'vault-intake-wait':''}">${esc(VAULT_INTAKE_STATE[r.state]||r.state)}</span>`,esc(when)].filter(Boolean);
+ // 1.124.5: a link an agent or a terminal made says so (and in which conversation), and a replaced one which link it is.
+ const madeBy=r.by==='agent'?(r.sessionTitle?`Made by the agent in "${esc(r.sessionTitle)}"`:'Made by an agent'):r.by==='terminal'?'Made from a terminal':'';
+ const facts=[r.for?`For ${esc(r.for)}`:'',madeBy,r.links>1?`Link ${Number(r.links)}`:'',esc(VAULT_KIND_WORD[r.kind]||'Secret'),`<span class="${r.state==='pending'?'vault-intake-wait':''}">${esc(VAULT_INTAKE_STATE[r.state]||r.state)}</span>`,esc(when)].filter(Boolean);
  const actions=r.state==='pending'?`<button class="chip" data-intake-relink="${esc(r.id)}" aria-label="New link for ${esc(r.name)}">New link</button><button class="chip" data-intake-cancel="${esc(r.id)}" aria-label="Cancel the link for ${esc(r.name)}">Cancel</button>`
   :r.state==='filled'&&vaultSnap?.items.some(i=>i.name===r.name)?`<button class="chip" data-intake-item="${esc(r.name)}" aria-label="Open ${esc(r.name)}">Open</button>`:'';
  return `<div class="session-item vault-item vault-intake${r.state==='pending'?'':' finished'}" data-intake="${esc(r.id)}">
@@ -1049,7 +1051,7 @@ async function secretVaultState(){
  try{const s=await loadVault(true);if(s.ready===false)return {state:s.locked?'locked':'unready'};return {state:'ready',names:[...(s.items||[]),...(s.trash||[])].map(i=>i.name)};}
  catch(e){return {state:e?.status===423?'locked':'unready'};}
 }
-const SECRET_HINT={get off(){return featuresLocked()?'Ask the person who runs this install to turn on the Vault, to store secrets instead.':'Turn on the Vault in Settings to store secrets instead.';},locked:'Unlock the Vault to store it.',unready:'The Vault is not ready, so it cannot store this now.'};
+const SECRET_HINT={get off(){return featuresLocked()?'Ask the person who runs this install to turn on the Vault, to store secrets instead.':`Turn on the Vault in Settings → ${assistantMode()?'Features':'Projects, files, tasks & vault'}, to store secrets instead.`;},locked:'Unlock the Vault to store it.',unready:'The Vault is not ready, so it cannot store this now.'};
 // Over an open sheet (the queue editor in its dialog) the guard stacks instead of replacing it; elsewhere it is an
 // ordinary sheet. Returns the close function.
 function secretMount(scrim,sh,trigger){

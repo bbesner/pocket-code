@@ -95,13 +95,26 @@ export function splitDone(text) {
   return { text: t.after ? (before ? `${before}\n\n${t.after}` : t.after) : before, done: asks ? null : line.slice(0, MAX_DONE) };
 }
 
+// 1.124.5: a reply that offers choices is not finished, so its done block is dropped wherever it stands: one with a
+// question after it (then the choices) is not "trailing", and it showed as a code block. A done fence quoted inside
+// another code block (an odd number of fences before it) is text and stays.
+function withoutDone(text) {
+  const s = splitDone(text).text;
+  return s.replace(DONE_ANY, (block, _line, at) => (s.slice(0, at).match(/^[ \t]*```/gm) || []).length % 2 ? block : '').replace(/\n{3,}/g, '\n\n').trim();
+}
+// One reply can hold several text parts (text, a tool call, more text). Choices in any of them mean no Complete card
+// from any other: the two showed together when they were written in different parts.
+export function exclusiveBlocks(blocks) {
+  return blocks.some(b => b.t === 'choices') ? blocks.filter(b => b.t !== 'done') : blocks;
+}
+
 // A transcript text block -> display blocks: the text (if any), then a choices block or a done block (never both).
 // The choices block carries `rec` (an option index) only when the agent marked a recommendation.
 // Choices win over done: a reply that asks the user to pick is not finished, whichever block came last.
 export function textBlocks(text) {
   const d = splitDone(text);
   const { text: left, options, recommended } = splitChoices(d.text);
-  const rest = options ? splitDone(left).text : left;       // a done block written above the choices goes too
+  const rest = options ? withoutDone(left) : left;          // a done block written above the choices goes too, wherever it is (1.124.5)
   const tail = options ? { t: 'choices', options, ...(recommended === null ? {} : { rec: recommended }) }
     : d.done !== null ? { t: 'done', text: d.done } : null;
   return [...(rest.trim() ? [{ t: 'text', text: rest }] : []), ...(tail ? [tail] : [])];

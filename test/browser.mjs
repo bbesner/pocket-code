@@ -487,6 +487,16 @@ const server=http.createServer(async(req,res)=>{
  res.writeHead(200,{'content-type':rel.endsWith('.js')?'text/javascript':rel.endsWith('.css')?'text/css':rel.endsWith('.html')?'text/html':'application/octet-stream'});res.end(fs.readFileSync(file));
 });
 await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;
+// 1.124.5: the UI test's fix checks are written against the fixture as it starts. In the full run they come after
+// checks that rewrite transcripts, rows and settings, so they run inside startingFixture(): the starting state is put
+// back for them (in place: other runners hold these objects), and what the earlier checks left is put back afterwards.
+const fixtureState=()=>structuredClone({conv:[...conversations],modes:uiModes,settings:fixtureSettings,rows,queue:queueRows});
+const putFixture=state=>{const s=structuredClone(state),refill=(o,v)=>{for(const k of Object.keys(o))delete o[k];Object.assign(o,v);};
+ conversations.clear();for(const [k,v] of s.conv)conversations.set(k,v);refill(uiModes,s.modes);refill(fixtureSettings,s.settings);
+ rows.length=s.rows.length;s.rows.forEach((r,i)=>{if(rows[i])refill(rows[i],r);else rows[i]=r;});queueRows.splice(0,queueRows.length,...s.queue);};
+const fixtureAtStart=fixtureState();
+const startingFixture=async fn=>{const left=fixtureState();putFixture(fixtureAtStart);seedDocs();seedBoard();seedTasks();seedInbox();questionRequests=[];approvalRequests=[];
+ try{await fn();}finally{putFixture(left);}};
 const browser=await puppeteer.launch({executablePath:process.env.PUPPETEER_EXECUTABLE_PATH||'/opt/google/chrome/chrome',headless:true,args:['--no-sandbox','--use-fake-ui-for-media-stream','--use-fake-device-for-media-stream','--autoplay-policy=no-user-gesture-required']});
 const errors=[];const p=await browser.newPage();await p.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'reduce'}]);p.on('pageerror',e=>errors.push(e.message));
 const scans=[];
@@ -500,6 +510,7 @@ try{
  if(process.env.POCKET_SLASH_ONLY){ /* POCKET_SLASH_ONLY=n: the / picker checks only, n times over, to shake out a flake */const {runSlashRegressions}=await import('./slash-browser.mjs');for(let k=0;k<Number(process.env.POCKET_SLASH_ONLY);k++){console.log('iteration',k);await runSlashRegressions({browser,base,rows,received,out});}throw Object.assign(Error('slash only'),{docsOnly:true});}
  if(process.env.POCKET_CLI_UPDATES_ONLY){const {runCliUpdateRegressions}=await import('./cli-updates-browser.mjs');await runCliUpdateRegressions({browser,base,out});throw Object.assign(Error('CLI updates only'),{docsOnly:true});}
  if(process.env.POCKET_AUTOMATION_ONLY){await runAutomationRegressions({p,base,out,repo,rows,settings:fixtureSettings,scan});assert.deepEqual(errors,[]);if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));console.log(JSON.stringify({ok:true,automationOnly:true,screenshots:out}));throw Object.assign(Error('automation only'),{docsOnly:true});}
+ if(process.env.POCKET_UIFIX_ONLY){ /* the 1.124.5 UI test's fixes only; POCKET_CHECK=<part of a name> for one */const {runUiTestFixes}=await import('./ui-test-fixes-browser.mjs');await runUiTestFixes({browser,base,rows,out,settingsState:()=>fixtureSettings,coord:coordFixture});await (await import('./ui-flows-b-browser.mjs')).runFlowsBFixes({browser,base,rows,out,settingsState:()=>fixtureSettings,coord:coordFixture});const {runFlowsAFixes}=await import('./ui-flows-a-browser.mjs');await runFlowsAFixes({browser,base,rows,out,settingsState:()=>fixtureSettings,coord:coordFixture});throw Object.assign(Error('UI test fixes only'),{docsOnly:true});}
  if(process.env.POCKET_UI_ONLY){ /* POCKET_UI_ONLY=1: the checks in ui-regressions.mjs only; with POCKET_CHECK=<part of a name>, one of them */await runUIRegressions({browser,base,rows,out,setMode:patch=>Object.assign(uiModes,patch),getMode:()=>uiModes,settingsState:()=>fixtureSettings,vaultFixture,received,voiceLog,conversations,pinOrders});console.log(JSON.stringify({ok:true,uiOnly:true,screenshots:out}));throw Object.assign(Error('ui only'),{docsOnly:true});}
  if(process.env.POCKET_CHECKBACK_ONLY){await runCheckbackRegressions({p,base,out,repo,rows,conversations,settings:fixtureSettings,scan});assert.deepEqual(errors,[]);if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));console.log(JSON.stringify({ok:true,checkbackOnly:true,screenshots:out}));throw Object.assign(Error('checkback only'),{docsOnly:true});}
  if(process.env.POCKET_JOBKEYS_ONLY){await runJobKeysRegressions({p,base,out,repo,scan,settings:fixtureSettings});assert.deepEqual(errors,[]);if(scans.length)fs.writeFileSync(path.join(out,'design-scan.json'),JSON.stringify(scans,null,2));console.log(JSON.stringify({ok:true,jobKeysOnly:true,screenshots:out}));throw Object.assign(Error('job keys only'),{docsOnly:true});}
@@ -507,6 +518,13 @@ try{
  if(process.env.POCKET_INBOX_NEWS_ONLY){const {runInboxNewsRegressions}=await import('./inbox-news-browser.mjs');await runInboxNewsRegressions({browser,base,rows,out,settings:fixtureSettings,received,inboxStore,inboxCaughtUp,inboxSplits,conversations});console.log(JSON.stringify({ok:true,inboxNewsOnly:true,screenshots:out}));throw Object.assign(Error('inbox news only'),{docsOnly:true});}
  if(process.env.POCKET_COMPLETE_ONLY){const {runCompleteRegressions}=await import('./complete-browser.mjs');await runCompleteRegressions({browser,base,rows,out,conversations,releases,settings:fixtureSettings});console.log(JSON.stringify({ok:true,completeOnly:true,screenshots:out}));throw Object.assign(Error('complete only'),{docsOnly:true});}
  if(process.env.POCKET_PROJECT_MODE_ONLY){const {runProjectModeRegressions}=await import('./project-mode-browser.mjs');await runProjectModeRegressions({browser,base,rows,out,repo,settings:fixtureSettings,modes:uiModes,boardActs,conversations,scan:null});console.log(JSON.stringify({ok:true,projectModeOnly:true,screenshots:out}));throw Object.assign(Error('project mode only'),{docsOnly:true});}
+ if(process.env.POCKET_SWEEP){ /* POCKET_SWEEP=all|<area>: the layout sweep in layout-sweep.mjs (every surface, six layouts, light and dark); reports, asserts nothing unless POCKET_SWEEP_STRICT */
+  const {runLayoutSweep}=await import('./layout-sweep.mjs');
+  const sweepCtx={browser,base,rows,out,repo,settingsState:()=>fixtureSettings,modes:uiModes,conversations,inboxStore,coord:coordFixture,vaultFixture,received,board,taskStore,docStore,sideFixture,
+   setRequests:r=>{questionRequests=r.questions||[];approvalRequests=r.approvals||[];}};
+  await runLayoutSweep(sweepCtx);
+  throw Object.assign(Error('sweep only'),{docsOnly:true});
+ }
  if(process.env.POCKET_THEME_ONLY){
   const {runThemeRegressions}=await import('./theme-browser.mjs');
   await runThemeRegressions({browser,base,rows,out,settings:fixtureSettings,modes:uiModes,setRequests:r=>{questionRequests=r.questions||[];approvalRequests=r.approvals||[];}});
@@ -841,6 +859,7 @@ try{
  for(const width of [360,390,768,1440]){
   await p.setViewport({width,height:844,isMobile:width<700,hasTouch:width<700});
   assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'large chat text overflow '+width);
+  await p.waitForSelector('#chatmore'); // a viewport that changes isMobile reloads the page; the header is drawn a moment later
   await clickControl(p,'#chatmore');await p.waitForSelector('[data-text-reset]');
   assert.equal(await p.$eval('[data-text-size]',e=>e.textContent),'24px');
   assert.ok(await p.$eval('[data-text-reset]',e=>{const r=e.getBoundingClientRect();return r.width>=44&&r.height>=44&&r.right<=innerWidth;}));
@@ -1044,6 +1063,11 @@ try{
  const {runModelSelectionRegressions} = await import('./model-selection-browser.mjs');
  await runModelSelectionRegressions({browser,base,rows,out,received});
  await runUIRegressions({browser,base,rows,out,setMode:patch=>Object.assign(uiModes,patch),getMode:()=>uiModes,settingsState:()=>fixtureSettings,vaultFixture,received,voiceLog,conversations,pinOrders});
+ await startingFixture(async()=>{ // the 1.124.5 UI test's fixes: the layout sweep's, then the flow tests' (lanes b and a)
+  const {runUiTestFixes}=await import('./ui-test-fixes-browser.mjs');await runUiTestFixes({browser,base,rows,out,settingsState:()=>fixtureSettings,coord:coordFixture});
+  await (await import('./ui-flows-b-browser.mjs')).runFlowsBFixes({browser,base,rows,out,settingsState:()=>fixtureSettings,coord:coordFixture});
+  const {runFlowsAFixes}=await import('./ui-flows-a-browser.mjs');await runFlowsAFixes({browser,base,rows,out,settingsState:()=>fixtureSettings,coord:coordFixture});
+ });
  const {runSideChatRegressions}=await import('./sidechat-browser.mjs');
  await runSideChatRegressions({browser,base,rows,out,side:sideFixture,conversations});
  const {runHandoffRegressions}=await import('./handoff-browser.mjs'); // 1.102

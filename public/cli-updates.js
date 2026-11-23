@@ -28,7 +28,7 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 function pocketPhase(j,installed){
   const to=j.to||'the release';
   const t={queued:'Preparing the update…',checking:'Checking the Pocket Code folder…','backing-up':'Backing up Pocket’s data…',installing:`Installing ${to}…`,restarting:'Restarting Pocket. This page reconnects by itself.','rolling-back':`${to} did not start. Going back to ${j.from}…`,
-    complete:installed===j.to?`Updated to ${to}.`:`Updated to ${to}. Reload Pocket to use it.`,failed:'The update did not finish. '+(j.error||''),interrupted:j.error||'The update stopped without finishing.'};
+    complete:installed===j.to?`Updated to ${to}.`:`Updated to ${to}. Reload Pocket to use it.`,failed:j.error||'The update did not finish.',interrupted:j.error||'The update stopped without finishing.'};
   return t[j.phase]||j.phase;
 }
 let pocketRestart=false;
@@ -96,7 +96,7 @@ async function openCliUpdates(){
     sh.querySelectorAll('[data-cli-rollback],[data-cli-select],[data-cli-switch]').forEach(el=>el.disabled=busy||!!j?.running||!!s.checking);
     buttons();
   };
-  async function refresh(){if(fetching||busy||!sh.isConnected)return;fetching=true;try{const s=await api('/cli-updates',{signal:AbortSignal.timeout(10000)});if(sh.isConnected)render(s);}catch(e){if(sh.isConnected)sh.querySelector('#cli-update-error').textContent=pocketRestart?'':'Could not load updates. Use Check now to retry.';}finally{fetching=false;}}
+  async function refresh(){if(fetching||busy||!sh.isConnected)return;fetching=true;try{const s=await api('/cli-updates',{signal:AbortSignal.timeout(10000)});if(sh.isConnected)render(s);}catch(e){if(sh.isConnected&&e.message!=='login')sh.querySelector('#cli-update-error').textContent=pocketRestart?'':'Could not load updates. Use Check now to retry.';}finally{fetching=false;}}
   // 1.124.3: a POST answers with the plain snapshot: the older conversations and Pocket's self-update come only with GET.
   // They are kept from the view on screen until the next refresh, so Update and Switch now do not vanish for a moment.
   const withView=s=>({...s,pocket:s.pocket&&state?.pocket&&!('self' in s.pocket)?{...s.pocket,self:state.pocket.self}:s.pocket,
