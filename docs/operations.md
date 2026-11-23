@@ -365,8 +365,8 @@ packages go back to the previous commit; if the new version does not come up, th
 restarted too. If the previous packages cannot be installed again either, the job says so (1.124.2): the running
 daemon carries on, but run `npm ci` in the checkout before it next restarts. The daemon refuses to start it while a reply or a CLI upgrade is running.
 
-Progress is in `pocket-self-update.json` in the data folder (a job silent for 20 minutes shows as
-interrupted) and the script's output in `pocket-self-update.log`; both are git-ignored. Requirements: PM2
+Progress is in `pocket-self-update.json` in the data folder (the script touches `pocket-self-update.json.lock`
+every minute while it runs; a job with neither for 20 minutes died with its server and shows as interrupted, 1.124.3) and the script's output in `pocket-self-update.log`; both are git-ignored. Requirements: PM2
 (the daemon must run under it), a git checkout, `git`, `npm`, `pm2`, GNU `tar` and `flock` on the daemon's
 PATH (on macOS, Homebrew's `gnu-tar`, used as `gtar`, and `flock`; the job names what is missing). Running an operator update on such an install works as before; an operator script that expects a
 particular `HEAD` will find the owner may already have moved it.

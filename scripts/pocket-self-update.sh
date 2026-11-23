@@ -9,7 +9,7 @@ set -uo pipefail
 dir=$1 target=$2 expected=$3 pmid=$4 port=$5 status=$6 node=$7 repo=$8 from=$9
 tag="v$target"
 # Tests shorten the waits; the daemon passes no such variables.
-tries=${POCKET_SELF_UPDATE_TRIES:-45} settle=${POCKET_SELF_UPDATE_SETTLE:-10}
+tries=${POCKET_SELF_UPDATE_TRIES:-45} settle=${POCKET_SELF_UPDATE_SETTLE:-10} beat=${POCKET_SELF_UPDATE_BEAT:-60}
 branch='' prev='' moved=0
 
 # say <phase> [error] [backup dir]: rewrite the progress file atomically.
@@ -60,6 +60,12 @@ gnutar=$(command -v gtar || command -v tar)
 case "$("$gnutar" --version 2>/dev/null)" in *'GNU tar'*) ;; *) fail "Pocket's backup needs GNU tar, and $gnutar is not GNU tar. Install it (on macOS: brew install gnu-tar), or update Pocket from the server. Nothing was changed." ;; esac
 exec 9>"$status.lock"
 flock -n 9 || fail 'Another Pocket Code update is running.'
+# 1.124.3: a heartbeat. The daemon takes a job silent for 20 minutes for one that died with its server, and a large backup or
+# a slow npm ci can be quiet that long; touching the lock file keeps it running. It stops with the script (the trap, or at its
+# next beat if the script was killed), and does not hold the lock (fd 9 closed), even in the sleep it leaves behind.
+( while sleep "$beat" && kill -0 $$ 2>/dev/null; do touch "$status.lock"; done ) 9>&- >/dev/null 2>&1 &
+beater=$!
+trap 'kill "$beater" 2>/dev/null' EXIT
 say checking
 origin=$(git config --get remote.origin.url)
 case "$origin" in

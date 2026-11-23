@@ -69,6 +69,18 @@ test('1.123: a job that went quiet for 20 minutes shows as interrupted, not runn
   assert.equal(su.job().running,false);assert.equal(su.job().phase,'interrupted');
 });
 
+test('1.124.3: a job still beating its lock file is running, however long its step is quiet, and a second press is refused',t=>{
+  const d=tmp(t);fs.mkdirSync(path.join(d,'.git'));
+  const calls=[];const su=new SelfUpdate({checkout:d,dataDir:d,env:{POCKET_SELF_UPDATE:'1',pm_id:'1',PATH:'/usr/bin:/bin',HOME:d},port:1,spawner:()=>{calls.push(1);return {on(){},unref(){}};}});
+  const file=path.join(d,'pocket-self-update.json'),quiet=Date.now()-25*60*1000;
+  fs.writeFileSync(file,JSON.stringify({id:'x',from:'1.0.0',to:'1.1.0',phase:'backing-up',startedAt:quiet,updatedAt:quiet}));
+  fs.writeFileSync(file+'.lock','');
+  assert.equal(su.job().running,true,'a 25-minute backup whose script still beats is not interrupted');assert.equal(su.job().phase,'backing-up');
+  assert.throws(()=>su.begin({from:'1.0.0',to:'1.1.0',head:HEAD}),/already running/);assert.equal(calls.length,0);
+  fs.utimesSync(file+'.lock',new Date(quiet),new Date(quiet));
+  assert.equal(su.job().phase,'interrupted','a script that stopped beating 25 minutes ago died with its server');
+});
+
 // ---- the script, end to end ----
 const sh=(cwd,...a)=>execFileSync('git',a,{cwd,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
 const pkg=(v,extra={})=>JSON.stringify({name:'pocket-code',version:v,private:true,scripts:{'check:release':'true'},...extra},null,1);
@@ -230,4 +242,17 @@ test('1.124.3: the backup needs GNU tar: a BSD tar is refused before anything ch
   fs.writeFileSync(path.join(bin,'gtar'),`#!/bin/sh\nexec '${which('tar')}' "$@"\n`,{mode:0o755});
   const ok=run('1.1.0','1.0.0');
   assert.equal(ok.job.phase,'complete',ok.stdout+ok.stderr);assert.equal(await served(),'1.1.0');
+});
+
+test('1.124.3: the script beats its lock file while a step is quiet, and stops when it ends',{timeout:120000},async t=>{
+  const {d,dir,bin,env,run}=await setup(t,{port:freePort()});
+  env.POCKET_SELF_UPDATE_BEAT='1';
+  const lock=path.join(dir,'data','pocket-self-update.json.lock'),mark=path.join(d,'ci-started'),seen=path.join(d,'beat-seen');
+  // A quiet npm ci of 2.5 seconds: the lock file must be newer at its end than at its start.
+  wrap(bin,'npm',`if [ "$1" = ci ]; then touch '${mark}'; sleep 2.5; [ '${lock}' -nt '${mark}' ] && echo yes > '${seen}'; fi`);
+  const r=run('1.1.0','1.0.0');
+  assert.equal(r.job.phase,'complete',r.stdout+r.stderr);
+  assert.equal(fs.existsSync(seen),true,'the heartbeat touched the lock file during npm ci');
+  const after=fs.statSync(lock).mtimeMs;await new Promise(res=>setTimeout(res,2500));
+  assert.equal(fs.statSync(lock).mtimeMs,after,'no heartbeat outlives the script');
 });
