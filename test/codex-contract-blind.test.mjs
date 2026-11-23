@@ -300,12 +300,18 @@ test('makeTransport.drain: forwards complete LF lines, keeps the fragment, advan
   } finally { x.tr.exit(0); }
 });
 
-test('SPEC? makeTransport.drain: lines starting before skipBefore are not forwarded', async () => {
-  const l1 = '{"old":"é"}\n', l2 = '{"new":1}\n';
-  const x = mkTransport({ content: l1 + l2, skipBefore: Buffer.byteLength(l1) });
+// Deliberate (the spec's first reading was wrong): an adopted turn is read from its own offset, so lines before skipBefore
+// are replayed and a completion written while Pocket was down still finishes it. Only a native request in that range is
+// held as stale, and declined once the read reaches skipBefore; one the log shows resolved is dropped from that list.
+test('makeTransport.drain: lines before skipBefore are replayed; a request there is held and declined once', async () => {
+  const l1 = '{"old":"é"}\n', req = '{"jsonrpc":"2.0","id":7,"method":"item/commandExecution/requestApproval","params":{}}\n';
+  const asked = '{"jsonrpc":"2.0","id":8,"method":"item/tool/requestUserInput","params":{}}\n', resolved = '{"method":"serverRequest/resolved","params":{"requestId":8}}\n';
+  const l2 = '{"new":1}\n', before = l1 + req + asked + resolved;
+  const x = mkTransport({ content: before + l2, skipBefore: Buffer.byteLength(before) });
   try {
-    x.tr.drain();
-    assert.equal(x.got.join(''), l2);
+    x.tr.drain(); x.tr.drain();
+    assert.equal(x.got.join(''), l1 + resolved + l2, 'replayed, the requests held back');
+    assert.deepEqual(x.writer.writes.map(w => JSON.parse(w)), [{ jsonrpc: '2.0', id: 7, result: { decision: 'decline' } }], 'the unresolved one declined once');
   } finally { x.tr.exit(0); }
 });
 
