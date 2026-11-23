@@ -510,7 +510,7 @@ const checkbacksOn = () => checkbackSettings().checkbacks === true;
 const jobSettings = () => auto.groupValues(settings.automation, 'jobs');
 const jobsOn = () => jobSettings().jobs === true;
 // A proposal (pocket-jobkey propose) waits this long for the owner's Allow; POCKET_JOB_REQUEST_TTL_MS shortens it (the tests).
-const jobStore = new JobKeyStore(path.join(DATA_DIR, 'job-keys.json'), { keepMs: () => jobSettings().jobRepeatDays * 86400_000, proposalTtlMs: msSetting('POCKET_JOB_REQUEST_TTL_MS', 24 * 3600_000) });
+const jobStore = new JobKeyStore(path.join(DATA_DIR, 'job-keys.json'), { keepMs: () => jobSettings().jobRepeatDays * 86400_000, proposalTtlMs: msSetting('POCKET_JOB_REQUEST_TTL_MS', 24 * 3600_000), log });
 const JOBKEY_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-jobkey.mjs');
 // May this engine's conversations use check-backs? OpenRouter never (the spec leaves it out; its route answers engine_unsupported).
 const checkbackEngineOn = engine => { const v = checkbackSettings(); return v.checkbacks === true && (engine === 'claude' ? v.checkbackClaude : engine === 'codex' ? v.checkbackCodex : false) === true; };
@@ -6866,8 +6866,7 @@ app.post('/api/checkbacks/agent/add', requireBoardAuth, checkbacksGate, async (r
   const filled = overLimit(); if (filled) return cbRefuse(res, filled);
   const c = checkbacks.add({ sessionId: who.sessionId, engine: who.engine, note, dueAt, chainDepth: set.depth, run,
     createdByTurn: { startedAt: cbIso(turn.startedAt || now), origin: turn.origin, ...(turn.originRef ? { originRef: turn.originRef } : {}) },
-    ...(paused ? { status: 'held', held: { reason: 'paused', since: cbIso(now) } } : {}) });
-  if (title) checkbacks.update(c.id, { title: String(title).slice(0, 160) });
+    ...(paused ? { status: 'held', held: { reason: 'paused', since: cbIso(now) } } : {}), ...(title ? { title: String(title).slice(0, 160) } : {}) }); // 1.124.4: one save; a failed second save for the title answered 503 for a check-back that was set
   cbAudit('set', c, { dueAt: c.dueAt, ...(paused ? { held: 'paused' } : {}) });
   log(`check-back set id=${c.id} session=${who.sessionId} due=${c.dueAt} depth=${c.chainDepth}`);
   res.status(201).json({ ok: true, checkback: checkbackView(checkbacks.get(c.id)), dueText: fmtCheckbackTime(Date.parse(c.dueAt)), chainLimit: v.chainLimit, ...(paused ? { paused: true } : {}) });
@@ -7187,11 +7186,14 @@ async function jobStart(res, { k, r, conversation, data, instructions, refuse })
     return false;
   }
   // The reply may already have ended (and settled the run) while the start was awaited.
+  // 1.124.4: the reply is running now, so a save that fails from here is logged and the call is answered as started: a run
+  // left starting reads working and its reply's end settles it (jobFinished). It used to reach the caller's catch, which
+  // marked the run not_started while its reply ran, so a retry with the same idempotency key started a second reply.
+  const saved = (what, fn) => { try { fn(); } catch (e) { log(`job run started, ${what} not saved run=${r.run} key=${k.id} session=${id}: ${e.code || e.message}`); } };
   const cur = jobStore.run(r.run);
-  if (cur?.status === 'starting') jobStore.updateRun(r.run, { status: 'working', conversation: id });
-  else if (cur && !cur.conversation) jobStore.updateRun(r.run, { conversation: id });
-  jobStore.noteConversation(k.id, id);
-  jobStore.updateKey(k.id, { lastRunAt: r.startedAt });
+  saved('its state', () => { if (cur?.status === 'starting') jobStore.updateRun(r.run, { status: 'working', conversation: id }); else if (cur && !cur.conversation) jobStore.updateRun(r.run, { conversation: id }); });
+  saved('its conversation', () => jobStore.noteConversation(k.id, id));
+  saved('the key\'s last run', () => jobStore.updateKey(k.id, { lastRunAt: r.startedAt }));
   log(`job run started run=${r.run} key=${k.id} engine=${k.engine} session=${id}${conversation ? ' (continued)' : ''}`);
   return true;
 }
@@ -7326,8 +7328,18 @@ app.post('/api/jobs/keys', requireAuth, ownerControl, jobsGate, (req, res) => {
   let made; try { made = jobStore.addKey(fields); } catch (e) { return jobErr(res, e); }
   let file = null;
   if (wantsKeyFile(b)) {
-    try { file = writeKeyFile(keyFileFolder(b), made.key.name, made.secret, { home: HOME, taken: keyFileTaken(made.key.id) }); jobStore.updateKey(made.key.id, { keyFile: file }); }
-    catch (e) { jobStore.deleteKey(made.key.id); if (!e.status) log(`job key file not written: ${e.message}`); return res.status(e.status || 400).json({ error: e.status ? e.message : `The key file could not be written: ${e.code || e.message}. Nothing was created.`, code: e.code && e.status ? e.code : 'file_error' }); }
+    try { file = writeKeyFile(keyFileFolder(b), made.key.name, made.secret, { home: HOME, taken: keyFileTaken(made.key.id) }); jobStore.updateKey(made.key.id, { keyFile: file, fileHash: made.key.keyHash }); }
+    catch (e) {
+      // 1.124.4: when the file was written but its path could not be saved, the file goes too (only while it holds this key),
+      // and a rollback that cannot be saved either still gets this answer, saying what is left; the file used to stay with a
+      // key the owner was told was not made, and the second failure answered a bare 503.
+      if (file) removeKeyFile(file, made.key.keyHash);
+      let kept = false; try { jobStore.deleteKey(made.key.id); } catch (e2) { kept = true; log(`job key not removed after its file failed id=${made.key.id}: ${e2.code || e2.message}`); }
+      if (!e.status) log(`job key file not written: ${e.message}`);
+      const why = e.status ? e.message : `The key file could not be written: ${e.code || e.message}.`;
+      const error = kept ? `${why} The key "${made.key.name}" was made but could not be removed; delete it in Job keys.` : e.status ? why : `${why} Nothing was created.`;
+      return res.status(e.status || 400).json({ error, code: e.code && e.status ? e.code : 'file_error' });
+    }
   }
   jobAudit('created', made.key, { fields: Object.keys(fields), ...(file ? { keyFile: true } : {}) });
   log(`job key created id=${made.key.id} name=${made.key.name} engine=${made.key.engine}`);
@@ -7348,15 +7360,17 @@ for (const [action, enabled] of [['enable', true], ['disable', false]]) app.post
   res.json({ key: jobKeyOut(k) });
 });
 // A new key, shown once; the old one stops at once. The key file Pocket wrote for it, still holding the old key, gets the new one.
+// 1.124.4: or still holding the key Pocket last wrote there (fileHash), which a rotation cut off between its save and the file
+// leaves behind: the next Rotate repairs that file, where it used to be left alone for good.
 app.post('/api/jobs/keys/:id/rotate', requireAuth, ownerControl, jobsGate, (req, res) => {
   const cur = jobStore.key(req.params.id); if (!cur) return res.status(404).json({ error: 'There is no job key with that id.', code: 'not_found' });
   const b = req.body || {}, oldHash = cur.keyHash;
   const { key, secret } = jobStore.rotate(cur.id);
   let file = null, fileError = null;
   const target = wantsKeyFile(b) ? [keyFileFolder(b), key.name]
-    : cur.keyFile && isKeyFile(cur.keyFile) && hashJobKey(fs.readFileSync(cur.keyFile, 'utf8').trim()) === oldHash ? [path.dirname(cur.keyFile), path.basename(cur.keyFile, '.key')] : null;
+    : cur.keyFile && isKeyFile(cur.keyFile) && [oldHash, cur.fileHash].includes(hashJobKey(fs.readFileSync(cur.keyFile, 'utf8').trim())) ? [path.dirname(cur.keyFile), path.basename(cur.keyFile, '.key')] : null;
   if (target) {
-    try { file = writeKeyFile(target[0], target[1], secret, { home: HOME, taken: keyFileTaken(key.id) }); if (file !== cur.keyFile) removeKeyFile(cur.keyFile, oldHash); jobStore.updateKey(key.id, { keyFile: file }); }
+    try { file = writeKeyFile(target[0], target[1], secret, { home: HOME, taken: keyFileTaken(key.id) }); if (file !== cur.keyFile) removeKeyFile(cur.keyFile, oldHash); jobStore.updateKey(key.id, { keyFile: file, fileHash: key.keyHash }); }
     catch (e) { fileError = { error: e.status ? e.message : `The key file could not be written: ${e.code || e.message}.`, code: e.status && e.code ? e.code : 'file_error' }; }
   }
   jobAudit('rotated', key, { fields: ['key'], ...(file ? { keyFile: true } : {}) });
@@ -7555,8 +7569,22 @@ app.post('/api/jobs/requests/:id/answer', requireAuth, ownerControl, jobsGate, (
     log(`job key request=${p.id} allow failed, the key file was not written (${error.code})`);
     return res.status(e.status || 500).json({ ...error, request: jobRequestView(kept) });
   }
-  const key = jobStore.updateKey(made.key.id, { keyFile: file });
-  const done = jobStore.updateProposal(p.id, { status: 'allowed', answeredAt: at, keyId: key.id, keyName: key.name, keyFile: file, ...(changed.length ? { edited: changed } : {}), error: undefined });
+  // 1.124.4: when the key file's path or the request's Allow cannot be saved, the file and the key are undone as above, the
+  // request stays pending with the reason, and Allow can be pressed again. Only the file's write used to be undone: the
+  // request stayed pending beside an enabled key, a second Allow was refused as a taken name and the agent saw it expire.
+  let key, done;
+  try {
+    key = jobStore.updateKey(made.key.id, { keyFile: file, fileHash: made.key.keyHash });
+    done = jobStore.updateProposal(p.id, { status: 'allowed', answeredAt: at, keyId: key.id, keyName: key.name, keyFile: file, ...(changed.length ? { edited: changed } : {}), error: undefined });
+  } catch (e) {
+    removeKeyFile(file, made.key.keyHash);
+    let kept = false; try { jobStore.deleteKey(made.key.id); } catch (e2) { kept = true; log(`job key not removed after its Allow failed id=${made.key.id}: ${e2.code || e2.message}`); }
+    const error = { error: `The key could not be saved: ${e.code || e.message}. ${kept ? `The key "${made.key.name}" was made but could not be removed; delete it in Job keys.` : 'Nothing was created.'}`, code: 'file_error' };
+    let shown = jobStore.proposal(p.id);
+    try { shown = jobStore.updateProposal(p.id, { error: { ...error, at } }); } catch (e3) { log(`job key request=${p.id} error not saved: ${e3.code || e3.message}`); }
+    log(`job key request=${p.id} allow failed, the key could not be saved (${e.code || e.message})`);
+    return res.status(500).json({ ...error, request: jobRequestView(shown) });
+  }
   jobAudit('created', key, { fields: Object.keys(fields), keyFile: true, request: p.id });
   jobReqAudit('proposal_allowed', done, { keyId: key.id, ...(changed.length ? { edited: changed } : {}) });
   log(`job key request allowed request=${p.id} key=${key.id} name=${key.name}${changed.length ? ` edited=${changed.join(',')}` : ''}`);

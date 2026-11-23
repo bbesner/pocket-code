@@ -405,3 +405,31 @@ test('pocket-jobkey: 6 while it waits, 0 with the key file\'s path once allowed 
   r = await jobkey(s, ['status', idB], { token: tb });
   assert.equal(r.code, 5); assert.match(r.err, /Job keys are switched off/);
 });
+
+// 1.124.4 (bug review of 2026-11-23): test/store-fault.mjs, loaded into the server, fails the nth save of job-keys.json
+// counted from when the rule was written. An Allow saves: 1 the key, 2 its file's path, 3 the request as allowed.
+test('1.124.4: an Allow whose key or request could not be saved undoes the key and its file, keeps the request pending with the reason, and a second Allow makes it', { timeout: 90_000 }, async t => {
+  const dir = tmpDir(), ctl = path.join(dir, 'store-fault');
+  const s = await boot(t, 19056, { dir, env: { NODE_OPTIONS: '--import ' + path.join(repo, 'test/store-fault.mjs'), STORE_FAULT_FILE: ctl } });
+  await s.turnOn();
+  const a = await s.start('owner asks for a nightly job __HANG__'), ta = await s.tokenFor(a);
+  let r = await s.propose(ta, s.fields());
+  assert.equal(r.status, 202, JSON.stringify(r.body));
+  const id = r.body.request, file = path.join(s.home, '.config/pocket/jobs/disk-check.key');
+  for (const [n, what] of [[3, 'the request as allowed'], [2, 'the key file\'s path']]) {
+    fs.writeFileSync(ctl, JSON.stringify({ store: 'job-keys.json', nth: n, times: 1, what }));
+    r = await s.answer(id, { answer: 'allow' });
+    fs.rmSync(ctl, { force: true });
+    assert.equal(r.status, 500, `${what}: ${r.text}`);
+    assert.deepEqual([r.body.code, r.body.error, r.body.request?.id, r.body.request?.error?.code], ['file_error', 'The key could not be saved: ENOSPC. Nothing was created.', id, 'file_error'], what);
+    const list = (await s.call('/jobs/keys')).body;
+    assert.deepEqual([list.keys.length, list.requests.map(q => q.id)], [0, [id]], `${what}: no key; the request still pending`);
+    assert.ok(!fs.existsSync(file), `${what}: no key file`);
+    assert.equal((await s.request(ta, id)).body.status, 'pending', `${what}: the agent still waits`);
+  }
+  r = await s.answer(id, { answer: 'allow' });
+  assert.equal(r.status, 200, 'a second Allow makes it: ' + r.text);
+  assert.equal(r.body.file, file);
+  assert.equal((await s.request(ta, id)).body.status, 'allowed');
+  assert.equal((await s.call('/jobs/keys')).body.keys.length, 1);
+});

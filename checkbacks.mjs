@@ -127,11 +127,12 @@ export class CheckbackStore {
   active() { return this.items.filter(c => ACTIVE.has(c.status)); }
   waiting() { return this.items.filter(c => c.status === 'pending' || c.status === 'held'); }
   forSession(id) { return this.items.filter(c => c.sessionId === id); }
-  add({ sessionId, engine, note, dueAt, createdByTurn, chainDepth = 0, run = {}, status = 'pending', held = null }) {
+  // title: the conversation's title when it was set (1.124.4: in this one save; a second save for it could fail after the first).
+  add({ sessionId, engine, note, dueAt, createdByTurn, chainDepth = 0, run = {}, status = 'pending', held = null, title = '' }) {
     if (!SESSION_RE.test(String(sessionId || ''))) throw fail('That is not a conversation id.');
     const at = iso(this.now());
     const c = { id: newId(), sessionId, engine, note, dueAt: iso(dueAt), createdAt: at, createdByTurn: createdByTurn || null, chainDepth, run,
-      status, ...(held ? { held } : {}), heldReasons: [] };
+      status, ...(held ? { held } : {}), heldReasons: [], ...(title ? { title } : {}) };
     while (this.get(c.id)) c.id = newId();
     this.commit([...this.items, c]);
     return c;

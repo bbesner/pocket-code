@@ -5,9 +5,10 @@
 // the gate and the start are the server's (server.mjs, "job keys").
 //
 // A key: { id, name, workspace, engine, model, effort, access ('ask' | 'full'), instruction, mayAddInstructions,
-//   limits: { perHour, perDay, atOnce }, pushWhenDone, enabled, keyHash (SHA-256 hex of the key), keyFile?, createdAt,
+//   limits: { perHour, perDay, atOnce }, pushWhenDone, enabled, keyHash (SHA-256 hex of the key), keyFile?, fileHash? (1.124.4:
+//   the hash of the key Pocket last wrote to keyFile, so a Rotate cut off before the file was rewritten can repair it), createdAt,
 //   rotatedAt, lastRunAt, conversations (the newest ids this key started, so `conversation` can be checked) }.
-// The key itself is never stored; keyHash never leaves this file's callers (keyView leaves it out).
+// The key itself is never stored; keyHash and fileHash never leave this file's callers (keyView leaves them out).
 // A run: { run, keyId, keyName, conversation, engine, status, startedAt, endedAt?, outcome?, idempotencyKey?, reply?
 //   (the reply's first line only), cost?, tokens?, limited? (its last reply stopped at a usage limit), error? (why a run
 //   no reply ended was ended: the server's fixed words, never text from the reply) }. status: starting (reserved before the gate, so two calls can't both
@@ -17,6 +18,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
+import { readStore } from './store-file.mjs';
 
 export const KEY_RE = /^pjk_[A-Za-z0-9_-]{43}$/;
 export const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,47}$/;
@@ -110,7 +112,7 @@ export function writeKeyFile(folder, name, secret, { home = os.homedir(), taken 
   const file = path.join(dir, name + '.key');
   const owner = taken ? taken(canonKeyFile(file)) : null;
   if (owner) throw fail(`${file} is the key file of the job key "${owner}", so Pocket won't write another key there. Choose another folder or name.`, 409, 'file_taken');
-  let exists = true; try { fs.lstatSync(file); } catch { exists = false; }
+  let exists = true; try { fs.lstatSync(file); } catch (e) { if (e.code !== 'ENOENT') throw e; exists = false; } // 1.124.4: only a missing file is "not there", as above
   if (exists && !isKeyFile(file)) throw fail(`${file} is already there and is not a job key file, so Pocket left it as it is. Choose another folder or name.`, 409, 'file_exists');
   const tmp = path.join(dir, `.${name}.key.${hex(4)}.tmp`);
   fs.writeFileSync(tmp, secret + '\n', { mode: 0o600, flag: 'wx' });
@@ -127,18 +129,19 @@ export function removeKeyFile(file, keyHash) {
 export class JobKeyStore {
   // keepMs(): how long finished runs are kept (the repeat window); at least a day.
   // proposalTtlMs: how long a proposal waits for the owner (24 hours; a test shortens it).
-  constructor(file, { now, keepMs, proposalTtlMs } = {}) {
+  constructor(file, { now, keepMs, proposalTtlMs, log } = {}) {
     this.file = file;
     this.now = now || Date.now;
     this.keepMs = keepMs || (() => 7 * 86400_000);
     this.proposalTtlMs = Number(proposalTtlMs) > 0 ? Number(proposalTtlMs) : PROPOSAL.ttlMs;
-    let d = {};
-    try { d = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { }
+    const d = readStore(file, { log, now: this.now }); // 1.124.4: one that does not parse is kept aside and logged, not read as no keys
     this.keys = Array.isArray(d.keys) ? d.keys.filter(k => k && KEY_ID_RE.test(k.id) && NAME_RE.test(k.name) && /^[0-9a-f]{64}$/.test(k.keyHash || '')) : [];
     this.runs = Array.isArray(d.runs) ? d.runs.filter(r => r && RUN_RE.test(r.run) && typeof r.keyId === 'string') : [];
     this.proposals = Array.isArray(d.proposals) ? d.proposals.filter(p => p && REQUEST_RE.test(p.id) && typeof p.session === 'string' && p.fields && typeof p.fields === 'object'
       && PROPOSAL_STATUSES.includes(p.status) && !Number.isNaN(Date.parse(p.expiresAt))) : [];
     // A run left starting by a crash never started (the start happens after the reservation is saved and is settled at once).
+    // Not quite always (1.124.4): a crash between the engine's start and the server's `working` save (for Codex and
+    // OpenRouter, while their start call is answered), or after that save failed, leaves a reply that runs on, adopted.
     if (this.runs.some(r => r.status === 'starting')) this.commit(this.keys, this.runs.map(r => r.status === 'starting' ? { ...r, status: 'failed', outcome: 'not_started', endedAt: iso(this.now()) } : r));
   }
   write(data) {
