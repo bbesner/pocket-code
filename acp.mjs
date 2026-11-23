@@ -113,6 +113,7 @@ export class AcpClient {
     this.name = name;
     this.onNotify = onNotify;    // (method, params) => void
     this.onRequest = onRequest;  // (method, params, id) => void — MUST call respond(id, ...) eventually
+    this.onExit = null;          // (err) => void: the process exited or could not start (not called after close())
     this.seq = 0;
     this.pending = new Map();    // our outgoing request id -> {resolve, reject, timer}
     this.closed = false;
@@ -132,6 +133,7 @@ export class AcpClient {
     this.closed = true;
     for (const [, p] of this.pending) { clearTimeout(p.timer); p.reject(err); }
     this.pending.clear();
+    try { this.onExit?.(err); } catch (e) { log(`exit handler threw: ${e.message}`); }
   }
   _write(obj, cb) { try { this.proc.stdin.write(JSON.stringify(obj) + '\n', cb); } catch (e) { cb?.(e); } }
   _line(line) {
@@ -576,6 +578,9 @@ async function openAcpSession({ sessionId, cwd, model, cmd, args, env, resume, r
       // the level each model itself starts on, which Default goes back to: the session's first model here, the others as it switches to them
       effortDefaults: { [config.find(o => o.id === rt.options.model)?.currentValue ?? '']: config.find(o => o.id === rt.options.effort)?.currentValue ?? null } };
     acpSessions.set(sid, session);
+    // 1.124.2: a process that dies (a crash, an out-of-memory kill) is no longer the conversation's, as Codex drops an
+    // exited session; the next message opens a new one. It used to stay registered, and every later message failed.
+    client.onExit = () => { if (acpSessions.get(sid) === session) dropSession(session, `${rt.name} exited during this reply.`); };
     return session;
   } catch (e) { client.close(); throw runtimeError(rt, e); }
 }
@@ -690,6 +695,7 @@ export async function startAcpTurn({ sessionId, cwd, text, prompt = null, images
   const bare = sessionId ? bareAcpId(sessionId) : null;
   const rt = runtime ? runtimeOf(runtime) : runtimeForId(sessionId) || RUNTIMES.opencode;
   let session = bare && acpSessions.get(bare);
+  if (session?.client.closed) { closeAcpSession(bare); session = null; } // 1.124.2: its process is gone: open a new one, as Codex does
   if (session && acpTurns.has(session.sessionId)) throw Object.assign(new Error('busy'), { code: 409 });
   if (!session) { session = await openAcpSession({ sessionId: bare, cwd, model, cmd, args, env, resume, runtime: rt, mcpServers, instructions: hooks.instructions, instructionsFile, askKey }); session.costTotal = resume ? costBaseline : 0; }
   mayStart?.(); // 1.117: refused just before the turn exists (Pocket was paused meanwhile); the opened process idles out as usual
@@ -772,10 +778,13 @@ export function closeAcpSession(sessionId) {
   const s = acpSessions.get(bare);
   if (!s) return;
   try { s.client.close(); } catch { }
-  acpSessions.delete(bare);
+  dropSession(s, `${s.runtime.name} was closed during this reply.`);
+}
+function dropSession(s, error) {
+  if (acpSessions.get(s.sessionId) === s) acpSessions.delete(s.sessionId);
   // 1.124.2: a reply still running on it ends here, as stopped when Stop came first (the release route's Stop the reply).
   // It used to be dropped from acpTurns only, and stayed open, unreachable, until its prompt timed out an hour later.
-  if (s.turn && !s.turn.done) finishAcpTurn(s.turn, { stopReason: 'error', error: `${s.runtime.name} was closed during this reply.` });
+  if (s.turn && !s.turn.done) finishAcpTurn(s.turn, { stopReason: 'error', error });
   if (s.instructionsFile) fs.rm(s.instructionsFile, { force: true }, () => { });
 }
 // The session whose OpenCode process was started with this ask key (Pocket's ask tool presents it).

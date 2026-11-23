@@ -121,6 +121,30 @@ test('stop and close at once: the reply ends as stopped now, not at the prompt t
   } finally { unhang(turn); afterEach(); }
 });
 
+// 1.124.2: a process that dies between replies (a crash, an out-of-memory kill) used to stay registered, and every later
+// message failed with "acp client closed" while each failure put off the idle close.
+test('a process that dies between replies is dropped, and the next message opens a new one', async () => {
+  const store = mkStore(), env = { ...baseEnv(store), FAKE_ACP_NO_ASK: '1' };
+  const first = await startAcpTurn(turnOpts(store, { env }));
+  await first.promptDone;
+  const sid = first.sessionId, pid = first.client.pid;
+  process.kill(pid, 'SIGKILL');
+  assert.ok(await waitFor(() => first.client.closed, 3000), 'the process is gone');
+  const { emit, ev } = collect();
+  const next = await startAcpTurn(turnOpts(store, { env, sessionId: 'acp:' + sid, resume: true, text: 'again', hooks: { emit } }));
+  await next.promptDone;
+  const r = ev.find(e => e.type === 'result');
+  assert.deepEqual([r.ok, r.stopReason, r.error], [true, 'end_turn', undefined]);
+  assert.notEqual(next.client.pid, pid, 'a new process');
+  afterEach();
+  // and with no message after it, the dead process is not kept as the conversation's (the idle close never saw it)
+  const lone = await startAcpTurn(turnOpts(store, { env }));
+  await lone.promptDone;
+  process.kill(lone.client.pid, 'SIGKILL');
+  assert.ok(await waitFor(() => !acpSessions.has(lone.sessionId), 3000), 'dropped when it exits');
+  afterEach();
+});
+
 test('busy: a second turn on a live session is rejected 409', async () => {
   const store = mkStore();
   const turn = await startAcpTurn(turnOpts(store, { hooks: {} }));
