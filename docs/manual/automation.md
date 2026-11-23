@@ -155,6 +155,8 @@ When a limit holds work, Pocket tells you once per reason per day, not once per 
 
 If Pocket can't write the day's counts to `automation-state.json` (a full disk, a data folder it can't write), it keeps them in memory, so the daily limits still hold, and the top of the page says *Today's counts of unattended replies and OpenRouter spend could not be saved, so after a restart they may be lower than they are and the daily limits could be passed.* The log says so once. Free the space before restarting Pocket; the warning goes, and the log says *saved again*, at the next save that works.
 
+If `automation-state.json` cannot be read or does not hold valid JSON when Pocket starts (a file damaged by a power cut, a hand edit, the wrong owner or mode), Pocket keeps it beside the original as `automation-state.json.corrupt-<time>`, names both in the server log, and starts the day's counts at zero, so the daily limits start again for the rest of that day. To get the counts back, stop Pocket, fix the kept copy and move it back to `automation-state.json`, then start Pocket.
+
 ## Check-backs
 
 A check-back is one more reply, later, in the conversation that set it. You say "check the page in 15 minutes and tell me", the agent sets a check-back, and at that time Pocket starts the conversation's next reply by itself. The agent does the check, replies, and Pocket sends you a push with the result. It is for a conversation looking again at a page, a deploy or a job's result. When *you* have to do something later, a [task](tasks.md) is still the right thing.

@@ -277,3 +277,29 @@ test('a daily count that cannot be saved is kept in memory, flagged and logged o
     assert.equal(new auto.AutomationState(file, opts).counts().startedRoot, 2);
   } finally { fs.chmodSync(dir, 0o755); fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+// 1.124.4: a state file that does not parse (torn by a power cut) or cannot be read (mode 000) is kept aside as
+// automation-state.json.corrupt-<UTC time> and logged, as the other stores are (store-file.mjs), and the day starts
+// empty. Before, the day silently started at zero and the next save replaced the only copy.
+test('a daily-state file that cannot be read or parsed is kept aside and logged, not overwritten', () => {
+  for (const [why, prepare] of [
+    ['not valid JSON', f => fs.writeFileSync(f, '{"today":{"day":"2026-11-21","startedRoot":40,"replies":40')],
+    ['EACCES', f => new auto.AutomationState(f, { now: () => NOW, zone: () => 'UTC', log: () => {} }).recordStart({ rootOrigin: 'job' })],
+  ]) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-')), file = path.join(dir, 'automation-state.json');
+    try {
+      prepare(file); const before = fs.readFileSync(file);
+      if (why === 'EACCES') fs.chmodSync(file, 0o000); // a valid file the daemon cannot read
+      const logged = [];
+      const st = new auto.AutomationState(file, { now: () => NOW, zone: () => 'UTC', log: (...a) => logged.push(a.join(' ')) });
+      assert.equal(st.counts().startedRoot, 0, why);
+      assert.equal(logged.length, 1, why); assert.match(logged[0], new RegExp(`automation-state\\.json could not be read \\(${why}\\): kept it as `));
+      const kept = fs.readdirSync(dir).filter(n => n.startsWith('automation-state.json.corrupt-'));
+      assert.equal(kept.length, 1, why);
+      st.recordStart({ rootOrigin: 'job' });
+      fs.chmodSync(path.join(dir, kept[0]), 0o600);
+      assert.ok(fs.readFileSync(path.join(dir, kept[0])).equals(before), `${why}: the kept copy holds the old bytes`);
+      assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).today.startedRoot, 1, `${why}: the new day is saved beside it`);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+});

@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { atomicWrite } from './usage.mjs';
+import { readStore } from './store-file.mjs';
 
 // ---------- origin ----------
 // `origin` is what started this turn; `rootOrigin` is who asked for the work in the first place (a retry carries the
@@ -345,9 +346,10 @@ const EMPTY_DAY = day => ({ day, startedRoot: 0, startedOwnerRoot: 0, openrouter
 export class AutomationState {
   constructor(file, { zone = () => '', now = () => Date.now(), write = atomicWrite, log = (...a) => console.log(new Date().toISOString(), ...a) } = {}) {
     this.file = file; this.zone = zone; this.now = now; this.write = write; this.log = log; this.saveError = null;
-    let s = null;
-    try { s = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { }
-    this.state = s && typeof s === 'object' && typeof s.today?.day === 'string' ? { today: { ...EMPTY_DAY(s.today.day), ...s.today }, days: Array.isArray(s.days) ? s.days : [] } : { today: EMPTY_DAY(dayKey(this.now(), this.zone())), days: [] };
+    // 1.124.4: a file that is there but cannot be read or parsed is kept aside as <name>.corrupt-<UTC time> and logged
+    // (store-file.mjs, as the other stores), and the day starts empty; it was read as empty and the next save replaced it
+    const s = readStore(file, { log });
+    this.state = typeof s.today?.day === 'string' ? { today: { ...EMPTY_DAY(s.today.day), ...s.today }, days: Array.isArray(s.days) ? s.days : [] } : { today: EMPTY_DAY(dayKey(this.now(), this.zone())), days: [] };
   }
   // 1.124.4: a failed write keeps the counts in memory (rolling them back would loosen the limits while Pocket runs,
   // and a throw would break a reply that has already started), but no longer silently: save() returns false, saveError

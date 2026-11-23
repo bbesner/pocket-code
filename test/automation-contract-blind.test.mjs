@@ -639,13 +639,19 @@ test('state: noticeOnce / notices', () => {
   assert.equal(st.noticeOnce(n), true, 'new day allows again');
 });
 
-test('state: constructor tolerance and pass-through (current behaviour)', () => {
-  const { file, opts } = setup();
+// 1.124.4 (D2): bytes that are not a JSON object are kept aside (store-file.mjs) rather than left for the next save to
+// replace; an object without a usable day starts an empty day and stays as it is until the next save.
+test('state: constructor tolerance and pass-through', () => {
+  const { dir, file, opts } = setup();
+  const quiet = { ...opts, log: () => {} };
   for (const bad of ['{not json', '[]', '42', 'null', '{"today":{"replies":3}}', '{"today":{"day":5,"replies":3}}']) {
+    for (const n of fs.readdirSync(dir)) if (n.includes('.corrupt-')) fs.unlinkSync(path.join(dir, n));
     fs.writeFileSync(file, bad);
-    const s = new AutomationState(file, opts);
+    const s = new AutomationState(file, quiet);
     assert.equal(s.counts().replies, 0, bad); assert.equal(s.counts().day, '2026-01-01');
-    assert.equal(fs.readFileSync(file, 'utf8'), bad, 'not rewritten at construction');
+    const kept = fs.readdirSync(dir).find(n => n.includes('.corrupt-'));
+    if (bad.startsWith('{"today"')) assert.equal(fs.readFileSync(file, 'utf8'), bad, 'not rewritten at construction');
+    else { assert.equal(fs.existsSync(file), false, bad); assert.equal(fs.readFileSync(path.join(dir, kept), 'utf8'), bad, 'kept aside whole'); }
   }
   fs.writeFileSync(file, JSON.stringify({ today: { day: '2026-01-01', replies: 3, extra: 'x' }, days: [] }));
   const s = new AutomationState(file, opts);
@@ -734,15 +740,27 @@ for (const [opName, op] of Object.entries(OPS)) {
   }
 }
 
-test('fail-step constructor readFileSync throws on a valid committed file: limit not silently reset (D2)', () => {
-  const { file, st, opts } = setup();
+// D2, fixed in 1.124.4 with the house pattern for every store (store-file.mjs readStore). The blind test asked for the
+// count to be kept or the constructor to throw; instead a file that is there but cannot be read is renamed to
+// automation-state.json.corrupt-<UTC time> with its bytes intact, one line names both paths, and the day starts at zero.
+// The kept copy is what a repair starts from, and no later save touches it.
+test('fail-step constructor readFileSync throws on a valid committed file: kept aside whole, logged, the day starts empty (D2)', () => {
+  const { dir, file, st, opts } = setup();
   for (let i = 0; i < 5; i++) st.recordStart({ rootOrigin: 'job' });
   const snap = snapshot(file);
+  const logged = [];
   const restore = failFsFor('readFileSync', file);
   let res;
-  try { res = tryCall(() => new AutomationState(file, opts)); } finally { restore(); }
-  assert.ok(unchanged(file, snap));
-  assert.ok(res.threw || res.ret.counts().startedRoot === 5, `D2: unreadable state silently reset startedRoot to ${res.ret?.counts().startedRoot}`);
+  try { res = tryCall(() => new AutomationState(file, { ...opts, log: (...a) => logged.push(a.join(' ')) })); } finally { restore(); }
+  assert.equal(res.threw, false);
+  const kept = fs.readdirSync(dir).filter(n => n.startsWith('automation-state.json.corrupt-'));
+  assert.equal(kept.length, 1, fs.readdirSync(dir).join(','));
+  assert.ok(unchanged(path.join(dir, kept[0]), snap), 'the kept copy holds the committed bytes');
+  assert.equal(logged.length, 1);
+  assert.match(logged[0], /automation-state\.json could not be read \(EIO\): kept it as \S+automation-state\.json\.corrupt-\d{8}-\d{6}/);
+  assert.equal(res.ret.counts().startedRoot, 0);
+  res.ret.recordStart({ rootOrigin: 'job' });
+  assert.ok(unchanged(path.join(dir, kept[0]), snap), 'the next save leaves the kept copy alone');
 });
 
 test('overlap: first save fails, second succeeds and persists both increments', () => {
@@ -874,13 +892,16 @@ test('a run of failed daily-state writes is surfaced once, and the next good sav
   assert.deepEqual([r2.counts().startedRoot, r2.counts().openrouterRoot, r2.counts().notices.length], [3, 1, 1]);
 });
 
-test('DIV-2: malformed daily-state bytes must be preserved for repair, not overwritten by the next save', () => {
+// D2, fixed in 1.124.4.
+test('malformed daily-state bytes are preserved for repair and logged, not overwritten by the next save', () => {
   const { dir, file, opts } = setup();
   const bad = '{"today":{"day":"2026-01-01","startedRoot":37,"replies":4';
   fs.writeFileSync(file, bad);
-  const res = tryCall(() => { const s = new AutomationState(file, opts); s.recordStart({ rootOrigin: 'job' }); return s; });
+  const logged = [];
+  const res = tryCall(() => { const s = new AutomationState(file, { ...opts, log: (...a) => logged.push(a.join(' ')) }); s.recordStart({ rootOrigin: 'job' }); return s; });
   const preserved = fs.readdirSync(dir).some(n => fs.readFileSync(path.join(dir, n), 'utf8') === bad);
   assert.ok(res.threw || preserved, 'corrupt state silently replaced: no copy of the bad bytes remains and no error was raised');
+  assert.equal(logged.filter(l => /could not be read \(not valid JSON\)/.test(l)).length, 1, JSON.stringify(logged));
 });
 
 test('DIV-3: a torn audit append must not corrupt the next successful row', () => {
