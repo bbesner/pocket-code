@@ -5309,8 +5309,15 @@ app.post('/api/inbox/watch', requireBoardAuth, inboxOn, (req, res) => {
       log(`inbox watch settings refused (paused) by=cli`);
       return res.status(409).json({ error: 'Pocket is paused, so Inbox Watch stays paused. The owner resumes it in Pocket Code.', code: 'paused' });
     }
+    const held = actor === 'cli' ? pausedNow()?.inboxWatch : null, before = held && inboxStore.watchView(src).revision;
     const view = inboxStore.setWatch(src, b.settings ?? null, { actor });
     log(`inbox watch settings source=${view.source} revision=${view.revision} by=${actor}${view.settings ? '' : ' (config file)'}`);
+    // 1.124.5: an agent's change that kept Pause all's hold (above) is not the owner's: Resume still resumes it, with the
+    // agent's settings. Before, Resume read it as changed while paused and left Inbox Watch off.
+    if (held && held.source === view.source && before === held.revision) {
+      held.revision = view.revision; held.wasNull = false;
+      try { saveSettings(); } catch (e) { log(`inbox watch: the pause record could not be saved (${e.message})`); }
+    }
     res.set('Cache-Control', 'private, no-store').json({ ok: true, ...view });
   } catch (e) { inboxError(res, e); }
 });

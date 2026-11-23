@@ -242,3 +242,26 @@ test('a-x-2: the mirror of a conversation in a folder made after boot shows a ne
   fs.appendFileSync(file, line('assistant', [{ type: 'text', text: 'Running the tests.' }]));
   await s.until(() => text.includes('Running the tests.'), 5000, 'the new line in the mirror');
 });
+
+// a-x-http-1: while paused, an agent may change Inbox Watch if it stays paused. Resume then read that as the owner's change
+// and left Inbox Watch paused ("changed while paused"), though the owner changed nothing.
+test('a-x-http-1: Resume resumes Inbox Watch when the only change while paused was an agent\'s that kept it paused', { timeout: 60_000 }, async t => {
+  const s = await boot(t, 21188);
+  assert.equal((await s.call('/settings', { inbox: true })).status, 200);
+  assert.equal((await s.call('/pause', {})).body.stopped.inboxWatch, true);
+  const cur = (await s.call('/inbox/watch', undefined, s.bearer())).body.settings;
+  assert.equal(cur.paused, true);
+  for (const every of [30, 45]) { // two of the agent's saves
+    const r = await s.call('/inbox/watch', { settings: { ...cur, every } }, s.bearer());
+    assert.equal(r.status, 200, JSON.stringify(r.body)); assert.equal(r.body.settings.paused, true);
+  }
+  const res = await s.call('/resume', {});
+  assert.equal(res.body.inboxWatch, 'resumed', JSON.stringify(res.body));
+  const w = (await s.call('/inbox/watch')).body.settings;
+  assert.deepEqual([w.paused, w.every], [false, 45], 'running, with the agent\'s settings');
+  // the owner's own change while paused is still left as the owner set it
+  assert.equal((await s.call('/pause', {})).body.stopped.inboxWatch, true);
+  assert.equal((await s.call('/inbox/watch', { settings: { ...w, paused: true, every: 60 } })).status, 200);
+  assert.equal((await s.call('/inbox/watch', { settings: { ...w, paused: true, every: 30 } }, s.bearer())).status, 200);
+  assert.equal((await s.call('/resume', {})).body.inboxWatch, 'left_paused');
+});
