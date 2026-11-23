@@ -623,7 +623,10 @@ and is replaced by the placeholder in everything the tool sends back. Values are
 fill tools only (1.73.5: `browser_type`, `browser_fill_form`, `type`, `fill`, or the list in
 `POCKET_VAULT_FILL_TOOLS`), never handed to `browser_evaluate` or put in an address; and once a
 value has been typed, the relay withholds images, audio and blobs from that server for the rest
-of its life, because a screenshot of the page cannot be scrubbed. The relay is the agent's own
+of its life, because a screenshot of the page cannot be scrubbed. Since 1.124.2 it also refuses
+the calls that make a picture (`browser_take_screenshot`, `browser_pdf_save`, `screenshot`, plus
+`POCKET_VAULT_PICTURE_TOOLS`): Playwright MCP saves every screenshot and PDF to a file and names
+it, and the agent could open that file with its own tools. The relay is the agent's own
 tool, running as the same user, and the agent drives the page: the agent that asked for a fill
 can read the value back, and so can the page. The placeholder keeps the value out of the
 transcript in normal use; it does not keep it out of the agent's reach. Allow a fill as you would

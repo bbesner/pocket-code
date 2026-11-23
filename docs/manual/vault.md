@@ -243,7 +243,7 @@ claude mcp add playwright -s user -- node <Pocket Code directory>/scripts/pocket
 Rules the relay enforces:
 
 - Values go only into the fill tools: `browser_type`, `browser_fill_form`, `type` and `fill`, or the comma-separated list in `POCKET_VAULT_FILL_TOOLS`. A call to any other tool that names a placeholder (`browser_evaluate`, `browser_navigate`) is refused.
-- **Screenshot lockout.** Once a value has been typed, images, audio and other binary content from that browser are replaced with a note for the rest of the relay's life, because a value cannot be scrubbed out of a picture. Text snapshots still work.
+- **Screenshot lockout.** Once a value has been typed, images, audio and other binary content from that browser are replaced with a note for the rest of the relay's life, because a value cannot be scrubbed out of a picture. Calls that make a picture (`browser_take_screenshot`, `browser_pdf_save`, `screenshot`, or a tool named in `POCKET_VAULT_PICTURE_TOOLS`) are refused and never reach the browser, since the browser tool saves each picture to a file the agent could open. Text snapshots still work.
 - A fill waits `POCKET_VAULT_FILL_WAIT` seconds (default 90) for your approval, then tells the agent to call the tool again once you allow it.
 
 The page the agent is driving can read what was typed into it. Allow fills only on sites you trust with that login.
@@ -263,6 +263,7 @@ Each secret's sheet shows its last 20 events under **History**. The file records
 | **Vault requests** | Settings → Notifications & voice | Whether this device gets request pushes. The *Allow a job key?* push ([Automation](automation.md#let-a-conversation-set-one-up)) follows it too. |
 | `POCKET_VAULT_KEY` | `.env` | The server key. Pocket writes it; set it by hand only when there is no `.env` to write. |
 | `POCKET_VAULT_FILL_TOOLS` | Relay's environment | Tools the relay may type a value into. |
+| `POCKET_VAULT_PICTURE_TOOLS` | Relay's environment | More tools that make a picture, refused once a value has been typed, on top of `browser_take_screenshot`, `browser_pdf_save` and `screenshot`. |
 | `POCKET_VAULT_FILL_WAIT` | Relay's environment | Seconds a fill waits for approval. Default 90. |
 | `POCKET_VAULT_PATH` | `.env` | The `PATH` Vault runs are found and started with. Default: the `PATH` Pocket started with. Absolute folders only. See **Choose the Vault's PATH** below. |
 
