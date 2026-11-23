@@ -849,6 +849,7 @@ try{
  for(const width of [360,390,768,1440]){
   await p.setViewport({width,height:844,isMobile:width<700,hasTouch:width<700});
   assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'large chat text overflow '+width);
+  await p.waitForSelector('#chatmore'); // a viewport that changes isMobile reloads the page; the header is drawn a moment later
   await clickControl(p,'#chatmore');await p.waitForSelector('[data-text-reset]');
   assert.equal(await p.$eval('[data-text-size]',e=>e.textContent),'24px');
   assert.ok(await p.$eval('[data-text-reset]',e=>{const r=e.getBoundingClientRect();return r.width>=44&&r.height>=44&&r.right<=innerWidth;}));
