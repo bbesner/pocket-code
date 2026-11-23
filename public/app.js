@@ -1693,13 +1693,17 @@ let sessionProofReceivedAt=0,sessionProofReceivedWallAt=0;
 // every device agrees; this browser keeps a copy so the list is right before the server answers or offline.
 // Unsent changes wait in seenPending (only moves forward) and seenRestore (Undo, exact) until a save succeeds.
 const serverSeen = new Map(), seenPending = new Map(), seenRestore = new Map();
+// 1.124.5: an Undo's restore lowers a marker, so a list the server answered before the Undo and that arrives after it
+// would put the marker back up (the rows left Attention for a few seconds). The time each restore was saved is kept,
+// and only a list asked for after it may speak for that conversation again.
+const seenRestoredAt = new Map();
 let seenFlushT = null, seenFlushing = null, seenFlushAgain = false;
 const localSeen = id => { try { return Number(localStorage.getItem('pc-seen-' + id)) || 0; } catch { return 0; } };
 const seenAt = id => Math.max(localSeen(id), serverSeen.get(id) || 0);
 function setSeen(id, at) {
   if (!at || at <= seenAt(id)) return;
   try { localStorage.setItem('pc-seen-' + id, String(at)); } catch { }
-  seenRestore.delete(id); seenPending.set(id, at); clearTimeout(seenFlushT); seenFlushT = setTimeout(flushSeen, 250);
+  seenRestore.delete(id); seenRestoredAt.delete(id); seenPending.set(id, at); clearTimeout(seenFlushT); seenFlushT = setTimeout(flushSeen, 250);
 }
 async function flushSeen() {
   if (seenFlushing) { seenFlushAgain = true; return seenFlushing; }
@@ -1709,7 +1713,7 @@ async function flushSeen() {
     try {
       const r = await api('/seen', { method: 'POST', body: JSON.stringify({ seen, restore }) });
       for (const [id, at] of Object.entries(seen)) if (seenPending.get(id) === at) seenPending.delete(id);
-      for (const [id, at] of Object.entries(restore)) if (seenRestore.get(id) === at) seenRestore.delete(id);
+      for (const [id, at] of Object.entries(restore)) if (seenRestore.get(id) === at) { seenRestore.delete(id); seenRestoredAt.set(id, performance.now()); }
       for (const [id, at] of Object.entries(r.seen || {})) if (!seenRestore.has(id)) serverSeen.set(id, at);
     } catch { } // kept for the next session refresh
     finally {
@@ -1721,9 +1725,10 @@ async function flushSeen() {
 }
 // Take the server's markers, and send up any this browser has that the server lacks (including markers
 // saved before they were shared), so a reply opened here is cleared everywhere.
-function syncSeen() {
+function syncSeen(askedAt = performance.now()) {
   for (const s of allSessions) {
     if (seenRestore.has(s.id)) continue;
+    if (seenRestoredAt.has(s.id)) { if (askedAt <= seenRestoredAt.get(s.id)) continue; seenRestoredAt.delete(s.id); }
     serverSeen.set(s.id, s.seenAt || 0);
     const mine = localSeen(s.id);
     if (mine > (s.seenAt || 0) && !seenPending.has(s.id)) seenPending.set(s.id, mine);
@@ -2070,7 +2075,7 @@ async function refreshSessions() {
   if (sessionFetch) return sessionFetch;
   const askedAt = performance.now(); // 1.117: a list asked for before this device's Pause or Resume was answered keeps its old pause out
   sessionFetch = (async () => {
-    try { const d = await fetchSessionList(); allSessions = d.sessions; coordHeld = d.held || []; sessionsHome = d.home || ''; sessionWarnings = d.warnings || []; sessionsPause = d.pause || null; if(!Number.isFinite(d.checkedAt)||d.checkedAt<=0||d.checkedAt<=sessionCheckedAt)throw new Error('No fresh server confirmation');sessionCheckedAt = d.checkedAt;serverSkew = d.checkedAt - Date.now();sessionProofReceivedAt=performance.now();sessionProofReceivedWallAt=Date.now(); sessionsStale = false; syncSeen(); const current = allSessions.find(s => s.id === chatId); if (current) markRead(chatId, current.state); }
+    try { const d = await fetchSessionList(); allSessions = d.sessions; coordHeld = d.held || []; sessionsHome = d.home || ''; sessionWarnings = d.warnings || []; sessionsPause = d.pause || null; if(!Number.isFinite(d.checkedAt)||d.checkedAt<=0||d.checkedAt<=sessionCheckedAt)throw new Error('No fresh server confirmation');sessionCheckedAt = d.checkedAt;serverSkew = d.checkedAt - Date.now();sessionProofReceivedAt=performance.now();sessionProofReceivedWallAt=Date.now(); sessionsStale = false; syncSeen(askedAt); const current = allSessions.find(s => s.id === chatId); if (current) markRead(chatId, current.state); }
     catch { sessionsStale = true; }
     finally { sessionFetch = null; paintSessionPanels(); followChatTitle(); if (!sessionsStale) Voice.onSessions(allSessions); if (!sessionsStale && sessionsPause) Automation.fromList(sessionsPause, askedAt); else Automation.poll(); } // 1.117: a second device sees Pause all too, from the list itself
   })();

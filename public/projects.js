@@ -25,6 +25,7 @@ function mergeProject(p){
 }
 // onStale (1.124.2): called with the current card when the server refuses a stale revision, so an open sheet can take it on.
 // onError (1.124.5): called with any other refusal; a sheet that shows the reason itself returns true and there is no toast.
+const boardAddQueue=new Map(); // project id -> the step or note being added; the next one waits for it (1.124.5)
 async function boardAct(body,done,onStale,onError){
  try{const r=await api('/board/act',{method:'POST',body:JSON.stringify(body)});mergeProject(r.project);if(done)toast(done);paintProjectsView();paintProjectBadges();if(typeof repaintDue==='function')repaintDue();
   if(typeof boardChangedChatMode==='function')boardChangedChatMode(body,r.project); // 1.106: the open conversation's chip follows a link, unlink or switch
@@ -197,7 +198,11 @@ function bindProjectsView(main){
  // 1.124.2: a step or a note only adds to the card, so it goes with the current revision (the card is not repainted while
  // its box has text, so p can be older). A refusal repaints the card first: the text goes back into the new box, not the old one.
  const add=(sel,action,msg)=>main.querySelector(sel)?.addEventListener('submit',e=>{e.preventDefault();const input=e.target.elements.text;const text=input.value.trim();if(!text)return;input.value='';
-  boardAct({action,text,project:id,expected_revision:(projectById(id)||p).revision},msg).then(ok=>{const box=main.querySelector(sel+' input')||input;if(!ok&&!box.value)box.value=text;});});
+  // 1.124.5: a second step entered before the first one's answer went with the revision the first was about to change,
+  // and was refused as "changed since you loaded it" (the owner's own step). It now waits for the one before it.
+  const run=(boardAddQueue.get(id)||Promise.resolve()).then(()=>boardAct({action,text,project:id,expected_revision:(projectById(id)||p).revision},msg));
+  const tail=run.catch(()=>null);boardAddQueue.set(id,tail);tail.then(()=>{if(boardAddQueue.get(id)===tail)boardAddQueue.delete(id);});
+  tail.then(ok=>{const box=main.querySelector(sel+' input')||input;if(!ok&&!box.value)box.value=text;});});
  add('[data-task-add]','task-add','Step added');
  add('[data-note-add]','note','Note added');
  main.querySelectorAll('[data-remind-later]').forEach(b=>b.onclick=()=>reminderSheet(id,p.reminders.find(r=>r.id===b.dataset.remindLater)?.task||null));

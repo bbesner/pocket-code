@@ -420,6 +420,73 @@ export async function runUiTestFixes({browser,base,rows,out,settingsState=()=>({
   assert.equal(reads,before,'a page that already shows the run does not read the conversation again on every list refresh');
  });
 
+ await check('Inbox news: a conversation opened while another one\'s news is still loading asks for its own at once',PHONE,page=>withSettings({inbox:true},async()=>{
+  const asked=[];const other=rows[3];
+  await intercept(page,async(r,u)=>{
+   if(u.pathname!=='/api/inbox/news')return;
+   const id=u.searchParams.get('session');asked.push(id);
+   if(id===other.id)await pause(2500); // the first conversation's answer is slow
+   await r.respond({status:200,contentType:'application/json',body:'{"news":[]}'});return true;
+  });
+  await page.goto(base+'/?ui-fix=11#/chat/'+other.id);
+  await page.waitForFunction(id=>chatId===id&&document.querySelector('#box'),{},other.id);
+  const until=async(id,ms)=>{const end=Date.now()+ms;while(Date.now()<end&&!asked.includes(id))await pause(50);return asked.includes(id);};
+  assert.ok(await until(other.id,2000),'the first conversation asks for its news');
+  await page.evaluate(id=>{location.hash='#/chat/'+id;},idle.id);
+  await page.waitForFunction(id=>chatId===id&&document.querySelector('#box'),{},idle.id);
+  assert.ok(await until(idle.id,1500),'the second conversation asks for its own news while the first is still out (it waited for the 30 s refresh): '+JSON.stringify(asked));
+ }));
+
+ await check('Mark all reviewed, then Undo: a list answered before the Undo and arriving after it does not hide the rows again',PHONE,async page=>{
+  let hold=0;
+  await intercept(page,async(r,u)=>{
+   if(u.pathname!=='/api/sessions'||!hold)return;
+   const res=await fetch(r.url()),body=await res.text(),headers={};for(const k of ['etag','x-pocket-checked-at','content-type'])if(res.headers.get(k))headers[k]=res.headers.get(k);
+   const ms=hold;hold=0;await pause(ms); // the server has answered; the browser gets it later
+   await r.respond({status:res.status,headers,body});return true;
+  });
+  const done=rows.find(r=>r.state.kind==='finished')||idle;const saved=done.state,seen=done.seenAt;
+  done.state={kind:'finished',label:'Response ready',at:Date.now()};delete done.seenAt;
+  const unread=()=>page.evaluate(()=>allSessions.filter(canMarkReviewed).length);let n=0;
+  try{
+   await page.goto(base+'/?ui-fix=12#/');await page.waitForSelector('[data-filter="attention"]');
+   await page.evaluate(id=>{localStorage.removeItem('pc-seen-'+id);serverSeen.delete(id);seenPending.delete(id);return refreshSessions();},done.id);
+   await page.click('[data-filter="attention"]');await page.waitForSelector('[data-mark-all-reviewed]');
+   n=await unread();assert.ok(n>=1,'the fixture has something to review');
+   await page.click('[data-mark-all-reviewed]');await page.waitForSelector('[data-undo-reviewed]');
+   await page.waitForFunction(()=>!seenPending.size&&!seenFlushing); // the marks are saved
+   hold=1500;page.evaluate(()=>{sessionsEtag='';return refreshSessions();}).catch(()=>{});
+   await pause(250);
+   await page.click('[data-undo-reviewed]');
+   await page.waitForFunction(()=>!seenRestore.size&&!seenFlushing);
+   assert.equal(await unread(),n,'Undo puts them back');
+   await pause(1700); // the held list has arrived
+   assert.equal(hold,0);
+   assert.equal(await unread(),n,'the older list does not mark them reviewed again');
+   await page.evaluate(()=>refreshSessions());
+   assert.equal(await unread(),n);
+  }finally{done.state=saved;if(seen)done.seenAt=seen;else delete done.seenAt;}
+ });
+
+ await check('Projects: a second step entered before the first is saved is added too, not refused as a change from elsewhere',DESKTOP,page=>withSettings({projects:true},async()=>{
+  const ID='warehouse-stock-report',ONE='Recount the cold room',TWO='Send the recount to purchasing';
+  await page.goto(base+'/#/');await page.waitForSelector('[data-filter="all"]');await post(page,'/api/board/reset');
+  await intercept(page,async(r,u)=>{if(u.pathname==='/api/board/act'&&r.method()==='POST'&&/task-add/.test(r.postData()||''))await pause(900);});
+  try{
+   await page.goto(base+'/?ui-fix=13#/projects/'+ID);await page.waitForSelector('.project-card [data-task-add] input');
+   await page.type('[data-task-add] input',ONE);await page.keyboard.press('Enter');
+   await page.type('[data-task-add] input',TWO);await page.keyboard.press('Enter'); // well inside the first one's round trip
+   const steps=()=>page.evaluate(()=>[...document.querySelectorAll('.task-row .task-label span')].map(e=>e.textContent));
+   const seen=[];const end=Date.now()+5000;
+   while(Date.now()<end){const t=await page.$eval('#toast',e=>e.classList.contains('show')?e.textContent:'');if(t&&seen.at(-1)!==t)seen.push(t);const s=await steps();if(s.includes(ONE)&&s.includes(TWO))break;await pause(60);}
+   const s=await steps();
+   assert.ok(!seen.some(t=>/changed since you loaded it/.test(t)),'the owner\'s own step is not reported as a change from elsewhere: '+JSON.stringify(seen));
+   assert.ok(s.includes(ONE)&&s.includes(TWO),'both steps are on the card: '+JSON.stringify(s));
+   assert.ok(s.indexOf(ONE)<s.indexOf(TWO),'in the order they were entered');
+   assert.equal(await page.$eval('[data-task-add] input',e=>e.value),'','and the box is empty');
+  }finally{await post(page,'/api/board/reset');}
+ }));
+
  // Voice: count the microphone tracks the page holds, and answer the recogniser with silence so nothing is sent.
  const voicePage=async page=>{
   await page.evaluateOnNewDocument(()=>{const real=navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);window.__mics=[];

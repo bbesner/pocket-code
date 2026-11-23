@@ -37,7 +37,7 @@ import {parseRuleList, validateRules, matchTrusted} from './trusted.mjs';
 import {UsageStore,getSessionContext,atomicWrite,sinceCost} from './usage.mjs';
 import { readStore } from './store-file.mjs'; // 1.124.3: the settings and the conversation records, as the other stores
 import {cacheFromTranscript,turnCacheSummary} from './cache.mjs';
-import {CHOICE_INSTRUCTIONS,textBlocks} from './choices.mjs';
+import {CHOICE_INSTRUCTIONS,textBlocks,exclusiveBlocks} from './choices.mjs';
 import {AgentActivity,ClaudeAgentFiles,SubagentIndex,subagentDir} from './subagents.mjs';
 import {VoiceService} from './voice.mjs';
 import {automation,createTitler,cleanTitle,generateTitle,generateCodexTitle,TITLE_VERSION,summarizeAway,awayDigest,awayWorthSummary,createRetitler,retitle,summarizeForTask} from './titles.mjs';
@@ -1465,7 +1465,7 @@ function normalizeLineInner(o, { sidechain = false } = {}) {
         } else blocks.push({ t: 'tool', name: b.name, detail: toolSummary(b.name, b.input) });
       }
     }
-    return blocks.length ? { role: 'assistant', blocks, ts: o.timestamp } : null;
+    return blocks.length ? { role: 'assistant', blocks: exclusiveBlocks(blocks), ts: o.timestamp } : null; // 1.124.5: choices in one text part, done in another
   }
   return null;
 }

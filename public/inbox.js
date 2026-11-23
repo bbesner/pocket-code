@@ -537,15 +537,15 @@ async function inboxWatchSheet(){
    (hand-off from this one, or a separate subject) and Not now, which puts the Complete card back until more mail comes.
    The Inbox entry's sheet offers the same three before the conversation opens; a choice made there arrives as `go`. */
 const InboxNews=(()=>{
- const cache=new Map();let loading=null,intent=null;
+ const cache=new Map(),loading=new Set();let intent=null; // 1.124.5: one load per conversation; one guard for all made the second conversation opened wait for the 30 s refresh
  const cur=()=>typeof chatId==='undefined'?null:chatId; // app.js's; this file loads first, and a page can run without it
  const later=()=>readLocal('pc-inbox-news-later',{});
  const repaint=()=>{if(typeof paintChoices==='function')paintChoices();else paint();}; // the Complete card gives way, so both repaint
  async function load(id=cur()){
-  if(!id||typeof inboxOn!=='function'||!inboxOn()||loading)return;
-  loading=api('/inbox/news?session='+encodeURIComponent(id),{signal:AbortSignal.timeout(8000)})
+  if(!id||typeof inboxOn!=='function'||!inboxOn()||loading.has(id))return;
+  loading.add(id);api('/inbox/news?session='+encodeURIComponent(id),{signal:AbortSignal.timeout(8000)})
    .then(r=>{cache.set(id,{at:Date.now(),news:Array.isArray(r.news)?r.news:[]});if(id===cur())repaint();})
-   .catch(()=>{}).finally(()=>{loading=null;});
+   .catch(()=>{}).finally(()=>{loading.delete(id);});
  }
  function pick(){
   const c=cache.get(chatId);if(!c)return null;

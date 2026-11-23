@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { splitChoices, splitDone, textBlocks, CHOICE_INSTRUCTIONS, DONE_INSTRUCTIONS } from '../choices.mjs';
+import { splitChoices, splitDone, textBlocks, exclusiveBlocks, CHOICE_INSTRUCTIONS, DONE_INSTRUCTIONS } from '../choices.mjs';
 
 test('a trailing choices block becomes reply options and leaves the question as text', () => {
   const r = splitChoices('Tests pass. Should I merge and deploy?\n\n```choices\nMerge and deploy\n- Don\'t merge yet\n1. "Run the tests again"\n```\n');
@@ -128,4 +128,22 @@ test('the instructions tell the agent when the done block is allowed', () => {
   assert.match(DONE_INSTRUCTIONS, /nothing failed or was skipped/);
   assert.match(DONE_INSTRUCTIONS, /Never add it to a reply that has a `choices` block/);
   assert.ok(CHOICE_INSTRUCTIONS.endsWith(DONE_INSTRUCTIONS), 'they travel with the suggested-reply instructions, to every engine');
+});
+
+// 1.124.5 (UI test c-07b)
+test('a done block above a question and its choices is dropped, not shown as code', () => {
+  const text = 'Deployed.\n\n```done\nDeployed 3.1\n```\n\nShall I also tag it?\n\n```choices\nTag it\nNot yet\n```';
+  assert.deepEqual(textBlocks(text), [{ t: 'text', text: 'Deployed.\n\nShall I also tag it?' }, { t: 'choices', options: ['Tag it', 'Not yet'] }]);
+  // a done fence quoted inside another code block is text, and stays
+  const quoted = 'Write it like this:\n\n````markdown\n```done\nOutcome\n```\n````\n\nWhich?\n\n```choices\nA\nB\n```';
+  assert.ok(textBlocks(quoted)[0].text.includes('```done\nOutcome\n```'), 'a quoted done fence is kept');
+});
+test('choices in one text part and a done block in another: the reply gets the choices and no Complete card', () => {
+  const parts = ['All three are fixed.\n\n```done\nFixed three faults\n```', 'Which should go out first?\n\n```choices\nThe first\nThe second\n```'];
+  for (const order of [parts, [...parts].reverse()]) {
+    const blocks = exclusiveBlocks(order.flatMap(textBlocks));
+    assert.deepEqual(blocks.map(b => b.t).filter(t => t !== 'text'), ['choices'], JSON.stringify(blocks));
+  }
+  const plain = [{ t: 'text', text: 'x' }, { t: 'done', text: 'y' }];
+  assert.equal(exclusiveBlocks(plain), plain, 'a reply without choices keeps its card');
 });
