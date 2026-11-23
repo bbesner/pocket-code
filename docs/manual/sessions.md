@@ -608,7 +608,11 @@ Files in `POCKET_DATA_DIR` (the Pocket Code directory unless set): `session-meta
 and their order, reviewed markers, generated titles, last outcomes), `saved-prompts.json`,
 `starts.json`, `mutes.json`, `pocket-settings.json` (title settings, the Claude model list),
 `usage-state.json` and `codex-usage-state.json` (last observed usage). Tabs, split panes, filters,
-hidden conversations, drafts and per-conversation chip choices stay in each browser.
+hidden conversations, drafts and per-conversation chip choices stay in each browser. A `session-meta.json`
+or `pocket-settings.json` that does not hold valid JSON when Pocket starts (a hand edit, a file damaged by
+a power cut) is kept beside it as `<name>.corrupt-<time>` and named in the server log, and Pocket starts
+without it: no names or pins, or the default settings. To get it back, stop Pocket, fix the kept copy and
+move it back.
 
 ## For agents
 

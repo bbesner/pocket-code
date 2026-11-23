@@ -267,3 +267,29 @@ test('watch mode: a client that leaves while the stream is set up, or a transcri
  assert.equal(await live(),0,'no keepalive left by a stat that threw');
  assert.ok(f.alive());
 });
+
+// 1.124.3: the settings and the conversation records (names, pins, branches) were read as empty when their file did not
+// parse, and the next save replaced the only copy; now as the other stores (store-file.mjs).
+test('a pocket-settings.json or session-meta.json that does not parse is kept aside and logged, and the next save leaves it',async t=>{
+ const f=await fixture(t,18438);
+ await f.stop();
+ const data=path.join(f.dir,'data'),torn={'pocket-settings.json':'{"notifyEmail":"owner@exa','session-meta.json':'{"0b1c2d3e-0000-4000-8000-00000000'};
+ fs.mkdirSync(data,{recursive:true});
+ for(const [n,text] of Object.entries(torn))fs.writeFileSync(path.join(data,n),text);
+ await f.start();
+ for(const [n,text] of Object.entries(torn)){
+  const kept=fs.readdirSync(data).filter(x=>x.startsWith(n+'.corrupt-'));
+  assert.equal(kept.length,1,n+' kept aside: '+fs.readdirSync(data).join(' '));
+  assert.equal(fs.readFileSync(path.join(data,kept[0]),'utf8'),text,n+' kept as it was');
+  assert.ok(f.logs().includes(`${path.join(data,n)} could not be read (not valid JSON): kept it as ${path.join(data,kept[0])}`),n+' logged');
+ }
+ assert.equal((await f.call('/settings',{notifyEmail:'owner@example.test'})).status,200);
+ const id=(await f.call('/new',{cwd:repo,...msg('after the restart')})).body.id;
+ assert.ok(await f.until(async()=>await f.state(id)==='finished'));
+ assert.equal((await f.call(`/session/${id}/pin`,{pinned:true})).status,200);
+ for(const [n,text] of Object.entries(torn)){
+  const kept=fs.readdirSync(data).filter(x=>x.startsWith(n+'.corrupt-'));
+  assert.equal(fs.readFileSync(path.join(data,kept[0]),'utf8'),text,n+': the next save leaves the kept copy alone');
+  JSON.parse(fs.readFileSync(path.join(data,n),'utf8'));
+ }
+});

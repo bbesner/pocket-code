@@ -35,6 +35,7 @@ import {descendantCpu, commandLine, signalGroup, startTime, BOOT_ID} from './pro
 import {ApprovalInbox,approvalAudit,approvalMode,claudePermissionSettings} from './approvals.mjs';
 import {parseRuleList, validateRules, matchTrusted} from './trusted.mjs';
 import {UsageStore,getSessionContext,atomicWrite,sinceCost} from './usage.mjs';
+import { readStore } from './store-file.mjs'; // 1.124.3: the settings and the conversation records, as the other stores
 import {cacheFromTranscript,turnCacheSummary} from './cache.mjs';
 import {CHOICE_INSTRUCTIONS,textBlocks} from './choices.mjs';
 import {AgentActivity,ClaudeAgentFiles,SubagentIndex,subagentDir} from './subagents.mjs';
@@ -420,7 +421,7 @@ const saveMutes = () => atomicWrite(MUTES_FILE, [...mutes]);
 const SMETA_FILE = path.join(DATA_DIR, 'session-meta.json');
 // The overlay is migrated to the current schema on load (migrateSmeta stamps the version and
 // is a no-op for today's records); it persists on the next natural save. See session-schema.mjs.
-const loadSmeta = () => { let raw = null; try { raw = JSON.parse(fs.readFileSync(SMETA_FILE, 'utf8')); } catch { } return migrateSmeta(raw); };
+const loadSmeta = () => migrateSmeta(readStore(SMETA_FILE, { log })); // 1.124.3: one that does not parse is kept aside and logged (store-file.mjs)
 let smeta = loadSmeta();
 const saveSmeta = () => atomicWrite(SMETA_FILE, smeta);
 const isPinned = id => Boolean(smeta[id]?.pin);
@@ -434,7 +435,7 @@ const pinRank = id => Number.isFinite(smeta[id]?.pinOrder) ? smeta[id].pinOrder 
 // transcript and write renames back as custom-title lines (their own rename mechanism).
 const SETTINGS_FILE = path.join(DATA_DIR, 'pocket-settings.json');
 const SETTINGS_DEFAULTS = { contextPolicy: null, handoffOffer: null, titleSync: false, projects: false, documents: false, tasks: false, inbox: false, coordination: false, ownerTimezone: '', vault: false, vaultAutoLockMinutes: 0, vaultAccess: 'once', secretGuard: true, markAllReviewed: true, remindAhead: 0, notifyEmail: '', offeredClaudeModels: null, trustedActions: null }; // 1.116: markAllReviewed (false hides the bar in Attention and New); 1.50: remindAhead (hours, 0 or 24), notifyEmail; 1.52: offeredClaudeModels (null = the server default); 1.56: trustedActions (null = the server default)
-const loadSettings = () => { try { return { ...SETTINGS_DEFAULTS, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch { return { ...SETTINGS_DEFAULTS }; } };
+const loadSettings = () => ({ ...SETTINGS_DEFAULTS, ...readStore(SETTINGS_FILE, { log }) }); // 1.124.3: one that does not parse is kept aside and logged
 let settings = loadSettings();
 // 1.124.1: true while Pause all holds a pause in memory that the settings file does not have (its save failed). Any later
 // save that works writes the pause with everything else, so it clears here.
