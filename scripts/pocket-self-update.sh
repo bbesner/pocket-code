@@ -37,8 +37,18 @@ served() { # the version Pocket serves on its port, or nothing
 app_pid() {
   pm2 jlist 9>&- 2>/dev/null | "$node" -e 'let t="";process.stdin.on("data",d=>t+=d).on("end",()=>{try{const a=JSON.parse(t.slice(t.indexOf("[")));const p=a.find(x=>String(x.pm_id)===process.argv[1]);process.stdout.write(String(p?.pid||""));}catch{}})' "$pmid"
 }
-busy() { # the replies a restart would cut short, from the daemon's /api/health (1.124.3); 0 when it does not say
-  "$node" -e 'fetch(`http://127.0.0.1:${process.argv[1]}/api/health`,{signal:AbortSignal.timeout(5000)}).then(r=>r.json()).then(j=>process.stdout.write(String(Number(j.busy)||0))).catch(()=>process.stdout.write("0"))' "$port"
+# The replies a restart would cut short, from the daemon's /api/health (1.124.3); 0 when a good answer does not say (an older
+# daemon). 1.124.4: a probe that fails was taken for 0 at once. It is tried three times a second apart; if it still fails the
+# number is unknown and the restart goes ahead (a daemon that cannot answer its health check is not helped by waiting), with
+# a line in the log that says so.
+busy() {
+  local i n
+  for i in 1 2 3; do
+    n=$("$node" -e 'fetch(`http://127.0.0.1:${process.argv[1]}/api/health`,{signal:AbortSignal.timeout(5000)}).then(r=>{if(!r.ok)throw new Error();return r.json();}).then(j=>process.stdout.write(String(Number(j.busy)||0))).catch(()=>process.exit(1))' "$port") && { echo "$n"; return 0; }
+    [ "$i" = 3 ] || sleep 1
+  done
+  echo "$(date -u +%H:%M:%S) /api/health did not answer, so the number of running replies is unknown; restarting anyway" >&2
+  echo 0
 }
 healthy() { "$node" -e 'fetch(`http://127.0.0.1:${process.argv[1]}/api/health`,{signal:AbortSignal.timeout(5000)}).then(r=>r.json()).then(j=>process.exit(j.ok?0:1)).catch(()=>process.exit(1))' "$port"; }
 # wait_for <version> <old pid>: up to 90 s for a new process to serve it and answer health, then still the same process and

@@ -699,7 +699,11 @@ function startApp(file) {
     const json = (code, body) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
     if (req.url === '/release.json') return st.version ? json(200, { version: st.version }) : json(503, { error: 'down' });
     if (req.url === '/api/health') {
-      if (st.health === 'bad') { res.writeHead(500, { 'content-type': 'text/html' }); return res.end('<html>oops</html>'); }
+      if (st.health === 'bad' || st.badLeft > 0) {
+        server.badProbes = (server.badProbes || 0) + 1;
+        if (st.badLeft > 0) { st.badLeft -= 1; fs.writeFileSync(file + '.w', JSON.stringify(st)); fs.renameSync(file + '.w', file); }
+        res.writeHead(500, { 'content-type': 'text/html' }); return res.end('<html>oops</html>');
+      }
       if (!st.ok) return json(503, { ok: false });
       json(200, { ok: true, busy: st.busy });
       if (st.flip && st.busy === 0) { st.busy = 1; st.flipped = true; fs.writeFileSync(file + '.w', JSON.stringify(st)); fs.renameSync(file + '.w', file); }
@@ -1065,9 +1069,26 @@ describe('shell (stand-in repository)', { concurrency: 6 }, () => {
     assert.equal(headOf(E), E.head, `checkout moved although chmod on the backup failed (exit ${r.code}, phase ${readStatus(E)?.phase})`);
     assert.equal(r.code, 1);
   }));
-  test('DIV-11: an unknown busy count (health probe fails) must block the PM2 restart', () => withShell({ app: { health: 'bad' } }, async E => {
+  // Rewritten in 1.124.4 to the lead's decision (put to the owner): a daemon that cannot answer its health check is not helped
+  // by waiting, so an unknown count still restarts, but only after three tries a second apart, and the log says so.
+  test('DIV-11: a health probe that keeps failing is retried, logged as unknown, and the restart goes ahead', () => withShell({ app: { health: 'bad' } }, async E => {
     const r = await runShell(E);
-    assert.equal(restarts(E).length, 0, `PM2 restarted although /api/health failed, so busy was unknown (exit ${r.code})`);
+    assert.ok(E.server.badProbes >= 3 && E.server.badProbes % 3 === 0, `three tries per check, got ${E.server.badProbes} failed probes`);
+    const line = r.out.indexOf('/api/health did not answer, so the number of running replies is unknown; restarting anyway');
+    assert.ok(line >= 0, tail(r.out));
+    assert.ok(line < r.out.search(/^\d\d:\d\d:\d\d restarting$/m), 'the line comes before the restart');
+    assert.equal(restarts(E).length, 1); assert.equal(r.code, 0, tail(r.out)); assert.equal(readStatus(E).phase, 'complete');
+  }));
+  test('a health probe that fails twice and then answers is used, with nothing logged', () => withShell({ app: { badLeft: 2 } }, async E => {
+    const r = await runShell(E);
+    assert.equal(E.server.badProbes, 2);
+    assert.ok(!r.out.includes('did not answer'), tail(r.out));
+    assert.equal(restarts(E).length, 1); assert.equal(readStatus(E).phase, 'complete');
+  }));
+  test('a good health answer without busy (an older daemon) counts as no replies, silently', () => withShell({ app: { busy: undefined } }, async E => {
+    const r = await runShell(E);
+    assert.ok(!r.out.includes('did not answer') && !r.out.includes('waiting for'), tail(r.out));
+    assert.equal(restarts(E).length, 1); assert.equal(r.code, 0); assert.equal(readStatus(E).phase, 'complete');
   }));
   // 1.124.4: the stand-in starts a reply right after its first zero answer. The script says restarting, reads the PID and asks
   // once more right before the PM2 command, so it sees that reply and goes back to waiting. The window left is the PM2
