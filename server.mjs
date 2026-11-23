@@ -5152,6 +5152,13 @@ app.post('/api/inbox/watch', requireBoardAuth, inboxOn, (req, res) => {
   const actor = req.boardActor || 'ui', b = req.body || {};
   try {
     const src = typeof b.source === 'string' && b.source ? b.source : inboxStore.watchSource();
+    // 1.124.2: while Pocket is paused, an agent or script (the CLI token, refused on Resume) can't set a paused Inbox Watch
+    // running again, or hand it back to a config file that may say running: that lifted Pause all's hold behind the
+    // banner's back. A change that keeps it paused goes through; the owner's own change is not refused.
+    if (actor === 'cli' && pausedNow() && inboxStore.paused(src) && b.settings?.paused !== true) {
+      log(`inbox watch settings refused (paused) by=cli`);
+      return res.status(409).json({ error: 'Pocket is paused, so Inbox Watch stays paused. The owner resumes it in Pocket Code.', code: 'paused' });
+    }
     const view = inboxStore.setWatch(src, b.settings ?? null, { actor });
     log(`inbox watch settings source=${view.source} revision=${view.revision} by=${actor}${view.settings ? '' : ' (config file)'}`);
     res.set('Cache-Control', 'private, no-store').json({ ok: true, ...view });

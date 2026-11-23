@@ -312,6 +312,37 @@ test('Blocked own messages, coordination wakes while paused, and the Automation 
   assert.equal((await s.call('/resume', {})).body.ok, true);
 });
 
+// 1.124.2 (http-01): the CLI token is refused on Resume, so no agent or script on the host can lift a pause. Setting Inbox
+// Watch running again through its own route (pocket-inbox watch set --resume, or reset to a config file that may say
+// running) would lift Pause all's hold on it the same way, so while paused that token may change Inbox Watch only so it
+// stays paused. The owner's cookie still can; Check now is documented to run while paused and is left alone.
+test('Paused: the CLI token cannot set Inbox Watch running again; it can still change it while it stays paused, and the owner can', { timeout: 60_000 }, async t => {
+  const s = await boot(t, 18966, { env: { POCKET_INBOX_RUNNER: '0' } });
+  assert.equal((await s.call('/settings', { inbox: true })).status, 200);
+  assert.equal((await s.call('/pause', {})).body.stopped.inboxWatch, true);
+  assert.equal((await s.call('/resume', {}, s.bearer())).status, 401, 'the CLI token cannot resume');
+  const cur = (await s.call('/inbox/watch', null, s.bearer())).body.settings;
+  assert.equal(cur.paused, true);
+  for (const settings of [{ ...cur, paused: false }, { ...cur, paused: undefined }, null]) {
+    const r = await s.call('/inbox/watch', { settings }, s.bearer());
+    assert.deepEqual([r.status, r.body.code], [409, 'paused'], `${JSON.stringify(settings)}: ${JSON.stringify(r.body)}`);
+    assert.match(r.body.error, /Pocket is paused/);
+  }
+  assert.equal((await s.call('/inbox/watch')).body.settings.paused, true, 'Inbox Watch stays paused');
+  assert.match(s.logs(), /inbox watch settings refused \(paused\) by=cli/);
+  // a change that keeps it paused goes through, and Resume then lets it go as Pause all set it
+  const kept = await s.call('/inbox/watch', { settings: { ...cur, every: 30 } }, s.bearer());
+  assert.equal(kept.status, 200, JSON.stringify(kept.body)); assert.equal(kept.body.settings.paused, true);
+  assert.equal((await s.call('/inbox/check', {}, s.bearer())).status, 200, 'Check now is still the agent\'s to ask for');
+  // the owner's own change while paused still sets it running
+  assert.equal((await s.call('/inbox/watch', { settings: { ...cur, paused: false } })).status, 200);
+  assert.equal((await s.call('/inbox/watch')).body.settings.paused, false);
+  assert.equal((await s.call('/resume', {})).status, 200);
+  // not paused: the token sets it as before
+  assert.equal((await s.call('/inbox/watch', { settings: { ...cur, paused: true } }, s.bearer())).status, 200);
+  assert.equal((await s.call('/inbox/watch', { settings: { ...cur, paused: false } }, s.bearer())).status, 200);
+});
+
 // A server with one subscribed device on a local push service (pushService above).
 async function bootWithPush(t, port, env = {}) {
   const push = await pushService(t), dir = tmpDir();

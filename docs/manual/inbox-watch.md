@@ -593,7 +593,9 @@ pocket-inbox check                         # Check now
   earlier conversation it names.
 - **Change settings only when asked.** To edit the rules ("stop telling me about shipping notices"), read
   `pocket-inbox watch --json` (`profile.rules.text`), add or edit the line, and save the whole settings object,
-  `rules` included, with `pocket-inbox watch set --file -`. Confirm the line you added.
+  `rules` included, with `pocket-inbox watch set --file -`. Confirm the line you added. While Pocket is paused, a change
+  that would set Inbox Watch running again (`--resume`, `reset`, or settings without `"paused": true`) is refused with
+  409 `paused`: tell the user Pocket is paused and only they can resume it (1.124.2).
 - **Posting** is for jobs on the server, not conversations, unless the user asks for such a job:
   `pocket-inbox add --title "…" --text "…" | --file <path|-> [--kind alert|digest|lookahead]
   [--priority critical|high|normal|low] [--story "…"] [--source "…"] [--url /#/start/<id>] [--gmail <https://mail.google.com/…>]

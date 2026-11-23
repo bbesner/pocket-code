@@ -133,7 +133,8 @@ Changing `POCKET_SECRET` or `POCKET_PASSWORD` signs everyone out (the password s
 - **Owner only.** `GET` and `POST /api/pause`, `POST /api/resume`, `GET /api/automation` and
   `POST /api/automation/settings` take the owner's sign-in only (the session cookie, or the one sign-in
   through Cloudflare Access). The CLI token is refused (401), so no agent or script on the host can lift a
-  pause or raise its own limits. The three `POST` routes also need a JSON body and refuse a cross-site
+  pause or raise its own limits. For the same reason, while paused the token's `POST /api/inbox/watch` is refused
+  (409) when it would set a paused Inbox Watch running again (1.124.2). The three `POST` routes also need a JSON body and refuse a cross-site
   request, even with a valid cookie. Settings are checked on the server and saved all or nothing.
 - **Blocked means blocked.** With own messages set to **Blocked until you resume**, every owner send waits
   while paused: a message, a branch, a side chat, and a message held for background jobs on the earlier
