@@ -93,6 +93,24 @@ export async function runFlowsBFixes({browser,base,rows,out,settingsState=()=>({
   assert.deepEqual(await page.evaluate(()=>[document.querySelector('#first').value,document.querySelector('#start').disabled,location.hash]),['Recount the cold room',false,'#/new'],'the draft stays and Start works again');
  });
 
+ // b-17a: Allow on a Files share card already answered elsewhere says what was done, and the card goes.
+ await check('Files: Allow on a share request already allowed elsewhere says so and what was shared, not an error',PHONE,(page,shot)=>withSettings({documents:true},async()=>{
+  const post=(p,body)=>page.evaluate(async(p,body)=>{const r=await fetch(p,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body||{})});return {status:r.status,body:await r.json().catch(()=>null)};},p,body);
+  await page.goto(base+'/#/documents');await page.waitForSelector('.document-item');
+  const doc=await page.evaluate(()=>docsSnap.documents.find(d=>d.kind==='html'));
+  const asked=await post('/api/documents/requests/seed',{doc:doc.id,change:{to:'link',expiresAt:null}});assert.match(asked.body?.id||'',/^[0-9a-f]{16}$/,JSON.stringify(asked));
+  try{
+   await page.reload();await page.waitForSelector('#doc-requests .vault-allow');
+   // The notification's Allow (another device) answers first.
+   const other=await post('/api/documents/requests/'+asked.body.id+'/answer',{decision:'allow'});assert.equal(other.status,200);
+   await page.click('#doc-requests .vault-allow');
+   await page.waitForFunction(()=>!document.querySelector('#doc-requests'));
+   assert.equal(await page.$eval('#toast',e=>e.textContent),`Already allowed on another device. Shared ${doc.title}.`);
+   assert.equal(await page.evaluate(id=>docsSnap.documents.find(d=>d.id===id).visibility,doc.id),'link','the list shows it shared');
+   await shot('files-already-allowed');
+  }finally{await post('/api/documents/reset');}
+ }));
+
  assert.deepEqual(errors,[],'no page errors');
  fs.writeFileSync(path.join(out,'ui-flows-b.json'),JSON.stringify({checks},null,2));
  console.log(JSON.stringify({flowsBFixes:checks.length,ok:true}));

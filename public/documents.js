@@ -182,7 +182,12 @@ function bindDocRequests(root){
   card.querySelectorAll('button').forEach(x=>x.disabled=true);
   const decision=b.dataset.docAnswer;
   try{await api('/documents/requests/'+encodeURIComponent(r.id)+'/answer',{method:'POST',body:JSON.stringify({decision})});toast(decision==='allow'?(r.change?.to==='public'?'Allowed. Published ':'Allowed. Shared ')+r.title:'Denied. '+r.title+' was not shared');}
-  catch(e){toast(e.message||'Could not answer the request');}
+  catch(e){
+   // 1.124.5: answered elsewhere (the notification's Allow, another device): say what was done, not an error.
+   if(e.code==='request_answered'){await loadDocs(true).catch(()=>{});const a=(docsSnap?.answered||[]).find(x=>x.id===r.id);
+    toast(a?.decision==='allow'?`Already allowed on another device. ${r.change?.to==='public'?'Published':'Shared'} ${r.title}.`:a?.decision==='deny'?`Already denied on another device. ${r.title} was not shared.`:a?`Already answered on another device. ${r.title} was not shared.`:'Already being answered on another device.');}
+   else toast(e.message||'Could not answer the request');
+  }
   loadDocs(true).then(()=>{paintDocumentsView();paintRailDocuments();}).catch(()=>{if(card.isConnected)card.querySelectorAll('button').forEach(x=>x.disabled=false);});
  }));
 }

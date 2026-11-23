@@ -253,7 +253,7 @@ export class DocumentStore {
   async answerRequest(id, decision) {
     this.expireRequests();
     const row = this.requests.get(String(id)); if (!row) throw fail('That request does not exist or has expired.', 404);
-    if (row.answer || row.answering) throw fail('That request was already answered.', 409);
+    if (row.answer || row.answering) throw fail('That request was already answered.', 409, { code: 'request_answered' }); // 1.124.5: the card says what happened
     if (decision !== 'allow' && decision !== 'deny') throw fail('Answer allow or deny.');
     if (decision === 'deny') return this.settle(row, { decision: 'deny' });
     row.answering = true; // a second Allow (a double tap, the notification and the card) is refused while this one checks

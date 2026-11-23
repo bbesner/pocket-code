@@ -116,7 +116,7 @@ test('PC-04 store: which changes expose a file more; Deny, timeout and a changed
   assert.equal(s.collectRequest(row.id,AGENT),null,'nothing to collect before the answer');
   await s.answerRequest(row.id,'deny');assert.equal(s.get(a.id).visibility,'link');assert.equal(s.resolvePublic('plan.md'),null);assert.equal(s.resolveShare(linked.token).id,a.id,'the existing link is untouched');
   assert.throws(()=>s.collectRequest(row.id,AGENT),e=>e.status===403&&e.code==='denied');
-  await assert.rejects(s.answerRequest(row.id,'allow'),e=>e.status===409,'a denied request cannot be allowed later');
+  await assert.rejects(s.answerRequest(row.id,'allow'),e=>e.status===409&&e.code==='request_answered','a denied request cannot be allowed later'); // 1.124.5: with a code the card reads
   // Timeout: unanswered after the request time, it ends as expired and changes nothing.
   row=await s.raiseRequest(b.id,{to:'link',expiresAt:null},{caller:AGENT});
   clock+=15*60*1000+1;assert.equal(s.pendingRequests().length,0);
