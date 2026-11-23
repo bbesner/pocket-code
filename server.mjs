@@ -3916,7 +3916,9 @@ async function startAcpFromApi({ id, sessionId, cwd, text, body, resume, from, e
   // acpRunning: a restart mid-reply is recorded as a stop (below). acpCwd and acpAt: the conversation's folder and last
   // activity, so the list asks that folder and shows the conversation even when OpenCode's answer misses it.
   const folder = resume ? knownCwd : cwd;
-  setSmeta(id || turn.fullId, { acpRunning: Date.now(), acpAt: Date.now(), ...(folder && path.isAbsolute(folder) && !smeta[id || turn.fullId]?.acpCwd ? { acpCwd: path.resolve(folder) } : {}) });
+  // 1.124.3: not for a reply that already ended (one that fails at once, e.g. a model OpenCode does not offer, ends before
+  // this line): nothing would clear it, and a restart would replace its error with "Pocket restarted during this reply".
+  setSmeta(id || turn.fullId, { ...(turn.done ? {} : { acpRunning: Date.now() }), acpAt: Date.now(), ...(folder && path.isAbsolute(folder) && !smeta[id || turn.fullId]?.acpCwd ? { acpCwd: path.resolve(folder) } : {}) });
   noteStart(id || turn.fullId, from); stampReplyLimit(turn); // 1.117
   return turn;
 }
