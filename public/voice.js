@@ -23,6 +23,7 @@ const Voice = (() => {
   let state = 'idle', note = '', noteTimer = null;            // idle | listening | holding | transcribing | speaking
   let rec = null, ctx = null, workletReady = false, wakeLock = null;
   let speech = null;                                            // { cancelled, source }
+  let starting = null;                                          // a start waiting for the microphone; a second one waits its turn
   let handsFree = null, hfStarting = false;                     // session id of the hands-free conversation, if one is on
   let pendingSend = null;                                       // {id, text}: a hands-free instruction waiting for "send it"
   let boundKey = null, boundSend = null, carry = null;          // New session: its key, its send, and a hands-free hand-over
@@ -84,7 +85,7 @@ const Voice = (() => {
     boxEl()?.addEventListener('input', syncDraft);
     let downAt = 0, holdTimer = null;
     b.onpointerdown = e => {
-      if (e.button) return;
+      if (e.button || starting) return;
       downAt = Date.now();
       unlockAudio();
       if (handsFree) { handsFree = null; paint(); }                              // the plain mic is always one message
@@ -101,6 +102,7 @@ const Voice = (() => {
     paint();
   }
   function tap() {
+    if (starting) return;                                                        // the microphone is still starting
     if (handsFree) { handsFree = null; paint(); }
     if (state === 'speaking') { stopSpeaking(); return start('auto'); }
     if (state === 'idle') return start('auto');
@@ -154,14 +156,14 @@ const Voice = (() => {
     unlockAudio();
     if (isMuted() && !inHandsFree()) setMuted(false);           // starting a conversation is asking to hear it
     if (inHandsFree()) return endHandsFree('Hands-free is off.');
-    if (!target()) return;
+    if (!target() || starting) return;
     if (rec) release();
     handsFree = target(); hfStarting = true; paint();
     try { await start('auto'); } finally { hfStarting = false; }
     if (!rec && inHandsFree() && state === 'idle') { handsFree = null; paint(); }   // the mic did not start: nothing is on
   }
   function endHandsFree(message) {
-    handsFree = null;
+    handsFree = null; starting = null;                          // a microphone still starting is closed when it arrives
     if (rec) release();
     stopSpeaking();
     setState('idle');
@@ -190,10 +192,17 @@ const Voice = (() => {
   }
 
   /* ---------- listening ---------- */
-  async function start(mode, { waitMs = NO_SPEECH_MS, reopened = false } = {}) {
+  // One start at a time. Asking for the microphone can take a while (the permission prompt, a slow phone), and a second
+  // tap in that time used to open a second microphone that nothing ever closed.
+  async function start(...args) {
+    if (starting) return;
+    const me = starting = {};
+    try { await capture(me, ...args); } finally { if (starting === me) starting = null; }
+  }
+  async function capture(me, mode, { waitMs = NO_SPEECH_MS, reopened = false } = {}) {
     const s = await loadStatus();
     if (!s.available) { toast(s.reason || 'Voice is not available on this server.'); return; }
-    if (!target()) return;
+    const session = target(); if (!session) return;
     stopSpeaking();
     unlockAudio();
     if (!ctx || !navigator.mediaDevices?.getUserMedia) { say(micError()); return; }
@@ -202,6 +211,8 @@ const Voice = (() => {
     catch (e) { say(micError(e), 8000); return; }
     try {
       if (!workletReady) { await ctx.audioWorklet.addModule('voice-worklet.js?v=49'); workletReady = true; }
+      // Cancelled, left for another conversation or already listening while the microphone started: close this one.
+      if (starting !== me || rec || target() !== session) { stream.getTracks().forEach(t => t.stop()); return; }
       const src = ctx.createMediaStreamSource(stream), node = new AudioWorkletNode(ctx, 'pocket-capture'), sink = ctx.createGain();
       sink.gain.value = 0; src.connect(node); node.connect(sink); sink.connect(ctx.destination);   // a pulled graph keeps the worklet running
       rec = { session: target(), mode, stream, src, node, sink, chunks: [], rate: ctx.sampleRate, startedAt: Date.now(), waitMs, reopened, handsFree: inHandsFree(),
@@ -506,7 +517,7 @@ const Voice = (() => {
   }
   // nextId: the conversation being opened. A session started from New session by voice keeps its conversation going.
   function onLeave(nextId) {
-    const c = carry; carry = null;
+    const c = carry; carry = null; starting = null;               // a microphone still starting closes when it arrives
     if (boundKey) armed.delete(boundKey);
     boundKey = null; boundSend = null;
     if (c && nextId && c.to === nextId) { if (rec) { release(); setState('idle'); } if (c.handsFree) handsFree = nextId; paint(); return; } // a mic still open for New session stops; the conversation does not

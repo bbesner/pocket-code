@@ -351,6 +351,26 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.waitForFunction(()=>document.querySelector('#micb').getAttribute('aria-pressed')==='false');
    assert.equal(voiceLog.transcribe.length,heard);
   });
+  // 1.124.2: the microphone takes a moment to start (the permission prompt, a slow phone), and a second tap in that time
+  // used to open a second microphone that nothing ever closed. getUserMedia is stubbed with a slow synthetic stream.
+  await check('Voice: a second tap while the microphone is starting opens no second microphone, and Cancel turns it off',async()=>{
+   setMode({voice:true});
+   await page.setViewport({width:390,height:844});await chat();await page.waitForSelector('#micb:not([hidden])');
+   await page.evaluate(()=>{
+    const ac=new AudioContext();window.__mic={asked:0,given:[]};
+    navigator.mediaDevices.getUserMedia=async()=>{__mic.asked++;const osc=ac.createOscillator(),dest=ac.createMediaStreamDestination();osc.connect(dest);osc.start();
+     await new Promise(r=>setTimeout(r,900));__mic.given.push(dest.stream);return dest.stream;};
+   });
+   try{
+    await clickControl(page,'#micb');await pause(150);await clickControl(page,'#micb');
+    await page.waitForFunction(()=>document.querySelector('#micb').getAttribute('aria-pressed')==='true');
+    await page.waitForFunction(()=>__mic.given.length===__mic.asked,{timeout:4000});await pause(300); // every start that was asked for has its stream
+    await clickControl(page,'#voice-cancel');
+    await page.waitForFunction(()=>document.querySelector('#micb').getAttribute('aria-pressed')==='false');
+    const mic=await page.evaluate(()=>({asked:__mic.asked,live:__mic.given.filter(s=>s.getTracks().some(t=>t.readyState==='live')).length}));
+    assert.deepEqual(mic,{asked:1,live:0},'one microphone was opened, and Cancel closed it');
+   }finally{await page.evaluate(()=>{delete navigator.mediaDevices.getUserMedia;});} // the prototype's own again
+  });
   await check('Tool calls: consecutive calls across messages fold into one summary that names the latest call',async()=>{
    const r=await page.evaluate(()=>{const c=document.createElement('div');
     c.innerHTML=[{role:'assistant',blocks:[{t:'text',text:'Checking.'},{t:'tool',name:'Bash',detail:'pm2 list'}]},{role:'assistant',blocks:[{t:'tool',name:'Edit',detail:'app.js'}]},{role:'assistant',blocks:[{t:'text',text:'Done.'}]}].map(msgHTML).join('');
