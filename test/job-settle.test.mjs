@@ -118,8 +118,9 @@ test('A job\'s retry that is dropped ends its run: the owner\'s message (stopped
   assert.ok(!fs.readFileSync(path.join(s.data, 'automation-audit.jsonl'), 'utf8').includes('Test response'));
 });
 
-// A job's reply stops at a usage limit; the transcript changes after it (code-server, a terminal), so the retry skips itself
-// and nothing settles the run but the backstop.
+// A job's reply stops at a usage limit; another app (code-server, a terminal) adds a turn to the transcript after it, so the
+// retry skips itself and nothing settles the run but the backstop. 1.124.1: a real turn, not only a newer file time, which
+// Pocket's own idle close gives the file too (the next test).
 async function skippedRetry(s) {
   await s.turnOn();
   const { secret } = await s.makeKey({ name: 'limit-job' });
@@ -128,7 +129,7 @@ async function skippedRetry(s) {
   await s.waitingReset(id);
   const file = path.join(s.dir, 'sessions', 'test-workspace', id + '.jsonl');
   assert.ok(fs.existsSync(file), 'the transcript');
-  const later = new Date(Date.now() + 120_000); fs.utimesSync(file, later, later);
+  fs.appendFileSync(file, JSON.stringify({ type: 'user', sessionId: id, timestamp: new Date().toISOString(), message: { role: 'user', content: 'carry on from the terminal' } }) + '\n');
   await s.until(() => s.logs().includes(`retry skipped (session continued elsewhere) session=${id}`), 15000, 'the retry to skip itself');
   return { secret, run: lim.body.run, id };
 }
@@ -152,6 +153,27 @@ test('A retry skipped because the conversation moved on elsewhere: the automatio
   const next = await s.job(secret, { data: 'later', wait: 20 });
   assert.equal(next.body.status, 'done', JSON.stringify(next.body));
   assert.equal(s.finished(run).outcome, 'limit');
+});
+
+// 1.124.1: Pocket closes the conversation's idle process while the retry waits (an idle hour, or the process limit), and
+// the CLI appends its exit bookkeeping to the transcript as it goes. Nobody continued the conversation: the retry runs
+// and its reply ends the run.
+test('A job\'s retry survives Pocket\'s own idle close of its process during the wait: the retry runs and the run ends ok', { timeout: 90_000 }, async t => {
+  // the idle close comes 16 s after the reply (past the 15 s the old file-time test allowed), the retry 20 s after it
+  const s = await boot(t, 19133, { env: { POCKET_IDLE_CLOSE_MS: '16000', POCKET_RETRY_BUFFER_MS: '20000' } });
+  await s.turnOn();
+  const { secret } = await s.makeKey({ name: 'limit-job' });
+  const lim = await s.job(secret, { data: 'go __LIMIT__', wait: 1 });
+  const id = lim.body.conversation;
+  await s.waitingReset(id);
+  await s.until(() => new RegExp(`session process closing session=${id} pid=\\d+ reason=idle`).test(s.logs()), 25000, 'the idle close');
+  const file = path.join(s.dir, 'sessions', 'test-workspace', id + '.jsonl');
+  await s.until(() => fs.readFileSync(file, 'utf8').includes('"type":"cost-state"'), 5000, 'the exit bookkeeping');
+  const line = await s.until(() => s.finished(lim.body.run), 30000, 'the run to end');
+  assert.ok(!s.logs().includes(`retry skipped (session continued elsewhere) session=${id}`), 'not skipped');
+  assert.ok(s.claudeCalls().some(c => c.id === id && /interrupted by an API rate limit/.test(c.text)), 'the retry ran');
+  assert.equal(line.outcome, 'ok'); assertFinishedFields(line);
+  assert.equal((await s.poll(secret, lim.body.run)).body.status, 'done');
 });
 
 test('A restart in the middle of a run (the runners gone): the runs of Claude, Codex and OpenRouter end interrupted shortly after boot, nobody reading; the keys take the next call', { timeout: 120_000 }, async t => {
