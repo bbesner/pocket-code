@@ -223,7 +223,8 @@ pocket-vault request ups-api --kind credentials --fields client_id,client_secret
 - It prints the link once. Give it to the owner, or put it in the email draft the owner will
   send. Say in the message that the link works once and that they should not email passwords.
 - The name is reserved while the link waits. `requests` lists the links; `relink <name>` makes
-  a new link (the old one stops working) and `cancel <name>` ends it.
+  a new link (the old one stops working) and `cancel <name>` ends it. Both work only on a link
+  this conversation made; a link the owner made is the owner's (exit 5: say so and stop).
 - `await <name> --wait 600` returns 0 once it is filled in, 4 while it still waits and 5 if it
   was cancelled or expired. `show <name>` says the same. You only ever see the name; use the
   secret with `run` like any other.

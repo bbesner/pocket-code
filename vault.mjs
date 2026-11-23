@@ -464,17 +464,27 @@ export class VaultStore {
     return { intake: this.intakeView(r, now), token };
   }
   // A new link for a pending request (the old one stops working), or a cancel. Agents may do both: neither reveals a value.
-  relinkIntake(id, { actor = 'owner' } = {}) {
+  // 1.124.3: but only on links the CLI made, and an agent only on its own conversation's. A new link hands its token to the
+  // caller, so an agent that relinked the owner's link could fill the owner's reserved name itself, credited to whoever the
+  // owner asked; cancelling it would free the name for a link of the agent's own.
+  intakeMine(r, actor, session) {
+    if (actor === 'owner') return;
+    if (r.by === 'owner') throw fail(`The owner made the link for ${r.name}, so only the owner can replace or cancel it, in Pocket Code's Vault view.`, 403, { code: 'owner_only' });
+    if (actor === 'agent' && r.session !== session) throw fail(`The link for ${r.name} was made in another conversation or a terminal, so this conversation cannot replace or cancel it.`, 403);
+  }
+  relinkIntake(id, { actor = 'owner', session = null } = {}) {
     const live = this.intakeById(id), now = this.now();
     if (this.intakeState(live, now) !== 'pending') throw fail('This intake link has ended. Create a new one.', 409);
+    this.intakeMine(live, actor, session);
     const token = randomBytes(32).toString('base64url'), r = { ...live, tokenHash: tokenHash(token), nonce: randomBytes(16).toString('hex'), links: (live.links || 1) + 1 };
     this.audit({ action: 'intake-relink', request: r.id, name: r.name, by: actor === 'owner' ? 'owner' : actor === 'agent' ? 'agent' : 'terminal' });
     const next = this.intakes.map(x => x === live ? r : x); this.save({ intakes: next }); this.intakes = next;
     return { intake: this.intakeView(r, now), token };
   }
-  cancelIntake(id, { actor = 'owner' } = {}) {
+  cancelIntake(id, { actor = 'owner', session = null } = {}) {
     const live = this.intakeById(id), now = this.now();
     if (this.intakeState(live, now) !== 'pending') throw fail('This intake link has already ended.', 409);
+    this.intakeMine(live, actor, session);
     const r = { ...live, state: 'cancelled', endedAt: iso(now) };
     this.audit({ action: 'intake-cancel', request: r.id, name: r.name, by: actor === 'owner' ? 'owner' : actor === 'agent' ? 'agent' : 'terminal' });
     const next = this.intakes.map(x => x === live ? r : x); this.save({ intakes: next }); this.intakes = next;

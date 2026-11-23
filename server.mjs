@@ -5627,7 +5627,7 @@ app.post('/api/vault/intake', requireBoardAuth, vaultOn, vaultOpen, sameOrigin, 
       const name = String(b.name || '').toLowerCase();
       const id = b.id ? String(b.id) : vault.pendingIntake(name)?.id;
       if (!id) return res.status(404).json({ error: `No intake link for ${name || 'that name'} is waiting.`, code: 'intake_none' });
-      out = action === 'relink' ? vault.relinkIntake(id, { actor: c.actor }) : { intake: vault.cancelIntake(id, { actor: c.actor }) };
+      out = action === 'relink' ? vault.relinkIntake(id, { actor: c.actor, session: c.session }) : { intake: vault.cancelIntake(id, { actor: c.actor, session: c.session }) };
     } else return res.status(400).json({ error: 'Unknown action.' });
     log(`vault intake ${action} name=${out.intake.name} request=${out.intake.id} by ${c.actor}${c.session ? ' session=' + c.session : ''}`);
     const base = publicBase();

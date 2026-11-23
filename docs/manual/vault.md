@@ -322,6 +322,8 @@ pocket-vault await <name> [--wait <s>]                wait until the link is fil
 pocket-vault relink <name> | cancel <name>            a new link for a waiting request, or cancel it
 ```
 
+`relink` and `cancel` work only on a link the CLI made, and from a conversation only on that conversation's own link; a link the owner made is the owner's (1.124.3, exit 5).
+
 | Exit code | Meaning | What to do |
 |---|---|---|
 | child's code | The command ran | Read the scrubbed output. |
