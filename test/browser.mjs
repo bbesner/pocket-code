@@ -487,6 +487,16 @@ const server=http.createServer(async(req,res)=>{
  res.writeHead(200,{'content-type':rel.endsWith('.js')?'text/javascript':rel.endsWith('.css')?'text/css':rel.endsWith('.html')?'text/html':'application/octet-stream'});res.end(fs.readFileSync(file));
 });
 await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;
+// 1.124.5: the UI test's fix checks are written against the fixture as it starts. In the full run they come after
+// checks that rewrite transcripts, rows and settings, so they run inside startingFixture(): the starting state is put
+// back for them (in place: other runners hold these objects), and what the earlier checks left is put back afterwards.
+const fixtureState=()=>structuredClone({conv:[...conversations],modes:uiModes,settings:fixtureSettings,rows,queue:queueRows});
+const putFixture=state=>{const s=structuredClone(state),refill=(o,v)=>{for(const k of Object.keys(o))delete o[k];Object.assign(o,v);};
+ conversations.clear();for(const [k,v] of s.conv)conversations.set(k,v);refill(uiModes,s.modes);refill(fixtureSettings,s.settings);
+ rows.length=s.rows.length;s.rows.forEach((r,i)=>{if(rows[i])refill(rows[i],r);else rows[i]=r;});queueRows.splice(0,queueRows.length,...s.queue);};
+const fixtureAtStart=fixtureState();
+const startingFixture=async fn=>{const left=fixtureState();putFixture(fixtureAtStart);seedDocs();seedBoard();seedTasks();seedInbox();questionRequests=[];approvalRequests=[];
+ try{await fn();}finally{putFixture(left);}};
 const browser=await puppeteer.launch({executablePath:process.env.PUPPETEER_EXECUTABLE_PATH||'/opt/google/chrome/chrome',headless:true,args:['--no-sandbox','--use-fake-ui-for-media-stream','--use-fake-device-for-media-stream','--autoplay-policy=no-user-gesture-required']});
 const errors=[];const p=await browser.newPage();await p.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'reduce'}]);p.on('pageerror',e=>errors.push(e.message));
 const scans=[];
@@ -1053,9 +1063,11 @@ try{
  const {runModelSelectionRegressions} = await import('./model-selection-browser.mjs');
  await runModelSelectionRegressions({browser,base,rows,out,received});
  await runUIRegressions({browser,base,rows,out,setMode:patch=>Object.assign(uiModes,patch),getMode:()=>uiModes,settingsState:()=>fixtureSettings,vaultFixture,received,voiceLog,conversations,pinOrders});
- {const {runUiTestFixes}=await import('./ui-test-fixes-browser.mjs');await runUiTestFixes({browser,base,rows,out,settingsState:()=>fixtureSettings,coord:coordFixture});}
- await (await import('./ui-flows-b-browser.mjs')).runFlowsBFixes({browser,base,rows,out,settingsState:()=>fixtureSettings,coord:coordFixture}); // the 1.124.5 flow tests' (lane b) fixes
- {const {runFlowsAFixes}=await import('./ui-flows-a-browser.mjs');await runFlowsAFixes({browser,base,rows,out,settingsState:()=>fixtureSettings,coord:coordFixture});}
+ await startingFixture(async()=>{ // the 1.124.5 UI test's fixes: the layout sweep's, then the flow tests' (lanes b and a)
+  const {runUiTestFixes}=await import('./ui-test-fixes-browser.mjs');await runUiTestFixes({browser,base,rows,out,settingsState:()=>fixtureSettings,coord:coordFixture});
+  await (await import('./ui-flows-b-browser.mjs')).runFlowsBFixes({browser,base,rows,out,settingsState:()=>fixtureSettings,coord:coordFixture});
+  const {runFlowsAFixes}=await import('./ui-flows-a-browser.mjs');await runFlowsAFixes({browser,base,rows,out,settingsState:()=>fixtureSettings,coord:coordFixture});
+ });
  const {runSideChatRegressions}=await import('./sidechat-browser.mjs');
  await runSideChatRegressions({browser,base,rows,out,side:sideFixture,conversations});
  const {runHandoffRegressions}=await import('./handoff-browser.mjs'); // 1.102
