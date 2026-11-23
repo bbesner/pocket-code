@@ -1179,10 +1179,10 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .status-in-header:not(.compact-header) header.bar h1 .one { flex: 1 0 100%; }
 /* 1.124.5: the state is the part to keep. The workspace name gives way first, and below 400px it is left out. */
 .status-in-header:not(.compact-header) header.bar h1 .tag { flex: 0 100 auto; min-width: 0; max-width: 55%; }
-@media (max-width: 400px) { .status-in-header:not(.compact-header) header.bar h1 .tag { display: none; } }
+@media (max-width: 360px) { .status-in-header:not(.compact-header) header.bar h1 .tag { display: none; } } /* 1.124.5: only where the title bar is too narrow for both; a 390 px phone keeps the project beside the state */
 .status-in-header:not(.compact-header) header.bar h1 .run-confirmation { display: block; flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .status-in-header:not(.compact-header) header.bar h1 .tag:not(:empty) + .run-confirmation::before { content: '·'; margin-right: 6px; color: var(--faint); }
-@media (max-width: 400px) { .status-in-header:not(.compact-header) header.bar h1 .tag:not(:empty) + .run-confirmation::before { content: none; } }
+@media (max-width: 360px) { .status-in-header:not(.compact-header) header.bar h1 .tag:not(:empty) + .run-confirmation::before { content: none; } }
 html.assistant .status-in-header:not(.compact-header) header.bar h1 .tag:not(:empty) + .run-confirmation::before { content: none; } /* 1.124.5: the folder is hidden there, so the state began with a stray dot */
 /* Scheduled runs: one collapsed group at the end of All. */
 .automated-group > summary { list-style: none; cursor: pointer; display: flex; align-items: baseline; gap: 10px; min-height: 44px; padding-right: 18px; }

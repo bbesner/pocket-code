@@ -6,7 +6,7 @@ build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-co
 ## [1.124.5] — 2026-11-23 · build 227
 
 The UI/UX test, run on the code as the bug review left it (1.124.4). Two passes. A **layout sweep** opened 242 screens
-and states at six sizes (344, 390, 768 and 820 px touch, 1440 desktop, a split pane) in light and dark, and measured
+and states at six sizes (344, 390, 690 and 820 px touch, 1440 desktop, a 480 px split pane) in light and dark, and measured
 each for sideways scroll, controls off the screen, touch targets under 44 px, cut text, covered controls, sheet insets
 and WCAG 2.2 AA. Then **56 fragile flows**, chosen from the two reviews before it, were driven against a real server
 with stand-in agents: two devices on one conversation, restarts mid-reply, Pause all, usage limits, updates, Vault
