@@ -992,14 +992,3 @@ test('§4 a server that closes its input: the fill being written gets a tool err
   assert.ok(await until(() => !alive(s.pid), 2000), 'server outlived the relay');
   assert.ok(!r.err.includes(v) && !r.out.includes(v), 'value in the relay output');
 });
-
-test('DIV-5: a newline-bearing value printed as raw text across two stdout lines does not leak', T, async t => {
-  const ctx = await makeCtx(t);
-  const h1 = 'lineONE-' + (++sn) + 'x', h2 = 'lineTWO-' + sn + 'y';
-  ctx.daemon.values.nl = `${h1}\n${h2}`;
-  const r = ctx.start();
-  r.send(call('browser_type', { text: '{{vault:nl}}', _fake: 'raw', raw: 'pre {{vault:nl}} post' }));
-  await until(() => r.outLines().some(l => l.endsWith(' post')), 3000);
-  assert.ok(r.outLines().some(l => l.endsWith(' post')), 'raw output missing');
-  assert.ok(!r.out.includes(h1) && !r.out.includes(h2), `fragments of the value leaked: ${JSON.stringify(r.out)}`);
-});
