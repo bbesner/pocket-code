@@ -356,12 +356,14 @@ It follows the steps above: the origin must be `github.com/<POCKET_RELEASES_REPO
 the checkout on `main` (fast-forwarded) or on a detached release, tracked files unchanged and `HEAD` what it
 was when the button was pressed; the tag `v<version>` must be on `origin/main`; at least 5 GB must be free.
 It backs up the git-ignored private files to `~/backups/pocket-code-<version>-update-<time>/`
-(`private-state.tar.gz`, `prev-head.txt`, `prev-branch.txt`), runs `npm ci` and `check:release --released`,
+(`private-state.tar.gz`, `prev-head.txt`, `prev-branch.txt`); a backup `tar` could not finish, or one that does
+not list back, is removed and the update stops with nothing changed (1.124.2). It then runs `npm ci` and `check:release --released`,
 then `pm2 restart <its pm_id>` (the stored PM2 environment is kept; Pocket reads `.env` itself) and waits up
 to 90 seconds for a new process that serves the release and answers `/api/health`, and is still the same
 process 10 seconds later. Then `pm2 save`. If any step after the checkout moves fails, the checkout and
 packages go back to the previous commit; if the new version does not come up, the previous version is
-restarted too. The daemon refuses to start it while a reply or a CLI upgrade is running.
+restarted too. If the previous packages cannot be installed again either, the job says so (1.124.2): the running
+daemon carries on, but run `npm ci` in the checkout before it next restarts. The daemon refuses to start it while a reply or a CLI upgrade is running.
 
 Progress is in `pocket-self-update.json` in the data folder (a job silent for 20 minutes shows as
 interrupted) and the script's output in `pocket-self-update.log`; both are git-ignored. Requirements: PM2
@@ -709,7 +711,10 @@ notifications and stderr for the rest of its life. Values go into fill tools onl
 `browser_fill_form`, `type` and `fill` by default, or the comma-separated list in `POCKET_VAULT_FILL_TOOLS` for another
 server; a `browser_evaluate` or `browser_navigate` that names a placeholder is refused and never reaches the server.
 Once a value has been typed, image, audio and blob content from the server is replaced by a note for the rest of the
-relay's life, since a screenshot of a page showing the value cannot be scrubbed; text snapshots still work.
+relay's life, since a screenshot of a page showing the value cannot be scrubbed; text snapshots still work. Calls that
+make a picture (`browser_take_screenshot`, `browser_pdf_save`, `screenshot`, and any tool in the comma-separated
+`POCKET_VAULT_PICTURE_TOOLS`) are refused from then on and never reach the server (1.124.2), because Playwright MCP saves
+each picture to a file and names it in its reply.
 `POCKET_VAULT_FILL_WAIT` (seconds, default 90) is how long a fill waits for an approval before telling the agent to
 call again; the relay gives the daemon that long plus 15 seconds to answer (1.73.3), refuses an answer that is not one
 string per placeholder, and starts the server without any of the daemon's own secrets (the same list `agentEnv` keeps

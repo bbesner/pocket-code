@@ -312,6 +312,37 @@ test('Blocked own messages, coordination wakes while paused, and the Automation 
   assert.equal((await s.call('/resume', {})).body.ok, true);
 });
 
+// 1.124.2 (http-01): the CLI token is refused on Resume, so no agent or script on the host can lift a pause. Setting Inbox
+// Watch running again through its own route (pocket-inbox watch set --resume, or reset to a config file that may say
+// running) would lift Pause all's hold on it the same way, so while paused that token may change Inbox Watch only so it
+// stays paused. The owner's cookie still can; Check now is documented to run while paused and is left alone.
+test('Paused: the CLI token cannot set Inbox Watch running again; it can still change it while it stays paused, and the owner can', { timeout: 60_000 }, async t => {
+  const s = await boot(t, 18966, { env: { POCKET_INBOX_RUNNER: '0' } });
+  assert.equal((await s.call('/settings', { inbox: true })).status, 200);
+  assert.equal((await s.call('/pause', {})).body.stopped.inboxWatch, true);
+  assert.equal((await s.call('/resume', {}, s.bearer())).status, 401, 'the CLI token cannot resume');
+  const cur = (await s.call('/inbox/watch', null, s.bearer())).body.settings;
+  assert.equal(cur.paused, true);
+  for (const settings of [{ ...cur, paused: false }, { ...cur, paused: undefined }, null]) {
+    const r = await s.call('/inbox/watch', { settings }, s.bearer());
+    assert.deepEqual([r.status, r.body.code], [409, 'paused'], `${JSON.stringify(settings)}: ${JSON.stringify(r.body)}`);
+    assert.match(r.body.error, /Pocket is paused/);
+  }
+  assert.equal((await s.call('/inbox/watch')).body.settings.paused, true, 'Inbox Watch stays paused');
+  assert.match(s.logs(), /inbox watch settings refused \(paused\) by=cli/);
+  // a change that keeps it paused goes through, and Resume then lets it go as Pause all set it
+  const kept = await s.call('/inbox/watch', { settings: { ...cur, every: 30 } }, s.bearer());
+  assert.equal(kept.status, 200, JSON.stringify(kept.body)); assert.equal(kept.body.settings.paused, true);
+  assert.equal((await s.call('/inbox/check', {}, s.bearer())).status, 200, 'Check now is still the agent\'s to ask for');
+  // the owner's own change while paused still sets it running
+  assert.equal((await s.call('/inbox/watch', { settings: { ...cur, paused: false } })).status, 200);
+  assert.equal((await s.call('/inbox/watch')).body.settings.paused, false);
+  assert.equal((await s.call('/resume', {})).status, 200);
+  // not paused: the token sets it as before
+  assert.equal((await s.call('/inbox/watch', { settings: { ...cur, paused: true } }, s.bearer())).status, 200);
+  assert.equal((await s.call('/inbox/watch', { settings: { ...cur, paused: false } }, s.bearer())).status, 200);
+});
+
 // A server with one subscribed device on a local push service (pushService above).
 async function bootWithPush(t, port, env = {}) {
   const push = await pushService(t), dir = tmpDir();
@@ -573,6 +604,39 @@ test('Paused: a background agent\'s permission request that turns into a reply t
   assert.deepEqual(push.for(id), before, 'no push for the stopped reply');
   assert.ok(!s.smeta()[id]?.lastOrigin);
   assert.equal(s.audit().filter(x => x.action === 'reply').length, 0, 'the agent\'s reply is not counted as a finished unattended reply');
+});
+
+// 1.124.2 (turns-04): a message the owner types while a background agent's request holds a stand-in turn is steered into
+// it; the reply the CLI then gives is the owner's. It was stopped as one the agent started (while paused, with the
+// process and the background agent), and unpaused, answering the request first left it to run as one the agent started.
+test('The owner\'s message steered into a background agent\'s stand-in turn is the owner\'s reply: not stopped while paused, not counted as the agent\'s', { timeout: 60_000 }, async t => {
+  const s = await boot(t, 18967, { env: { POCKET_TEST_BG_MS: '4000' } });
+  const runnerPid = id => { const d = path.join(s.data, 'turnlogs'); return JSON.parse(fs.readFileSync(path.join(d, fs.readdirSync(d).find(f => f.startsWith(id) && f.endsWith('.runner.json'))), 'utf8')).pid; };
+  const standIn = async text => {
+    const id = await s.start('claude', text, { approvalMode: 'review' });
+    await s.until(() => s.logs().includes(`turn start (a background job asked for permission) session=${id}`), 10000, 'the stand-in turn');
+    return id;
+  };
+  assert.equal((await s.call('/pause', {})).status, 200);
+  const id = await standIn('stand-in paused __BG_ASK__');
+  const pid = runnerPid(id);
+  const m = await s.call(`/session/${s.e(id)}/message`, { text: 'owner while paused', approvalMode: 'review' });
+  assert.deepEqual([m.status, m.body.steered], [202, true], JSON.stringify(m.body));
+  await s.until(() => (s.logs().match(new RegExp(`turn done session=${id}`, 'g')) || []).length === 2, 8000, 'the owner\'s reply to end');
+  assert.ok(!s.logs().includes(`stop requested (paused; the agent started a reply) session=${id}`), 'the owner\'s reply was not stopped');
+  assert.equal((await s.session(id)).messages.at(-1).role, 'assistant');
+  process.kill(pid, 0); // the process, and the background agent in it, still run
+  assert.equal((await s.call(`/session/${s.e(id)}/approvals`)).body.requests.length, 1, 'the agent\'s request still waits for an answer');
+  assert.equal((await s.call('/resume', {})).status, 200);
+
+  // unpaused: the request answered before the CLI answers the message, so the stand-in has nothing left to wait for
+  const u = await standIn('stand-in running __BG_ASK__');
+  assert.equal((await s.call(`/session/${s.e(u)}/message`, { text: 'owner while running', approvalMode: 'review' })).body.steered, true);
+  const req = (await s.call(`/session/${s.e(u)}/approvals`)).body.requests[0];
+  assert.equal((await s.call(`/session/${s.e(u)}/approvals/${req.id}/decision`, { decision: 'allow' })).status, 200);
+  await s.until(() => (s.logs().match(new RegExp(`turn done session=${u}`, 'g')) || []).length === 2, 8000, 'the owner\'s reply to end');
+  assert.ok(!s.logs().includes(`turn start (started by the agent) session=${u}`), 'the owner\'s reply did not become one the agent started');
+  assert.ok(!s.logs().includes(`turn done (background job's request answered) session=${u}`), 'the stand-in was not closed under it');
 });
 
 test('Paused after the gate passed on Claude: a queued message stays pending and a retry is held; each runs once after Resume', { timeout: 120_000 }, async t => {

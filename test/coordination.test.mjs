@@ -217,6 +217,23 @@ test('a failed write changes nothing, and a restart keeps everything',t=>{
   assert.deepEqual(new CoordStore(file).state.holds,[]);
 });
 
+test('1.124.2: a coordination.json that does not parse is kept aside and logged; one that cannot be set aside stops the start',t=>{
+  const {s,file,dir}=store(t);
+  s.hold('shop-staging',{reason:'x',holder:A});
+  const torn=fs.readFileSync(file,'utf8').slice(0,30);fs.writeFileSync(file,torn);
+  const said=[],b=new CoordStore(file,{now:()=>Date.parse('2026-11-23T10:15:30Z'),log:m=>said.push(m)});
+  assert.deepEqual(b.state.holds,[]);
+  const kept=path.join(dir,'coordination.json.corrupt-20261123-101530');
+  assert.equal(fs.readFileSync(kept,'utf8'),torn,'kept as it was');assert.ok(said.length===1&&said[0].includes(file)&&said[0].includes(kept),said.join('\n'));
+  b.hold('other-thing',{reason:'y',holder:B,isNew:true});
+  assert.equal(fs.readFileSync(kept,'utf8'),torn,'the next change leaves the kept copy alone');
+  // a folder Pocket cannot rename in: the bad file stays where it is and the store refuses to start, rather than overwrite it
+  if(process.getuid?.()===0)return; // root renames regardless of the mode
+  fs.writeFileSync(file,'not json');fs.chmodSync(dir,0o500);
+  try{assert.throws(()=>new CoordStore(file,{log:()=>{}}),/could not be read \(not valid JSON\) and could not be set aside \(EACCES\)/);}finally{fs.chmodSync(dir,0o700);}
+  assert.equal(fs.readFileSync(file,'utf8'),'not json');
+});
+
 test('the instructions name the command and the skill, quoted when the path has a space',()=>{
   const line=coordinationInstructions('/srv/my pocket/scripts/pocket-coord.mjs');
   assert.match(line,/node '\/srv\/my pocket\/scripts\/pocket-coord\.mjs' hold <name>/);

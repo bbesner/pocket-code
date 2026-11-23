@@ -367,7 +367,8 @@ its threads (your own replies marked) and answers:
 Every change must cite the email that proves it; money, security and legal items need explicit proof, and a request
 with several parts stays open until every part is done, and so does one whose latest email asks you or your assistant
 for something nobody has done yet. The reason becomes the entry's note, shown in Done, and the
-next morning digest lists what was taken off. **Restore** brings any of them back.
+next morning digest lists what was taken off. **Restore** brings any of them back, and what you do with a restored
+entry afterwards (Not useful, Resolved, a merge) reaches the watcher like a decision on any other entry.
 
 ### Your list in Gmail
 
@@ -460,7 +461,9 @@ an earlier Not useful on its story: your own hand wins.
 5. Alerts go out together once every batch is judged, so a later batch can fold a new fact into an alert that has not
    left yet. The same fact is never alerted twice. An alert a stopped check never sent goes out at the start of the
    next one (held until morning in quiet hours, dropped if its story was resolved since); Pocket knows it by its key,
-   so one that had already reached the Inbox is not listed or pushed again.
+   so one that had already reached the Inbox is not listed or pushed again. An alert that could not be delivered
+   (Pocket not answering, as while it restarts, or answering too late) is tried again the same way at the next checks,
+   up to five times in all and within the day; after that it is only in `monitor.sqlite` and `monitor.log` says so.
 6. Due items run: the digest, a look-ahead, the tidy pass. Then the watcher reports to Pocket with its settings, status
    and costs (the heartbeat).
 
@@ -593,7 +596,9 @@ pocket-inbox check                         # Check now
   earlier conversation it names.
 - **Change settings only when asked.** To edit the rules ("stop telling me about shipping notices"), read
   `pocket-inbox watch --json` (`profile.rules.text`), add or edit the line, and save the whole settings object,
-  `rules` included, with `pocket-inbox watch set --file -`. Confirm the line you added.
+  `rules` included, with `pocket-inbox watch set --file -`. Confirm the line you added. While Pocket is paused, a change
+  that would set Inbox Watch running again (`--resume`, `reset`, or settings without `"paused": true`) is refused with
+  409 `paused`: tell the user Pocket is paused and only they can resume it (1.124.2).
 - **Posting** is for jobs on the server, not conversations, unless the user asks for such a job:
   `pocket-inbox add --title "…" --text "…" | --file <path|-> [--kind alert|digest|lookahead]
   [--priority critical|high|normal|low] [--story "…"] [--source "…"] [--url /#/start/<id>] [--gmail <https://mail.google.com/…>]

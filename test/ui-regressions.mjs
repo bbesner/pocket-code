@@ -351,6 +351,42 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.waitForFunction(()=>document.querySelector('#micb').getAttribute('aria-pressed')==='false');
    assert.equal(voiceLog.transcribe.length,heard);
   });
+  // 1.124.2: the first view used to be drawn as soon as the server answered, even when the script files after app.js
+  // (split.js is one) had not arrived yet. The conversation view then threw half-way through its wiring ("chooseBeside is
+  // not defined"), which left Back, the conversation switcher and the message box dead until a reload.
+  await check('First load: a script file that arrives after the server has answered still gets a fully wired conversation',async()=>{
+   const ctx=await browser.createBrowserContext(),pl=await ctx.newPage(),thrown=[];
+   pl.on('pageerror',e=>thrown.push(e.message));
+   setMode({slowScript:'split.js'});
+   try{
+    await pl.goto(base+'/#/chat/'+idle);
+    await pl.waitForFunction(()=>typeof chooseBeside==='function');          // the late file is in
+    await pl.waitForFunction(id=>chatId===id&&document.querySelector('#box'),{timeout:5000},idle).catch(()=>{});
+    assert.deepEqual(thrown,[],'nothing thrown while the view was drawn');
+    assert.equal(await pl.evaluate(()=>chatId),idle,'the conversation opened');
+    assert.deepEqual(await pl.evaluate(()=>['#back','#splitb','#session-switch'].map(s=>typeof document.querySelector(s)?.onclick)),['function','function','function'],'the header controls are wired');
+   }finally{setMode({slowScript:''});await ctx.close();}
+  });
+  // 1.124.2: the microphone takes a moment to start (the permission prompt, a slow phone), and a second tap in that time
+  // used to open a second microphone that nothing ever closed. getUserMedia is stubbed with a slow synthetic stream.
+  await check('Voice: a second tap while the microphone is starting opens no second microphone, and Cancel turns it off',async()=>{
+   setMode({voice:true});
+   await page.setViewport({width:390,height:844});await chat();await page.waitForSelector('#micb:not([hidden])');
+   await page.evaluate(()=>{
+    const ac=new AudioContext();window.__mic={asked:0,given:[]};
+    navigator.mediaDevices.getUserMedia=async()=>{__mic.asked++;const osc=ac.createOscillator(),dest=ac.createMediaStreamDestination();osc.connect(dest);osc.start();
+     await new Promise(r=>setTimeout(r,900));__mic.given.push(dest.stream);return dest.stream;};
+   });
+   try{
+    await clickControl(page,'#micb');await pause(150);await clickControl(page,'#micb');
+    await page.waitForFunction(()=>document.querySelector('#micb').getAttribute('aria-pressed')==='true');
+    await page.waitForFunction(()=>__mic.given.length===__mic.asked,{timeout:4000});await pause(300); // every start that was asked for has its stream
+    await clickControl(page,'#voice-cancel');
+    await page.waitForFunction(()=>document.querySelector('#micb').getAttribute('aria-pressed')==='false');
+    const mic=await page.evaluate(()=>({asked:__mic.asked,live:__mic.given.filter(s=>s.getTracks().some(t=>t.readyState==='live')).length}));
+    assert.deepEqual(mic,{asked:1,live:0},'one microphone was opened, and Cancel closed it');
+   }finally{await page.evaluate(()=>{delete navigator.mediaDevices.getUserMedia;});} // the prototype's own again
+  });
   await check('Tool calls: consecutive calls across messages fold into one summary that names the latest call',async()=>{
    const r=await page.evaluate(()=>{const c=document.createElement('div');
     c.innerHTML=[{role:'assistant',blocks:[{t:'text',text:'Checking.'},{t:'tool',name:'Bash',detail:'pm2 list'}]},{role:'assistant',blocks:[{t:'tool',name:'Edit',detail:'app.js'}]},{role:'assistant',blocks:[{t:'text',text:'Done.'}]}].map(msgHTML).join('');
@@ -2054,6 +2090,34 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await page.keyboard.press('Escape');
    }finally{page.off('request',onReq);vaultFixture.extraRequests=[];await page.evaluate(()=>fetch('/api/vault/reset',{method:'POST'})).catch(()=>{});await page.setViewport({width:1440,height:900});settings.vault=false;}
   });
+  // 1.124.2: the refresh repaints the list when a request arrives or leaves. Keyboard focus stays on the control it was on,
+  // and never moves onto a request's Deny, Always allow or Allow once, where Enter would answer a command the owner never read.
+  await check('Vault focus (1.124.2): a request arriving or leaving above the focused secret leaves focus on that secret, never on an answer',async()=>{
+   await page.setViewport({width:1440,height:900});const settings=settingsState();settings.vault=true;settings.vaultReady=true;
+   const focusNow=()=>page.evaluate(()=>{const a=document.activeElement;return {open:a?.dataset?.vaultOpen||null,answer:a?.dataset?.answer||null};});
+   const refresh=()=>page.evaluate(()=>loadVault(true).then(()=>repaintVault()));
+   const request=id=>({id,items:['fixture'],itemNames:['payroll-api'],argv:['node','run-payroll.mjs'],cwd:'/srv/payroll',session:rows[0].id,sessionTitle:rows[0].title,created:new Date().toISOString(),expiresAt:new Date(Date.now()+15*60000).toISOString(),answer:null});
+   try{
+    vaultFixture.extraRequests=[];await page.evaluate(()=>fetch('/api/vault/reset',{method:'POST'}));
+    await page.goto(base+'/?vault-focus=1#/vault');await page.waitForSelector('#vault-main .vault-item [data-vault-open]');
+    // The first secret in the list: a new request card goes in above the search box, and the old index landed on its Allow once.
+    const first=await page.$eval('#vault-main .vault-secrets [data-vault-open]',e=>e.dataset.vaultOpen);
+    await page.focus(`#vault-main [data-vault-open="${first}"]`);
+    vaultFixture.extraRequests=[request('fixture-focus')];await refresh();await page.waitForSelector('[data-request="fixture-focus"]');
+    assert.deepEqual(await focusNow(),{open:first,answer:null},'a request arriving above leaves focus on the secret');
+    vaultFixture.extraRequests=[];await refresh();await page.waitForFunction(()=>!document.querySelector('[data-request="fixture-focus"]'));
+    assert.deepEqual(await focusNow(),{open:first,answer:null},'a request leaving above leaves focus on the secret');
+    // Focus on a request's Deny: when a request above it (one with no Always allow) is answered on another device, focus
+    // stays on that Deny and does not slide onto its Allow once.
+    vaultFixture.extraRequests=[{...request('fixture-above'),allowAlways:false},request('fixture-focus')];await refresh();await page.waitForSelector('[data-request="fixture-focus"]');
+    await page.focus('[data-request="fixture-focus"] [data-answer="deny"]');
+    vaultFixture.extraRequests=[request('fixture-focus')];await refresh();await page.waitForFunction(()=>!document.querySelector('[data-request="fixture-above"]'));
+    assert.deepEqual(await page.evaluate(()=>[document.activeElement?.closest('[data-request]')?.dataset.request,document.activeElement?.dataset?.answer]),['fixture-focus','deny'],'focus stays on the same Deny');
+    // When the focused request itself leaves, focus does not land on another request's answer.
+    vaultFixture.extraRequests=[];await refresh();await page.waitForFunction(()=>!document.querySelector('[data-request="fixture-focus"]'));
+    assert.equal((await focusNow()).answer,null,'focus is not moved onto an answer');
+   }finally{vaultFixture.extraRequests=[];await page.evaluate(()=>fetch('/api/vault/reset',{method:'POST'})).catch(()=>{});settings.vault=false;}
+  });
   await check('Vault key (1.44): switching on with no key shows the recovery key (Copy, Download, gone after Done, never stored), Download recovery key, Rotate saves and shows the new key, a missing key is restored from the key or its file and a wrong key errors inline, and the phone',async()=>{
    await page.setViewport({width:1440,height:900});const settings=settingsState();
    settings.vault=true;await page.goto(base+'/#/vault');await page.evaluate(()=>fetch('/api/vault/reset',{method:'POST'}));
@@ -2401,6 +2465,65 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.goto(base+'/#/projects/warehouse-stock-report');await page.waitForSelector('.project-card');
    await scan('project-card-phone');await page.screenshot({path:path.join(out,'project-card-phone.png')});
    await page.setViewport({width:1440,height:900});
+  });
+  // 1.124.2: an agent changes the card while the owner types a step or a note. The card does not repaint under typing, so
+  // the server can refuse the stale revision; the refusal repaints the card, and the typed text must come back in the new box.
+  await check('Projects stale step (1.124.2): a step or note typed while an agent changed the card is kept and added',async()=>{
+   await page.setViewport({width:1440,height:900});const settings=settingsState(),was=settings.projects;settings.projects=true;
+   const ID='warehouse-stock-report',STEP='Count the returns shelf',NOTE='The supplier confirmed the Friday delivery.';
+   const agent=b=>page.evaluate((id,b)=>fetch('/api/board/act',{method:'POST',body:JSON.stringify({project:id,...b})}),ID,b);
+   const settle=async(fn,...a)=>{for(let i=0;i<40;i++){if(await page.evaluate(fn,...a))return true;await pause(100);}return false;};
+   try{
+    await page.evaluate(()=>fetch('/api/board/reset',{method:'POST'}));
+    await page.goto(base+'/?stale-step=1#/projects/'+ID);await page.waitForSelector('.project-card [data-task-add] input'); // a fresh load: no poll for 30 s
+    // This page has not heard of the agent's change yet: the server refuses the step, and the text stays in the box.
+    await page.type('[data-task-add] input',STEP);await agent({action:'note',text:'Ledger re-imported by the agent.'});
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(()=>/changed since you loaded it/.test(document.querySelector('#toast')?.textContent||''));
+    assert.ok(await settle(s=>document.querySelector('[data-task-add] input')?.value===s,STEP),'the typed step is back in the box after the refusal');
+    assert.equal(await page.evaluate(()=>document.activeElement===document.querySelector('[data-task-add] input')),true,'and the box keeps the focus');
+    await page.keyboard.press('Enter');
+    assert.ok(await settle(s=>[...document.querySelectorAll('.task-row .task-label span')].some(e=>e.textContent===s),STEP),'the next Enter adds the step');
+    // The poll has already brought the agent's change in, but the card was not repainted under the typing: the note goes
+    // in on the first Enter, with the current revision.
+    await page.type('[data-note-add] input',NOTE);await agent({action:'task-add',text:'Check the returns paperwork'});
+    await page.evaluate(()=>loadBoard(true).then(()=>paintProjectsView()));
+    assert.equal(await page.$eval('[data-note-add] input',e=>e.value),NOTE,'the poll does not repaint under the typing');
+    await page.keyboard.press('Enter');
+    assert.ok(await settle(s=>document.querySelector('.project-history')?.textContent.includes(s),NOTE),'the note is added on the first Enter');
+    assert.equal(await page.$eval('[data-note-add] input',e=>e.value),'');
+   }finally{settings.projects=was;await page.evaluate(()=>fetch('/api/board/reset',{method:'POST'})).catch(()=>{});}
+  });
+  // 1.124.2: Save in Edit project or Edit task after an agent changed it is refused once, and the sheet stays open with the
+  // owner's edit. The second Save is the owner's decision to overwrite, so it must not be refused again with the same revision.
+  await check('Projects stale edit (1.124.2): after a refused Save, the next Save in Edit project and Edit task goes through',async()=>{
+   await page.setViewport({width:1440,height:900});const settings=settingsState(),was={projects:settings.projects,tasks:settings.tasks};settings.projects=true;settings.tasks=true;
+   const ID='warehouse-stock-report',SUMMARY='Aisle 4 recounted twice; the shortfall is the Friday delivery.',TEXT='Chase the revised camera quote by Thursday';
+   const settle=async(fn,...a)=>{for(let i=0;i<40;i++){if(await page.evaluate(fn,...a))return true;await pause(100);}return false;};
+   const refused=re=>page.waitForFunction(re=>new RegExp(re).test(document.querySelector('#toast')?.textContent||''),{},re);
+   try{
+    await page.evaluate(()=>Promise.all(['/api/board/reset','/api/tasks/reset'].map(u=>fetch(u,{method:'POST'}))));
+    await page.goto(base+'/?stale-edit=1#/projects/'+ID);await page.waitForSelector('.project-card [data-edit]');
+    await clickControl(page,'.project-card [data-edit]');await page.waitForSelector('.project-editor form');
+    await page.$eval('.project-editor [name="summary"]',e=>{e.value='';});await page.type('.project-editor [name="summary"]',SUMMARY);
+    await page.evaluate(id=>fetch('/api/board/act',{method:'POST',body:JSON.stringify({project:id,action:'note',text:'Ledger re-imported by the agent.'})}),ID);
+    await clickControl(page,'.project-editor .primary');await refused('This project changed since you loaded it');
+    assert.equal(await page.$eval('.project-editor [name="summary"]',e=>e.value),SUMMARY,'the sheet stays open with the edit');
+    await clickControl(page,'.project-editor .primary');
+    assert.ok(await settle(()=>!document.querySelector('.project-editor')),'the second Save goes through and closes the sheet');
+    assert.equal(await page.evaluate(id=>fetch('/api/board').then(r=>r.json()).then(s=>s.projects.find(p=>p.id===id).summary),ID),SUMMARY);
+    // The same in Edit task.
+    await page.goto(base+'/?stale-edit=2#/tasks');await page.waitForSelector('.task-item');
+    const tid=await page.evaluate(()=>{const t=tasksSnap.tasks.find(x=>x.text==='Chase the revised camera quote');taskSheet(t.id);return t.id;});
+    await page.waitForSelector('.task-sheet [data-edit]');await clickControl(page,'.task-sheet [data-edit]');await page.waitForSelector('.task-form');
+    await page.$eval('.task-form [name="text"]',e=>{e.value='';});await page.type('.task-form [name="text"]',TEXT);
+    await page.evaluate(id=>fetch('/api/tasks/act',{method:'POST',body:JSON.stringify({action:'update',task:id,summary:'The vendor asked for the site plan first.'})}),tid);
+    await clickControl(page,'.task-form .primary');await refused('This task changed since you loaded it');
+    assert.equal(await page.$eval('.task-form [name="text"]',e=>e.value),TEXT,'the task sheet stays open with the edit');
+    await clickControl(page,'.task-form .primary');
+    assert.ok(await settle(()=>!document.querySelector('.task-form')),'the second Save goes through and closes the task sheet');
+    assert.equal(await page.evaluate(id=>fetch('/api/tasks').then(r=>r.json()).then(s=>s.tasks.find(t=>t.id===id).text),tid),TEXT);
+   }finally{Object.assign(settings,was);await page.evaluate(()=>Promise.all(['/api/board/reset','/api/tasks/reset'].map(u=>fetch(u,{method:'POST'})))).catch(()=>{});}
   });
 
   await check('Documents (1.30): off by default, then the library, a sandboxed HTML document, Markdown and CSV views, sharing, keep from Results, the project section, tabs, split, rail, settings and the phone',async()=>{

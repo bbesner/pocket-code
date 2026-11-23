@@ -27,7 +27,9 @@ export const CHOICE_INSTRUCTIONS = [
   DONE_INSTRUCTIONS,
 ].join(' ');
 
-const FENCE = /\n?[ \t]*```choices[ \t]*\n([\s\S]*?)\n[ \t]*```[ \t]*\s*$/;
+// Its body never spans another fence either (1.124.2): an example shown mid-reply in a reply that ends with a code
+// block was read as one block running to that last fence, and every line after the example became a button.
+const FENCE = /\n?[ \t]*```choices[ \t]*\n((?:(?!```)[\s\S])*?)\n[ \t]*```[ \t]*\s*$/;
 const ANY_FENCE = /\n?[ \t]*```choices[ \t]*\n([\s\S]*?)\n[ \t]*```[ \t]*(?=\n|$)/g;
 // The done block may be empty (a card with no outcome line). Its body never spans another fence, so a done block
 // written above a choices block is not read as one long block ending at the choices' closing fence.

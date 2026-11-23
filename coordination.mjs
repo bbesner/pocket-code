@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { shellArg } from './skills.mjs';
+import { readStore } from './store-file.mjs';
 
 export const SEEDS = ['pocket-main'];
 export const LIMITS = { ttlDefaultMs: 60 * 60_000, ttlMaxMs: 8 * 3600_000, ttlMinMs: 60_000, reason: 200, note: 300, recent: 30, recentMs: 7 * 86400_000, names: 200, waiters: 20, notices: 10, offerMs: 10 * 60_000, blockStaleMs: 30_000, waitMs: 8 * 3600_000 };
@@ -46,11 +47,12 @@ export function closeName(name, known) {
 const sameHolder = (a, b) => Boolean(a?.session) && a.session === b?.session;
 
 export class CoordStore {
-  constructor(file, { write, now } = {}) {
+  constructor(file, { write, now, log } = {}) {
     this.file = file; this.now = now || Date.now;
     this.write = write || ((f, data) => { fs.mkdirSync(path.dirname(f), { recursive: true }); const tmp = f + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(data, null, 1), { mode: 0o600 }); fs.renameSync(tmp, f); });
     this.state = { holds: [], waits: {}, offers: {}, recent: [], names: [], notices: {} };
-    try { const d = JSON.parse(fs.readFileSync(file, 'utf8')); for (const k of Object.keys(this.state)) if (d[k] && typeof d[k] === typeof this.state[k]) this.state[k] = d[k]; } catch { }
+    const d = readStore(file, { log, now: this.now }); // 1.124.2: one that does not parse is kept aside and logged
+    for (const k of Object.keys(this.state)) if (d[k] && typeof d[k] === typeof this.state[k]) this.state[k] = d[k];
   }
   // Every change is written first and installed once the file holds it, so a failed write leaves nothing half done.
   commit(next) { this.write(this.file, { version: 1, ...next }); this.state = next; }

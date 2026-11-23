@@ -217,3 +217,22 @@ test('ProjectStore (1.73.6): a failed write leaves the card as it was; open remi
   assert.throws(()=>c.importSnapshot({projects:[{id:'a',name:'A'}]}),/ENOSPC/);assert.equal(c.projects.length,0);assert.equal(fs.existsSync(path.join(dir,'p3.json')),false);
   fs.rmSync(dir,{recursive:true,force:true});
 });
+
+test('ProjectStore (1.124.2): a projects.json that does not parse is kept aside and logged, and the next change does not replace it',()=>{
+  const dir=tmp(),file=path.join(dir,'projects.json'),clock=()=>Date.parse('2026-11-23T10:15:30Z');
+  const a=new ProjectStore(file);for(let i=0;i<5;i++)a.act({action:'track',name:'Card '+i,requested:true});
+  const torn=fs.readFileSync(file,'utf8').slice(0,-3);fs.writeFileSync(file,torn);
+  const said=[],b=new ProjectStore(file,{now:clock,log:m=>said.push(m)});
+  assert.equal(b.projects.length,0,'the board starts empty');
+  const kept=path.join(dir,'projects.json.corrupt-20261123-101530');
+  assert.equal(fs.readFileSync(kept,'utf8'),torn,'the file that did not parse is kept as it was');
+  assert.equal(said.length,1);assert.ok(said[0].includes(file)&&said[0].includes(kept),said[0]);assert.match(said[0],/not valid JSON/);
+  b.act({action:'track',name:'New',requested:true});
+  assert.equal(fs.readFileSync(kept,'utf8'),torn,'the next change leaves the kept copy alone');
+  // JSON that is not an object (null, a list) is kept aside the same way; a missing file is a new board, kept and logged nowhere.
+  const other=path.join(dir,'p2.json');fs.writeFileSync(other,'null');const said2=[];
+  assert.equal(new ProjectStore(other,{now:clock,log:m=>said2.push(m)}).projects.length,0);assert.match(said2[0],/not a JSON object/);
+  const said3=[];new ProjectStore(path.join(dir,'none.json'),{log:m=>said3.push(m)});assert.deepEqual(said3,[]);
+  assert.deepEqual(fs.readdirSync(dir).sort(),['p2.json.corrupt-20261123-101530','projects.json','projects.json.corrupt-20261123-101530']);
+  fs.rmSync(dir,{recursive:true,force:true});
+});

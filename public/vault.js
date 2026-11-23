@@ -175,6 +175,15 @@ function mergeVaultItem(i){
  vaultSnap.items.sort((a,b)=>a.name.localeCompare(b.name));
  vaultSnap.trash.sort((a,b)=>vaultTime(b.trashedAt)-vaultTime(a.trashedAt));
 }
+// 1.124.2: the selector that finds a control again after the list is rebuilt: its id, or what it acts on (a secret, a link sent,
+// a request and its answer). Its position is no good: a request card arriving above moved the focus onto its Allow once.
+function vaultFocusKey(el){
+ const attr=k=>`[data-${k.replace(/[A-Z]/g,c=>'-'+c.toLowerCase())}="${CSS.escape(el.dataset[k])}"]`;
+ const req=el.closest('[data-request]'),inReq=req?`[data-request="${CSS.escape(req.dataset.request)}"] `:'';
+ if(el.id)return '#'+CSS.escape(el.id);
+ const k=['answer','pinFile','vaultOpen','vaultMore','vaultRestore','intakeRelink','intakeCancel','intakeItem'].find(k=>el.dataset?.[k]!=null);
+ return k?inReq+attr(k):el.matches('details>summary')?'details>summary':null;
+}
 function repaintVault(){paintVaultView();paintRailVault();paintVaultBadges();if(typeof paintOpenSessions==='function')paintOpenSessions();}
 // Every change; returns the response, or null after telling the owner why it failed. A stale revision merges the
 // server's copy so the next attempt starts from it.
@@ -225,7 +234,7 @@ function paintVaultView(){
  if(vaultIsLocked()){document.querySelectorAll('.vault-field[data-shown]').forEach(vaultHideValue);vaultLoadLockInfo();} // a value shown before the lock goes
  const key=JSON.stringify([vaultSnap.ready,vaultSnap.locked,vaultSnap.access,vaultIsLocked()?vaultAutoLock:0,vaultSnap.items,vaultSnap.trash,vaultRequests(),vaultSnap.intakes||[],vaultOrder(),vaultNotice,[...vaultMissed]]);
  if(key===vaultPainted&&main.querySelector('.vault-list-head'))return paintVaultBadges();
- const focused=document.activeElement&&main.contains(document.activeElement)?[...main.querySelectorAll('button,a,summary,input,select')].indexOf(document.activeElement):-1;
+ const had=document.activeElement&&main.contains(document.activeElement),focusKey=had?vaultFocusKey(document.activeElement):null;
  const caret=document.activeElement?.id==='vault-query'?document.activeElement.selectionStart:null;
  const open=[...main.querySelectorAll('details')].map(d=>d.open);
  vaultPainted=key;
@@ -238,7 +247,7 @@ function paintVaultView(){
  const q=main.querySelector('#vault-query');if(q)q.oninput=()=>{vaultQuery=q.value;vaultApplyQuery(main);};
  const order=main.querySelector('#vault-order');if(order)order.onchange=()=>{vaultSetOrder(order.value);repaintVault();};
  vaultApplyQuery(main);
- if(focused>=0){const el=main.querySelectorAll('button,a,summary,input,select')[focused];el?.focus({preventScroll:true});if(el&&caret!==null&&el.id==='vault-query')try{el.setSelectionRange(caret,caret);}catch{}}
+ if(had){const el=(focusKey&&main.querySelector(focusKey))||main;el.focus({preventScroll:true});if(caret!==null&&el.id==='vault-query')try{el.setSelectionRange(caret,caret);}catch{}} // a control that is gone leaves the focus on the list
  paintVaultBadges();
  if(typeof paintOpenSessions==='function')paintOpenSessions();
 }

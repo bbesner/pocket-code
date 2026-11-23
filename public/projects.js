@@ -23,11 +23,12 @@ function mergeProject(p){
  boardSnap.scheduled=boardSnap.projects.flatMap(q=>q.reminders.map(r=>({...r,due:Date.parse(r.dueAt)<=now,project:q.id,projectName:q.name,projectStatus:q.status,taskText:r.task?q.tasks.find(t=>t.id===r.task)?.text||'':''}))).sort((a,b)=>Date.parse(a.dueAt)-Date.parse(b.dueAt));
  boardSnap.dueCount=boardSnap.scheduled.filter(r=>r.due).length;
 }
-async function boardAct(body,done){
+// onStale (1.124.2): called with the current card when the server refuses a stale revision, so an open sheet can take it on.
+async function boardAct(body,done,onStale){
  try{const r=await api('/board/act',{method:'POST',body:JSON.stringify(body)});mergeProject(r.project);if(done)toast(done);paintProjectsView();paintProjectBadges();if(typeof repaintDue==='function')repaintDue();
   if(typeof boardChangedChatMode==='function')boardChangedChatMode(body,r.project); // 1.106: the open conversation's chip follows a link, unlink or switch
   return r.project;}
- catch(e){const cur=e.body?.project;if(e.status===409&&cur){mergeProject(cur);paintProjectsView();}toast(e.message||'Could not update the project');return null;}
+ catch(e){const cur=e.body?.project;if(e.status===409&&cur){mergeProject(cur);paintProjectsView();onStale?.(cur);}toast(e.message||'Could not update the project');return null;}
 }
 const boardDueCount=()=>boardSnap?.dueCount||0;
 // 1.50: while Tasks is on, the Tasks list is where reminders are listed and counted; Scheduled stays for installs without it.
@@ -191,8 +192,12 @@ function bindProjectsView(main){
  const act=(body,msg)=>boardAct({...body,project:id,expected_revision:p.revision},msg);
  main.querySelectorAll('[data-task]').forEach(cb=>cb.onchange=async()=>{cb.disabled=true;if(!await act({action:'task-update',task:cb.dataset.task,done:cb.checked},cb.checked?'Step done':'Step reopened'))cb.checked=!cb.checked;cb.disabled=false;});
  main.querySelectorAll('[data-task-more]').forEach(b=>b.onclick=()=>taskOptions(id,b.dataset.taskMore));
- main.querySelector('[data-task-add]')?.addEventListener('submit',e=>{e.preventDefault();const input=e.target.elements.text;const text=input.value.trim();if(!text)return;input.value='';act({action:'task-add',text},'Step added').then(ok=>{if(!ok)input.value=text;});});
- main.querySelector('[data-note-add]')?.addEventListener('submit',e=>{e.preventDefault();const input=e.target.elements.text;const text=input.value.trim();if(!text)return;input.value='';act({action:'note',text},'Note added').then(ok=>{if(!ok)input.value=text;});});
+ // 1.124.2: a step or a note only adds to the card, so it goes with the current revision (the card is not repainted while
+ // its box has text, so p can be older). A refusal repaints the card first: the text goes back into the new box, not the old one.
+ const add=(sel,action,msg)=>main.querySelector(sel)?.addEventListener('submit',e=>{e.preventDefault();const input=e.target.elements.text;const text=input.value.trim();if(!text)return;input.value='';
+  boardAct({action,text,project:id,expected_revision:(projectById(id)||p).revision},msg).then(ok=>{const box=main.querySelector(sel+' input')||input;if(!ok&&!box.value)box.value=text;});});
+ add('[data-task-add]','task-add','Step added');
+ add('[data-note-add]','note','Note added');
  main.querySelectorAll('[data-remind-later]').forEach(b=>b.onclick=()=>reminderSheet(id,p.reminders.find(r=>r.id===b.dataset.remindLater)?.task||null));
  main.querySelectorAll('[data-dismiss]').forEach(b=>b.onclick=()=>confirmSheet('Dismiss this reminder?','Dismissing stops it. The project and its steps stay as they are.','Dismiss reminder',()=>act({action:'reminder-dismiss',reminder:b.dataset.dismiss},'Reminder dismissed')));
  main.querySelectorAll('[data-resume]').forEach(b=>b.onclick=()=>act({action:'update',status:'active'},'Project resumed'));
@@ -332,6 +337,7 @@ function stepSheet(t,onSave){
 }
 // Track (p = null) or edit a project. The directory defaults to the session's workspace when tracking from a session.
 function projectEditor(p,{directory='',session=null,onDone}={}){
+ let revision=p?.revision; // 1.124.2: after a refused Save, the current revision, so the next Save is the owner's overwrite and not the same refusal
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet project-editor';
  const v=k=>esc(p?.[k]??'');
  sh.innerHTML=`<h2>${p?'Edit project':'Track a project'}</h2>
@@ -350,8 +356,8 @@ function projectEditor(p,{directory='',session=null,onDone}={}){
  sh.querySelector('form').onsubmit=async e=>{
   e.preventDefault();const f=Object.fromEntries(new FormData(e.target));const btn=e.target.querySelector('button');btn.disabled=true;
   if(p&&'worksIn' in f)f.worksIn=String(f.worksIn||'').split('\n').map(x=>x.trim()).filter(Boolean); // 1.106: one place per line
-  const body=p?{action:'update',project:p.id,expected_revision:p.revision,...f}:{action:'track',...f,requested:true,...(session?{session}:{})};
-  const out=await boardAct(body,p?'Project updated':'Project tracked');
+  const body=p?{action:'update',project:p.id,expected_revision:revision,...f}:{action:'track',...f,requested:true,...(session?{session}:{})};
+  const out=await boardAct(body,p?'Project updated':'Project tracked',cur=>{revision=cur.revision;});
   btn.disabled=false;if(!out)return;closeCurrentSheet?.();
   if(onDone)onDone(out);else if(!p)location.hash=viewHref('projects/'+out.id);
  };

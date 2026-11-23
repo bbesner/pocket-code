@@ -113,6 +113,7 @@ export class AcpClient {
     this.name = name;
     this.onNotify = onNotify;    // (method, params) => void
     this.onRequest = onRequest;  // (method, params, id) => void — MUST call respond(id, ...) eventually
+    this.onExit = null;          // (err) => void: the process exited or could not start (not called after close())
     this.seq = 0;
     this.pending = new Map();    // our outgoing request id -> {resolve, reject, timer}
     this.closed = false;
@@ -132,6 +133,7 @@ export class AcpClient {
     this.closed = true;
     for (const [, p] of this.pending) { clearTimeout(p.timer); p.reject(err); }
     this.pending.clear();
+    try { this.onExit?.(err); } catch (e) { log(`exit handler threw: ${e.message}`); }
   }
   _write(obj, cb) { try { this.proc.stdin.write(JSON.stringify(obj) + '\n', cb); } catch (e) { cb?.(e); } }
   _line(line) {
@@ -171,7 +173,14 @@ export class AcpClient {
   // (a `model` on session/prompt is ignored, and the turn runs on OpenCode's own default model).
   setConfigOption(sessionId, configId, value) { return this.request('session/set_config_option', { sessionId, configId, value }); }
   cancel(sessionId) { this.notify('session/cancel', { sessionId }); }
-  close() { this.closed = true; try { this.proc.kill('SIGTERM'); } catch { } }
+  close() {
+    this.closed = true;
+    // 1.124.2: requests still waiting are answered now, as codex.mjs AppServer.close does (1.73.8). The exit that follows
+    // finds the client closed and rejects nothing, so an open session/prompt used to wait out its one-hour timer.
+    for (const [, p] of this.pending) { clearTimeout(p.timer); p.reject(new Error('acp client closed')); }
+    this.pending.clear();
+    try { this.proc.kill('SIGTERM'); } catch { }
+  }
 }
 
 // Fail-closed default answer to a server->client request Pocket chose not to handle.
@@ -347,6 +356,8 @@ export function runtimeError(runtime, e) {
 }
 // sessionId (bare) -> active turn. server.mjs's watch/approve/stop endpoints find turns here.
 export const acpTurns = new Map();
+// sessionId (bare) -> the promise of its process being opened, while it is (startAcpTurn).
+const acpOpening = new Map();
 
 export function acpTurnActive(sessionId) { return acpTurns.has(bareAcpId(sessionId)); }
 export function ownedAcpTurn(sessionId) { return acpTurns.get(bareAcpId(sessionId)); }
@@ -358,7 +369,7 @@ function makeAcpTurn(session, { text, model, approvalMode, executionMode, hooks,
   const client = session.client;
   const turn = {
     sessionId: session.sessionId, fullId: session.fullId, cwd: session.cwd, startedAt: Date.now(), userText: text,
-    openPrompts: 0, promptStarted: false, lastStop: null, settling: false, settleTimer: null, afterStep: false, // steering and background commands (runPrompt, settleOrFinish)
+    openPrompts: 0, promptStarted: false, lastStop: null, settling: false, settleTimer: null, afterStep: false, stopTimer: null, // steering and background commands (runPrompt, settleOrFinish); Stop's grace (stopAcpTurn)
     model, approvalMode: approvalMode === 'full' ? 'full' : 'review', events: [], subs: new Set(), done: false, turnId: randomUUID(),
     client, session, onFinish, text: '', thought: '', costStart: session.costTotal ?? null, costTotal: null, usage: null,
     executionMode: executionMode === 'plan' ? 'plan' : 'work', stopped: false, stopNote: null, lastActivityAt: Date.now(), context: null, asks: new Map(),
@@ -387,14 +398,14 @@ function makeAcpTurn(session, { text, model, approvalMode, executionMode, hooks,
       if (!client.writable()) return reject(new Error('Approval connection closed'));
       try { client.respond(nativeId, result); resolve(); } catch (e) { reject(e); }
     }),
-    onChange: () => { turn.emit({ type: 'approvals' }); if (turn.approvals?.list().length) onApproval?.(turn); },
+    onChange: () => { turn.emit({ type: 'approvals' }); if (turn.approvals?.list().length) onApproval?.(turn); if (turn.settling) armSettle(turn); },
   });
   // Questions from Pocket's ask tool: the same inbox Claude's and Codex's questions use. The native id is the ask's
   // id; answering resolves the ask the tool is polling, skipping or ending the turn resolves it with no answer.
   turn.questions = new QuestionInbox({
     threadId: () => turn.sessionId,
     write: (reply, opts) => { const a = turn.asks.get(reply.id); if (!a) throw new Error('Question expired'); turn.asks.delete(reply.id); a.done({ answers: reply.result?.answers || {}, skipped: opts?.skipped || null }); },
-    onChange: () => { turn.emit({ type: 'questions' }); if (turn.questions?.list().length) onQuestion?.(turn); },
+    onChange: () => { turn.emit({ type: 'questions' }); if (turn.questions?.list().length) onQuestion?.(turn); if (turn.settling) armSettle(turn); },
   });
   session.turn = turn;
   acpTurns.set(turn.sessionId, turn);
@@ -441,6 +452,10 @@ const openTools = turn => [...turn.tools.values()].some(t => t.info.status && !T
 function armSettle(turn) {
   clearTimeout(turn.settleTimer);
   if (turn.done || !turn.settling) return;
+  // 1.124.2: not while it waits on you (an approval or a question), the exemption the stall watchdog makes; the wait
+  // starts again when the last one is answered. Before, an approval the owner took ten minutes over was dropped
+  // unanswered and a question cancelled after two, and agy's next step never ran.
+  if (turn.approvals?.list().length || turn.questions?.list().length) return;
   const wait = openTools(turn) ? SETTLE_MAX_MS : turn.afterStep ? SETTLE_STEP_MS : SETTLE_QUIET_MS;
   turn.settleTimer = setTimeout(() => { if (!turn.done && turn.settling && turn.openPrompts === 0) finishAcpTurn(turn, { stopReason: turn.lastStop || 'end_turn' }); }, wait);
   turn.settleTimer.unref?.();
@@ -569,6 +584,9 @@ async function openAcpSession({ sessionId, cwd, model, cmd, args, env, resume, r
       // the level each model itself starts on, which Default goes back to: the session's first model here, the others as it switches to them
       effortDefaults: { [config.find(o => o.id === rt.options.model)?.currentValue ?? '']: config.find(o => o.id === rt.options.effort)?.currentValue ?? null } };
     acpSessions.set(sid, session);
+    // 1.124.2: a process that dies (a crash, an out-of-memory kill) is no longer the conversation's, as Codex drops an
+    // exited session; the next message opens a new one. It used to stay registered, and every later message failed.
+    client.onExit = () => { if (acpSessions.get(sid) === session) dropSession(session, `${rt.name} exited during this reply.`); };
     return session;
   } catch (e) { client.close(); throw runtimeError(rt, e); }
 }
@@ -683,8 +701,22 @@ export async function startAcpTurn({ sessionId, cwd, text, prompt = null, images
   const bare = sessionId ? bareAcpId(sessionId) : null;
   const rt = runtime ? runtimeOf(runtime) : runtimeForId(sessionId) || RUNTIMES.opencode;
   let session = bare && acpSessions.get(bare);
+  if (session?.client.closed) { closeAcpSession(bare); session = null; } // 1.124.2: its process is gone: open a new one, as Codex does
   if (session && acpTurns.has(session.sessionId)) throw Object.assign(new Error('busy'), { code: 409 });
-  if (!session) { session = await openAcpSession({ sessionId: bare, cwd, model, cmd, args, env, resume, runtime: rt, mcpServers, instructions: hooks.instructions, instructionsFile, askKey }); session.costTotal = resume ? costBaseline : 0; }
+  if (!session) {
+    // 1.124.2: a second start while this conversation's process is still opening (two devices sending at once) waits for
+    // that process instead of opening its own, then finds the first reply running, as Codex re-checks after its open.
+    // Before, both opened a process and ran a prompt on the one session, and the first reply could not be stopped.
+    let opening = bare && acpOpening.get(bare);
+    if (!opening) {
+      opening = openAcpSession({ sessionId: bare, cwd, model, cmd, args, env, resume, runtime: rt, mcpServers, instructions: hooks.instructions, instructionsFile, askKey })
+        .then(s => { s.costTotal = resume ? costBaseline : 0; return s; });
+      if (bare) { acpOpening.set(bare, opening); opening.catch(() => { }).finally(() => { if (acpOpening.get(bare) === opening) acpOpening.delete(bare); }); }
+    }
+    session = await opening;
+    if (instructionsFile && instructionsFile !== session.instructionsFile) fs.rm(instructionsFile, { force: true }, () => { }); // made for a process this start did not open
+    if (acpTurns.has(session.sessionId)) throw Object.assign(new Error('busy'), { code: 409 });
+  }
   mayStart?.(); // 1.117: refused just before the turn exists (Pocket was paused meanwhile); the opened process idles out as usual
   const turn = makeAcpTurn(session, { text, model, approvalMode, executionMode, hooks, origin, originRef, rootOrigin }); // 1.117: origin
   turn.effort = effort && effort !== 'default' ? effort : null;
@@ -712,14 +744,14 @@ export async function startAcpTurn({ sessionId, cwd, text, prompt = null, images
 
 function finishAcpTurn(turn, result) {
   if (turn.done) return;
-  turn.done = true; turn.settling = false; clearTimeout(turn.settleTimer);
+  turn.done = true; turn.settling = false; clearTimeout(turn.settleTimer); clearTimeout(turn.stopTimer);
   // Stopped (by you, or by the watchdog): a stop, not a finished reply, the way the other engines report it.
   if (turn.stopped || result.stopReason === 'cancelled') { turn.stopped = true; result = { ...result, stopReason: 'cancelled', error: turn.stopNote || 'Stopped by you' }; }
   turn.session.lastActivityAt = Date.now();
   endAsks(turn);
   for (const t of turn.tools.values()) if (!t.shown) { t.shown = true; turn.showTool(t.info); }
   turn.flush();
-  turn.approvals?.clear();
+  cancelApprovals(turn);
   // Cost: OpenCode reports the session's running total, so this reply's cost is the change across it. With no
   // known starting total (a conversation reopened before Pocket kept one) there is no cost line, never a wrong one.
   if (turn.costTotal != null) turn.session.costTotal = turn.costTotal;
@@ -731,7 +763,7 @@ function finishAcpTurn(turn, result) {
   turn.emit({ type: 'result', ok: !turn.stopped && result.stopReason !== 'error', stopReason: result.stopReason, ...(result.error ? { error: result.error } : {}),
     ...(cost != null ? { cost } : {}), ...(tokens != null ? { tokens } : {}), duration_ms: Date.now() - turn.startedAt, ...(cache ? { cache } : {}) });
   turn.emit({ type: 'done' });
-  acpTurns.delete(turn.sessionId);
+  if (acpTurns.get(turn.sessionId) === turn) acpTurns.delete(turn.sessionId); // 1.124.2: never a newer reply's entry
   try { turn.onFinish?.(result, turn); } catch (e) { log(`onFinish threw: ${e.message}`); }
 }
 
@@ -748,22 +780,50 @@ export function steerAcpTurn(sessionId, text, { prompt = null, images = [] } = {
   return true;
 }
 
+// 1.124.2: how long a stopped reply's agent has to end it after the cancel before its process is closed, as Codex closes
+// a session whose interrupt goes unanswered in 20 s. Stop, Pause all, the stall watchdog and the longest-reply limit all
+// come here; before, an agent that did not act on the cancel kept the reply running until its one-hour prompt timeout.
+const STOP_GRACE_MS = Number(process.env.POCKET_ACP_STOP_GRACE_MS) || 20_000;
 export function stopAcpTurn(sessionId, note = null) {
   const turn = acpTurns.get(bareAcpId(sessionId));
   if (!turn) return false;
   turn.stopped = true; if (note) turn.stopNote = note;
-  turn.approvals?.clear();
   endAsks(turn);
   try { turn.client.cancel(turn.sessionId); } catch { }
+  cancelApprovals(turn);
   // No prompt is open (the reply was waiting on a background command): nothing will answer the cancel, so end it here.
   if (turn.promptStarted && turn.openPrompts === 0) finishAcpTurn(turn, { stopReason: 'cancelled' });
+  else if (!turn.stopTimer) {
+    turn.stopTimer = setTimeout(() => {
+      if (turn.done) return;
+      log(`stopped reply not ended by the agent session=${turn.fullId}: closing its process`);
+      if (acpSessions.get(turn.sessionId) === turn.session) closeAcpSession(turn.fullId);
+      else { try { turn.client.close(); } catch { } finishAcpTurn(turn, { stopReason: 'cancelled' }); }
+    }, STOP_GRACE_MS);
+    turn.stopTimer.unref?.();
+  }
   return true;
+}
+// 1.124.2: approval cards still waiting when a reply is stopped or ends are answered with ACP's cancelled outcome, which
+// the protocol requires after session/cancel; clearing a card used to send the agent nothing, and it could wait for ever.
+function cancelApprovals(turn) {
+  for (const r of turn.approvals?.pending?.values() || []) if (r.status === 'pending' && turn.client.writable()) { try { turn.client.respond(r.nativeId, declineFor('session/request_permission')); } catch { } }
+  turn.approvals?.clear();
 }
 
 export function closeAcpSession(sessionId) {
   const bare = bareAcpId(sessionId);
   const s = acpSessions.get(bare);
-  if (s) { try { s.client.close(); } catch { } acpSessions.delete(bare); acpTurns.delete(bare); if (s.instructionsFile) fs.rm(s.instructionsFile, { force: true }, () => { }); }
+  if (!s) return;
+  try { s.client.close(); } catch { }
+  dropSession(s, `${s.runtime.name} was closed during this reply.`);
+}
+function dropSession(s, error) {
+  if (acpSessions.get(s.sessionId) === s) acpSessions.delete(s.sessionId);
+  // 1.124.2: a reply still running on it ends here, as stopped when Stop came first (the release route's Stop the reply).
+  // It used to be dropped from acpTurns only, and stayed open, unreachable, until its prompt timed out an hour later.
+  if (s.turn && !s.turn.done) finishAcpTurn(s.turn, { stopReason: 'error', error });
+  if (s.instructionsFile) fs.rm(s.instructionsFile, { force: true }, () => { });
 }
 // The session whose OpenCode process was started with this ask key (Pocket's ask tool presents it).
 export const acpSessionByAskKey = key => [...acpSessions.values()].find(s => s.askKey && s.askKey === key) || null;

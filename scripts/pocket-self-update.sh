@@ -43,11 +43,14 @@ wait_for() {
     fi
   done; return 1
 }
-put_back() { # return the checkout and its packages to what was running
+put_back() { # return the checkout and its packages to what was running; fails when either could not be put back
   [ "$moved" = 1 ] || return 0
-  if [ "$branch" = main ]; then git reset -q --hard "$prev"; else git checkout -q --detach "$prev"; fi
+  if [ "$branch" = main ]; then git reset -q --hard "$prev"; else git checkout -q --detach "$prev"; fi || return 1
   npm ci --silent --no-audit --no-fund
 }
+# 1.124.2: npm ci removes node_modules before it installs, so when putting the old packages back fails too, the running daemon
+# works only from what it has loaded and will not start again: say so, and what to run, instead of "Pocket stays on".
+not_back() { fail "$1, and putting $from's packages back failed too. Pocket keeps running for now but will not start again after a restart until you run npm ci in $dir on the server. Backup: $backup"; }
 
 cd "$dir" || fail 'Could not open the Pocket Code folder. Nothing was changed.'
 exec 9>"$status.lock"
@@ -76,9 +79,14 @@ free_kb=$(df -Pk "$HOME" | awk 'NR==2{print $4}')
 backup="$HOME/backups/pocket-code-$target-update-$(date -u +%Y%m%d-%H%M%S)"
 mkdir -m 700 -p "$backup" || fail 'Could not make the backup folder. Nothing was changed.'
 git ls-files --others --ignored --exclude-standard -z | grep -zv '^node_modules/' | grep -zv '^\.impeccable/' > "$backup/files.nul"
-# 1 = a file changed while it was read (a live log); 2 with --ignore-failed-read = a turn file that vanished; both fine.
+# 1 = a file changed while it was read (a live log): fine. 1.124.2: 2 is GNU tar's fatal error (a disk that filled, say); a
+# turn file that vanished is only a warning under --ignore-failed-read, status 0. The archive must also list back, and a
+# backup that failed is removed, so it neither stays on a full disk nor passes for a backup.
 tar --warning=no-file-changed --ignore-failed-read --null -czf "$backup/private-state.tar.gz" -T "$backup/files.nul"; rc=$?
-[ "$rc" -le 2 ] && [ -s "$backup/private-state.tar.gz" ] || fail 'The backup could not be written. Nothing was changed.'
+if [ "$rc" -gt 1 ] || ! [ -s "$backup/private-state.tar.gz" ] || ! tar -tzf "$backup/private-state.tar.gz" >/dev/null 2>&1; then
+  rm -rf -- "$backup"
+  fail 'The backup could not be written, so Pocket removed it. Nothing was changed. Check that the server has room for the backup, then try again.'
+fi
 echo "$prev" > "$backup/prev-head.txt"; echo "${branch:-detached}" > "$backup/prev-branch.txt"
 chmod 600 "$backup"/*
 say backing-up '' "$backup"
@@ -86,8 +94,8 @@ say backing-up '' "$backup"
 say installing
 if [ "$branch" = main ]; then git merge --ff-only -q "$commit"; else git checkout -q --detach "$commit"; fi || fail "Could not move to $tag. Nothing was changed."
 moved=1
-npm ci --silent --no-audit --no-fund || { put_back; fail "Installing $tag's packages failed. Pocket stays on $from."; }
-npm run -s check:release -- --released || { put_back; fail "$tag did not pass its release check. Pocket stays on $from."; }
+npm ci --silent --no-audit --no-fund || { put_back || not_back "Installing $tag's packages failed"; fail "Installing $tag's packages failed. Pocket stays on $from."; }
+npm run -s check:release -- --released || { put_back || not_back "$tag did not pass its release check"; fail "$tag did not pass its release check. Pocket stays on $from."; }
 
 say restarting
 old_pid=$(app_pid)

@@ -258,7 +258,9 @@ on `main`, and that no reply is running; backs up its private data to `~/backups
 and its packages; and restarts. The sheet shows each step. While Pocket restarts the page loses
 contact for a moment and reconnects by itself; open conversations reconnect too. If the new version
 does not start, Pocket goes back to the one it was running and says so in the row, and you can try
-again. The button is not offered while a reply is running, while a Claude Code or Codex upgrade runs,
+again. If the backup cannot be written (the server ran out of room, say), Pocket removes it and
+changes nothing. If the new packages fail to install and the old ones cannot be put back either, the row
+says so: Pocket keeps running, but run `npm ci` in its folder on the server before it next restarts. The button is not offered while a reply is running, while a Claude Code or Codex upgrade runs,
 or when Pocket cannot restart itself (it is not running under PM2, or the folder is not a git
 checkout); the row then says why. It needs at least 5 GB free on the server for the backup.
 
@@ -380,6 +382,7 @@ A change to `.env` takes effect after a restart from the Pocket Code directory
 | **Notifications blocked. Allow notifications in this site's browser settings.** | The browser's permission is off | Allow notifications for the site, then turn **Push to this device** on |
 | **Count on the app icon** is disabled | The browser has no app-badge support | Use the installed app on a platform that shows icon counts |
 | The email field is disabled | `POCKET_SMTP_URL` is not set, or the note shows **Email cannot be set up:** with the reason | Set `POCKET_SMTP_URL` (and `POCKET_SMTP_FROM`) in `.env` and restart |
+| **Pocket could not save the change, so nothing changed.** | Pocket could not write `pocket-settings.json` (a full disk, or a data folder it can't write). Since 1.124.2 the change is not kept; before, it showed until the next restart and was then lost. The time zone and the public address Pocket learns are not kept either, and are tried again on the next page load | Free space or fix the data folder's permissions, then change it again |
 | **Add a key first: automatic model choice needs one.** | **Choose the model for me** was turned on with no key saved or in the environment | Save a key, then turn it on |
 | **Keep at least one model on** | You tried to stop offering the last offered model | Offer another model first |
 | A rule is refused under **Add an action** | The rule changes files, covers everything, or is not valid syntax; the reason shows under the field | Fix the rule; see [action approvals](../action-approvals.md#actions-that-run-without-asking) |

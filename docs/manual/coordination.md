@@ -74,7 +74,7 @@ The `pocket-coord` skill tells agents all of this. See [For agents](for-agents.m
 
 ## Reference
 
-- **Identity.** Pocket proves a conversation from its own runner token, never from what an agent says. This works on Claude Code, Codex and OpenRouter. For OpenRouter the proof applies to Coordination only: the Vault still treats those conversations as terminal sessions.
+- **Identity.** Pocket proves a conversation from its own runner token, never from what an agent says. This works on Claude Code, Codex and OpenRouter. The Vault proves them the same way.
 - **Data.** Holds live in `coordination.json` in `POCKET_DATA_DIR`. Pocket writes it atomically and keeps it in memory, so edit it only with Pocket stopped. Older versions ignore the file.
 - **One writer.** The view and `pocket-coord` both go through the server.
 - **Sweep.** Every 30 seconds Pocket renews the holds of running conversations, expires the rest and wakes whoever is next.
@@ -108,3 +108,5 @@ The `pocket-coord` skill tells agents all of this. See [For agents](for-agents.m
 **A waiting conversation didn't wake.** It is woken only if it asked with `pocket-coord wait`, and a paused queue stays paused. Check **Held now** for who is first in line.
 
 **`pocket-coord` says Coordination is off.** Turn it on in **Settings → Projects, files, tasks & vault**. In Assistant mode it stays off.
+
+**Holds and waiting lines vanished after a restart, and the server log says `coordination.json could not be read`.** The file did not hold valid JSON when Pocket started (a hand edit, or a file damaged by a power cut). Since 1.124.2 Pocket keeps it beside the original as `coordination.json.corrupt-<time>` and starts with no holds. Holds are short-lived, so taking them again is usually enough; to get the old ones back, stop Pocket, fix the kept copy and move it back to `coordination.json`.

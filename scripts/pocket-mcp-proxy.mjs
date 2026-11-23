@@ -14,7 +14,7 @@
 //
 // 1.73.5: values go into fill tools only (POCKET_VAULT_FILL_TOOLS names them), and once a value has been typed, images,
 // audio and other binary content from the server are replaced by a note for the rest of the relay's life: a screenshot
-// of a page showing the value cannot be scrubbed.
+// of a page showing the value cannot be scrubbed. 1.124.2: and calls that make a picture are refused (PICTURE_TOOLS below).
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
@@ -36,6 +36,10 @@ const WAIT = Math.max(1, Number(process.env.POCKET_VAULT_FILL_WAIT) || 90);
 // fill; POCKET_VAULT_FILL_TOOLS (comma-separated) is the list for another server. A browser_evaluate or browser_navigate that
 // names a placeholder is refused: a value typed into a field stays on that page, one handed to code or an address goes anywhere.
 const FILL_TOOLS = [...new Set((process.env.POCKET_VAULT_FILL_TOOLS || 'browser_type,browser_fill_form,type,fill').split(',').map(s => s.trim()).filter(Boolean))];
+// 1.124.2: the tools that make a picture of the page, refused once a value has been typed. Playwright MCP saves every screenshot
+// and PDF to a file and names it in its answer, so withholding the inline image alone left the picture where the agent could
+// open it. POCKET_VAULT_PICTURE_TOOLS (comma-separated) adds a server's own picture tools to these; it never removes one.
+const PICTURE_TOOLS = [...new Set(['browser_take_screenshot', 'browser_pdf_save', 'screenshot', ...(process.env.POCKET_VAULT_PICTURE_TOOLS || '').split(',').map(s => s.trim()).filter(Boolean)])];
 
 const argv = process.argv.slice(2), dash = argv.indexOf('--');
 const ours = dash === -1 ? [] : argv.slice(0, dash), child = dash === -1 ? argv : argv.slice(dash + 1);
@@ -125,8 +129,9 @@ async function fill(msg, refs, tool) {
 readline.createInterface({ input: process.stdin }).on('line', line => {
   let msg; try { msg = JSON.parse(line); } catch { try { server.stdin.write(line + '\n'); } catch { } return; }
   if (msg?.method !== 'tools/call' || !msg.params) return toServer(msg);
-  const refs = refsIn(msg.params.arguments); if (!refs.length) return toServer(msg);
   const tool = String(msg.params.name || 'tool');
+  if (filled && PICTURE_TOOLS.includes(tool)) return toolError(msg.id, `Pocket: ${tool} was not taken: a Vault value was typed into this browser session, so no screenshot, PDF or other picture of it is made for the rest of the session (a value cannot be scrubbed out of a picture, and the browser tool would save it to a file). Use text snapshots instead.`);
+  const refs = refsIn(msg.params.arguments); if (!refs.length) return toServer(msg);
   if (!FILL_TOOLS.includes(tool)) return toolError(msg.id, `Pocket types Vault values into ${FILL_TOOLS.join(', ')} only, not ${tool}: a value may be typed into a field, never handed to code or put in an address. Use a fill tool; the owner can set POCKET_VAULT_FILL_TOOLS for this relay if another tool should count.`);
   chain = chain.then(() => fill(msg, refs, tool));
 }).on('close', () => chain.then(() => { try { server.stdin.end(); } catch { } }));

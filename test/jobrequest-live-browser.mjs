@@ -405,7 +405,10 @@ try {
 
   console.log('Job key requests: an expired request shows the server\'s words (a restart with a short time limit)');
   await halt();
-  await boot({ POCKET_JOB_REQUEST_TTL_MS: '6000' });
+  // 8 s, not 6: the server's first periodic pass runs 5 s after it starts and marks a request past its time expired, which
+  // takes the card off the page. With 6 s (the time is kept to the second) that pass could land between the request's
+  // expiry and the click below, about one run in forty. At 8 s it always comes before the expiry; the next is a minute on.
+  await boot({ POCKET_JOB_REQUEST_TTL_MS: '8000' });
   await visit('#/all'); await p.waitForSelector('.session-home');
   const convE = await startConversation('Make a log check job');
   const reqE = await propose(convE, { name: 'log-check', instruction: SHORT });
