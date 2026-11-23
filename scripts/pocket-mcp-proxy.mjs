@@ -56,7 +56,7 @@ const server = spawn(child[0], child.slice(1), { stdio: ['pipe', 'pipe', 'pipe']
 
 // Everything released so far, longest first: every form of each value -> its placeholder. 1.73.5: a value released again under
 // the same name (the owner changed it between two fills) joins the table beside the earlier one, which may still be on the page.
-let scrubTable = [], filled = false, errStream = null;
+let scrubTable = [], filled = false, errStream = null, inputBroken = false;
 function remember(ref, value) {
   const forms = needlesFor([value]); if (!forms.length) return;
   const ph = `{{vault:${ref}}}`, key = forms.join('\u0000');
@@ -81,7 +81,7 @@ const stripBinary = v => {
 };
 
 const toClient = msg => process.stdout.write(JSON.stringify(msg) + '\n');
-const toServer = msg => { try { server.stdin.write(JSON.stringify(msg) + '\n'); } catch { } };
+const toServer = (msg, done) => { try { server.stdin.write(JSON.stringify(msg) + '\n', done); } catch (e) { done?.(e); } };
 const toolError = (id, text) => toClient({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text }], isError: true } });
 
 // The CLI token and runner token, as pocket-vault uses them.
@@ -125,8 +125,10 @@ let chain = Promise.resolve(), fillsQueued = 0;
 const picturesOut = new Set();
 const savesPicture = (tool, a) => PICTURE_TOOLS.includes(tool) || Boolean(a && typeof a === 'object' && 'filename' in a);
 async function picturesDone(seconds) { const end = Date.now() + seconds * 1000; while (picturesOut.size && Date.now() < end) await new Promise(r => setTimeout(r, 50)); return !picturesOut.size; }
+const inputGone = tool => `Pocket: the browser tool closed its input while ${tool} was being sent to it, so this call has no result and the relay is stopping the browser tool. Check the page once it is running again, and call ${tool} again if the field is not filled.`;
 async function fill(msg, refs, tool) {
   try {
+    if (inputBroken) return toolError(msg.id, inputGone(tool));
     const got = await release(refs, tool);
     if (got.error) return toolError(msg.id, got.error);
     // 1.124.4: the value is typed only once no picture is still being taken. If one still is, the released value is dropped
@@ -135,7 +137,7 @@ async function fill(msg, refs, tool) {
     filled = true;
     for (const [ref, value] of Object.entries(got.values)) remember(ref, value);
     const typed = deep(msg.params.arguments, s => s.replace(PLACEHOLDER_ALL, (m, ref) => got.values[ref] ?? m));
-    toServer({ ...msg, params: { ...msg.params, arguments: typed } });
+    toServer({ ...msg, params: { ...msg.params, arguments: typed } }, e => { if (e) toolError(msg.id, inputGone(tool)); });
   } catch (e) { toolError(msg.id, `The relay could not fill ${refs.join(', ')}: ${e.message}`); }
 }
 readline.createInterface({ input: process.stdin }).on('line', line => {
@@ -170,7 +172,12 @@ readline.createInterface({ input: server.stdout }).on('line', line => {
 server.stderr.setEncoding('utf8');
 let errFlush = null;
 server.stderr.on('data', t => { if (!errStream) return process.stderr.write(t); process.stderr.write(errStream.push(t)); clearTimeout(errFlush); errFlush = setTimeout(() => process.stderr.write(errStream.end()), 500); errFlush.unref(); });
-server.on('exit', (code, sig) => { if (errStream) process.stderr.write(errStream.end()); process.exit(code ?? (sig ? 1 : 0)); });
+server.on('exit', (code, sig) => { if (errStream) process.stderr.write(errStream.end()); process.exit(inputBroken ? code || 1 : code ?? (sig ? 1 : 0)); });
 server.on('error', e => { process.stderr.write(`pocket-mcp-proxy: could not start ${child[0]}: ${e.message}\n`); process.exit(1); });
 // A signal is passed to the server; one that does not stop it within five seconds is followed by SIGKILL (1.73.5).
-for (const s of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(s, () => { try { server.kill(s); } catch { } setTimeout(() => { try { server.kill('SIGKILL'); } catch { } }, 5000).unref(); });
+const stop = s => { try { server.kill(s); } catch { } setTimeout(() => { try { server.kill('SIGKILL'); } catch { } }, 5000).unref(); };
+for (const s of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(s, () => stop(s));
+// 1.124.4: a server that closes its input but keeps running made the next write fail (EPIPE) with no listener, so the
+// relay crashed and left the server running. Now the fill being written is answered with a tool error (its write
+// callback), the server is stopped as a signal would stop it, and the relay exits non-zero when it has gone.
+server.stdin.on('error', e => { if (inputBroken) return; inputBroken = true; process.stderr.write(`pocket-mcp-proxy: ${child[0]} closed its input (${e.code || 'write failed'}); stopping it\n`); stop('SIGTERM'); });
