@@ -780,3 +780,23 @@ test('1.124.3: merge --session goes into the open entry the conversation is on, 
   s.act({action:'resolve',id:b.id});const d=s.add({title:'Gate (another)',story:'gate-d',merge:false});
   assert.throws(()=>s.merge({id:d.id,session:S}),e=>e.code==='bad_merge'&&/restore it first/.test(e.message));
 });
+
+test('1.124.3: an ack names the decision it applied (id@at), so a decision made after the watcher read feedback stays feedback',()=>{
+  const {s}=freshInbox();
+  const e=s.add({title:'Gate down',story:'gate'}),d=s.add({kind:'digest',title:'Digest',items:[{ref:'a1',title:'Fence',story:'fence'}]});
+  s.act({action:'resolve',id:e.id});s.act({action:'resolve',id:d.id,item:'a1'});
+  const read=s.feedback(),at=Object.fromEntries(read.map(f=>[f.id,f.at]));
+  // the owner changes their mind while the watcher applies what it read
+  s.act({action:'not_useful',id:e.id});s.act({action:'not_useful',id:d.id,item:'a1'});
+  assert.equal(s.ack(read.map(f=>`${f.id}@${f.at}`)),0,'the decisions it read are no longer the current ones');
+  assert.deepEqual(s.feedback().map(f=>f.id+' '+f.action).sort(),[d.id+'/a1 not_useful',e.id+' not_useful'].sort(),'the newer decisions are still to apply');
+  const now=s.feedback();
+  assert.equal(s.ack(now.map(f=>`${f.id}@${f.at}`)),2);assert.deepEqual(s.feedback(),[]);
+  assert.notEqual(at[e.id],now.find(f=>f.id===e.id).at);
+  // a split the same way; and a plain id (an older watcher) acks whatever is current, as before
+  const g=s.add({title:'Pier',story:'pier',url:'/#/start/0123456789ab'});s.linkStart('0123456789ab','sess-pier-1111');
+  s.add({title:'Pier storm',story:'pier'});s.split({id:g.id});
+  const sp=s.feedback().find(f=>f.action==='split');
+  assert.equal(s.ack([`${sp.id}@2026-01-01T00:00:00Z`]),0);assert.equal(s.ack([`${sp.id}@${sp.at}`]),1);
+  s.act({action:'dismiss',id:e.id});assert.equal(s.ack([e.id]),1);assert.deepEqual(s.feedback(),[]);
+});

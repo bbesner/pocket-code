@@ -301,7 +301,8 @@ it, unless you starred it or new mail came in (see [Your list in Gmail](#your-li
 tip and the confirmation say the label comes off in Gmail at the next check.
 
 Pocket records each decision with the entry; the watcher asks for the ones it has not applied
-(`pocket-inbox feedback`), applies them and acknowledges them (`pocket-inbox ack`), so none is applied twice.
+(`pocket-inbox feedback`), applies them and acknowledges them (`pocket-inbox ack`), so none is applied twice. Each
+acknowledgement names the decision the watcher read, so one you change while a check applies it is applied at the next.
 
 ### Check now
 

@@ -258,11 +258,16 @@ class PocketPush(Delivery):
             return []
         d = self._json(self._node("pocket-inbox.mjs", ["feedback", "--json"]), "pocket-inbox feedback")
         items = d if isinstance(d, list) else d.get("feedback", []) if isinstance(d, dict) else []
-        return [f for f in items if isinstance(f, dict)]
+        items = [f for f in items if isinstance(f, dict)]
+        self.read_at = {f["id"]: f["at"] for f in items if isinstance(f.get("id"), str) and isinstance(f.get("at"), str)}
+        return items
 
     def ack(self, ids: list[str]) -> None:
+        """1.124.3: each id goes back as '<id>@<at>', the decision this watcher read, so Pocket leaves a newer one (the owner
+        changed their mind while it was applied) for the next check instead of acking it unapplied."""
         if ids and self.inbox:
-            self._json(self._node("pocket-inbox.mjs", ["ack", *ids]), "pocket-inbox ack")
+            read = getattr(self, "read_at", {})
+            self._json(self._node("pocket-inbox.mjs", ["ack", *(f"{i}@{read[i]}" if i in read else i for i in ids)]), "pocket-inbox ack")
 
     def seen(self, profile: dict | None = None) -> None:
         """The heartbeat; with Pocket 1.70+ it carries the watcher's profile (defaults, choices, status, usage) for Settings."""

@@ -665,14 +665,17 @@ export class InboxStore {
     return out.sort((a, b) => ms(b.at) - ms(a.at));
   }
   // The worker applied these; they leave feedback until the owner decides again. An item's id is '<entry>/<ref>'.
+  // 1.124.3: '<id>@<at>' acks that decision only (the `at` feedback() gave), so one the owner made after the watcher read it stays
+  // feedback; a plain id acks whatever decision is current, as before.
   ack(ids) {
     if (!Array.isArray(ids) || ids.length > LIMITS.entries * 4 || ids.some(x => typeof x !== 'string')) throw fail('ids: a list of Inbox entry ids.', 400, { code: 'bad_ids' });
-    const want = new Set(ids), at = iso(this.now());
+    const want = new Map(ids.map(x => { const i = x.indexOf('@'); return i < 0 ? [x, null] : [x.slice(0, i), x.slice(i + 1)]; })), at = iso(this.now());
+    const asked = (id, when) => want.has(id) && (want.get(id) == null || want.get(id) === when);
     let n = 0;
     for (const e of this.entries) {
-      if (want.has(e.id) && e.actedAt && e.ackedAt == null) { e.ackedAt = at; n++; }
-      if (want.has(`${e.id}:split`) && e.splitAt && e.splitAcked == null) { e.splitAcked = at; n++; }
-      for (const it of e.items) if (want.has(`${e.id}/${it.ref}`) && it.actedAt && it.ackedAt == null) { it.ackedAt = at; n++; }
+      if (asked(e.id, e.actedAt) && e.actedAt && e.ackedAt == null) { e.ackedAt = at; n++; }
+      if (asked(`${e.id}:split`, e.splitAt) && e.splitAt && e.splitAcked == null) { e.splitAcked = at; n++; }
+      for (const it of e.items) if (asked(`${e.id}/${it.ref}`, it.actedAt) && it.actedAt && it.ackedAt == null) { it.ackedAt = at; n++; }
     }
     if (n) this.save();
     return n;
