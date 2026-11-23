@@ -416,7 +416,8 @@ cost: the plan is billed by Google, not per token.
 
 A message sent while a reply runs goes into that reply, as **Steer** does elsewhere. When the CLI leaves
 a command running in the background, the reply stays open until the command reports back and the agent has
-finished the steps after it, or until it goes quiet. After a background command, a reply shows **Response ready**
+finished the steps after it, or until it goes quiet. An approval or a question it asks in that time waits for you
+however long you take; waiting on you is not going quiet. After a background command, a reply shows **Response ready**
 a few seconds after the agent's last words, the time Pocket gives it to start another step.
 
 #### What Pocket will not do with it

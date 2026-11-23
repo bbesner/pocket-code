@@ -276,6 +276,36 @@ test('1.123.1: a step after the background command reports itself before its nex
   assert.equal(results(ev).length, 1); assert.equal(results(ev)[0].stopReason, 'end_turn');
 });
 
+// 1.124.2: the settle timers ended a reply that was waiting on the owner: an approval after the background command was
+// dropped unanswered after SETTLE_MAX_MS, a question cancelled after SETTLE_QUIET_MS.
+test('1.124.2: after a background command, an approval or a question waits for the owner, past every settle timer', async () => {
+  const store = mkStore();
+  const a = collect(), approve = await acp.startAcpTurn(opts(store, { text: 'render then copy __BGMORE__', hooks: { emit: a.emit } }));
+  assert.ok(await waitFor(() => approve.approvals.list().length === 1));
+  await approve.approvals.decide(approve.approvals.list()[0].id, 'allow'); // the command, which goes to the background
+  await approve.promptDone;
+  assert.ok(await waitFor(() => approve.approvals.list().length === 1, 3000), 'the next command asks');
+  await new Promise(r => setTimeout(r, 1500)); // longer than every settle timer (300, 700 and 900 ms here)
+  assert.equal(approve.done, false, 'the reply still waits on the approval');
+  assert.equal(approve.approvals.list().length, 1, 'and the card is still there');
+  await approve.approvals.decide(approve.approvals.list()[0].id, 'allow');
+  assert.ok(await waitFor(() => approve.done, 3000));
+  assert.equal(sessOf(store, approve.sessionId).permission2, 'allow', 'the late answer reached agy');
+  assert.match(said(a.ev), /Copied it: FOLLOWUP_OK\./);
+  assert.equal(results(a.ev).length, 1); assert.equal(results(a.ev)[0].stopReason, 'end_turn');
+
+  const q = collect(), ask = await acp.startAcpTurn(opts(store, { text: 'render then ask __BGASK__ __NOASK__', hooks: { emit: q.emit } }));
+  await ask.promptDone;
+  assert.ok(await waitFor(() => ask.questions.list().length === 1, 3000), 'the question card is shown');
+  await new Promise(r => setTimeout(r, 1500));
+  assert.equal(ask.done, false, 'the reply still waits on the question');
+  ask.questions.answer(ask.questions.list()[0].id, { q1: ['Claim folder'] });
+  assert.ok(await waitFor(() => ask.done, 3000));
+  assert.deepEqual(sessOf(store, ask.sessionId).elicit, { action: 'accept', content: { q1: '1' } });
+  assert.match(said(q.ev), /Copied it: ANSWERED_OK\./);
+  assert.equal(results(q.ev)[0].stopReason, 'end_turn');
+});
+
 test('1.123.1: the last step ends the reply after the short grace, not the two-minute wait', async () => {
   const store = mkStore(), { emit, ev } = collect();
   const turn = await acp.startAcpTurn(opts(store, { text: 'long job __BG__ __NOASK__', hooks: { emit } }));

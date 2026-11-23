@@ -398,14 +398,14 @@ function makeAcpTurn(session, { text, model, approvalMode, executionMode, hooks,
       if (!client.writable()) return reject(new Error('Approval connection closed'));
       try { client.respond(nativeId, result); resolve(); } catch (e) { reject(e); }
     }),
-    onChange: () => { turn.emit({ type: 'approvals' }); if (turn.approvals?.list().length) onApproval?.(turn); },
+    onChange: () => { turn.emit({ type: 'approvals' }); if (turn.approvals?.list().length) onApproval?.(turn); if (turn.settling) armSettle(turn); },
   });
   // Questions from Pocket's ask tool: the same inbox Claude's and Codex's questions use. The native id is the ask's
   // id; answering resolves the ask the tool is polling, skipping or ending the turn resolves it with no answer.
   turn.questions = new QuestionInbox({
     threadId: () => turn.sessionId,
     write: (reply, opts) => { const a = turn.asks.get(reply.id); if (!a) throw new Error('Question expired'); turn.asks.delete(reply.id); a.done({ answers: reply.result?.answers || {}, skipped: opts?.skipped || null }); },
-    onChange: () => { turn.emit({ type: 'questions' }); if (turn.questions?.list().length) onQuestion?.(turn); },
+    onChange: () => { turn.emit({ type: 'questions' }); if (turn.questions?.list().length) onQuestion?.(turn); if (turn.settling) armSettle(turn); },
   });
   session.turn = turn;
   acpTurns.set(turn.sessionId, turn);
@@ -452,6 +452,10 @@ const openTools = turn => [...turn.tools.values()].some(t => t.info.status && !T
 function armSettle(turn) {
   clearTimeout(turn.settleTimer);
   if (turn.done || !turn.settling) return;
+  // 1.124.2: not while it waits on you (an approval or a question), the exemption the stall watchdog makes; the wait
+  // starts again when the last one is answered. Before, an approval the owner took ten minutes over was dropped
+  // unanswered and a question cancelled after two, and agy's next step never ran.
+  if (turn.approvals?.list().length || turn.questions?.list().length) return;
   const wait = openTools(turn) ? SETTLE_MAX_MS : turn.afterStep ? SETTLE_STEP_MS : SETTLE_QUIET_MS;
   turn.settleTimer = setTimeout(() => { if (!turn.done && turn.settling && turn.openPrompts === 0) finishAcpTurn(turn, { stopReason: turn.lastStop || 'end_turn' }); }, wait);
   turn.settleTimer.unref?.();

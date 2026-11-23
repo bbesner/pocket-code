@@ -24,7 +24,8 @@
 // __LIMIT__ (a 429) · __COST__ (a reply slow enough to watch). Its own: __NOASK__ (no approval) · __BG__ (a background
 // command that ends 400 ms after the prompt returns) · __BGHANG__ (one that never ends) · __BGMORE__ (after the
 // background command, a step whose usage_update comes before its next command, which asks for approval; the answer is
-// noted as permission2) · __SIGNOUT__ (fails as signed out). Each prompt notes what reached it (session-<id>.json: prompts, seen, ranOn, runnerToken).
+// noted as permission2) · __BGASK__ (after the background command, a question, as __QUESTION__ asks it; the answer is
+// noted as elicit) · __SIGNOUT__ (fails as signed out). Each prompt notes what reached it (session-<id>.json: prompts, seen, ranOn, runnerToken).
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
@@ -133,7 +134,7 @@ async function handlePrompt(id, params) {
   }
 
   // A command, shown first without its text and then with it, as agy sends it; asked about before it runs.
-  const tid = randomUUID(), cmd = /__BG(HANG|MORE)?__/.test(text) ? 'sleep 30 && echo BG_DONE' : 'echo AGY_OK';
+  const tid = randomUUID(), cmd = /__BG(HANG|MORE|ASK)?__/.test(text) ? 'sleep 30 && echo BG_DONE' : 'echo AGY_OK';
   const call = { sessionUpdate: 'tool_call', toolCallId: tid, name: 'run_command', kind: 'execute', status: 'in_progress', title: cmd, rawInput: { CommandLine: cmd, WaitMsBeforeAsync: 500, toolSummary: 'Run a quick check' } };
   push(call);
   if (!text.includes('__NOASK__')) {
@@ -151,7 +152,7 @@ async function handlePrompt(id, params) {
     }
     update(sid, { sessionUpdate: 'tool_call_update', toolCallId: tid, name: 'run_command', status: 'in_progress' });
   }
-  if (/__BG(HANG|MORE)?__/.test(text)) {
+  if (/__BG(HANG|MORE|ASK)?__/.test(text)) {
     // The command went to the background: the model says so and the prompt returns while it runs.
     push({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Started it in the background.' } });
     update(sid, { sessionUpdate: 'usage_update', used: 22000, size: 1048576 });
@@ -159,6 +160,19 @@ async function handlePrompt(id, params) {
     if (text.includes('__BGHANG__')) return;
     await sleep(400);
     push({ sessionUpdate: 'tool_call_update', toolCallId: tid, name: 'run_command', status: 'completed', rawOutput: { output: 'BG_DONE\n', exit_code: 0 } });
+    if (text.includes('__BGASK__')) {
+      // The step after the background command asks the owner something before it goes on.
+      const qid = randomUUID();
+      update(sid, { sessionUpdate: 'tool_call', toolCallId: qid, name: 'ask_question', kind: 'other', status: 'in_progress', title: 'Run ask_question', args: {} });
+      const ans = await askClient(sid, 'elicitation/create', { sessionId: sid, toolCallId: qid, mode: 'form', message: 'The agent has a question.',
+        requestedSchema: { type: 'object', properties: { q1: { type: 'string', title: 'Copy it where?', oneOf: [{ const: '1', title: 'Claim folder' }, { const: '2', title: 'Nowhere' }] } } } });
+      s.elicit = ans?.aborted ? { action: 'aborted' } : ans;
+      update(sid, { sessionUpdate: 'tool_call_update', toolCallId: qid, name: 'ask_question', status: 'completed' });
+      push({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: ans?.action === 'accept' ? 'Copied it: ANSWERED_OK.' : `Left it (${ans?.action || 'aborted'}).` } });
+      update(sid, { sessionUpdate: 'usage_update', used: 23000, size: 1048576 });
+      s.updatedAt = Date.now(); saveSess(sid, s);
+      return;
+    }
     if (text.includes('__BGMORE__')) {
       // The step after the background command calls another tool. agy 1.5.14 sends the step's usage_update first and
       // its tool call a moment later (measured live: 2 ms), then asks about it like any command.
