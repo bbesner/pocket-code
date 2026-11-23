@@ -2594,8 +2594,10 @@ function steerTurn(turn, text) {
 function startTurn({ sessionId, cwd, text, resume, fork, model, effort, attachments, retryAttempt,approvalMode:requestedMode, replaceStale = false, from }) {
   from = startOrigin(from); // 1.117: owner unless a trusted caller (retry, queue, coordination) says otherwise
   refuseIfPaused(from); // 1.117: paused after the gate passed (no await from here to beginTurn)
-  if (claudeLogin.active) throw Object.assign(new Error('Claude account sign-in is in progress. Finish or cancel it in Accounts & instance.'), {code:409});
-  if (turns.has(sessionId)) throw Object.assign(new Error('busy'), { code: 409 });
+  // 1.124.3: both refusals come before anything is written, so a queued row they refuse goes back to pending (keepPending)
+  // instead of reading "Start was not confirmed" and holding up the queue.
+  if (claudeLogin.active) throw Object.assign(new Error('Claude account sign-in is in progress. Finish or cancel it in Accounts & instance.'), {code:409, status:409, keepPending:true});
+  if (turns.has(sessionId)) throw Object.assign(new Error('busy'), { code: 409, status: 409, keepPending: true });
   cancelRetry(sessionId, from); // a manually-started turn supersedes any pending auto-resume
   if (resume) text = coordNotice(sessionId, text); // 1.99
   if (resume && cwd && !fs.existsSync(cwd)) cwd = HOME; // 1.98: a queued or retried reply whose folder went away
