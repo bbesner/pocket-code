@@ -58,12 +58,13 @@ test('MCP proxy: placeholders are filled from the Vault on the way in, scrubbed 
   const init=await rpc('initialize',{protocolVersion:'2025-06-18'});
   assert.equal(init.result.serverInfo.name,'fake','initialize passes through');
   assert.deepEqual(init.result.env,['POCKET_DATA_DIR','POCKET_ENV_FILE','POCKET_RUNNER_TOKEN','POCKET_VAULT_FILL_WAIT'],'the vault keys, login, cookie, push, mail and router secrets are stripped; the runner token stays');
-  assert.deepEqual((await rpc('tools/list',{})).result.tools.map(x=>x.name),['type','peek','shot','evaluate','browser_take_screenshot']);
+  assert.deepEqual((await rpc('tools/list',{})).result.tools.map(x=>x.name),['type','peek','shot','evaluate','browser_take_screenshot','browser_snapshot']);
   // An ordinary call is untouched, and before any fill a screenshot comes back as it is.
   let r=await rpc('tools/call',{name:'type',arguments:{text:'hello'}});assert.equal(r.result.content[0].text,"await page.getByLabel('Password').fill('hello');");
   r=await rpc('tools/call',{name:'shot',arguments:{}});assert.equal(r.result.content[0].type,'image');assert.equal(typeof r.result.content[1].resource.blob,'string');
   r=await rpc('tools/call',{name:'browser_take_screenshot',arguments:{}});assert.match(r.result.content[0].text,/Screenshot of viewport\]\(\.\/\.playwright-mcp\/page-/);assert.equal(r.result.content[1].type,'image');
   const saved=()=>fs.readdirSync(path.join(dir,'.playwright-mcp')).length,savedBefore=saved();
+  r=await rpc('tools/call',{name:'browser_snapshot',arguments:{filename:'before.md'}});assert.match(r.result.content[0].text,/\[Snapshot\]\(\.\/before\.md\)/);assert.equal(fs.readFileSync(path.join(dir,'before.md'),'utf8'),'- textbox "Password": hello\n','before a fill, a snapshot to a file is the server\'s own business');
   // A placeholder: the tool gets the real value, the answer and later results carry only the placeholder.
   r=await rpc('tools/call',{name:'type',arguments:{text:'{{vault:portal.password}}'}});
   assert.equal(r.result.isError,undefined,JSON.stringify(r.result));
@@ -84,6 +85,12 @@ test('MCP proxy: placeholders are filled from the Vault on the way in, scrubbed 
   assert.equal(r.result.isError,true);assert.match(r.result.content[0].text,/not taken: a Vault value was typed into this browser session/);
   r=await rpc('tools/call',{name:'browser_take_screenshot',arguments:{filename:'check.png'}});assert.equal(r.result.isError,true);
   assert.equal(saved(),savedBefore,'no picture was saved');assert.equal(fs.existsSync(path.join(dir,'check.png')),false);
+  // 1.124.3: nor is the page's text saved to a file: the relay scrubs what comes back to the agent, never a file the server
+  // writes. browser_snapshot with a filename is refused; without one its text comes back here, scrubbed.
+  r=await rpc('tools/call',{name:'browser_snapshot',arguments:{filename:'after.md'}});
+  assert.equal(r.result.isError,true);assert.match(r.result.content[0].text,/browser_snapshot was not run: a Vault value was typed into this browser session, so nothing from it is saved to a file/);
+  assert.equal(fs.existsSync(path.join(dir,'after.md')),false,'no unscrubbed copy of the page on disk');
+  r=await rpc('tools/call',{name:'browser_snapshot',arguments:{}});assert.equal(r.result.content[0].text,'### Snapshot\n- textbox "Password": {{vault:portal.password}}');
   // 1.73.5: a number spelling the value is scrubbed.
   r=await rpc('tools/call',{name:'type',arguments:{text:'{{vault:pin}}'}});assert.equal(lastTyped().text,'48213907');
   r=await rpc('tools/call',{name:'peek',arguments:{}});assert.equal(r.result.structuredContent.asNumber,'{{vault:pin}}');assert.equal(r.result.structuredContent.value,'{{vault:pin}}');

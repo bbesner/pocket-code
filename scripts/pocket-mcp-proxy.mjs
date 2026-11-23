@@ -131,6 +131,9 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
   if (msg?.method !== 'tools/call' || !msg.params) return toServer(msg);
   const tool = String(msg.params.name || 'tool');
   if (filled && PICTURE_TOOLS.includes(tool)) return toolError(msg.id, `Pocket: ${tool} was not taken: a Vault value was typed into this browser session, so no screenshot, PDF or other picture of it is made for the rest of the session (a value cannot be scrubbed out of a picture, and the browser tool would save it to a file). Use text snapshots instead.`);
+  // 1.124.3: the relay scrubs what comes back here, never a file the server writes. Playwright MCP saves a snapshot, an
+  // evaluate result, console or network logs to `filename` when it is given, so after a fill no call may name one.
+  if (filled && msg.params.arguments && typeof msg.params.arguments === 'object' && 'filename' in msg.params.arguments) return toolError(msg.id, `Pocket: ${tool} was not run: a Vault value was typed into this browser session, so nothing from it is saved to a file for the rest of the session (a file cannot be scrubbed; what comes back here is). Call it again without filename.`);
   const refs = refsIn(msg.params.arguments); if (!refs.length) return toServer(msg);
   if (!FILL_TOOLS.includes(tool)) return toolError(msg.id, `Pocket types Vault values into ${FILL_TOOLS.join(', ')} only, not ${tool}: a value may be typed into a field, never handed to code or put in an address. Use a fill tool; the owner can set POCKET_VAULT_FILL_TOOLS for this relay if another tool should count.`);
   chain = chain.then(() => fill(msg, refs, tool));

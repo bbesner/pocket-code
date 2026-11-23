@@ -243,7 +243,7 @@ claude mcp add playwright -s user -- node <Pocket Code directory>/scripts/pocket
 Rules the relay enforces:
 
 - Values go only into the fill tools: `browser_type`, `browser_fill_form`, `type` and `fill`, or the comma-separated list in `POCKET_VAULT_FILL_TOOLS`. A call to any other tool that names a placeholder (`browser_evaluate`, `browser_navigate`) is refused.
-- **Screenshot lockout.** Once a value has been typed, images, audio and other binary content from that browser are replaced with a note for the rest of the relay's life, because a value cannot be scrubbed out of a picture. Calls that make a picture (`browser_take_screenshot`, `browser_pdf_save`, `screenshot`, or a tool named in `POCKET_VAULT_PICTURE_TOOLS`) are refused and never reach the browser, since the browser tool saves each picture to a file the agent could open. Text snapshots still work.
+- **Screenshot lockout.** Once a value has been typed, images, audio and other binary content from that browser are replaced with a note for the rest of the relay's life, because a value cannot be scrubbed out of a picture. Calls that make a picture (`browser_take_screenshot`, `browser_pdf_save`, `screenshot`, or a tool named in `POCKET_VAULT_PICTURE_TOOLS`) are refused and never reach the browser, since the browser tool saves each picture to a file the agent could open. Text snapshots still work. So that no page text lands in a file the relay cannot scrub either, any call that names a `filename` (a snapshot, an evaluate result, console or network logs saved to a file) is refused too (1.124.3).
 - A fill waits `POCKET_VAULT_FILL_WAIT` seconds (default 90) for your approval, then tells the agent to call the tool again once you allow it.
 
 The page the agent is driving can read what was typed into it. Allow fills only on sites you trust with that login.
@@ -345,7 +345,7 @@ Keep commands stable: an approved command is an exact match on program, argument
 
 **Asking someone outside (1.110).** When a customer or vendor has a credential the work needs, never ask them to send it by email, chat or phone. Run `pocket-vault request <name> --kind login --for "<who>" --note "<what it is>"`, which prints a one-time link, and give the link to the owner or put it in the draft for them to send. `await <name>` or `show <name>` tells you when it has been filled in; you only ever see the name.
 
-**Browser fills.** Put `{{vault:name.field}}` as the text in `browser_type` or `browser_fill_form`. If the reply says the Vault is asking the owner, tell them and call the same tool with the same arguments once they allow it. After a fill, use `browser_snapshot` instead of screenshots. If the placeholder appears literally on the page, the relay is not in place: stop and tell the owner.
+**Browser fills.** Put `{{vault:name.field}}` as the text in `browser_type` or `browser_fill_form`. If the reply says the Vault is asking the owner, tell them and call the same tool with the same arguments once they allow it. After a fill, use `browser_snapshot` instead of screenshots, without `filename`. If the placeholder appears literally on the page, the relay is not in place: stop and tell the owner.
 
 **Codex in Review mode** runs in a read-only sandbox that cannot reach Pocket's server, so `pocket-vault` fails there; the reply needs Full access.
 
