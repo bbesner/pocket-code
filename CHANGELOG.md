@@ -3,6 +3,83 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.124.2] — 2026-11-23 · build 224
+
+The second batch from the whole-code review at 1.123.1: the findings graded medium (1.124.1 took the highs), plus
+faults of the same kind found next to them while fixing. Each has a test that failed before the fix.
+
+**OpenRouter and Antigravity sessions** (`acp.mjs`; what Codex already did)
+- **Stop always ends the reply.** Stop, Pause all, the stall watchdog and the longest-reply limit send the cancel,
+  answer every waiting approval with ACP's `cancelled` outcome, and close the process if the agent has not ended the
+  reply in 20 s (`POCKET_ACP_STOP_GRACE_MS`). An agent that ignored the cancel used to run on to its one-hour timeout.
+- **A process that dies between replies is dropped**, and the next message opens a new one. It stayed registered, and
+  every later message failed with *acp client closed*.
+- **`AcpClient.close()` rejects its waiting requests**, so Stop-and-close ends the reply at once, as stopped.
+- **Two starts arriving together open one process.** The second waits for the first's process and is then told the
+  conversation is busy; before, both ran a prompt on one session and the first could not be stopped.
+- **Antigravity: an approval or a question after a background command waits for you**, past the settle timers.
+
+**Unattended work**
+- **A reply the agent starts by itself after a job's or a check-back's reply is that work carried on.** The
+  conversation keeps the root of its last start (`lastRoot`) until any other start, your own message first; a reply
+  the CLI begins by itself there carries it, counts toward the day, has the longest-reply limit, and is stopped as it
+  begins when the gate would have refused it. A coordination wait set with no reply running wakes as that work, in
+  its mode. Such a reply never settles the job's run or the check-back's card.
+- **Paused: the CLI token can't set a paused Inbox Watch running again** (`POST /api/inbox/watch` answers 409
+  `paused`); a change that keeps it paused, and any change of yours, goes through.
+- **Paused: your message steered into a background agent's stand-in turn is your reply**, not stopped as the agent's.
+- **A conversation record that can't be saved no longer strands a reply.** The start goes on and the CLI's result is
+  still read; one bad line no longer drops the rest of a batch of the CLI's lines.
+- **Settings, the time zone and the public address roll back when they can't be saved**, and Settings and the time
+  zone say so (503, plain words) instead of keeping the change in memory until the next restart loses it.
+- **Side chats show a usage limit or an API error as an error**, in the CLI's words (the 1.124.1 fix, for side chats).
+
+**Replies and streams**
+- **A `choices` example mid-reply stays text** when the reply ends with another fenced block.
+- **A reconnect is not replayed from the wrong place.** Watch-mode stream ids are now `w:<offset>`, apart from a
+  turn's event numbers; a reconnect that carries the other kind re-reads the conversation instead of showing
+  messages twice.
+
+**Vault**
+- **A request from an OpenRouter or Antigravity conversation names the conversation**, so *Allow … for this command*
+  typed there answers it. It was raised as a terminal's.
+- **After a fill, the browser relay refuses calls that make a picture** (`browser_take_screenshot`,
+  `browser_pdf_save`, `screenshot`, and any named in `POCKET_VAULT_PICTURE_TOOLS`). Playwright MCP saves each picture
+  to a file and returns its path, so withholding the inline image left the picture readable.
+
+**Inbox Watch**
+- **Your decisions on an entry the tidy pass took off are applied** (Restore, Not useful, a merge, Resolved again).
+  Every later decision on such an entry was acknowledged as the tidy's own and dropped.
+- **An alert Pocket could not take is tried again** at the next checks, up to five times and within 20 hours, never
+  listed twice (Pocket knows it by its key).
+
+**Stores and self-update**
+- **A `projects.json`, `tasks.json`, `documents.json` or `coordination.json` that does not parse is kept aside** as
+  `<name>.corrupt-<UTC time>` and logged with both paths (new `store-file.mjs`); if it can't be set aside, Pocket
+  refuses to start rather than overwrite it. It used to load as empty, and the next change replaced the only copy.
+- **Self-update: a backup tar gave up on is not a backup.** Exit 2 is refused, the archive must list back, and a
+  failed backup is removed. When `npm ci` and putting the old packages back both fail, the job says Pocket will not
+  start again until `npm ci` is run, not *Pocket stays on*.
+- **Worktrees on macOS**: with no `/proc`, working folders come from `lsof`; when neither answers, the worktree stays
+  in **Has work** (*Running programs could not be checked*).
+
+**App**
+- **Projects: a step or note typed while the card changed elsewhere is kept** and goes in with the current revision.
+- **Edit project and Edit task: after one refused Save, the next Save goes through** (it resent the stale revision).
+- **Vault: focus stays on the same control when a request card arrives or leaves**, never moving onto an answer button.
+- **Voice: a second tap while the microphone is starting opens no second microphone.**
+
+- Manual: Automation, Conversations, Conversation view, Inbox Watch, Vault, Coordination, Projects, Tasks, Files,
+  Settings, For agents; `SECURITY.md`; operations and install guides.
+- Tested: `test/acp.test.mjs`, `test/antigravity.test.mjs` (with new stand-in behaviours in `test/fake-agy.mjs`),
+  `test/job-routes.test.mjs`, `test/pause-routes.test.mjs`, `test/runner.test.mjs`,
+  `test/settings-router-access.test.mjs`, `test/hardening.test.mjs`, `test/sidechat.test.mjs`,
+  `test/choices.test.mjs`, `test/review-fixes.test.mjs`, `test/vault.test.mjs`, `test/mcp-proxy.test.mjs`,
+  `test/projects.test.mjs`, `test/tasks.test.mjs`, `test/documents.test.mjs`, `test/coordination.test.mjs`,
+  `test/worktrees.test.mjs`, `test/self-update.test.mjs`, `test/ui-regressions.mjs` (browser),
+  `inbox-watch/tests/test_process.py`. The Stop grace and the relay's picture refusal are proven against the
+  stand-ins only; how the real agents behave after a cancel was not observed.
+
 ## [1.124.1] — 2026-11-23 · build 223
 
 The first batch from a whole-code review at 1.123.1 (the last one was at 1.7): the five faults it graded high, and the

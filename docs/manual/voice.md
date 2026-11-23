@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.117.0
+checked: 1.124.2
 sources: voice.mjs, voice/, public/voice.js, public/voice-text.js, public/voice-worklet.js, scripts/voice-setup.sh
 -->
 # Voice mode (beta)
