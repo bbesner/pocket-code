@@ -160,10 +160,11 @@ export async function runUiTestFixes({browser,base,rows,out,settingsState=()=>({
   await page.$eval('.project-editor [name=next]',e=>{e.value='';});await page.type('.project-editor [name=next]',MINE);
   await page.click('.project-editor .primary');
   await page.waitForFunction(()=>!document.querySelector('.project-editor [data-stale]')?.hidden);
-  const after=await page.evaluate(()=>({summary:document.querySelector('.project-editor [name=summary]').value,next:document.querySelector('.project-editor [name=next]').value,note:document.querySelector('.project-editor [data-stale]').textContent}));
+  const after=await page.evaluate(()=>({summary:document.querySelector('.project-editor [name=summary]').value,next:document.querySelector('.project-editor [name=next]').value,note:document.querySelector('.project-editor [data-stale]').textContent,toasts:[document.querySelector('#toast.show')?.textContent||'']}));
   assert.equal(after.summary,OTHER,'the field changed elsewhere now shows the new value (it kept the old one, and the next Save wrote it back)');
   assert.equal(after.next,MINE,'the field being edited keeps what was typed');
   assert.match(after.note,/changed while you were editing\. Now showing the new Where we left off\./);
+  assert.ok(!after.toasts.some(t=>/changed since/.test(t)),'the sheet explains it; no second message in a toast: '+JSON.stringify(after.toasts));
   await page.click('.project-editor .primary');await page.waitForFunction(()=>!document.querySelector('.project-editor'));
   const saved=await page.evaluate(id=>fetch('/api/board').then(r=>r.json()).then(s=>s.projects.find(p=>p.id===id)),ID);
   assert.equal(saved.summary,OTHER,'the other device\'s change is still there');assert.equal(saved.next,MINE);
@@ -348,7 +349,7 @@ export async function runUiTestFixes({browser,base,rows,out,settingsState=()=>({
    await page.$eval(SHEET+' [name=text]',e=>{e.value='';});await page.type(SHEET+' [name=text]',MINE);
    await page.click(SHEET+' .task-form .primary');
    await page.waitForFunction(()=>!document.querySelector('.task-form [data-stale]')?.hidden);
-   const after=await page.evaluate(()=>({summary:document.querySelector('.task-form [name=summary]').value,text:document.querySelector('.task-form [name=text]').value,note:document.querySelector('.task-form [data-stale]').textContent,toasts:[...document.querySelectorAll('.toast')].map(t=>t.textContent)}));
+   const after=await page.evaluate(()=>({summary:document.querySelector('.task-form [name=summary]').value,text:document.querySelector('.task-form [name=text]').value,note:document.querySelector('.task-form [data-stale]').textContent,toasts:[document.querySelector('#toast.show')?.textContent||'']}));
    assert.equal(after.summary,OTHER,'the context changed elsewhere now shows the new value (it kept the old one, and the next Save wrote it back)');
    assert.equal(after.text,MINE,'the field being edited keeps what was typed');
    assert.match(after.note,/This task changed while you were editing\. Now showing the new context\./);await snap(page,'edit-task-conflict');

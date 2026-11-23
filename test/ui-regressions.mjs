@@ -2537,14 +2537,15 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.setViewport({width:1440,height:900});const settings=settingsState(),was={projects:settings.projects,tasks:settings.tasks};settings.projects=true;settings.tasks=true;
    const ID='warehouse-stock-report',SUMMARY='Aisle 4 recounted twice; the shortfall is the Friday delivery.',TEXT='Chase the revised camera quote by Thursday';
    const settle=async(fn,...a)=>{for(let i=0;i<40;i++){if(await page.evaluate(fn,...a))return true;await pause(100);}return false;};
-   const refused=re=>page.waitForFunction(re=>new RegExp(re).test(document.querySelector('#toast')?.textContent||''),{},re);
+   // 1.124.5: both sheets say it in place (the note under the form) instead of a toast
+   const refused=re=>page.waitForFunction(re=>{const n=document.querySelector('.sheet [data-stale]');return Boolean(n)&&!n.hidden&&new RegExp(re).test(n.textContent);},{},re);
    try{
     await page.evaluate(()=>Promise.all(['/api/board/reset','/api/tasks/reset'].map(u=>fetch(u,{method:'POST'}))));
     await page.goto(base+'/?stale-edit=1#/projects/'+ID);await page.waitForSelector('.project-card [data-edit]');
     await clickControl(page,'.project-card [data-edit]');await page.waitForSelector('.project-editor form');
     await page.$eval('.project-editor [name="summary"]',e=>{e.value='';});await page.type('.project-editor [name="summary"]',SUMMARY);
     await page.evaluate(id=>fetch('/api/board/act',{method:'POST',body:JSON.stringify({project:id,action:'note',text:'Ledger re-imported by the agent.'})}),ID);
-    await clickControl(page,'.project-editor .primary');await refused('This project changed since you loaded it');
+    await clickControl(page,'.project-editor .primary');await refused('This project changed while you were editing');
     assert.equal(await page.$eval('.project-editor [name="summary"]',e=>e.value),SUMMARY,'the sheet stays open with the edit');
     await clickControl(page,'.project-editor .primary');
     assert.ok(await settle(()=>!document.querySelector('.project-editor')),'the second Save goes through and closes the sheet');
@@ -2555,7 +2556,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await page.waitForSelector('.task-sheet [data-edit]');await clickControl(page,'.task-sheet [data-edit]');await page.waitForSelector('.task-form');
     await page.$eval('.task-form [name="text"]',e=>{e.value='';});await page.type('.task-form [name="text"]',TEXT);
     await page.evaluate(id=>fetch('/api/tasks/act',{method:'POST',body:JSON.stringify({action:'update',task:id,summary:'The vendor asked for the site plan first.'})}),tid);
-    await clickControl(page,'.task-form .primary');await refused('This task changed since you loaded it');
+    await clickControl(page,'.task-form .primary');await refused('This task changed while you were editing');
     assert.equal(await page.$eval('.task-form [name="text"]',e=>e.value),TEXT,'the task sheet stays open with the edit');
     await clickControl(page,'.task-form .primary');
     assert.ok(await settle(()=>!document.querySelector('.task-form')),'the second Save goes through and closes the task sheet');

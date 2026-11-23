@@ -30,7 +30,7 @@ async function boardAct(body,done,onStale,onError){
  try{const r=await api('/board/act',{method:'POST',body:JSON.stringify(body)});mergeProject(r.project);if(done)toast(done);paintProjectsView();paintProjectBadges();if(typeof repaintDue==='function')repaintDue();
   if(typeof boardChangedChatMode==='function')boardChangedChatMode(body,r.project); // 1.106: the open conversation's chip follows a link, unlink or switch
   return r.project;}
- catch(e){const cur=e.body?.project;if(e.status===409&&cur){mergeProject(cur);paintProjectsView();onStale?.(cur);}else if(onError?.(e)===true)return null;toast(e.message||'Could not update the project');return null;}
+ catch(e){const cur=e.body?.project;if(e.status===409&&cur){mergeProject(cur);paintProjectsView();if(onStale?.(cur)===true)return null;}else if(onError?.(e)===true)return null;toast(e.message||'Could not update the project');return null;}
 }
 const boardDueCount=()=>boardSnap?.dueCount||0;
 // 1.50: while Tasks is on, the Tasks list is where reminders are listed and counted; Scheduled stays for installs without it.
@@ -378,7 +378,7 @@ function projectEditor(p,{directory='',session=null,onDone}={}){
   base=cur;revision=cur.revision;
   const note=form.querySelector('[data-stale]');
   note.textContent=`This project changed while you were editing.${took.length?` Now showing the new ${took.join(', ')}.`:''}${kept.length?` Your ${kept.join(', ')} ${kept.length>1?'are':'is'} kept; saving replaces the other change there.`:''} Check the form, then save again.`;
-  note.hidden=false;note.scrollIntoView({block:'nearest'});
+  note.hidden=false;note.scrollIntoView({block:'nearest'});return true; // the sheet says it, so no toast repeats it (as Edit task)
  };
  const refusal=e=>{
   const form=sh.querySelector('form'),line=form.querySelector('[data-error]'),msg=e.message||'Could not save the project';
