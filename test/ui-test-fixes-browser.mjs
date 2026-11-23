@@ -357,6 +357,69 @@ export async function runUiTestFixes({browser,base,rows,out,settingsState=()=>({
   }finally{await post(page,'/api/tasks/reset');}
  }));
 
+ await check('Sign-in runs out with a sheet open: the sign-in covers the sheet, and after Unlock the sheet still holds what was typed',PHONE,page=>withSettings({tasks:true},async()=>{
+  let out=false,logins=0;
+  await intercept(page,async(r,u)=>{
+   if(u.pathname==='/api/login'){logins++;const ok=JSON.parse(r.postData()||'{}').password==='made-up-test-password';if(ok)out=false;await r.respond({status:ok?200:401,contentType:'application/json',body:ok?'{"ok":true}':'{"error":"Wrong password"}'});return true;}
+   if(out&&u.pathname.startsWith('/api/')){await r.respond({status:401,contentType:'application/json',body:'{"error":"Unauthorized"}'});return true;}
+  });
+  await page.goto(base+'/#/');await page.waitForSelector('[data-filter="all"]');await post(page,'/api/tasks/reset');
+  try{
+   await page.goto(base+'/?ui-fix=10#/tasks');await page.waitForSelector('[data-task-open]');
+   const id=await page.evaluate(()=>tasksSnap.tasks.find(t=>!t.done).id);
+   await page.evaluate(id=>taskEditor(taskById(id)),id);await page.waitForSelector(SHEET+' .task-form [name=text]');
+   const MINE='Count aisle 7 again before the order goes out';
+   await page.$eval(SHEET+' [name=text]',e=>{e.value='';});await page.type(SHEET+' [name=text]',MINE);
+   out=true;
+   await page.click(SHEET+' .task-form .primary');
+   await page.waitForSelector('.login-over #pw',{timeout:5000}).catch(()=>assert.fail('with a sheet open, the sign-in is shown above it (it was drawn under the sheet, where it cannot be reached)'));
+   const state=()=>page.evaluate(()=>{const pw=document.querySelector('#pw'),r=pw.getBoundingClientRect(),top=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+    return {focus:document.activeElement?.id,onTop:top===pw,sheet:Boolean(document.querySelector('.task-form')),sheetInert:document.querySelector('.sheet').inert,typed:document.querySelector('.task-form [name=text]').value,
+     dialog:document.querySelector('.login-over').getAttribute('role'),title:document.querySelector('#login-title').textContent,toast:document.querySelector('#toast.show')?.textContent||''};});
+   assert.deepEqual(await state(),{focus:'pw',onTop:true,sheet:true,sheetInert:true,typed:MINE,dialog:'dialog',title:'Sign in again',toast:''});
+   await page.evaluate(()=>refreshSessions?.().catch(()=>{})); // a poll's 401 while the box is being typed into
+   await page.type('#pw','wrong-one');await page.keyboard.press('Enter');
+   await page.waitForFunction(()=>document.querySelector('.login-over #lerr')?.textContent.trim());
+   assert.equal(await page.$eval('.login-over #lerr',e=>e.textContent),'Wrong password.');
+   await page.keyboard.press('Escape');await pause(100);
+   assert.ok(await page.$('.login-over')&&await page.$('.task-form'),'Escape closes neither the sign-in nor the sheet under it');
+   await page.$eval('#pw',e=>{e.value='';});await page.type('#pw','made-up-test-password');await page.keyboard.press('Enter');
+   await page.waitForFunction(()=>!document.querySelector('.login-over'));
+   const after=await page.evaluate(()=>({typed:document.querySelector('.task-form [name=text]')?.value,inert:document.querySelector('.sheet')?.inert,inSheet:Boolean(document.activeElement?.closest('.sheet')),login:Boolean(document.querySelector('#app .login'))}));
+   assert.deepEqual(after,{typed:MINE,inert:false,inSheet:true,login:false},'the sheet is as it was left, and the focus is back in it');
+   assert.equal(logins,2);
+   await page.click(SHEET+' .task-form .primary');await page.waitForFunction(()=>!document.querySelector('.task-form'));
+   assert.equal(await page.evaluate(id=>fetch('/api/tasks').then(r=>r.json()).then(s=>s.tasks.find(t=>t.id===id).text),id),MINE,'Save after signing in keeps the edit');
+   // a sheet that goes away under the cover leaves the ordinary sign-in screen, not a cover over nothing
+   await page.evaluate(id=>taskEditor(taskById(id)),id);await page.waitForSelector(SHEET+' .task-form');
+   out=true;await page.evaluate(()=>api('/tasks').catch(()=>{}));await page.waitForSelector('.login-over #pw');
+   await page.evaluate(()=>closeCurrentSheet());
+   await page.waitForFunction(()=>!document.querySelector('.login-over')&&document.querySelector('#app .login #pw')&&!document.querySelector('#app').inert);
+  }finally{out=false;await post(page,'/api/tasks/reset');}
+ }));
+
+ await check('A reply started on another device shows as Working on a page already open on that conversation, with its question',PHONE,async page=>{
+  let started=false,reads=0;
+  const real=async u=>(await fetch(base+u.pathname+u.search)).json(),send=(r,j)=>r.respond({status:200,contentType:'application/json',body:JSON.stringify(j)});
+  await intercept(page,async(r,u)=>{
+   if(!started||r.method()!=='GET')return;
+   if(u.pathname==='/api/sessions'){const j=await real(u),row=(j.sessions||j).find(s=>s.id===idle.id);row.state={kind:'input',label:'Needs your answer',confirmed:true,startedAt:Date.now()-2000,questions:1,queued:0};await send(r,j);return true;}
+   if(u.pathname==='/api/session/'+idle.id){reads++;const j=await real(u);j.active=true;await send(r,j);return true;}
+   if(u.pathname==='/api/session/'+idle.id+'/questions'){await send(r,{supported:true,requests:[{id:'request-9',blocking:true,questions:[{question:'Which colour should the label be?',options:[{label:'Blue'},{label:'Red'}]}]}]});return true;}
+  });
+  await openChat(page,idle.id);
+  await page.waitForFunction(()=>document.querySelector('#tbar'));
+  assert.equal(await page.evaluate(()=>composerWorking),false);
+  started=true; // another device starts a reply, and it stops on a question
+  await page.evaluate(()=>refreshSessions());
+  await page.waitForFunction(()=>composerWorking&&document.querySelector('#stopb'),{timeout:6000}).catch(()=>assert.fail('the open page shows Working and Stop once the list reports the run (it stayed idle until a reload)'));
+  await page.waitForFunction(()=>/Which colour/.test(document.querySelector('#questions-open')?.textContent||''),{timeout:6000}).catch(()=>assert.fail('the banner shows the question'));
+  const banner=await page.$eval('#questions-open',e=>({hidden:e.hidden,text:e.textContent}));
+  assert.ok(!banner.hidden&&!/0 questions/.test(banner.text),banner.text);
+  const before=reads;await page.evaluate(()=>refreshSessions());await page.evaluate(()=>refreshSessions());await pause(400);
+  assert.equal(reads,before,'a page that already shows the run does not read the conversation again on every list refresh');
+ });
+
  // Voice: count the microphone tracks the page holds, and answer the recogniser with silence so nothing is sent.
  const voicePage=async page=>{
   await page.evaluateOnNewDocument(()=>{const real=navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);window.__mics=[];

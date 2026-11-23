@@ -298,6 +298,8 @@ mark.fmark.cur { background: var(--clay); color: var(--on-accent); }
 .login .sub { color: var(--dim); margin-top: -8px; }
 .login .err { color: var(--err); min-height: 26px; }
 /* 1.124.5: the sign-in box had no rule of its own (the field styles were scoped to .pane), so it drew as the browser's default */
+/* 1.124.5: the sign-in ran out with a sheet open: the same screen, as a cover above the sheet (sheets end at 45, toasts are 60). */
+.login-over { position: fixed; inset: 0; z-index: 50; display: flex; background: var(--bg); overflow-y: auto; }
 .login-field { display: grid; gap: 8px; color: var(--dim); font-size: 14px; }
 .login-field input { width: 100%; min-height: 48px; border: 1px solid var(--line); background: var(--surface); color: var(--text); border-radius: 14px; padding: 13px 14px; font: inherit; font-size: 17px; }
 .login-field input[aria-invalid=true] { border-color: var(--err); }

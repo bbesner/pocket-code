@@ -259,6 +259,7 @@ function mountSheet(scrim, sh, trigger = document.activeElement) {
   const close = () => {
     sh.removeEventListener('keydown', keydown); scrim.remove(); sh.remove(); app.inert = false;
     if (closeCurrentSheet === close) { closeCurrentSheet = null; sheetReturnFocus = null; }
+    if ($('.login-over')) { $('.login-over')._release(); renderLogin(); return; } // 1.124.5: the sign-in that covered this sheet becomes the sign-in screen
     const target = [trigger, $('#chatmore'), $('#railsettings'), $('#settings'), $('#box'), $('#first')]
       .find(el => el?.isConnected && el.getClientRects().length && !el.disabled);
     target?.focus({preventScroll:true});
@@ -684,6 +685,7 @@ let toastT;
 // 1.111: a toast may carry one action (Undo). It then stays ten seconds, like the Mark all reviewed bar, and takes
 // clicks; the button leaves with the toast, so nothing invisible stays in the tab order.
 function toast(msg, { action, onAction } = {}) {
+  if (msg === 'login') return; // 1.124.5: api()'s marker for "the sign-in screen is up"; several callers toasted the bare word
   const t = $('#toast'), hide = () => { t.classList.remove('show', 'has-action'); t.querySelector('button')?.remove(); };
   t.textContent = msg; t.classList.toggle('has-action', Boolean(action));
   if (action) {
@@ -737,11 +739,31 @@ function reportTimezone() {
   api('/timezone', { method: 'POST', body: JSON.stringify({ tz }) }).catch(() => { zoneReported = false; });
 }
 /* ---------- login ---------- */
+// 1.124.5: with a sheet open, the sign-in screen was drawn into #app, which is inert under the sheet: the password box
+// could not be reached, the sheet's Save did nothing, and closing the sheet to sign in lost what was typed in it. The
+// sign-in now covers the sheet instead; the sheet and its fields are still there after Unlock.
 function renderLogin() {
-  app.innerHTML = `
+  const over = Boolean(closeCurrentSheet);
+  if (over && $('.login-over')) return;            // a poll's 401 must not redraw the box being typed into
+  if (!over) $('.login-over')?.remove();
+  let host = app, held = null, back = null;
+  if (over) {
+    host = document.createElement('div'); host.className = 'login-over'; host.setAttribute('role', 'dialog'); host.setAttribute('aria-modal', 'true'); host.setAttribute('aria-labelledby', 'login-title');
+    back = document.activeElement; held = [...document.querySelectorAll('.sheet,.scrim')].filter(el => !el.inert); held.forEach(el => { el.inert = true; });
+    host._release = () => { held.forEach(el => { el.inert = false; }); host.remove(); };
+    host.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); }
+      if (e.key !== 'Tab') return;
+      const first = host.querySelector('#pw'), last = host.querySelector('#go');
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
+    document.body.append(host);
+  }
+  host.innerHTML = `
     <div class="login">
-      <h1>${appName()}</h1>
-      <p class="sub">${assistantMode() ? 'Sign in to pick up where you left off.' : 'Your Claude Code and Codex conversations, from anywhere.'}</p>
+      <h1 id="login-title">${over ? 'Sign in again' : appName()}</h1>
+      <p class="sub">${over ? 'Your sign-in ran out. What you had open is kept, and nothing unsaved is lost.' : assistantMode() ? 'Sign in to pick up where you left off.' : 'Your Claude Code and Codex conversations, from anywhere.'}</p>
       <label class="login-field" for="pw"><span>Password</span>
         <input type="password" id="pw" autocomplete="current-password" enterkeyhint="go" aria-describedby="lerr"></label>
       <p class="err" id="lerr" role="alert"></p>
@@ -751,6 +773,7 @@ function renderLogin() {
     $('#pw').removeAttribute('aria-invalid'); $('#lerr').textContent = '';
     try {
       await api('/login', { method: 'POST', body: JSON.stringify({ password: $('#pw').value }) });
+      if (over && host.isConnected) { host._release(); if (back?.isConnected) back.focus({ preventScroll: true }); if (!document.activeElement?.closest('.sheet')) { const top = [...document.querySelectorAll('.sheet')].at(-1); (top?.querySelector('input:not([type=hidden]):not([disabled]),textarea:not([disabled])') || top)?.focus({ preventScroll: true }); } return; } // the sheet carries on; its own refresh reloads it
       route();
     } catch (e) {
       // 1.124.5: the field is marked and the reason is read out. A wrong password redraws this screen (api's 401), so
@@ -1982,7 +2005,15 @@ function paintSessionPanels() {
   });
   document.querySelectorAll('[data-session-warning]').forEach(el => { el.textContent = sessionWarnings.join(' '); el.hidden = !sessionWarnings.length; });
   const current = allSessions.find(s => s.id === chatId);
-  const qb=$('#questions-open');if(qb){qb.hidden=!current?.state?.questions;if(!qb.hidden&&!qb.querySelector('.wb-cta'))paintWaitBanner(qb,{title:(ENGINE_LABELS[providerOf(chatId)])+' is waiting for your answer',note:current.state.label==='Needs your answer'?'The reply is paused until you answer.':'',cta:'Answer'});} // refreshQuestions fills in the count
+  // 1.124.5: a reply started somewhere else (another device, a job key, the API) on the conversation this page has open.
+  // The page's stream was opened while nothing ran (watch mode; or closed after "idle" for an OpenRouter or Antigravity
+  // conversation), so the page never showed Working, Stop or the reply. The list is what reports the run, so the
+  // conversation is read again when it does; at most once in 8 seconds, in case the list is the one that is behind.
+  const startedElsewhere = current?.state?.confirmed === true && (current.state.kind === 'running' || current.state.kind === 'input' && current.state.startedAt)
+    && !composerWorking && !sessionsStale && $('#msgs') && tb?.key === chatId && !sendsInFlight.has(chatId) && !loadOutbox(chatId);
+  if (startedElsewhere && !(runSeenElsewhere.id === chatId && Date.now() - runSeenElsewhere.at < 8000)) { runSeenElsewhere = { id: chatId, at: Date.now() }; resyncChat(chatId); }
+  // The banner shown again asks for its questions: one drawn earlier with none read "has 0 questions for you".
+  const qb=$('#questions-open');if(qb){const wasHidden=qb.hidden;qb.hidden=!current?.state?.questions;if(wasHidden&&!qb.hidden&&!startedElsewhere&&typeof refreshQuestions==='function')refreshQuestions(chatId);if(!qb.hidden&&!qb.querySelector('.wb-cta'))paintWaitBanner(qb,{title:(ENGINE_LABELS[providerOf(chatId)])+' is waiting for your answer',note:current.state.label==='Needs your answer'?'The reply is paused until you answer.':'',cta:'Answer'});} // refreshQuestions fills in the count
   const ab=$('#approvals-open');if(ab){ab.hidden=!current?.state?.approvals;if(current?.state?.approvals&&!ab.querySelector('.wb-cta'))paintWaitBanner(ab,{title:current.state.label||'Action needs approval',note:current.state.label==='Needs approval'?'The reply is paused until you allow or deny it.':'',cta:'Review',mark:IC.info});} // refreshApprovals paints the request itself
   if(typeof paintAgents==='function')paintAgents(); // 1.82: the row under the controls also reports background jobs
   if (current && $('#chat-statebar') && !sessionsStale) markRead(chatId, current.state); // 1.35: the header's run status names the state; no second copy
@@ -3756,7 +3787,7 @@ const sendModes = new Map();
 const canSteer = () => !assistantMode() && engineHas(providerOf(chatId), 'steer');
 const canQueue = () => engineHas(providerOf(chatId), 'unattended');
 const defaultSendMode = () => canSteer() || !canQueue() ? 'steer' : 'queue';
-let composerWorking = false;
+let composerWorking = false, runSeenElsewhere = { id: '', at: 0 };
 function setComposer(working) {
   const c = $('#comp'); if (!c) return;
   composerWorking = working;
