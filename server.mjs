@@ -4094,7 +4094,12 @@ if (CODEX_ON) codex.pruneTranscriptCache(); // 1.53.5: the on-disk transcript ca
 
 // 1.117: while Pocket is paused with "Your own messages while paused" set to Blocked, the owner's sends are refused too. Adding
 // to the queue (mode queue) still works: it starts nothing.
+// 1.124.5: and while the self-update is restarting this daemon: a reply started between the script's last check for running
+// replies and the PM2 restart would be cut short. The job says restarting until the new version says complete, so only the
+// version being replaced refuses (a new daemon whose `complete` write failed would otherwise refuse for 20 minutes).
+const selfRestarting = () => { const j = selfUpdate.job(); return Boolean(j?.running && j.phase === 'restarting' && j.from === cliUpdates.pocketVersion); };
 function ownerSendGate(req, res, next) {
+  if (selfRestarting()) return res.status(409).json({ error: 'Pocket is restarting for its update; your message is kept.', code: 'restarting' });
   if (!ownMessagesBlocked() || (req.path.endsWith('/message') && req.body?.mode === 'queue')) return next();
   res.status(409).json({ error: 'Pocket is paused. Resume to send.', paused: true });
 }

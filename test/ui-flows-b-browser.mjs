@@ -70,6 +70,29 @@ export async function runFlowsBFixes({browser,base,rows,out,settingsState=()=>({
   await shot('vault-links-sent');
  }));
 
+ // b-14a: a send refused because the update is restarting Pocket keeps the words, in a chat and on New.
+ const RESTARTING='Pocket is restarting for its update; your message is kept.';
+ await check('Update restarting: a refused message says so and stays in the box, in a chat and on New',PHONE,async(page,shot)=>{
+  await intercept(page,async(r,u)=>{
+   if(r.method()==='POST'&&(/^\/api\/session\/[^/]+\/message$/.test(u.pathname)||u.pathname==='/api/new')){await json(r,{error:RESTARTING,code:'restarting'},409);return true;}
+  });
+  const id=rows[4].id;
+  await page.goto(base+'/#/chat/'+id);await page.waitForFunction(id=>chatId===id&&document.querySelector('#ctitle')?.textContent!=='Conversation'&&document.querySelector('#box'),{},id);
+  await page.evaluate(id=>{saveOutbox(id,null);clearDraft(id);},id);
+  await page.type('#box','Count the pallets in aisle 4');await page.click('#send');
+  await page.waitForFunction(()=>document.querySelector('#retry-message'));
+  const chat=await page.evaluate(()=>({text:document.querySelector('#delivery-status p').textContent,box:document.querySelector('#box').value}));
+  assert.deepEqual(chat,{text:'Not sent: '+RESTARTING,box:'Count the pallets in aisle 4'});
+  await shot('restarting-chat');
+  await page.click('#discard-message');
+  await page.goto(base+'/?flows-b=14#/new');await page.waitForSelector('#first');await page.waitForSelector('#start');
+  await page.evaluate(()=>{for(const k of Object.keys(localStorage))if(k.startsWith('pc-outbox'))localStorage.removeItem(k);});
+  await page.type('#first','Recount the cold room');await page.click('#start');
+  await page.waitForFunction(t=>document.querySelector('#toast')?.textContent===t,{},RESTARTING);
+  await shot('restarting-new');
+  assert.deepEqual(await page.evaluate(()=>[document.querySelector('#first').value,document.querySelector('#start').disabled,location.hash]),['Recount the cold room',false,'#/new'],'the draft stays and Start works again');
+ });
+
  assert.deepEqual(errors,[],'no page errors');
  fs.writeFileSync(path.join(out,'ui-flows-b.json'),JSON.stringify({checks},null,2));
  console.log(JSON.stringify({flowsBFixes:checks.length,ok:true}));

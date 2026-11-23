@@ -177,3 +177,28 @@ test('b-07a, b-10: the Ready and Vault request pushes use the conversation\'s ti
   assert.deepEqual([row.by, row.sessionTitle, row.links, row.state], ['agent', 'Deploy the staging site', 2, 'filled']);
   assert.equal(JSON.stringify(push.got).includes('made-up'), false, 'no value in any push');
 });
+
+// ---------- b-14a: a message sent while the self-update restarts this daemon is refused and kept, not cut ----------
+test('b-14a: while the update restarts this version, a new message is refused with "restarting" and nothing runs; the new version and other phases send', { timeout: 60_000 }, async t => {
+  const s = await boot(t);
+  const version = JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8')).version;
+  const c = await s.start('First message'); await s.idle(c);
+  const job = (phase, from = version) => fs.writeFileSync(path.join(s.data, 'pocket-self-update.json'), JSON.stringify({ id: 'job-1', from, to: '99.0.0', phase, startedAt: Date.now() - 60_000, updatedAt: Date.now() }));
+  const refused = [409, { error: 'Pocket is restarting for its update; your message is kept.', code: 'restarting' }];
+  job('restarting');
+  const fresh = await s.call('/new', { provider: 'claude', cwd: s.cwd, text: 'restart new', approvalMode: 'full' });
+  assert.deepEqual([fresh.status, fresh.body], refused, 'a new conversation');
+  const msg = await s.call(`/session/${encodeURIComponent(c)}/message`, { text: 'restart message', approvalMode: 'full' });
+  assert.deepEqual([msg.status, msg.body], refused, 'a message');
+  assert.deepEqual((await s.call(`/session/${encodeURIComponent(c)}/message`, { text: 'restart queued', mode: 'queue', approvalMode: 'full' })).status, 409, 'adding to the queue too (an idle conversation would start it)');
+  assert.equal((await s.call(`/session/${encodeURIComponent(c)}/branch`, { text: 'restart branch', approvalMode: 'full' })).status, 409, 'a branch');
+  await sleep(300);
+  assert.ok(!s.calls().some(x => /^restart /.test(x.text || '')), 'nothing reached the agent');
+  // Installing (before the restart's own wait), and the new version (the job still reads restarting until it says complete): sent.
+  job('installing');
+  assert.equal((await s.call(`/session/${encodeURIComponent(c)}/message`, { text: 'while installing', approvalMode: 'full' })).status, 202);
+  await s.idle(c);
+  job('restarting', '0.0.1');
+  assert.equal((await s.call(`/session/${encodeURIComponent(c)}/message`, { text: 'on the new version', approvalMode: 'full' })).status, 202);
+  await s.until(() => s.calls().some(x => x.text === 'on the new version'), 15000, 'the message on the new version');
+});
