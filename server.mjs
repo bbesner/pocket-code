@@ -1585,7 +1585,7 @@ const ownedTranscriptSize = new Map((() => { try { return Object.entries(JSON.pa
 function rememberOwnedSize(id, size) {
   ownedTranscriptSize.delete(id); ownedTranscriptSize.set(id, size);
   while (ownedTranscriptSize.size > 500) ownedTranscriptSize.delete(ownedTranscriptSize.keys().next().value);
-  try { fs.writeFileSync(OWNED_FILE, JSON.stringify(Object.fromEntries(ownedTranscriptSize)), { mode: 0o600 }); } catch { }
+  try { atomicWrite(OWNED_FILE, Object.fromEntries(ownedTranscriptSize)); } catch { } // 1.124.3: replaced whole, so a crash mid-write cannot cut it short
 }
 const extActivity = new Map(); // sessionId -> last transcript write (ms)
 const tailers = new Map();     // sessionId -> Set<{res, offset, rem}>

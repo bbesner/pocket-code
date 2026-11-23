@@ -311,3 +311,17 @@ test('a character cut by a read in mid-write arrives whole, in a running reply a
  assert.equal(got[0].offset,start+b.length,'its offset is the byte just past the line');
 });
 
+// 1.124.3 (turns-10): the fork guard's record (each conversation's transcript size after Pocket's last reply) was rewritten in
+// place, so a crash mid-write left it cut short and every offset was lost at the next start. It is replaced whole.
+test('the fork guard\'s record is replaced whole after a reply, never rewritten in place',async t=>{
+ const f=await fixture(t,18487);
+ const file=path.join(f.dir,'data','owned-transcripts.json'),size=id=>{try{return JSON.parse(fs.readFileSync(file,'utf8'))[id];}catch{return undefined;}};
+ const id=(await f.call('/new',{cwd:repo,...msg('first')})).body.id;
+ assert.ok(await f.until(async()=>await f.state(id)==='finished'&&size(id)>0));
+ const first=size(id),ino=fs.statSync(file).ino;
+ assert.equal((await f.call(`/session/${id}/message`,msg('second'))).status,202);
+ assert.ok(await f.until(()=>size(id)>first),'the second reply\'s size is recorded');
+ assert.notEqual(fs.statSync(file).ino,ino,'a new file took the old one\'s place (written beside it, then renamed)');
+ assert.ok(!fs.existsSync(file+'.tmp'),'nothing left beside it');
+});
+
