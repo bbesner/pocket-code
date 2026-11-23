@@ -2422,6 +2422,34 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await scan('project-card-phone');await page.screenshot({path:path.join(out,'project-card-phone.png')});
    await page.setViewport({width:1440,height:900});
   });
+  // 1.124.2: an agent changes the card while the owner types a step or a note. The card does not repaint under typing, so
+  // the server can refuse the stale revision; the refusal repaints the card, and the typed text must come back in the new box.
+  await check('Projects stale step (1.124.2): a step or note typed while an agent changed the card is kept and added',async()=>{
+   await page.setViewport({width:1440,height:900});const settings=settingsState(),was=settings.projects;settings.projects=true;
+   const ID='warehouse-stock-report',STEP='Count the returns shelf',NOTE='The supplier confirmed the Friday delivery.';
+   const agent=b=>page.evaluate((id,b)=>fetch('/api/board/act',{method:'POST',body:JSON.stringify({project:id,...b})}),ID,b);
+   const settle=async(fn,...a)=>{for(let i=0;i<40;i++){if(await page.evaluate(fn,...a))return true;await pause(100);}return false;};
+   try{
+    await page.evaluate(()=>fetch('/api/board/reset',{method:'POST'}));
+    await page.goto(base+'/?stale-step=1#/projects/'+ID);await page.waitForSelector('.project-card [data-task-add] input'); // a fresh load: no poll for 30 s
+    // This page has not heard of the agent's change yet: the server refuses the step, and the text stays in the box.
+    await page.type('[data-task-add] input',STEP);await agent({action:'note',text:'Ledger re-imported by the agent.'});
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(()=>/changed since you loaded it/.test(document.querySelector('#toast')?.textContent||''));
+    assert.ok(await settle(s=>document.querySelector('[data-task-add] input')?.value===s,STEP),'the typed step is back in the box after the refusal');
+    assert.equal(await page.evaluate(()=>document.activeElement===document.querySelector('[data-task-add] input')),true,'and the box keeps the focus');
+    await page.keyboard.press('Enter');
+    assert.ok(await settle(s=>[...document.querySelectorAll('.task-row .task-label span')].some(e=>e.textContent===s),STEP),'the next Enter adds the step');
+    // The poll has already brought the agent's change in, but the card was not repainted under the typing: the note goes
+    // in on the first Enter, with the current revision.
+    await page.type('[data-note-add] input',NOTE);await agent({action:'task-add',text:'Check the returns paperwork'});
+    await page.evaluate(()=>loadBoard(true).then(()=>paintProjectsView()));
+    assert.equal(await page.$eval('[data-note-add] input',e=>e.value),NOTE,'the poll does not repaint under the typing');
+    await page.keyboard.press('Enter');
+    assert.ok(await settle(s=>document.querySelector('.project-history')?.textContent.includes(s),NOTE),'the note is added on the first Enter');
+    assert.equal(await page.$eval('[data-note-add] input',e=>e.value),'');
+   }finally{settings.projects=was;await page.evaluate(()=>fetch('/api/board/reset',{method:'POST'})).catch(()=>{});}
+  });
 
   await check('Documents (1.30): off by default, then the library, a sandboxed HTML document, Markdown and CSV views, sharing, keep from Results, the project section, tabs, split, rail, settings and the phone',async()=>{
    await page.setViewport({width:1440,height:900});const sleep=ms=>new Promise(r=>setTimeout(r,ms));

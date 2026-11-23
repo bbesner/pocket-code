@@ -191,8 +191,12 @@ function bindProjectsView(main){
  const act=(body,msg)=>boardAct({...body,project:id,expected_revision:p.revision},msg);
  main.querySelectorAll('[data-task]').forEach(cb=>cb.onchange=async()=>{cb.disabled=true;if(!await act({action:'task-update',task:cb.dataset.task,done:cb.checked},cb.checked?'Step done':'Step reopened'))cb.checked=!cb.checked;cb.disabled=false;});
  main.querySelectorAll('[data-task-more]').forEach(b=>b.onclick=()=>taskOptions(id,b.dataset.taskMore));
- main.querySelector('[data-task-add]')?.addEventListener('submit',e=>{e.preventDefault();const input=e.target.elements.text;const text=input.value.trim();if(!text)return;input.value='';act({action:'task-add',text},'Step added').then(ok=>{if(!ok)input.value=text;});});
- main.querySelector('[data-note-add]')?.addEventListener('submit',e=>{e.preventDefault();const input=e.target.elements.text;const text=input.value.trim();if(!text)return;input.value='';act({action:'note',text},'Note added').then(ok=>{if(!ok)input.value=text;});});
+ // 1.124.2: a step or a note only adds to the card, so it goes with the current revision (the card is not repainted while
+ // its box has text, so p can be older). A refusal repaints the card first: the text goes back into the new box, not the old one.
+ const add=(sel,action,msg)=>main.querySelector(sel)?.addEventListener('submit',e=>{e.preventDefault();const input=e.target.elements.text;const text=input.value.trim();if(!text)return;input.value='';
+  boardAct({action,text,project:id,expected_revision:(projectById(id)||p).revision},msg).then(ok=>{const box=main.querySelector(sel+' input')||input;if(!ok&&!box.value)box.value=text;});});
+ add('[data-task-add]','task-add','Step added');
+ add('[data-note-add]','note','Note added');
  main.querySelectorAll('[data-remind-later]').forEach(b=>b.onclick=()=>reminderSheet(id,p.reminders.find(r=>r.id===b.dataset.remindLater)?.task||null));
  main.querySelectorAll('[data-dismiss]').forEach(b=>b.onclick=()=>confirmSheet('Dismiss this reminder?','Dismissing stops it. The project and its steps stay as they are.','Dismiss reminder',()=>act({action:'reminder-dismiss',reminder:b.dataset.dismiss},'Reminder dismissed')));
  main.querySelectorAll('[data-resume]').forEach(b=>b.onclick=()=>act({action:'update',status:'active'},'Project resumed'));
