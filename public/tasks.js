@@ -27,7 +27,7 @@ function mergeTask(t){
 // onStale (1.124.2): called with the current task when the server refuses a stale revision, so an open sheet can take it on.
 async function taskAct(body,done,onStale){
  try{const r=await api('/tasks/act',{method:'POST',body:JSON.stringify(body)});mergeTask(r.task);if(done)toast(done);paintTasksView();paintRailTasks();paintTaskBadges();return r.task;}
- catch(e){const cur=e.body?.task;if(e.status===409&&cur){mergeTask(cur);paintTasksView();paintRailTasks();onStale?.(cur);}toast(e.message||'Could not update the task');return null;}
+ catch(e){const cur=e.body?.task;let told=false;if(e.status===409&&cur){mergeTask(cur);paintTasksView();paintRailTasks();told=onStale?.(cur)===true;}if(!told)toast(e.message||'Could not update the task');return null;} // 1.124.5: a sheet that explains the conflict itself says so (true), and the toast is not repeated
 }
 const taskDueCount=()=>tasksSnap?.dueCount||0;
 // 1.50: the project reminders that belong in the list (open ones on projects that are not done), and the combined due count.
@@ -168,11 +168,16 @@ function startTask(t){
 // New task, or edit one. From a session the editor can include a briefing on that session, written by the titles helper.
 function taskEditor(t,{session=null,sessionTitle='',directory=''}={}){
  let revision=t?.revision; // 1.124.2: after a refused Save, the current revision, so the next Save is the owner's overwrite and not the same refusal
+ // 1.124.5: that second Save sent every field of the sheet, so it put back the old value of a field the other side (an
+ // agent, another device) had just changed and the owner had not touched. A refused Save now refills those fields from
+ // the current task, keeps the ones the owner edited, and says which is which, as Edit project does.
+ let base=t;
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet';
  const local=iso=>{if(!iso)return '';const d=new Date(iso);const p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;};
  const fromSession=!t&&session;
  sh.innerHTML=`<h2>${t?'Edit task':'New task'}</h2>${fromSession?`<p class="sheet-name">${esc(sessionTitle||'This conversation')}</p>`:''}
   <form class="project-form task-form">
+   <p class="project-stale" data-stale role="status" hidden></p>
    <label class="voice-field">Task<textarea name="text" maxlength="600" rows="2" required placeholder="What needs doing">${esc(t?.text||'')}</textarea></label>
    <div class="task-due-row"><label class="voice-field">Date and time (optional)<input type="datetime-local" name="when" value="${esc(local(t?.dueAt))}"></label><button class="chip" type="button" data-clear-when>No date</button></div>
    ${fromSession?`<button type="button" class="opt" data-summarize aria-pressed="true"><span class="dot on"></span><span>Include a summary of this conversation<span class="sub">A few lines on what this conversation is doing, written by the titles helper, kept with the task</span></span></button><p class="task-writing" role="status" hidden>Writing the summary…</p>`
@@ -180,6 +185,16 @@ function taskEditor(t,{session=null,sessionTitle='',directory=''}={}){
    <button class="primary" type="submit">${t?'Save changes':'Add task'}</button>
   </form>`;
  const form=sh.querySelector('form');
+ const TASK_FIELDS=[['text','task'],['when','date'],['summary','context']],shownOf=(task,k)=>k==='when'?local(task?.dueAt):String(task?.[k]??'');
+ const takeCurrent=cur=>{
+  const took=[],kept=[];
+  for(const [k,label] of TASK_FIELDS){const el=form.elements[k];if(!el||shownOf(cur,k)===shownOf(base,k))continue;
+   if(el.value.trim()===shownOf(base,k).trim()){el.value=shownOf(cur,k);took.push(label);}else if(el.value.trim()!==shownOf(cur,k).trim())kept.push(label);}
+  base=cur;revision=cur.revision;
+  const note=form.querySelector('[data-stale]');
+  note.textContent=`This task changed while you were editing.${took.length?` Now showing the new ${took.join(', ')}.`:''}${kept.length?` Your ${kept.join(', ')} ${kept.length>1?'are':'is'} kept; saving replaces the other change there.`:''} Check the form, then save again.`;
+  note.hidden=false;note.scrollIntoView({block:'nearest'});return true;
+ };
  sh.querySelector('[data-clear-when]').onclick=()=>{form.elements.when.value='';};
  const sum=sh.querySelector('[data-summarize]');if(sum)sum.onclick=()=>{const on=sum.getAttribute('aria-pressed')!=='true';sum.setAttribute('aria-pressed',String(on));sum.querySelector('.dot').classList.toggle('on',on);};
  form.onsubmit=async e=>{
@@ -196,7 +211,7 @@ function taskEditor(t,{session=null,sessionTitle='',directory=''}={}){
    note.hidden=true;
   }
   const body=t?{action:'update',task:t.id,expected_revision:revision,text,dueAt,summary}:{action:'add',text,dueAt,summary,...(session?{session,sessionTitle}:{}),directory};
-  const out=await taskAct(body,t?'Task updated':dueAt?'Task added for '+fmtDue(dueAt):'Task added',cur=>{revision=cur.revision;});
+  const out=await taskAct(body,t?'Task updated':dueAt?'Task added for '+fmtDue(dueAt):'Task added',t?takeCurrent:undefined);
   btn.disabled=false;if(!out)return;closeCurrentSheet?.();
  };
  mountSheet(scrim,sh);

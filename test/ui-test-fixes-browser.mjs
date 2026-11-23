@@ -334,6 +334,69 @@ export async function runUiTestFixes({browser,base,rows,out,settingsState=()=>({
   });
  });
 
+ // ---- What the flow tests found (front end) ---------------------------------------------------------------------------
+ await check('Edit task: a task changed elsewhere shows its new values in the sheet, and the second Save does not undo them',PHONE,page=>withSettings({tasks:true},async()=>{
+  await page.goto(base+'/#/');await page.waitForSelector('[data-filter="all"]');await post(page,'/api/tasks/reset');
+  try{
+   await page.goto(base+'/?ui-fix=9#/tasks');await page.waitForSelector('[data-task-open]');
+   const id=await page.evaluate(()=>tasksSnap.tasks.find(t=>!t.done&&t.summary).id);
+   await page.evaluate(id=>taskEditor(taskById(id)),id);await page.waitForSelector(SHEET+' .task-form [name=summary]');
+   const OTHER='Agent added context: the supplier is Northwind.',MINE='Send the aisle 4 recount to purchasing today';
+   await post(page,'/api/tasks/act',{action:'update',task:id,summary:OTHER});
+   await page.$eval(SHEET+' [name=text]',e=>{e.value='';});await page.type(SHEET+' [name=text]',MINE);
+   await page.click(SHEET+' .task-form .primary');
+   await page.waitForFunction(()=>!document.querySelector('.task-form [data-stale]')?.hidden);
+   const after=await page.evaluate(()=>({summary:document.querySelector('.task-form [name=summary]').value,text:document.querySelector('.task-form [name=text]').value,note:document.querySelector('.task-form [data-stale]').textContent,toasts:[...document.querySelectorAll('.toast')].map(t=>t.textContent)}));
+   assert.equal(after.summary,OTHER,'the context changed elsewhere now shows the new value (it kept the old one, and the next Save wrote it back)');
+   assert.equal(after.text,MINE,'the field being edited keeps what was typed');
+   assert.match(after.note,/This task changed while you were editing\. Now showing the new context\./);
+   assert.ok(!after.toasts.some(t=>/changed since/.test(t)),'the sheet explains it; no second message in a toast: '+JSON.stringify(after.toasts));
+   await page.click(SHEET+' .task-form .primary');await page.waitForFunction(()=>!document.querySelector('.task-form'));
+   const saved=await page.evaluate(id=>fetch('/api/tasks').then(r=>r.json()).then(s=>s.tasks.find(t=>t.id===id)),id);
+   assert.deepEqual([saved.summary,saved.text],[OTHER,MINE],'the other side\'s change is still there, with the owner\'s');
+  }finally{await post(page,'/api/tasks/reset');}
+ }));
+
+ // Voice: count the microphone tracks the page holds, and answer the recogniser with silence so nothing is sent.
+ const voicePage=async page=>{
+  await page.evaluateOnNewDocument(()=>{const real=navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);window.__mics=[];
+   navigator.mediaDevices.getUserMedia=async c=>{const s=await real(c);window.__mics.push(s);return s;};
+   window.__live=()=>window.__mics.flatMap(s=>s.getTracks()).filter(t=>t.readyState==='live').length;});
+  await intercept(page,async(r,u)=>{if(u.pathname==='/api/voice/transcribe'){await r.respond({status:200,contentType:'application/json',body:'{"text":""}'});return true;}});
+  await openChat(page,idle.id);await page.waitForSelector('#micb:not([hidden])');
+ };
+ const centre=async(page,sel)=>{const b=await (await page.$(sel)).boundingBox();return [b.x+b.width/2,b.y+b.height/2];};
+
+ await check('Voice: a tap on the mic while it is listening finishes the recording',PHONE,async page=>{
+  await voicePage(page);
+  const [x,y]=await centre(page,'#micb');
+  await page.touchscreen.tap(x,y);
+  await page.waitForFunction(()=>Voice._test.state()==='listening');
+  assert.match(await page.$eval('#voice-strip',e=>e.textContent),/Tap the mic when you.re done/);
+  await page.touchscreen.tap(x,y); // well inside the first second, before silence could end it by itself
+  await pause(250);
+  assert.notEqual(await page.evaluate(()=>Voice._test.state()),'listening','a finger tap ends the recording (only the keyboard did)');
+  await page.waitForFunction(()=>window.__live()===0);
+ });
+
+ await check('Voice: Mute closes a hands-free microphone, in this tab and in another one',PHONE,async page=>{
+  await voicePage(page);
+  const listening=async()=>{await page.click('#hfb');await page.waitForFunction(id=>Voice._test.state()==='listening'&&Voice._test.handsFree()===id,{},idle.id);assert.equal(await page.evaluate(()=>window.__live()),1);};
+  const quiet=()=>page.evaluate(()=>({state:Voice._test.state(),handsFree:Voice._test.handsFree(),live:window.__live(),muted:Voice.isMuted()}));
+  await listening();
+  await page.evaluate(()=>Voice.setMuted(true)); // what the Voice chip does
+  assert.deepEqual(await quiet(),{state:'idle',handsFree:null,live:0,muted:true},'muting ends the conversation and closes the microphone (it stayed open, "Listening")');
+  await page.evaluate(()=>Voice.setMuted(false));
+  await listening();
+  const other=await page.browserContext().newPage();
+  try{
+   await other.goto(base+'/#/chat/'+idle.id);await other.waitForFunction(()=>typeof Voice!=='undefined'&&document.querySelector('#box'));
+   await other.evaluate(()=>Voice.setMuted(true));
+   await page.waitForFunction(()=>Voice._test.state()==='idle'&&window.__live()===0);
+   assert.deepEqual(await quiet(),{state:'idle',handsFree:null,live:0,muted:true},'a mute from another tab reaches this one');
+  }finally{await other.close();}
+ });
+
  assert.deepEqual(errors,[],'no page errors');
  fs.writeFileSync(path.join(out,'ui-test-fixes.json'),JSON.stringify({checks},null,2));
  console.log(JSON.stringify({uiTestFixes:checks.length,ok:true}));
