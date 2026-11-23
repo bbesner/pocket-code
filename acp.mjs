@@ -356,6 +356,8 @@ export function runtimeError(runtime, e) {
 }
 // sessionId (bare) -> active turn. server.mjs's watch/approve/stop endpoints find turns here.
 export const acpTurns = new Map();
+// sessionId (bare) -> the promise of its process being opened, while it is (startAcpTurn).
+const acpOpening = new Map();
 
 export function acpTurnActive(sessionId) { return acpTurns.has(bareAcpId(sessionId)); }
 export function ownedAcpTurn(sessionId) { return acpTurns.get(bareAcpId(sessionId)); }
@@ -697,7 +699,20 @@ export async function startAcpTurn({ sessionId, cwd, text, prompt = null, images
   let session = bare && acpSessions.get(bare);
   if (session?.client.closed) { closeAcpSession(bare); session = null; } // 1.124.2: its process is gone: open a new one, as Codex does
   if (session && acpTurns.has(session.sessionId)) throw Object.assign(new Error('busy'), { code: 409 });
-  if (!session) { session = await openAcpSession({ sessionId: bare, cwd, model, cmd, args, env, resume, runtime: rt, mcpServers, instructions: hooks.instructions, instructionsFile, askKey }); session.costTotal = resume ? costBaseline : 0; }
+  if (!session) {
+    // 1.124.2: a second start while this conversation's process is still opening (two devices sending at once) waits for
+    // that process instead of opening its own, then finds the first reply running, as Codex re-checks after its open.
+    // Before, both opened a process and ran a prompt on the one session, and the first reply could not be stopped.
+    let opening = bare && acpOpening.get(bare);
+    if (!opening) {
+      opening = openAcpSession({ sessionId: bare, cwd, model, cmd, args, env, resume, runtime: rt, mcpServers, instructions: hooks.instructions, instructionsFile, askKey })
+        .then(s => { s.costTotal = resume ? costBaseline : 0; return s; });
+      if (bare) { acpOpening.set(bare, opening); opening.catch(() => { }).finally(() => { if (acpOpening.get(bare) === opening) acpOpening.delete(bare); }); }
+    }
+    session = await opening;
+    if (instructionsFile && instructionsFile !== session.instructionsFile) fs.rm(instructionsFile, { force: true }, () => { }); // made for a process this start did not open
+    if (acpTurns.has(session.sessionId)) throw Object.assign(new Error('busy'), { code: 409 });
+  }
   mayStart?.(); // 1.117: refused just before the turn exists (Pocket was paused meanwhile); the opened process idles out as usual
   const turn = makeAcpTurn(session, { text, model, approvalMode, executionMode, hooks, origin, originRef, rootOrigin }); // 1.117: origin
   turn.effort = effort && effort !== 'default' ? effort : null;
@@ -744,7 +759,7 @@ function finishAcpTurn(turn, result) {
   turn.emit({ type: 'result', ok: !turn.stopped && result.stopReason !== 'error', stopReason: result.stopReason, ...(result.error ? { error: result.error } : {}),
     ...(cost != null ? { cost } : {}), ...(tokens != null ? { tokens } : {}), duration_ms: Date.now() - turn.startedAt, ...(cache ? { cache } : {}) });
   turn.emit({ type: 'done' });
-  acpTurns.delete(turn.sessionId);
+  if (acpTurns.get(turn.sessionId) === turn) acpTurns.delete(turn.sessionId); // 1.124.2: never a newer reply's entry
   try { turn.onFinish?.(result, turn); } catch (e) { log(`onFinish threw: ${e.message}`); }
 }
 

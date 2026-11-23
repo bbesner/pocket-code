@@ -145,6 +145,29 @@ test('a process that dies between replies is dropped, and the next message opens
   afterEach();
 });
 
+// 1.124.2: two messages arriving together (two devices) on a conversation with no process open both opened one, ran two
+// prompts on one session, and left the first reply unreachable by Stop with its process never closed.
+test('two starts on a conversation with no process: one process, one reply, the other is told it is busy', async () => {
+  const store = mkStore(), env = { ...baseEnv(store), FAKE_ACP_NO_ASK: '1' };
+  const first = await startAcpTurn(turnOpts(store, { env }));
+  await first.promptDone;
+  const id = 'acp:' + first.sessionId;
+  closeAcpSession(id); // idled out
+  const slow = path.join(store, 'slow-load'); fs.writeFileSync(slow, ''); // the reopen takes 1.5 s, as a real one can
+  const start = text => startAcpTurn(turnOpts(store, { env: { ...env, FAKE_ACP_SLOW_LOAD: slow }, sessionId: id, resume: true, text, hooks: {} }));
+  const [a, b] = await Promise.allSettled([start('one __HANG__'), start('two __HANG__')]);
+  const won = [a, b].filter(r => r.status === 'fulfilled').map(r => r.value), lost = [a, b].filter(r => r.status === 'rejected').map(r => r.reason);
+  try {
+    assert.equal(fs.readFileSync(slow + '.loads', 'utf8').trim().split('\n').length, 1, 'one process opened the conversation');
+    assert.equal(won.length, 1, 'one reply runs');
+    assert.deepEqual(lost.map(e => [e.message, e.code]), [['busy', 409]]);
+    assert.equal(acpTurns.get(first.sessionId), won[0], 'and it is the one Stop reaches');
+    assert.equal(acpSessions.get(first.sessionId).client, won[0].client);
+    stopAcpTurn(id);
+    assert.ok(await waitFor(() => won[0].done, 3000));
+  } finally { for (const t of won) { unhang(t); t.client.close(); } afterEach(); } // an orphaned process is in no list
+});
+
 test('busy: a second turn on a live session is rejected 409', async () => {
   const store = mkStore();
   const turn = await startAcpTurn(turnOpts(store, { hooks: {} }));
