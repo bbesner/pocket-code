@@ -69,6 +69,18 @@ test('1.123: a job that went quiet for 20 minutes shows as interrupted, not runn
   assert.equal(su.job().running,false);assert.equal(su.job().phase,'interrupted');
 });
 
+test('1.124.3: a job still beating its lock file is running, however long its step is quiet, and a second press is refused',t=>{
+  const d=tmp(t);fs.mkdirSync(path.join(d,'.git'));
+  const calls=[];const su=new SelfUpdate({checkout:d,dataDir:d,env:{POCKET_SELF_UPDATE:'1',pm_id:'1',PATH:'/usr/bin:/bin',HOME:d},port:1,spawner:()=>{calls.push(1);return {on(){},unref(){}};}});
+  const file=path.join(d,'pocket-self-update.json'),quiet=Date.now()-25*60*1000;
+  fs.writeFileSync(file,JSON.stringify({id:'x',from:'1.0.0',to:'1.1.0',phase:'backing-up',startedAt:quiet,updatedAt:quiet}));
+  fs.writeFileSync(file+'.lock','');
+  assert.equal(su.job().running,true,'a 25-minute backup whose script still beats is not interrupted');assert.equal(su.job().phase,'backing-up');
+  assert.throws(()=>su.begin({from:'1.0.0',to:'1.1.0',head:HEAD}),/already running/);assert.equal(calls.length,0);
+  fs.utimesSync(file+'.lock',new Date(quiet),new Date(quiet));
+  assert.equal(su.job().phase,'interrupted','a script that stopped beating 25 minutes ago died with its server');
+});
+
 // ---- the script, end to end ----
 const sh=(cwd,...a)=>execFileSync('git',a,{cwd,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
 const pkg=(v,extra={})=>JSON.stringify({name:'pocket-code',version:v,private:true,scripts:{'check:release':'true'},...extra},null,1);
@@ -80,9 +92,10 @@ function release(src,v,extra){
 }
 // A stand-in Pocket: serves release.json from the checkout (as the daemon does, from disk) and /api/health. A release
 // whose package.json has "broken": true exits at start, like a daemon that cannot boot.
+// 1.124.3: /api/health's busy is the number in pm2/busy (99: a reply that never ends); each answer counts one down, a reply finishing.
 const SERVER=`import http from 'node:http';import fs from 'node:fs';const [dir,port]=process.argv.slice(2);
 if(JSON.parse(fs.readFileSync(dir+'/package.json','utf8')).broken)process.exit(1);
-http.createServer((q,r)=>{if(q.url==='/release.json'){r.end(fs.readFileSync(dir+'/public/release.json'));}else if(q.url==='/api/health'){r.end('{"ok":true}');}else{r.statusCode=404;r.end();}}).listen(Number(port),'127.0.0.1');`;
+http.createServer((q,r)=>{if(q.url==='/release.json'){r.end(fs.readFileSync(dir+'/public/release.json'));}else if(q.url==='/api/health'){const f=import.meta.dirname+'/busy';let n=0;try{n=Number(fs.readFileSync(f,'utf8'))||0;}catch{}if(n>0&&n<99)fs.writeFileSync(f,String(n-1));r.end(JSON.stringify({ok:true,busy:n}));}else{r.statusCode=404;r.end();}}).listen(Number(port),'127.0.0.1');`;
 // A stand-in PM2 for one app (pm_id 0): jlist, pid (empty for an id, as PM2 does), restart (stop the old process, start a new one), save.
 const PM2=`#!/usr/bin/env bash
 st="$FAKE_PM2_STATE"
@@ -95,7 +108,9 @@ case "$1" in
 esac`;
 
 async function setup(t,{port}){
-  const d=tmp(t),origin=path.join(d,'origin.git'),src=path.join(d,'src'),dir=path.join(d,'checkout'),st=path.join(d,'pm2'),bin=path.join(d,'bin'),data=path.join(dir,'data');
+  // Not tmp(t): after-hooks run in the order they were added, so the folder was removed before the stand-in's pid could be read
+  // from it, and every run left one stand-in Pocket running. The stand-in is stopped first, then the folder goes (1.124.3).
+  const d=fs.mkdtempSync(path.join(os.tmpdir(),'self-update-')),origin=path.join(d,'origin.git'),src=path.join(d,'src'),dir=path.join(d,'checkout'),st=path.join(d,'pm2'),bin=path.join(d,'bin'),data=path.join(dir,'data');
   for(const x of [src,st,bin,path.join(src,'public')])fs.mkdirSync(x,{recursive:true});
   sh(d,'init','-q','--bare','-b','main',origin);
   sh(src,'init','-q','-b','main');sh(src,'config','user.email','t@test');sh(src,'config','user.name','t');
@@ -109,7 +124,7 @@ async function setup(t,{port}){
   fs.writeFileSync(path.join(st,'server.mjs'),SERVER);fs.writeFileSync(path.join(bin,'pm2'),PM2,{mode:0o755});
   const env={...process.env,PATH:bin+':'+process.env.PATH,HOME:d,FAKE_PM2_STATE:st,FAKE_PM2_DIR:dir,FAKE_PM2_PORT:String(port),POCKET_SELF_UPDATE_TRIES:'8',POCKET_SELF_UPDATE_SETTLE:'1'};
   spawnSync('pm2',['restart','0'],{env});
-  t.after(()=>{try{process.kill(Number(fs.readFileSync(path.join(st,'pid'),'utf8')),'SIGKILL');}catch{}});
+  t.after(()=>{try{process.kill(Number(fs.readFileSync(path.join(st,'pid'),'utf8')),'SIGKILL');}catch{}fs.rmSync(d,{recursive:true,force:true});});
   for(let i=0;i<50;i++){try{if((await(await fetch(`http://127.0.0.1:${port}/release.json`)).json()).version==='1.0.0')break;}catch{}await new Promise(r=>setTimeout(r,100));}
   const status=path.join(data,'pocket-self-update.json');
   const run=(to,from,head=sh(dir,'rev-parse','HEAD'))=>{
@@ -118,7 +133,7 @@ async function setup(t,{port}){
     return {...r,job:JSON.parse(fs.readFileSync(status,'utf8'))};
   };
   const served=async()=>(await(await fetch(`http://127.0.0.1:${port}/release.json`)).json()).version;
-  return {d,dir,st,bin,run,served};
+  return {d,dir,st,bin,env,run,served};
 }
 // A stand-in for a real tool (tar, npm) that misbehaves the way the body says and otherwise is the real one.
 const which=tool=>execFileSync('sh',['-c','command -v '+tool],{encoding:'utf8'}).trim();
@@ -200,4 +215,76 @@ test('1.124.2: when npm ci fails and putting the old packages back fails too, th
   fs.writeFileSync(n,'0');failCi(1);
   const ok=run('1.1.0','1.0.0');
   assert.equal(ok.job.phase,'failed');assert.equal(ok.job.error,"Installing v1.1.0's packages failed. Pocket stays on 1.0.0.");
+});
+
+test('1.124.3: without flock (macOS has none) the job says flock is missing, not that another update is running',{timeout:60000},async t=>{
+  const {d,dir,env,run}=await setup(t,{port:freePort()});
+  const head=sh(dir,'rev-parse','HEAD');
+  // Every program on PATH but flock, as on a Mac.
+  const farm=path.join(d,'no-flock');fs.mkdirSync(farm);
+  for(const p of process.env.PATH.split(':'))try{for(const f of fs.readdirSync(p))if(f!=='flock'&&!fs.existsSync(path.join(farm,f)))fs.symlinkSync(path.join(p,f),path.join(farm,f));}catch{}
+  env.PATH=env.PATH.split(':')[0]+':'+farm;
+  const r=run('1.1.0','1.0.0');
+  assert.equal(r.status,1,r.stdout+r.stderr);assert.equal(r.job.phase,'failed');
+  assert.doesNotMatch(r.job.error,/Another Pocket Code update is running/);
+  assert.equal(r.job.error,"flock is not on Pocket's PATH, so it cannot update itself. Update it from the server.");
+  assert.equal(sh(dir,'rev-parse','HEAD'),head);
+});
+
+test('1.124.3: the backup needs GNU tar: a BSD tar is refused before anything changes, and GNU tar as gtar is used',{timeout:120000},async t=>{
+  const {d,dir,bin,run,served}=await setup(t,{port:freePort()});
+  const head=sh(dir,'rev-parse','HEAD');
+  // macOS's tar is bsdtar: it does not take GNU tar's --warning or --ignore-failed-read.
+  wrap(bin,'tar',`case "$*" in *--version*) echo 'bsdtar 3.5.3 - libarchive 3.5.3 zlib/1.2.11'; exit 0 ;; *--warning=*|*--ignore-failed-read*) echo 'tar: Option --warning=no-file-changed is not supported' >&2; exit 1 ;; esac`);
+  const r=run('1.1.0','1.0.0');
+  assert.equal(r.status,1,r.stdout+r.stderr);assert.equal(r.job.phase,'failed');
+  assert.match(r.job.error,/needs GNU tar/);assert.match(r.job.error,/brew install gnu-tar/);
+  assert.equal(sh(dir,'rev-parse','HEAD'),head,'nothing changed');
+  assert.deepEqual(fs.existsSync(path.join(d,'backups'))?fs.readdirSync(path.join(d,'backups')):[],[]);
+  // Homebrew's GNU tar is gtar: with it on PATH the update goes through.
+  fs.writeFileSync(path.join(bin,'gtar'),`#!/bin/sh\nexec '${which('tar')}' "$@"\n`,{mode:0o755});
+  const ok=run('1.1.0','1.0.0');
+  assert.equal(ok.job.phase,'complete',ok.stdout+ok.stderr);assert.equal(await served(),'1.1.0');
+});
+
+test('1.124.3: the script beats its lock file while a step is quiet, and stops when it ends',{timeout:120000},async t=>{
+  const {d,dir,bin,env,run}=await setup(t,{port:freePort()});
+  env.POCKET_SELF_UPDATE_BEAT='1';
+  const lock=path.join(dir,'data','pocket-self-update.json.lock'),mark=path.join(d,'ci-started'),seen=path.join(d,'beat-seen');
+  // A quiet npm ci of 2.5 seconds: the lock file must be newer at its end than at its start.
+  wrap(bin,'npm',`if [ "$1" = ci ]; then touch '${mark}'; sleep 2.5; [ '${lock}' -nt '${mark}' ] && echo yes > '${seen}'; fi`);
+  const r=run('1.1.0','1.0.0');
+  assert.equal(r.job.phase,'complete',r.stdout+r.stderr);
+  assert.equal(fs.existsSync(seen),true,'the heartbeat touched the lock file during npm ci');
+  const after=fs.statSync(lock).mtimeMs;await new Promise(res=>setTimeout(res,2500));
+  assert.equal(fs.statSync(lock).mtimeMs,after,'no heartbeat outlives the script');
+});
+
+test('1.124.3: a reply started during the update holds the restart until it ends; one that does not end leaves Pocket where it was',{timeout:120000},async t=>{
+  const {dir,st,env,run,served}=await setup(t,{port:freePort()});
+  const head=sh(dir,'rev-parse','HEAD'),restarts=()=>(fs.readFileSync(path.join(st,'calls'),'utf8').match(/restart/g)||[]).length,before=restarts();
+  env.POCKET_SELF_UPDATE_IDLE_TRIES='3';
+  fs.writeFileSync(path.join(st,'busy'),'99');
+  const r=run('1.1.0','1.0.0');
+  assert.equal(r.status,1,r.stdout+r.stderr);assert.equal(r.job.phase,'failed');
+  assert.equal(r.job.error,'Replies kept running while Pocket waited to restart, so it did not restart and stays on 1.0.0. Update again when they finish.');
+  assert.equal(restarts(),before,'Pocket was not restarted under the reply');
+  assert.equal(sh(dir,'rev-parse','HEAD'),head,'the checkout went back');assert.equal(await served(),'1.0.0');
+  // A reply that ends while the script waits: the restart follows it.
+  fs.writeFileSync(path.join(st,'busy'),'2');
+  const ok=run('1.1.0','1.0.0');
+  assert.equal(ok.job.phase,'complete',ok.stdout+ok.stderr);assert.match(ok.stdout,/waiting for 2 replies to finish/);assert.equal(await served(),'1.1.0');
+});
+
+test('1.124.3: when the new version does not start and putting the old one back fails too, the job says so, not that Pocket went back',{timeout:120000},async t=>{
+  const {d,dir,bin,run}=await setup(t,{port:freePort()});
+  assert.equal(run('1.1.0','1.0.0').job.phase,'complete');
+  // 1.2.0 installs but does not start; then the npm ci that puts 1.1.0's packages back fails (the registry is unreachable).
+  const n=path.join(d,'npm-ci-runs');
+  wrap(bin,'npm',`if [ "$1" = ci ]; then c=$(cat '${n}' 2>/dev/null || echo 0); echo $((c+1)) > '${n}'; if [ "$c" -ge 1 ]; then rm -rf node_modules; echo 'npm error network request failed' >&2; exit 1; fi; fi`);
+  const r=run('1.2.0','1.1.0');
+  assert.equal(r.status,1,r.stdout+r.stderr);assert.equal(r.job.phase,'failed');
+  assert.doesNotMatch(r.job.error,/went back to/);
+  assert.match(r.job.error,/^1\.2\.0 did not start, and putting 1\.1\.0 back failed too\. Pocket may not be running/);
+  assert.ok(r.job.error.includes(`npm ci in ${dir}`),r.job.error);assert.ok(r.job.error.includes(r.job.backup),'the backup is named');
 });

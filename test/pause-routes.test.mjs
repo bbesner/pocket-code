@@ -832,3 +832,27 @@ test('Pause all when the check-backs cannot be saved: the rest is still stopped 
   fs.rmdirSync(path.join(s.data, 'checkbacks.json.tmp'));
   assert.equal((await s.call('/resume', {})).body.rearmed, 1);
 });
+
+// 1.124.3 (turns-08): the queue's Start lost a race to another start (a message sent in the moment between the press and the
+// reply). startTurn refused it as busy before writing anything, but the row was marked "Start was not confirmed" and held up
+// the queue until the owner reviewed it. Nothing was dispatched, so the row goes back to pending and runs after that reply.
+test('a queued start that finds a reply already running goes back to pending and runs after it', { timeout: 60_000 }, async t => {
+  const gap = path.join(tmpDir(), 'start-gap');
+  const s = await boot(t, 18987, { env: { POCKET_TEST_START_GAP: gap } }); // while `gap` exists, a queue start waits 1.5 s after its gate
+  const id = await s.start('claude', 'race host');
+  await s.idle(id);
+  assert.equal((await s.call(`/session/${s.e(id)}/message`, { text: 'race queued', mode: 'queue', approvalMode: 'full' })).status, 202);
+  const item = (await s.queue(id)).items[0];
+  fs.writeFileSync(gap, '');
+  const pressed = s.call(`/session/${s.e(id)}/queue/start`, { itemId: item.id }); // the queue's Start
+  await s.until(() => s.logs().includes(`test start gap session=${id}`), 15000, 'the Start to be on its way');
+  fs.unlinkSync(gap);
+  assert.equal((await s.call(`/session/${s.e(id)}/message`, { text: 'race sent __SLOW__', approvalMode: 'full' })).status, 202); // another tab sends
+  const r = await pressed;
+  assert.deepEqual((await s.queue(id)).items.map(i => [i.text, i.status, i.error]), [['race queued', 'pending', undefined]], 'not "Start was not confirmed"');
+  assert.equal(r.status, 409, JSON.stringify(r.body)); // busy, not "Queue could not be saved"
+  await s.until(() => s.prompts('claude').includes('race queued'), 15000, 'the row to run after the reply that took its place');
+  await s.idle(id); await sleep(300);
+  assert.equal(s.prompts('claude').filter(x => x === 'race queued').length, 1, 'once');
+  assert.deepEqual((await s.queue(id)).items, []);
+});

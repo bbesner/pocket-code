@@ -162,7 +162,7 @@ function startTask(t){
  if(t.summary)lines.push('','Context from the earlier conversation:',t.summary);
  lines.push('',`(Pocket task ${t.id}. When it is finished, mark it done with pocket-tasks done ${t.id}.)`);
  saveBriefing(lines.join('\n'));
- try{localStorage.removeItem('pc-new-start');if(t.directory)localStorage.setItem('pc-lastproj',t.directory);if(t.session)localStorage.setItem('pc-provider',window.PocketEngines.providerOf(t.session));}catch{}
+ try{localStorage.removeItem(newStartKeyOf(NEW_BASE));if(t.directory)localStorage.setItem('pc-lastproj',t.directory);if(t.session)localStorage.setItem('pc-provider',window.PocketEngines.providerOf(t.session));}catch{}
  showNew();
 }
 // New task, or edit one. From a session the editor can include a briefing on that session, written by the titles helper.

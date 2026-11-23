@@ -278,7 +278,7 @@ A change applies to the next check-back, never to one already waiting or running
 
 ### What is kept
 
-Waiting and running check-backs are kept until they finish. A finished one stays for 30 days, up to 300, so its card shows in the conversation. A check-back is stored in `checkbacks.json` in `POCKET_DATA_DIR`.
+Waiting and running check-backs are kept until they finish. A finished one stays for 30 days, up to 300, so its card shows in the conversation. A check-back is stored in `checkbacks.json` in `POCKET_DATA_DIR`. If that file does not hold valid JSON when Pocket starts (a hand edit, a file damaged by a power cut), Pocket keeps it beside the original as `checkbacks.json.corrupt-<time>`, names both in the server log, and starts with none. To get them back, stop Pocket, fix the kept copy, move it back to `checkbacks.json`, then start Pocket.
 
 ## Job keys
 

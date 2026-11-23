@@ -236,3 +236,167 @@ test('a reconnect carrying the other kind of stream id is not read as its own',a
  const into=(await f.streamFor(q,'?offset=0',500,{'last-event-id':'w:5000'})).filter(d=>!d.includes('"attach"'));
  assert.ok(into.some(d=>d.includes('"questions"')),'the turn\'s events are replayed');
 });
+
+// 1.124.3: a stream kept open while the test writes (one decoder, so a character split across chunks is not the test's own
+// doing), and a transcript line as the CLI writes it.
+function openStream(f,id,query,extra={}){
+ const ac=new AbortController(),dec=new TextDecoder();let seen='';
+ const done=fetch(`http://127.0.0.1:${f.port}/api/session/${id}/events${query}`,{headers:{...f.headers,...extra},signal:ac.signal}).then(async r=>{
+  const reader=r.body.getReader();for(;;){const {value,done}=await reader.read();if(done)break;seen+=dec.decode(value,{stream:true});}}).catch(()=>{});
+ return {data:()=>seen.split('\n').filter(l=>l.startsWith('data: ')).map(l=>l.slice(6)),close:async()=>{ac.abort();await done;}};
+}
+const line=(id,role,text)=>JSON.stringify({type:role,sessionId:id,timestamp:new Date().toISOString(),message:{role,content:[{type:'text',text}]}})+'\n';
+
+// 1.124.3 (turns-06): the mirror of a conversation driven elsewhere skipped a transcript write that landed while it was still
+// reading the one before; nothing read again until the next write, so a reply's last message could stay missing.
+test('watch mode: a write that lands while the mirror reads the one before it still reaches the viewer',async t=>{
+ const f=await fixture(t,18488);
+ const id=randomUUID(),file=path.join(f.dir,'sessions','test-workspace',id+'.jsonl');
+ fs.writeFileSync(file,line(id,'user','a question from a terminal'));
+ const at=fs.statSync(file).size,views=[openStream(f,id,`?offset=${at}`),openStream(f,id,`?offset=${at}`)]; // two devices watching
+ assert.ok(await f.until(()=>views.every(v=>v.data().some(d=>d.includes('"watch"')))));
+ await sleep(200); // the connects' own catch-up reads are over
+ // a long burst the mirror takes a while to read and send, and the reply's last line written while it does
+ const burst=Array.from({length:20000},(_,i)=>line(id,'assistant','step '+i)).join('');
+ fs.appendFileSync(file,burst);await sleep(40);
+ fs.appendFileSync(file,line(id,'assistant','the last word of the reply'));
+ const ok=await f.until(()=>views.every(v=>v.data().some(d=>d.includes('the last word of the reply'))),5000);
+ for(const v of views)await v.close();
+ assert.ok(ok,'the reply\'s last message reached both viewers');
+});
+
+// 1.124.3 (turns-07): a message sent in the moment between the CLI writing its result and Pocket reading it was steered
+// into the idle CLI, which ran it as a reply the agent started (stopped at once while paused). It is the owner's next reply.
+test('a message sent just after the CLI wrote its result starts the next reply as yours, not as a steer',async t=>{
+ const f=await fixture(t,18489);
+ const id=(await f.call('/new',{cwd:repo,...msg('first')})).body.id;
+ assert.ok(await f.until(async()=>await f.state(id)==='finished'));
+ assert.equal((await f.call(`/session/${id}/message`,msg('__SLOW__ second'))).status,202);
+ const logDir=path.join(f.dir,'data','turnlogs');
+ const results=()=>fs.readdirSync(logDir).filter(n=>n.startsWith(id)&&n.endsWith('.out.ndjson')).map(n=>fs.readFileSync(path.join(logDir,n),'utf8')).join('').split('\n').filter(l=>l.includes('"type":"result"')).length;
+ const before=results();
+ for(const end=Date.now()+8000;results()===before&&Date.now()<end;)await sleep(2);
+ assert.equal(results(),before+1,'the CLI wrote the second reply\'s result');
+ const r=await f.call(`/session/${id}/message`,msg('third, sent at once'));
+ assert.equal(r.status,202,JSON.stringify(r.body));
+ assert.notEqual(r.body.steered,true,'not steered into the reply that had ended');
+ assert.ok(await f.until(async()=>f.calls().some(c=>c.text==='third, sent at once')&&await f.state(id)==='finished',6000));
+ assert.doesNotMatch(f.logs(),new RegExp(`turn start \\(started by the agent\\) session=${id}`),'the CLI did not run it as its own reply');
+});
+
+// 1.124.3 (turns-09): the log tails decoded each read before splitting lines, so a read that ended inside a character turned
+// it into U+FFFD, and the byte offsets kept from the decoded text drifted.
+test('a character cut by a read in mid-write arrives whole, in a running reply and in the mirror, at the right offset',async t=>{
+ const f=await fixture(t,18492);
+ const want='Grüße aus Köln: 日本語のテキスト';
+ const id=(await f.call('/new',{cwd:repo,...msg('__SPLITUTF8__ long output')})).body.id;
+ const s=openStream(f,id,'?offset=0&from=0');
+ assert.ok(await f.until(async()=>await f.state(id)==='finished',6000));
+ await sleep(200);await s.close();
+ const seen=s.data().join('\n');
+ assert.ok(!seen.includes('�'),'no replacement characters in the reply: '+seen.slice(0,800));
+ assert.ok(seen.includes(want),'the reply streamed whole');
+ // the mirror of a conversation written elsewhere: the same line, appended in two writes 400 ms apart
+ const wid=randomUUID(),file=path.join(f.dir,'sessions','test-workspace',wid+'.jsonl');
+ fs.writeFileSync(file,line(wid,'user','a question from a terminal'));
+ const w=openStream(f,wid,`?offset=${fs.statSync(file).size}`);
+ assert.ok(await f.until(()=>w.data().some(d=>d.includes('"watch"'))));
+ await sleep(200);
+ const b=Buffer.from(line(wid,'assistant',want)),cut=b.indexOf(Buffer.from('日'))+1,start=fs.statSync(file).size;
+ fs.appendFileSync(file,b.subarray(0,cut));await sleep(400);fs.appendFileSync(file,b.subarray(cut));
+ await f.until(()=>w.data().some(d=>d.includes('"assistant"')));
+ await sleep(200);await w.close();
+ const got=w.data().map(d=>JSON.parse(d)).filter(d=>d.type==='assistant');
+ assert.equal(got.length,1);assert.ok(JSON.stringify(got[0].msg).includes(want)&&!JSON.stringify(got[0].msg).includes('\uFFFD'),'the mirrored message is whole: '+JSON.stringify(got[0].msg));
+ assert.equal(got[0].offset,start+b.length,'its offset is the byte just past the line');
+});
+
+// 1.124.3 (turns-10): the fork guard's record (each conversation's transcript size after Pocket's last reply) was rewritten in
+// place, so a crash mid-write left it cut short and every offset was lost at the next start. It is replaced whole.
+test('the fork guard\'s record is replaced whole after a reply, never rewritten in place',async t=>{
+ const f=await fixture(t,18487);
+ const file=path.join(f.dir,'data','owned-transcripts.json'),size=id=>{try{return JSON.parse(fs.readFileSync(file,'utf8'))[id];}catch{return undefined;}};
+ const id=(await f.call('/new',{cwd:repo,...msg('first')})).body.id;
+ assert.ok(await f.until(async()=>await f.state(id)==='finished'&&size(id)>0));
+ const first=size(id),ino=fs.statSync(file).ino;
+ assert.equal((await f.call(`/session/${id}/message`,msg('second'))).status,202);
+ assert.ok(await f.until(()=>size(id)>first),'the second reply\'s size is recorded');
+ assert.notEqual(fs.statSync(file).ino,ino,'a new file took the old one\'s place (written beside it, then renamed)');
+ assert.ok(!fs.existsSync(file+'.tmp'),'nothing left beside it');
+});
+
+// 1.124.3 (turns-11): a start refused before anything reached the CLI (here: the pipe directory is refused) answered 500, and
+// the delivery receipt kept it, so Retry same message replayed the failure for a week. It answers 503 not_started and keeps
+// no receipt: the same message goes through once the cause is fixed.
+test('a start that never reached the CLI keeps no delivery receipt, so Retry same message sends it',async t=>{
+ const pipes=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-pipes-'));t.after(()=>fs.rmSync(pipes,{recursive:true,force:true}));
+ const f=await fixture(t,18493,{POCKET_PIPE_DIR:pipes,POCKET_IDLE_CLOSE_MS:'300'});
+ const id=(await f.call('/new',{cwd:repo,...msg('first')})).body.id;
+ assert.ok(await f.until(async()=>await f.state(id)==='finished'&&(await f.health()).processes===0,6000),'its process closed when idle');
+ const claudeDir=path.join(pipes,'claude');fs.rmSync(claudeDir,{recursive:true,force:true});fs.writeFileSync(claudeDir,''); // a file where the pipe directory goes
+ const send=msg('send it once it can start');
+ const first=await f.call(`/session/${id}/message`,send);
+ assert.equal(first.status,503,JSON.stringify(first.body));assert.equal(first.body.code,'not_started');
+ assert.equal(f.calls().length,1,'only the first message reached a CLI');
+ fs.rmSync(claudeDir);
+ const again=await f.call(`/session/${id}/message`,send);
+ assert.equal(again.status,202,'Retry same message starts it: '+JSON.stringify(again.body));
+ assert.ok(await f.until(()=>f.calls().some(c=>c.text==='send it once it can start')));
+});
+
+// 1.124.3 (http-02): watch mode awaits the transcript's path and size before it listens for the client leaving. A client
+// that left during those awaits (a quick switch of conversation, a phone suspending the page) had already closed, so the
+// late listener never ran and the stream's keepalive and tailer stayed for good; a stat that threw left the keepalive too.
+// test/sse-probe.mjs counts the live keepalives in the daemon and holds the awaits open.
+test('watch mode: a client that leaves while the stream is set up, or a transcript gone before its size is read, leaves no keepalive behind',async t=>{
+ const pdir=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-sse-probe-')),probe=path.join(pdir,'live');
+ t.after(()=>fs.rmSync(pdir,{recursive:true,force:true}));
+ const f=await fixture(t,18437,{NODE_OPTIONS:'--import '+path.join(repo,'test/sse-probe.mjs'),SSE_PROBE_FILE:probe});
+ const id=(await f.call('/new',{cwd:repo,...msg('first')})).body.id;
+ assert.ok(await f.until(async()=>await f.state(id)==='finished'));
+ const live=async()=>{await sleep(300);return Number(fs.readFileSync(probe,'utf8'));};
+ const url=`http://127.0.0.1:${f.port}/api/session/${id}/events?offset=0`;
+ // an ordinary watch stream holds one keepalive while it is open, and none once it closes
+ let ac=new AbortController();const open=fetch(url,{headers:f.headers,signal:ac.signal}).then(r=>r.body.getReader().read()).catch(()=>{});
+ assert.equal(await live(),1,'one keepalive while the stream is open');
+ ac.abort();await open;
+ assert.equal(await live(),0,'none after it closes');
+ // the client leaves while the stream is still finding the transcript
+ fs.writeFileSync(probe+'.slow','');
+ for(let i=0;i<3;i++){ac=new AbortController();const p=fetch(url,{headers:f.headers,signal:ac.signal}).catch(()=>{});await sleep(100);ac.abort();await p;}
+ await sleep(600);fs.rmSync(probe+'.slow');
+ assert.equal(await live(),0,'no keepalive left by a client that left during the awaits');
+ // the transcript is gone between finding it and reading its size: the request fails, the keepalive goes with it
+ fs.writeFileSync(probe+'.statfail','');
+ await f.streamFor(id,'?offset=0',300);
+ fs.rmSync(probe+'.statfail');
+ assert.match(f.logs(),/request failed GET \/api\/session\/[^/]+\/events: Error: ENOENT/);
+ assert.equal(await live(),0,'no keepalive left by a stat that threw');
+ assert.ok(f.alive());
+});
+
+// 1.124.3: the settings and the conversation records (names, pins, branches) were read as empty when their file did not
+// parse, and the next save replaced the only copy; now as the other stores (store-file.mjs).
+test('a pocket-settings.json or session-meta.json that does not parse is kept aside and logged, and the next save leaves it',async t=>{
+ const f=await fixture(t,18438);
+ await f.stop();
+ const data=path.join(f.dir,'data'),torn={'pocket-settings.json':'{"notifyEmail":"owner@exa','session-meta.json':'{"0b1c2d3e-0000-4000-8000-00000000'};
+ fs.mkdirSync(data,{recursive:true});
+ for(const [n,text] of Object.entries(torn))fs.writeFileSync(path.join(data,n),text);
+ await f.start();
+ for(const [n,text] of Object.entries(torn)){
+  const kept=fs.readdirSync(data).filter(x=>x.startsWith(n+'.corrupt-'));
+  assert.equal(kept.length,1,n+' kept aside: '+fs.readdirSync(data).join(' '));
+  assert.equal(fs.readFileSync(path.join(data,kept[0]),'utf8'),text,n+' kept as it was');
+  assert.ok(f.logs().includes(`${path.join(data,n)} could not be read (not valid JSON): kept it as ${path.join(data,kept[0])}`),n+' logged');
+ }
+ assert.equal((await f.call('/settings',{notifyEmail:'owner@example.test'})).status,200);
+ const id=(await f.call('/new',{cwd:repo,...msg('after the restart')})).body.id;
+ assert.ok(await f.until(async()=>await f.state(id)==='finished'));
+ assert.equal((await f.call(`/session/${id}/pin`,{pinned:true})).status,200);
+ for(const [n,text] of Object.entries(torn)){
+  const kept=fs.readdirSync(data).filter(x=>x.startsWith(n+'.corrupt-'));
+  assert.equal(fs.readFileSync(path.join(data,kept[0]),'utf8'),text,n+': the next save leaves the kept copy alone');
+  JSON.parse(fs.readFileSync(path.join(data,n),'utf8'));
+ }
+});

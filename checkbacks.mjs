@@ -15,6 +15,7 @@ import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { parseWhen } from './projects.mjs';
 import { shellArg } from './skills.mjs';
+import { readStore } from './store-file.mjs';
 
 export const STATUSES = ['pending', 'held', 'running', 'done', 'missed', 'cancelled'];
 export const ACTIVE = new Set(['pending', 'held', 'running']);
@@ -101,12 +102,11 @@ export function checkbackInstructions(script, engine) {
 
 // ---------- the store ----------
 export class CheckbackStore {
-  constructor(file, { write, now } = {}) {
+  constructor(file, { write, now, log } = {}) {
     this.file = file;
     this.now = now || Date.now;
     this.write = write || ((f, data) => { fs.mkdirSync(path.dirname(f), { recursive: true }); const tmp = f + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(data, null, 1), { mode: 0o600 }); fs.renameSync(tmp, f); });
-    let d = {};
-    try { d = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { }
+    const d = readStore(file, { log, now: this.now }); // 1.124.3: one that does not parse is kept aside and logged
     this.items = Array.isArray(d.checkbacks) ? d.checkbacks.filter(c => c && typeof c.id === 'string' && typeof c.sessionId === 'string' && STATUSES.includes(c.status) && !Number.isNaN(Date.parse(c.dueAt))).map(c => this.normalize(c)) : [];
   }
   normalize(c) {

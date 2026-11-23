@@ -7,6 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { readStore } from './store-file.mjs';
 
 export const LIMITS = { text: 20000, title: 160, entries: 1600, ttlDaysDefault: 7, ttlDaysMax: 30 };
 const PROVIDERS = ['claude', 'codex'];
@@ -19,12 +20,13 @@ const iso = ms => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 export const handoffInstructions = cli => `When the user asks you to hand off, or asks for a prompt to start a new conversation, write the briefing the next conversation needs and run \`node ${cli} add --handoff --title "<short title>" --file <path|->\`, then put the link it prints on its own line in your reply; Pocket shows it as a card with Start. Do not paste the prompt into your reply.`;
 
 export class StartStore {
-  constructor(file, { write, now } = {}) {
+  constructor(file, { write, now, log } = {}) {
     this.file = file;
     this.now = now || Date.now;
     this.write = write || ((f, data) => { fs.mkdirSync(path.dirname(f), { recursive: true }); const tmp = f + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(data, null, 1), { mode: 0o600 }); fs.renameSync(tmp, f); });
     this.entries = [];
-    try { const d = JSON.parse(fs.readFileSync(file, 'utf8')); if (Array.isArray(d.entries)) this.entries = d.entries; } catch { }
+    const d = readStore(file, { log, now: this.now }); // 1.124.3: one that does not parse is kept aside and logged
+    if (Array.isArray(d.entries)) this.entries = d.entries;
   }
   save(entries = this.entries) { this.write(this.file, { version: 1, entries }); }
   // The live list without expired entries and within the cap (newest kept); nothing changes here.

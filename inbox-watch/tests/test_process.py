@@ -566,6 +566,68 @@ def test_an_alert_pocket_keeps_refusing_is_tried_a_few_times_then_left():
     with_run_fakes(check)
 
 
+def test_an_alert_another_channel_took_is_still_sent_to_pocket():
+    # 1.124.3: with Telegram (or email) beside Pocket, an alert Pocket refused but Telegram took was recorded as sent, so it
+    # was never tried again and never reached the Inbox. Pocket alone is tried again (it knows the alert by its key);
+    # Telegram is not sent twice.
+    def check():
+        pocket, mailed = run_setup()
+        tg = FakePocket()
+        tg.kind = "telegram"
+        E.DELIVERIES = [pocket, tg]
+        pocket.down = True
+        mailed.append(GATE)
+        assert E.run(False, False) == 0
+        assert pocket.entries() == [] and tg.sent == ["Gate down"], (pocket.entries(), tg.sent)
+        pocket.down = False
+        E.in_quiet_hours = lambda *a: True  # quiet hours: it waits, and is not held for the morning's send on every channel
+        assert E.run(False, False) == 0
+        assert alerts_now() == {"gate": "sent"} and pocket.entries() == [], (alerts_now(), pocket.entries())
+        E.in_quiet_hours = lambda *a: False
+        assert E.run(False, False) == 0
+        assert [e["title"] for e in pocket.entries()] == ["Gate down"] and tg.sent == ["Gate down"], (pocket.entries(), tg.sent)
+        assert alerts_now() == {"gate": "sent"}, alerts_now()
+        tries = pocket.tries
+        assert E.run(False, False) == 0 and pocket.tries == tries, "once in, it is not sent again"
+    with_run_fakes(check)
+
+
+def test_a_look_ahead_pocket_could_not_take_is_sent_again():
+    # 1.124.3: the retries of 1.124.2 covered alerts only. A look-ahead whose delivery failed (or that a killed run left
+    # queued) was never sent: the next look-ahead run finds its key taken and makes none.
+    store, _ = setup()
+
+    class LookaheadPocket(FakePocket):
+        down = True
+
+        def send_lookahead(self, a, pocket_url=None, items=None):
+            if self.down:
+                raise RuntimeError("pocket-inbox add: Pocket is not answering")
+            self.sent.append(a["subject"])
+            return "e"
+    pocket = LookaheadPocket()
+    E.DELIVERIES = [pocket]
+    failed = store.queue_alert("checkin|2026-11-23|morning", issue_key=None, thread_id="", kind="checkin", priority="high", text="Invoice 7 is due Friday.",
+                               subject="Look-ahead · Mon 8 AM", sender="Assistant (inv-7)", status="queued")
+    assert not E.deliver(store, failed, None, False)
+    store.queue_alert("checkin|2026-11-23|evening", issue_key=None, thread_id="", kind="checkin", priority="high", text="The gate visit is tomorrow.",
+                      subject="Look-ahead · Mon 5 PM", sender="Assistant (gate)", status="queued")  # a run killed before it went
+    store.commit()
+    saved = E.in_quiet_hours
+    try:
+        E.in_quiet_hours = lambda *a: True  # in quiet hours it waits, and is not held among the alerts
+        assert E.deliver_left_queued(store, False) == 0
+        st = [r[0] for r in store.db.execute("select status from alerts order by id")]
+        assert st == ["failed", "queued"], st
+        E.in_quiet_hours = lambda *a: False
+        pocket.down = False
+        assert E.deliver_left_queued(store, False) == 2
+    finally:
+        E.in_quiet_hours = saved
+    assert sorted(pocket.sent) == ["Look-ahead · Mon 5 PM", "Look-ahead · Mon 8 AM"], pocket.sent
+    assert all(r["status"] == "sent" for r in store.db.execute("select status from alerts"))
+
+
 def test_a_new_fact_folded_into_an_alert_that_never_left_takes_it_out():
     # process() on its own (no start-of-run recovery): the stuck alert goes out with the new fact instead of absorbing it.
     store, pocket = setup()
@@ -599,6 +661,24 @@ def test_a_late_alert_waits_out_quiet_hours_and_one_on_a_resolved_story_is_dropp
         E.in_quiet_hours = saved
     assert statuses(store) == {"gate": "held", "fire": "sent", "inv-7": "superseded"}, statuses(store)
     assert pocket.sent == ["fire"], pocket.sent
+
+
+def test_a_dry_run_leaves_an_unsent_alert_for_the_next_real_check():
+    # 1.124.3: deliver_left_queued sent a queued alert through deliver(dry_run=True), which marks it 'dry-run', so the
+    # real check after a dry run never sent it.
+    store, pocket = setup()
+    store.queue_alert("gate|f1", issue_key="gate", thread_id=A, kind="notify", priority="high", text="The gate is down.", subject="Gate down",
+                      sender="site@example.com", status="queued")
+    store.commit()
+    saved = E.in_quiet_hours
+    E.in_quiet_hours = lambda *a: False
+    try:
+        n = E.deliver_left_queued(store, True)
+        assert n == 0 and statuses(store) == {"gate": "queued"} and pocket.sent == [], (n, statuses(store), pocket.sent)
+        assert E.deliver_left_queued(store, False) == 1
+    finally:
+        E.in_quiet_hours = saved
+    assert statuses(store) == {"gate": "sent"} and pocket.sent == ["Gate down"], (statuses(store), pocket.sent)
 
 
 def test_a_closed_output_pipe_does_not_end_the_run():

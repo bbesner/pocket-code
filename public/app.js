@@ -2974,12 +2974,12 @@ function openFreshNew(hash = '#/new') {
   // still being delivered is never dropped. Reported by the owner.
   if (here && document.getElementById('first') && !loadOutbox(NEW_BASE)) {
     clearDraft(NEW_BASE);
-    try { ['pc-new-start', briefingKey(), 'pc-attachments-' + NEW_BASE].forEach(k => localStorage.removeItem(k)); } catch { }
+    try { [newStartKeyOf(NEW_BASE), briefingKey(), 'pc-attachments-' + NEW_BASE].forEach(k => localStorage.removeItem(k)); } catch { }
     return Promise.resolve(route()).then(() => document.getElementById('first')?.focus());
   }
   const brief = readLocal(briefingKey(), null);
   if (brief !== null && !loadOutbox(NEW_BASE)) {
-    if (loadDraft(NEW_BASE) === brief) { clearDraft(NEW_BASE); try { localStorage.removeItem('pc-new-start'); } catch { } }
+    if (loadDraft(NEW_BASE) === brief) { clearDraft(NEW_BASE); try { localStorage.removeItem(newStartKeyOf(NEW_BASE)); } catch { } }
     try { localStorage.removeItem(briefingKey()); } catch { }
     if (here) return route();
   }
@@ -3609,7 +3609,7 @@ const SLASH_POCKET = [
   { name: 'btw', desc: 'Ask in a side chat, without adding to this conversation', where: 'chat', working: true, insert: true, ok: () => SideChat.available(chatId) },
   { name: 'branch', desc: 'Start a saved conversation that carries on from here', where: 'chat', working: true, ok: () => Boolean(chatId) && engineHas(providerOf(chatId), 'branch'), act: () => Branch.open(chatId) },
   { name: 'handoff', desc: 'Have the agent write a briefing and offer a fresh conversation', where: 'chat', ok: () => Boolean(chatId), act: () => Handoff.send(chatId) },
-  { name: 'new', desc: 'Start a new conversation in this folder', where: 'chat', working: true, act: () => { writeLocal('pc-new-start', { cwd: slashCwd }); localStorage.setItem('pc-provider', START_PROVIDERS.includes(tb?.provider) ? tb.provider : 'claude'); location.hash = '#/new'; } },
+  { name: 'new', desc: 'Start a new conversation in this folder', where: 'chat', working: true, act: () => { writeLocal(newStartKeyOf(NEW_BASE), { cwd: slashCwd }); localStorage.setItem('pc-provider', START_PROVIDERS.includes(tb?.provider) ? tb.provider : 'claude'); location.hash = '#/new'; } },
   { name: 'model', desc: 'Choose the model for the next reply', where: 'both', ok: () => $('#c-model'), act: () => $('#c-model')?.click() },
   { name: 'effort', desc: 'Choose how much it thinks before answering', where: 'both', ok: () => $('#c-eff'), act: () => $('#c-eff')?.click() },
   { name: 'usage', desc: 'See how much of your plan is used', where: 'both', working: true, act: () => openUsagePanel() },

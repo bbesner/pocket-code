@@ -7,8 +7,8 @@ node_modules/
 push-subs.json
 turnlogs/
 mutes.json
-session-meta.json
-pocket-settings.json
+session-meta.json*
+pocket-settings.json*
 
 # local project notes (not part of the public repo)
 STATE.md

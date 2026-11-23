@@ -255,14 +255,15 @@ releases (`POCKET_SELF_UPDATE=1` in `.env`, then a restart), the row has an **Up
 instead of the link to the upgrade steps. Pocket asks you to confirm, then does what an operator does:
 it checks that the Pocket Code folder is unchanged and on `main` (or on a release), that the release is
 on `main`, and that no reply is running; backs up its private data to `~/backups`; installs the release
-and its packages; and restarts. The sheet shows each step. While Pocket restarts the page loses
+and its packages; waits for any reply that started meanwhile to finish (up to 10 minutes; if replies keep
+running it goes back and changes nothing); and restarts. The sheet shows each step. While Pocket restarts the page loses
 contact for a moment and reconnects by itself; open conversations reconnect too. If the new version
 does not start, Pocket goes back to the one it was running and says so in the row, and you can try
-again. If the backup cannot be written (the server ran out of room, say), Pocket removes it and
+again; if it cannot go back either, the row says so and what to run on the server. If the backup cannot be written (the server ran out of room, say), Pocket removes it and
 changes nothing. If the new packages fail to install and the old ones cannot be put back either, the row
 says so: Pocket keeps running, but run `npm ci` in its folder on the server before it next restarts. The button is not offered while a reply is running, while a Claude Code or Codex upgrade runs,
 or when Pocket cannot restart itself (it is not running under PM2, or the folder is not a git
-checkout); the row then says why. It needs at least 5 GB free on the server for the backup.
+checkout); the row then says why. It needs at least 5 GB free on the server for the backup, and `flock` and GNU tar on the server (on a Mac, from Homebrew); the row says which is missing.
 
 For Claude Code and Codex, the review shows installed and available versions and links to the
 publisher's release notes. Choose either CLI or both, then **Upgrade selected**.
@@ -382,7 +383,8 @@ A change to `.env` takes effect after a restart from the Pocket Code directory
 | **Notifications blocked. Allow notifications in this site's browser settings.** | The browser's permission is off | Allow notifications for the site, then turn **Push to this device** on |
 | **Count on the app icon** is disabled | The browser has no app-badge support | Use the installed app on a platform that shows icon counts |
 | The email field is disabled | `POCKET_SMTP_URL` is not set, or the note shows **Email cannot be set up:** with the reason | Set `POCKET_SMTP_URL` (and `POCKET_SMTP_FROM`) in `.env` and restart |
-| **Pocket could not save the change, so nothing changed.** | Pocket could not write `pocket-settings.json` (a full disk, or a data folder it can't write). Since 1.124.2 the change is not kept; before, it showed until the next restart and was then lost. The time zone and the public address Pocket learns are not kept either, and are tried again on the next page load | Free space or fix the data folder's permissions, then change it again |
+| **Pocket could not save the change, so nothing changed.** | Pocket could not write `pocket-settings.json` (a full disk, or a data folder it can't write). Since 1.124.2 the change is not kept; before, it showed until the next restart and was then lost. The time zone and the public address Pocket learns are not kept either, and are tried again on the next page load. Since 1.124.3 neither is a key saved under **Automatic model choice** with the change | Free space or fix the data folder's permissions, then change it again |
+| Every **Server** setting is back to its default after a restart, and the server log says `pocket-settings.json could not be read` | `pocket-settings.json` did not hold valid JSON when Pocket started (a hand edit, or a file damaged by a power cut). Since 1.124.3 Pocket keeps it beside the original as `pocket-settings.json.corrupt-<time>`, says so in the log, and starts with the defaults | Stop Pocket, fix the kept copy (or take the file from your backup), move it back to `pocket-settings.json`, then start Pocket. Settings changed since then are replaced by the old file |
 | **Add a key first: automatic model choice needs one.** | **Choose the model for me** was turned on with no key saved or in the environment | Save a key, then turn it on |
 | **Keep at least one model on** | You tried to stop offering the last offered model | Offer another model first |
 | A rule is refused under **Add an action** | The rule changes files, covers everything, or is not valid syntax; the reason shows under the field | Fix the rule; see [action approvals](../action-approvals.md#actions-that-run-without-asking) |

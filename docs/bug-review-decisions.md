@@ -72,3 +72,45 @@ fixed (F-5 in 1.82.0, F-14 in 1.83.0), and the two below left as they are.
 | F-21: every sheet toggles `app.inert`, which recalculates style for the whole page | Deliberate | Measured on a 5,377-element page (headless Chrome, median of 5): 27 ms per open-and-close at normal speed, 123 ms at 4× CPU slowdown, 100 / 83 ms open / close at 4× with accessibility on (the reviewer measured 56, and 451 / 971 with accessibility on). A focus trap without `inert` is faster but lets find-in-page match text behind the sheet and leaves assistive technology relying on `aria-modal`. Kept; `test/review-1881-sheet-perf.mjs` (`POCKET_PERF=1`) re-measures it. |
 | F-12: `closeCodexSession` resolved two seconds after SIGKILL by design (1.73.7) | Changed | The intent (never block forever) stands, but the close now reports the truth: it completes only on a confirmed exit and fails with 423 after five more seconds, so a replacement is not started beside a live process. |
 | F-9 as described (ignore transcript growth while Pocket's CLI is alive) | Not adopted | It would break `test/runner.test.mjs:151`: a terminal turn written while Pocket's idle process is alive must still count as another app's. The fault itself (a turn the CLI ran while the daemon was down read as foreign after a restart) is fixed by replaying the runner output from the offset the marker records. |
+
+
+## The whole-code review at 1.123.1 — 2026-11-23
+
+Nine reviewer lanes read the code at `v1.123.1`; a second reviewer tried to refute each finding. 60 stood: 5 high
+(fixed in 1.124.1), 21 confirmed and 2 plausible medium (1.124.2), 26 confirmed low (1.124.3). Each fix has a test that
+failed before it. The rows below were ruled on by the second reviewer and changed nothing.
+
+| Finding | Ruling | Reason |
+|---|---|---|
+| fe-core-02: a slow earlier `route()` renders the wrong conversation | Not a fault | `route()` reads `location.hash` only after its awaits, and a later call bumps the render version. |
+| inbox-07: Inbox news on a story is steered into a running reply as a user message | Deliberate | The conversation started from that story is the place the owner asked to hear about it. |
+| unattended-04: each refused job call with a valid key appends an audit line, and the file is not rotated | Deliberate | The audit is the record of refused calls; a caller needs a valid key to add to it. |
+| unattended-05: a usage-limit retry of a check-back's reply is re-armed every tick while check-backs are off | Deliberate | It runs once check-backs are switched on again; nothing is sent meanwhile. |
+
+Open: the second reviewer could not establish the trigger, and no test made them fail. Not settled.
+
+- vault-04: `pocket-vault await <name> --wait 300` may answer after only a fraction of the wait.
+- inbox-06: `POST /api/inbox` awaits the push and the email before it answers, so a send slower than the CLI's 30 s
+  timeout may read as a failure to the watcher (the watcher now retries, 1.124.2; Pocket knows the alert by its key).
+- engines-06: Pocket's ask tool for OpenCode retries every failure and ignores stdin EOF.
+- engines-07: closing an ACP session sends one SIGTERM to the agent's pid only (no group, no SIGKILL follow-up).
+- engines-09: Antigravity's model-menu probe makes a new `agy` session on every read.
+- http-03: `POST /api/upload`, `/api/session/<id>/stop` and `/api/notify/test-email` take a cookie-only request with no
+  body or a non-JSON one, so the CSRF defence there rests on SameSite alone.
+
+Noticed while fixing and left, for the next bug review of the file named:
+
+- `codex.mjs`: its log reader decodes before it splits lines (the fault fixed for Claude in 1.124.3), and
+  `codex-usage-state.json` grows without limit as `usage-state.json` did; a Codex job's "autonomous" mark is not kept
+  across a restart.
+- `server.mjs`: `mutes.json` and `push-subs.json` (arrays) still load as empty when they do not parse; the Codex and
+  OpenRouter start routes do not answer `not_started`; "overloaded" is read as a usage limit; store writes are not
+  fsynced.
+- `scripts/pocket-self-update.sh`: the script runs from the checkout it moves.
+- `inbox-watch`: `release_held` on a dry run marks held alerts `dry-run`; a dry run killed mid-way leaves `queued`
+  alerts a real check would send; a burst past four pages of 50 threads is dropped without a word; Telegram and email
+  have no duplicate check, so their failures are not retried; `InboxRunner.stop()` signals python alone.
+- `acp.mjs` and `scripts/pocket-mcp-proxy.mjs`: the Stop grace and the relay's refusals after a fill are proven
+  against stand-in agents only; whether Antigravity passes the runner token through to Vault calls is not established.
+- Tests: the server test files use fixed ports and do not check that the port is free, so two full runs on one
+  machine fail each other; a killed run leaves its stand-in CLIs running.

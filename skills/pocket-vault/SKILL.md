@@ -141,7 +141,7 @@ the typing and form-filling tools only (`browser_type`, `browser_fill_form`); a 
 or `browser_navigate` that names one is refused. Once a value has been typed, screenshots and
 other pictures from that browser are unavailable for the rest of the session: Pocket cannot
 scrub a value out of a picture, so it returns a note in its place. Use `browser_snapshot` (text)
-to see the page. This only works when the browser tool runs through Pocket's relay
+to see the page, without `filename`: after a fill, a call that saves to a file is refused. This only works when the browser tool runs through Pocket's relay
 (`pocket-mcp-proxy`); if the placeholder comes back literally typed into the page, the relay is
 not in place: stop and tell the owner.
 
@@ -223,7 +223,8 @@ pocket-vault request ups-api --kind credentials --fields client_id,client_secret
 - It prints the link once. Give it to the owner, or put it in the email draft the owner will
   send. Say in the message that the link works once and that they should not email passwords.
 - The name is reserved while the link waits. `requests` lists the links; `relink <name>` makes
-  a new link (the old one stops working) and `cancel <name>` ends it.
+  a new link (the old one stops working) and `cancel <name>` ends it. Both work only on a link
+  this conversation made; a link the owner made is the owner's (exit 5: say so and stop).
 - `await <name> --wait 600` returns 0 once it is filled in, 4 while it still waits and 5 if it
   was cancelled or expired. `show <name>` says the same. You only ever see the name; use the
   secret with `run` like any other.

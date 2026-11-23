@@ -39,7 +39,10 @@ export class SelfUpdate {
     try { j = JSON.parse(fs.readFileSync(this.file, 'utf8')); } catch { return null; }
     if (!j || typeof j !== 'object' || Array.isArray(j)) return null;
     const out = { id: j.id, from: j.from, to: j.to, phase: j.phase, running: RUNNING.has(j.phase), startedAt: j.startedAt, updatedAt: j.updatedAt, finishedAt: j.finishedAt || null, error: j.error || null, backup: j.backup || null };
-    if (out.running && this.now() - (j.updatedAt || j.startedAt || 0) > STALE_MS) Object.assign(out, { running: false, phase: 'interrupted', error: 'The update stopped without finishing, probably because the server restarted. Check the version shown here before you try again.' });
+    // 1.124.3: the script touches its lock file every minute while it runs, so a long quiet step (the backup of a large data
+    // folder, npm ci) is not taken for a dead job, and a second press is not let through while the first still runs.
+    let beat = 0; try { beat = fs.statSync(this.file + '.lock').mtimeMs; } catch {}
+    if (out.running && this.now() - Math.max(j.updatedAt || j.startedAt || 0, beat) > STALE_MS) Object.assign(out, { running: false, phase: 'interrupted', error: 'The update stopped without finishing, probably because the server restarted. Check the version shown here before you try again.' });
     return out;
   }
   // The checked-out commit, read from .git without running git (a route must not start a process per request).

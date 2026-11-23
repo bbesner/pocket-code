@@ -418,3 +418,15 @@ test('1.124.2: a usage limit or an API error ends the side chat\'s answer as an 
   sc.line(chat,JSON.stringify({type:'result',subtype:'success',is_error:false,num_turns:1,result:'Yes.',duration_ms:100}));
   assert.deepEqual([resultsOf(chat.events)[0].ok,resultsOf(chat.events)[0].error],[true,null],'an answer is still an answer');
 });
+
+// 1.124.3: any error result ends the answer, whatever its origin (the 1.122.2 note above). An error from a task notification's
+// turn with no words and no turns (an API error with nothing in `result`) had the stale notification's shape and was skipped,
+// so the panel kept waiting and never said what went wrong.
+test('1.124.3: an error result from a task notification ends the answer as an error, even with no words',()=>{
+  const sc=new SideChats({normalize:()=>null,idleMs:0});
+  const chat=sc.make('parent-1');chat.busy=true;
+  sc.line(chat,JSON.stringify({type:'result',subtype:'success',is_error:true,api_error_status:529,num_turns:0,result:'',origin:{kind:'task-notification'},duration_ms:100}));
+  const results=resultsOf(chat.events);
+  assert.equal(chat.busy,false,'the answer ended');assert.equal(results.length,1);
+  assert.deepEqual([results[0].ok,results[0].error],[false,'API error 529']);
+});

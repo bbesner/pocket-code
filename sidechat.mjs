@@ -149,7 +149,8 @@ function resultError(o) {
 //   error, ends our turn. Less exact in one case: if a CLI ever answered a stale notification with text before our
 //   answer, the panel would show that text, stop waiting and take a new question early; the real answer still streams in
 //   after it with its own result, so nothing is lost or counted twice.
-export const notOurTurn = o => o?.origin?.kind === 'task-notification' && o.subtype === 'success' && !(o.num_turns > 0) && !o.result;
+// 1.124.3: and not an error (is_error), which had that shape when it carried no words (an API error with an empty `result`).
+export const notOurTurn = o => o?.origin?.kind === 'task-notification' && o.subtype === 'success' && !o.is_error && !(o.num_turns > 0) && !o.result;
 // The cost of one result line, and the CLI's running total after it (for the fallback below).
 export function resultCost(o, cliTotal = 0) {
   const spent = Number(o?.total_cost_usd), total = Number.isFinite(spent) ? spent : cliTotal;

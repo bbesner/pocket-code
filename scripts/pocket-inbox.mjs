@@ -16,7 +16,7 @@
 //   pocket-inbox merge <id> (--into <entry id> | --session <conversation id>) [--note "…"]       1.113: a duplicate on the same story joins that entry
 //   pocket-inbox split [<id>] [--session <conversation id>]                                    1.115: the newest mail an entry took in becomes its own entry (a separate subject)
 //   pocket-inbox feedback [--since <ISO>] [--json]                                           the owner's decisions not yet applied
-//   pocket-inbox ack <id…>                                                                   the worker applied them
+//   pocket-inbox ack <id…>                                                                   the worker applied them (1.124.3: <id>@<at> acks that decision only)
 //   pocket-inbox seen [--source <name>] [--profile <path|->]                                 a heartbeat: the worker ran (1.70: with its profile)
 //   pocket-inbox watch [--source <name>] [--json]                                            when the watcher checks, which models judge, cost
 //   pocket-inbox watch set (--file <path|-> | --every <min> | --pause | --resume) [--source <name>]   change them (only when the user asks)

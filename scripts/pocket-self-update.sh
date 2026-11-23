@@ -9,7 +9,7 @@ set -uo pipefail
 dir=$1 target=$2 expected=$3 pmid=$4 port=$5 status=$6 node=$7 repo=$8 from=$9
 tag="v$target"
 # Tests shorten the waits; the daemon passes no such variables.
-tries=${POCKET_SELF_UPDATE_TRIES:-45} settle=${POCKET_SELF_UPDATE_SETTLE:-10}
+tries=${POCKET_SELF_UPDATE_TRIES:-45} settle=${POCKET_SELF_UPDATE_SETTLE:-10} beat=${POCKET_SELF_UPDATE_BEAT:-60} idle=${POCKET_SELF_UPDATE_IDLE_TRIES:-300}
 branch='' prev='' moved=0
 
 # say <phase> [error] [backup dir]: rewrite the progress file atomically.
@@ -29,6 +29,9 @@ served() { # the version Pocket serves on its port, or nothing
 # The PID PM2 has for our process. `pm2 pid` takes only a name and prints nothing for an id, so read it from jlist.
 app_pid() {
   pm2 jlist 9>&- 2>/dev/null | "$node" -e 'let t="";process.stdin.on("data",d=>t+=d).on("end",()=>{try{const a=JSON.parse(t.slice(t.indexOf("[")));const p=a.find(x=>String(x.pm_id)===process.argv[1]);process.stdout.write(String(p?.pid||""));}catch{}})' "$pmid"
+}
+busy() { # the replies a restart would cut short, from the daemon's /api/health (1.124.3); 0 when it does not say
+  "$node" -e 'fetch(`http://127.0.0.1:${process.argv[1]}/api/health`,{signal:AbortSignal.timeout(5000)}).then(r=>r.json()).then(j=>process.stdout.write(String(Number(j.busy)||0))).catch(()=>process.stdout.write("0"))' "$port"
 }
 healthy() { "$node" -e 'fetch(`http://127.0.0.1:${process.argv[1]}/api/health`,{signal:AbortSignal.timeout(5000)}).then(r=>r.json()).then(j=>process.exit(j.ok?0:1)).catch(()=>process.exit(1))' "$port"; }
 # wait_for <version> <old pid>: up to 90 s for a new process to serve it and answer health, then still the same process and
@@ -53,10 +56,20 @@ put_back() { # return the checkout and its packages to what was running; fails w
 not_back() { fail "$1, and putting $from's packages back failed too. Pocket keeps running for now but will not start again after a restart until you run npm ci in $dir on the server. Backup: $backup"; }
 
 cd "$dir" || fail 'Could not open the Pocket Code folder. Nothing was changed.'
+# 1.124.3: the tools are checked before the lock is taken. macOS has no flock(1), and the lock then failed every time with
+# "Another Pocket Code update is running". The backup takes GNU tar's options; on macOS tar is bsdtar, and GNU tar is gtar.
+for tool in git npm pm2 tar flock; do command -v "$tool" >/dev/null || fail "$tool is not on Pocket's PATH, so it cannot update itself. Update it from the server."; done
+gnutar=$(command -v gtar || command -v tar)
+case "$("$gnutar" --version 2>/dev/null)" in *'GNU tar'*) ;; *) fail "Pocket's backup needs GNU tar, and $gnutar is not GNU tar. Install it (on macOS: brew install gnu-tar), or update Pocket from the server. Nothing was changed." ;; esac
 exec 9>"$status.lock"
 flock -n 9 || fail 'Another Pocket Code update is running.'
+# 1.124.3: a heartbeat. The daemon takes a job silent for 20 minutes for one that died with its server, and a large backup or
+# a slow npm ci can be quiet that long; touching the lock file keeps it running. It stops with the script (the trap, or at its
+# next beat if the script was killed), and does not hold the lock (fd 9 closed), even in the sleep it leaves behind.
+( while sleep "$beat" && kill -0 $$ 2>/dev/null; do touch "$status.lock"; done ) 9>&- >/dev/null 2>&1 &
+beater=$!
+trap 'kill "$beater" 2>/dev/null' EXIT
 say checking
-for tool in git npm pm2 tar flock; do command -v "$tool" >/dev/null || fail "$tool is not on Pocket's PATH, so it cannot update itself. Update it from the server."; done
 origin=$(git config --get remote.origin.url)
 case "$origin" in
   "https://github.com/$repo"|"https://github.com/$repo.git"|"git@github.com:$repo.git") ;;
@@ -82,8 +95,8 @@ git ls-files --others --ignored --exclude-standard -z | grep -zv '^node_modules/
 # 1 = a file changed while it was read (a live log): fine. 1.124.2: 2 is GNU tar's fatal error (a disk that filled, say); a
 # turn file that vanished is only a warning under --ignore-failed-read, status 0. The archive must also list back, and a
 # backup that failed is removed, so it neither stays on a full disk nor passes for a backup.
-tar --warning=no-file-changed --ignore-failed-read --null -czf "$backup/private-state.tar.gz" -T "$backup/files.nul"; rc=$?
-if [ "$rc" -gt 1 ] || ! [ -s "$backup/private-state.tar.gz" ] || ! tar -tzf "$backup/private-state.tar.gz" >/dev/null 2>&1; then
+"$gnutar" --warning=no-file-changed --ignore-failed-read --null -czf "$backup/private-state.tar.gz" -T "$backup/files.nul"; rc=$?
+if [ "$rc" -gt 1 ] || ! [ -s "$backup/private-state.tar.gz" ] || ! "$gnutar" -tzf "$backup/private-state.tar.gz" >/dev/null 2>&1; then
   rm -rf -- "$backup"
   fail 'The backup could not be written, so Pocket removed it. Nothing was changed. Check that the server has room for the backup, then try again.'
 fi
@@ -97,6 +110,12 @@ moved=1
 npm ci --silent --no-audit --no-fund || { put_back || not_back "Installing $tag's packages failed"; fail "Installing $tag's packages failed. Pocket stays on $from."; }
 npm run -s check:release -- --released || { put_back || not_back "$tag did not pass its release check"; fail "$tag did not pass its release check. Pocket stays on $from."; }
 
+# 1.124.3: the daemon checked for running replies when Update was pressed, and a reply can start in the minutes since (a
+# message, a check-back, a job). Wait for them, up to 10 minutes, so the restart does not cut one short; if they keep
+# running, put the version that is running back rather than restart under them.
+n=0
+for _ in $(seq 1 "$idle"); do n=$(busy); [ "$n" = 0 ] && break; echo "$(date -u +%H:%M:%S) waiting for $n replies to finish"; sleep 2; done
+if [ "$n" != 0 ]; then put_back || not_back 'Replies kept running while Pocket waited to restart'; fail "Replies kept running while Pocket waited to restart, so it did not restart and stays on $from. Update again when they finish."; fi
 say restarting
 old_pid=$(app_pid)
 pm2 restart "$pmid" 9>&- >/dev/null
@@ -106,7 +125,9 @@ if wait_for "$target" "$old_pid"; then
   exit 0
 fi
 say rolling-back
-put_back
+# 1.124.3: a put-back that failed is said, not restarted into "Pocket went back": the new version is not running, and the old
+# one cannot start without its checkout and packages.
+put_back || fail "$target did not start, and putting $from back failed too. Pocket may not be running: on the server, check out $from in $dir (its commit is in prev-head.txt in the backup), run npm ci in $dir and restart it with PM2. Backup: $backup"
 old_pid=$(app_pid)
 pm2 restart "$pmid" 9>&- >/dev/null
 wait_for "$from" "$old_pid" || fail "$target did not start, and Pocket could not confirm $from came back. Check the server. Backup: $backup"

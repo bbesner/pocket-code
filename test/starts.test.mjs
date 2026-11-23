@@ -91,3 +91,15 @@ test('StartStore (1.73.6): a failed write leaves no entry readable',()=>{
   assert.equal(new StartStore(file).entries.length,1);
   fs.rmSync(dir,{recursive:true,force:true});
 });
+test('StartStore (1.124.3): a starts.json that does not parse is kept aside and logged, and the next link does not replace it',()=>{
+  const dir=tmp(),file=path.join(dir,'starts.json');
+  const a=new StartStore(file);for(let i=0;i<3;i++)a.add({text:'briefing '+i});
+  const torn=fs.readFileSync(file,'utf8').slice(0,20);fs.writeFileSync(file,torn);
+  const said=[],b=new StartStore(file,{now:()=>Date.parse('2026-11-23T10:15:30Z'),log:m=>said.push(m)});
+  assert.equal(b.entries.length,0);
+  const kept=path.join(dir,'starts.json.corrupt-20261123-101530');
+  assert.equal(fs.readFileSync(kept,'utf8'),torn,'kept as it was');assert.ok(said.length===1&&said[0].includes(kept),said.join('\n'));
+  b.add({text:'x'});
+  assert.equal(fs.readFileSync(kept,'utf8'),torn,'the next link leaves the kept copy alone');assert.equal(JSON.parse(fs.readFileSync(file,'utf8')).entries.length,1);
+  fs.rmSync(dir,{recursive:true,force:true});
+});

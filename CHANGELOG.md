@@ -3,6 +3,99 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.124.3] — 2026-11-23 · build 225
+
+The third and last batch from the whole-code review at 1.123.1: the 26 findings graded low, plus 11 faults of the same
+kind found next to them. Each has a test that failed before the fix. Six low findings whose trigger the second
+reviewer could not establish stay open, listed in `docs/bug-review-decisions.md` with what the fixers noticed and left.
+
+**Replies, queue and streams**
+- **A character cut by a read in mid-write arrives whole.** The runner log, the live mirror and the older turn log are
+  split on the newline byte before they are decoded, and the partial last line is kept as bytes. A long line caught
+  mid-write used to turn one accented, CJK or emoji character into `U+FFFD` and shift the reconnect offsets.
+- **A message sent just after the CLI wrote its result starts the next reply as yours.** The log is read before the
+  steer decision (it is otherwise read every 300 ms); the message used to be written to a CLI whose turn had ended and
+  ran as a reply the agent started, stopped at once while paused.
+- **A queued start refused as busy, or during a Claude sign-in, goes back to pending** and runs after the reply. It read
+  *Start was not confirmed* and held the queue, though nothing had been sent; the queue's Start now answers 409.
+- **A start that never reached the CLI keeps no delivery receipt** (503 `not_started`: the output files, the pipe or the
+  marker could not be made), so *Retry same message* sends it once the cause is gone, not the kept failure for a week.
+- **The live mirror of a conversation driven elsewhere no longer drops a write that lands while it is reading.**
+- **`owned-transcripts.json` is written whole (temporary file, then rename)**, so a crash mid-write no longer loses
+  every conversation's fork-guard offset.
+- **An OpenRouter or Antigravity reply that fails at once is not left marked as running** across a restart.
+- **Watch-mode streams leak nothing when the client leaves during set-up**, or when the transcript is gone by then.
+- **A Codex reconnect that carries a turn's event number after the reply ended is told the turn is over** (it was read
+  as an item id, and the browser kept waiting).
+- **Side chats: an error result that arrives as a task notification ends the answer as an error.**
+- **`usage-state.json` drops a conversation's record 30 days after its last reply** and writes a reply's per-line
+  updates together (2 s), not once per line; the file had grown with every conversation ever run.
+
+**Unattended work and notifications**
+- **A check-back that is starting holds its place in the day's count**, so a job call arriving in between is refused at
+  the daily limit instead of passing it.
+- **A push is cut to fit.** The body is shortened by bytes at a character (ending `…`) when the payload would pass the
+  push services' 4 KB; 2,000 CJK characters or emoji were sent whole and the device got nothing. Only pushes the
+  service accepted are counted, and any other failure than a dead subscription is logged.
+
+**Stores and settings**
+- **`inbox.json`, `starts.json`, `checkbacks.json`, `pocket-settings.json` and `session-meta.json` that do not parse are
+  kept aside** as `<name>.corrupt-<UTC time>` and logged (`store-file.mjs`, as the four stores in 1.124.2), not read as
+  empty and overwritten. `mutes.json` and `push-subs.json` (arrays) are not covered yet.
+- **A new automatic-model key sent with a settings change that cannot be saved is not kept either**; it was written, or
+  the old one removed, before the save.
+
+**Vault**
+- **Opening or posting to an intake address is not Vault use.** Anyone can request `/intake/<anything>`, and each
+  request pushed back a passphrase Vault's idle lock.
+- **The CLI can replace or cancel only links it made, and an agent only its own conversation's.** A new link hands its
+  token to the caller, so an agent could relink the owner's link and fill the reserved name itself (403 `owner_only`).
+- **After a fill, the browser relay refuses any tool call that names a `filename`** (a snapshot, console messages,
+  network requests saved to disk), as it refuses pictures since 1.124.2.
+
+**Self-update**
+- **The restart waits for running replies**, up to 10 minutes (`/api/health` now carries `busy`); if they keep running,
+  the version that is running is put back and the job says so. The check used to be made only at the button press.
+- **A long quiet step no longer reads as interrupted.** The script touches its lock file every minute and the daemon
+  counts that, so a second press during a long backup or `npm ci` is refused instead of starting a second update.
+- **macOS:** the tools are checked before the lock (no `flock` used to read *Another Pocket Code update is running*),
+  and the backup uses `gtar` when it is there and otherwise says GNU tar is needed.
+- **When the new version does not start and putting the old one back fails too, the job says Pocket may not be
+  running** and how to recover, not *Pocket went back*.
+
+**Inbox Watch**
+- **An ack names the decision it applied (`<id>@<at>`)**, so a decision the owner changes while a check applies
+  feedback stays for the next check. A plain id still acks whatever is current.
+- **`merge --session` goes into the open entry the conversation is on**, not a newer closed one that it then refused.
+- **The runner's 30-minute limit stops the check's whole process group**, so a judge or connector read it started
+  does not run on unwatched.
+- **After more than 3 days without a check, `monitor.log` says which days of mail were not checked.**
+- **A dry run leaves an unsent alert for the next real check** (it marked it `dry-run`, and no check sent it).
+- **An alert Pocket refused while Telegram or email took it is tried again to Pocket alone** (new `alerts.missed`),
+  within the same five tries and 20 hours; **a look-ahead Pocket could not take is tried again** too.
+
+**App**
+- **A New pane has its own start**, so a project started in the main window is not shown or used beside, and
+  **closing the main conversation never overwrites the main window's unsent New**: when both hold something
+  different, main shows its own and the pane stays beside.
+- **A job key's Recent runs stays the newest 20 while the sheet is open, and a run becomes a link once its conversation
+  is recorded.**
+- **Updates sheet: Update and the older conversations stay on screen after Check now or Upgrade.**
+- **Projects: a reminder or a step edit refused after a change elsewhere stays in its sheet** with what was typed.
+
+- Manual: Automation, Conversations, Desktop and phone, Inbox Watch, Vault, Settings, For agents; `SECURITY.md`; the
+  operations guide; the `pocket-inbox` and `pocket-vault` skills.
+- Tested: `test/review-fixes.test.mjs` (with `test/sse-probe.mjs`), `test/delivery.test.mjs`,
+  `test/pause-routes.test.mjs`, `test/acp-http.test.mjs`, `test/sidechat.test.mjs`, `test/codex-session.test.mjs`,
+  `test/notify-api.test.mjs`, `test/usage.test.mjs`, `test/checkback-routes.test.mjs`, `test/checkbacks.test.mjs`,
+  `test/starts.test.mjs`, `test/settings-router-access.test.mjs`, `test/inbox.test.mjs`, `test/inbox-runner.test.mjs`,
+  `test/vault-intake.test.mjs`, `test/mcp-proxy.test.mjs`, `test/self-update.test.mjs`, `test/hardening.test.mjs`,
+  `inbox-watch/tests/test_connector.py`, `test_delivery.py`, `test_process.py`; in the browser,
+  `test/ui-regressions.mjs`, `test/jobkeys-browser.mjs`, `test/cli-updates-browser.mjs`. Test fixes:
+  `test/job-routes.test.mjs` read a field that does not exist (its limit was always 1), the CLI-updates fixture
+  answered every POST with the GET's shape, and the self-update tests left their stand-in Pocket running.
+  The macOS paths are tested with stand-in tools on Linux; no Mac was used.
+
 ## [1.124.2] — 2026-11-23 · build 224
 
 The second batch from the whole-code review at 1.123.1: the findings graded medium (1.124.1 took the highs), plus

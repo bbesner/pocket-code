@@ -126,6 +126,20 @@ def test_a_pocket_outage_is_not_mistaken_for_a_refused_card():
     assert len(calls) == 1, calls
 
 
+def test_an_ack_names_the_decision_it_read():
+    # Review 2026-11-23 (inbox-05): the ack carried the entry's id only, so a decision the owner made between the watcher
+    # reading feedback and acking it (Undo, or Not useful right after Resolved) was acked unapplied. It now carries the
+    # decision's time, and Pocket acks only that decision.
+    p = D.PocketPush({"root": tempfile.mkdtemp()}, print)
+    p.inbox = True
+    calls = []
+    read = '[{"id": "e1", "action": "resolved", "at": "2026-11-23T10:00:00Z"}, {"id": "e2/a1", "action": "alert", "at": "2026-11-23T10:00:01Z"}]'
+    p._node = lambda script, args, stdin=None: calls.append(args) or type("R", (), {"returncode": 0, "stdout": read if args[0] == "feedback" else '{"acked": 2}', "stderr": ""})()
+    assert [f["id"] for f in p.feedback()] == ["e1", "e2/a1"]
+    p.ack(["e1", "e2/a1", "e3"])
+    assert calls[-1] == ["ack", "e1@2026-11-23T10:00:00Z", "e2/a1@2026-11-23T10:00:01Z", "e3"], calls[-1]
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)]
     for n, f in tests:

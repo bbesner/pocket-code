@@ -301,7 +301,8 @@ it, unless you starred it or new mail came in (see [Your list in Gmail](#your-li
 tip and the confirmation say the label comes off in Gmail at the next check.
 
 Pocket records each decision with the entry; the watcher asks for the ones it has not applied
-(`pocket-inbox feedback`), applies them and acknowledges them (`pocket-inbox ack`), so none is applied twice.
+(`pocket-inbox feedback`), applies them and acknowledges them (`pocket-inbox ack`), so none is applied twice. Each
+acknowledgement names the decision the watcher read, so one you change while a check applies it is applied at the next.
 
 ### Check now
 
@@ -448,7 +449,8 @@ an earlier Not useful on its story: your own hand wins.
    conversation from, and learns from new examples.
 2. The watcher finds threads with new messages since the last check (through a connector, by searching by date from
    the day before the last check and skipping the messages it has already seen) and syncs the Gmail label. Mail counts
-   as seen only once its thread is in the backlog, so a check that stops part-way leaves it to the next one.
+   as seen only once its thread is in the backlog, so a check that stops part-way leaves it to the next one. Through a
+   connector a check reads at most 3 days back: after a longer gap, `monitor.log` says which days were not checked.
 3. The [first pass](#first-pass), when on, sets aside clearly routine mail.
 4. The judge reads the rest in batches. With each thread it gets related mail from the archive, the open stories with
    their timelines, the alerts already sent (the newest few, and others from the last day that share a word with the
@@ -464,12 +466,14 @@ an earlier Not useful on its story: your own hand wins.
    so one that had already reached the Inbox is not listed or pushed again. An alert that could not be delivered
    (Pocket not answering, as while it restarts, or answering too late) is tried again the same way at the next checks,
    up to five times in all and within the day; after that it is only in `monitor.sqlite` and `monitor.log` says so.
+   One that Telegram or email took while Pocket did not is tried again the same way, to Pocket alone. A look-ahead
+   that could not be delivered is tried again the same way (outside quiet hours), as its text without cards.
 6. Due items run: the digest, a look-ahead, the tidy pass. Then the watcher reports to Pocket with its settings, status
    and costs (the heartbeat).
 
 A check judges up to 20 threads; a burst waits in a backlog and is spread over the next checks. If a judge call
 fails, the batch stays in the backlog and is judged afresh next time. Pocket stops a run of its own watcher that takes more
-than 30 minutes. A check still running when Pocket restarts (an update) finishes on its own, logging to `monitor.log`;
+than 30 minutes, with any judge or mail read it started. A check still running when Pocket restarts (an update) finishes on its own, logging to `monitor.log`;
 the next check waits for it.
 
 ### Where data lives
@@ -647,9 +651,19 @@ nothing (as the claude.ai Gmail connector did for searches bounded in seconds fr
 Pocket Code; if it is current, report it with the line from `state/monitor.log`. The watcher keeps checking every
 minute and catches up the missed mail once a search works again.
 
+**`monitor.log` says "the last check was … days ago and a check reads at most 3 days back".** Through a connector, a
+check after more than 3 days without one (Pocket or the connector was down) reads only the last 3 days. Mail that arrived
+in the days the line names was not checked: look through it in Gmail.
+
 **"Inbox Watch hasn't reported since …"** The watcher has been silent for a day. For Pocket's own watcher, check
 that `POCKET_INBOX_RUNNER` is not `0` and that there is no `STOP` file in `inbox-watch-data/`; `inbox-watch-data/status.json` and
 `state/monitor.log` say what happened last. For a hand-installed watcher, check its timer.
+
+**Every Inbox entry is gone after a restart, and the server log says `inbox.json could not be read`.** `inbox.json`
+did not hold valid JSON when Pocket started (a hand edit, or a file damaged by a power cut). Since 1.124.3 Pocket keeps
+it beside the original as `inbox.json.corrupt-<time>` and starts with an empty Inbox. To get the old one back, stop
+Pocket, fix the kept copy (or take `inbox.json` from your backup), move it back to `inbox.json`, then start Pocket.
+Entries added since then are replaced by the old file.
 
 **The Inbox says "A watcher installed separately is reporting here; Pocket is not running its own."** A hand-installed
 watcher reported its profile to this Pocket while Pocket had no config of its own, so Pocket leaves the mail to it. If

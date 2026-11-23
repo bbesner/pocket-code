@@ -248,3 +248,28 @@ test('1.81: sending from an alias is not a changed account', async () => {
   await r.runner.step();
   assert.equal(r.runner.status().accountChange.to, 'sam@example.com');
 });
+
+test('1.124.3: the 30-minute limit stops the check and everything it started, not only python', async () => {
+  // A stand-in for python that starts a long child the way the watcher starts a judge or a connector read (its own output
+  // captured, so not on Pocket's pipe), then waits for it.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'inbox-runner-')), pidFile = path.join(dir, 'child.pid'), py = path.join(dir, 'python');
+  fs.writeFileSync(py, `#!/bin/sh\nsleep 300 >/dev/null 2>&1 </dev/null &\necho $! > "${pidFile}"\nwait\n`, { mode: 0o755 });
+  let clock = Date.now();
+  const logs = [], data = path.join(dir, 'data'); fs.mkdirSync(path.join(data, 'inbox-watch-data'), { recursive: true });
+  const runner = new InboxRunner({ dataDir: data, appDir: repo, claudeBin: path.join(dir, 'claude'), sessionDir: dir, home: dir, settings: () => ({ inbox: true, ownerTimezone: 'UTC' }),
+    store: { profiles: {} }, log: m => logs.push(m), env: () => ({ ...process.env }), python: py, now: () => clock });
+  const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  const run = runner.run('tick', ['tick']);
+  for (let i = 0; i < 100 && !(fs.existsSync(pidFile) && fs.readFileSync(pidFile, 'utf8').trim()); i++) await new Promise(r => setTimeout(r, 50));
+  const child = Number(fs.readFileSync(pidFile, 'utf8'));
+  assert.ok(alive(child), 'the judge stand-in is running');
+  try {
+    clock += 31 * 60_000;
+    await runner.step(); // over the limit: stopped
+    await Promise.race([run, new Promise((_, no) => setTimeout(() => no(new Error('the run did not end')), 5000))]);
+    assert.equal(runner.busy, null);
+    for (let i = 0; i < 40 && alive(child); i++) await new Promise(r => setTimeout(r, 50));
+    assert.equal(alive(child), false, 'the judge the check started was stopped with it');
+    assert.ok(logs.some(m => /ran over 30 min; stopped/.test(m)), logs.join('\n'));
+  } finally { try { process.kill(child, 'SIGKILL'); } catch { } fs.rmSync(dir, { recursive: true, force: true }); }
+});

@@ -202,3 +202,18 @@ test('Full access over HTTP runs without approvals, and each reply reports its o
   let meta; for (let i = 0; i < 40; i++) { try { meta = JSON.parse(fs.readFileSync(path.join(s.dir, 'data', 'session-meta.json'), 'utf8'))[id]; } catch { } if (meta?.acpCost) break; await sleep(50); }
   assert.equal(meta?.acpCost, 0.0042);
 });
+
+// 1.124.3 (engines-08): a reply that fails at once (a model OpenCode does not offer) ended before startAcpFromApi went on, which
+// then marked the conversation as running. Nothing cleared that until the next reply, so a Pocket restart first replaced the
+// real error with "Pocket restarted during this reply".
+test('an OpenRouter reply that fails at once is not left marked as running', async t => {
+  const s = await server(t, 18807);
+  const start = await s.call('/new', { provider: 'acp', cwd: path.join(s.dir, 'cwd'), text: 'hello', model: 'openrouter/nobody/no-such-model' });
+  assert.equal(start.status, 202, JSON.stringify(start.body));
+  const id = start.body.id;
+  let meta; for (let i = 0; i < 40; i++) { try { meta = JSON.parse(fs.readFileSync(path.join(s.dir, 'data', 'session-meta.json'), 'utf8'))[id]; } catch { } if (meta?.outcome) break; await sleep(50); }
+  assert.match(meta?.outcome?.error || '', /does not offer openrouter\/nobody\/no-such-model/, 'the reply failed: ' + JSON.stringify(meta));
+  await sleep(200);
+  meta = JSON.parse(fs.readFileSync(path.join(s.dir, 'data', 'session-meta.json'), 'utf8'))[id];
+  assert.ok(!meta.acpRunning, 'not marked as running, so a restart keeps the error: ' + JSON.stringify(meta));
+});

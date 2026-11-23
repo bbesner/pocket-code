@@ -73,6 +73,39 @@ test('store: a link reserves its name, takes only what it asked for, works once,
   clock+=31*86400e3;again.purge();assert.equal(again.intakes.length,0);
 });
 
+test('1.124.3: opening or posting to an intake address is not Vault use, so a stranger cannot hold off the idle lock',()=>{
+  const dir=tmp(),file=path.join(dir,'vault.enc');let clock=Date.parse('2026-11-23T12:00:00Z');
+  const s=new VaultStore(file,{key:parseKey(newKey()),now:()=>clock});
+  const {token}=s.createIntake({name:'idle-link',kind:'api_key',for:'Pat'});
+  s.setPassphrase('a long made-up passphrase','a long made-up passphrase');
+  // The routes behind /intake/<anything>: a malformed token, a well-formed unknown one, the real one, and posts that fail.
+  for(const probe of [()=>s.resolveIntake('x'),()=>s.resolveIntake('A'.repeat(43)),()=>s.resolveIntake(token),
+    ()=>{try{s.submitIntake('A'.repeat(43),{nonce:'0'.repeat(32),values:{value:'made-up-value-1'}});}catch{}},
+    ()=>{try{s.submitIntake(token,{nonce:'0'.repeat(32),values:{value:'made-up-value-1'}});}catch{}}]){clock+=5*60_000;probe();}
+  clock+=60_000;assert.equal(s.idleLockDue(15),true,'26 minutes after the last real use, the 15-minute lock is due');
+  s.lock();assert.throws(()=>s.resolveIntake(token),e=>e.code==='vault_locked','a locked Vault still answers 423');
+  fs.rmSync(dir,{recursive:true,force:true});
+});
+
+test('1.124.3: the CLI may replace or cancel only links it made; the owner\'s link is the owner\'s',()=>{
+  const dir=tmp(),file=path.join(dir,'vault.enc');const s=new VaultStore(file,{key:parseKey(newKey())});
+  const A='11111111-1111-4111-8111-111111111111',B='22222222-2222-4222-8222-222222222222';
+  const own=s.createIntake({name:'acme-qb',kind:'api_key',for:'Pat (Example)'});
+  for(const who of [{actor:'agent',session:A},{actor:'terminal'}]){
+    assert.throws(()=>s.relinkIntake(own.intake.id,who),e=>e.status===403&&e.code==='owner_only'&&/The owner made the link for acme-qb/.test(e.message),'relink by '+who.actor);
+    assert.throws(()=>s.cancelIntake(own.intake.id,who),e=>e.status===403&&e.code==='owner_only','cancel by '+who.actor);
+  }
+  assert.equal(s.resolveIntake(own.token).state,'pending','the owner\'s link still works');
+  assert.equal(s.relinkIntake(own.intake.id).intake.links,2,'the owner may');
+  const mine=s.createIntake({name:'agent-link',kind:'token'},{actor:'agent',session:A});
+  assert.throws(()=>s.relinkIntake(mine.intake.id,{actor:'agent',session:B}),e=>e.status===403&&/another conversation/.test(e.message),'another conversation may not');
+  assert.equal(s.relinkIntake(mine.intake.id,{actor:'agent',session:A}).intake.links,2,'the conversation that made it may');
+  const term=s.createIntake({name:'terminal-link',kind:'token'},{actor:'terminal'});
+  assert.equal(s.cancelIntake(term.intake.id,{actor:'terminal'}).state,'cancelled');
+  assert.equal(s.cancelIntake(mine.intake.id).state,'cancelled','the owner may end any link');
+  fs.rmSync(dir,{recursive:true,force:true});
+});
+
 test('page: the form, the states, escaping, the brand and its contrast',()=>{
   const brand=intakeBrand({POCKET_INTAKE_ORG:'Example <Security>',POCKET_INTAKE_ACCENT:'#ff6b00'});
   assert.ok(contrast([0xff,0x6b,0],brand.ink==='#ffffff'?[255,255,255]:[0x1a,0x17,0x15])>=4.5,'the button ink passes AA on the accent');
@@ -159,6 +192,10 @@ test('HTTP: the routes, the page and its headers, one use, limits, a locked Vaul
   assert.equal((await page('/intake/'+first,{form:{nonce:n2,v_client_id:'cid-12345',v_client_secret:'csecret-67890'}})).status,303);
   out=await waiting;assert.equal(out.code,0,out.stderr);assert.match(out.stdout,/pat-api was filled in by Pat Lee/);assert.equal(out.stdout.includes('csecret-67890'),false);
   await cli(['request','gone-soon','--kind','token']);out=await cli(['cancel','gone-soon']);assert.equal(out.code,0);assert.match(out.stdout,/gone-soon is free again/);
+  // 1.124.3: a link the owner made is the owner's; the CLI is refused and stops (exit 5), and the link still works.
+  const owners=await call('/vault/intake',{action:'create',name:'owner-link',kind:'token',for:'Sam'});assert.equal(owners.body.intake.by,'owner');
+  for(const verb of ['relink','cancel']){out=await cli([verb,'owner-link']);assert.equal(out.code,5,out.stderr);assert.match(out.stderr,/only the owner can replace or cancel it/);}
+  assert.equal((await page(owners.body.path)).status,200);
   out=await cli(['requests']);assert.match(out.stdout,/gone-soon .*cancelled/);assert.match(out.stdout,/acme-qb .*filled in/);
   // Wrong links count against the address: after 20, even a right one waits.
   for(let i=0;i<20;i++)await page('/intake/'+String(i).padStart(43,'z'));

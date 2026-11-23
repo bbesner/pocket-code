@@ -376,8 +376,11 @@ test('The gate: refused while paused, over the daily count and over a plan ceili
   assert.equal(s.claudeCalls().length, n, 'nothing ran after Resume either');
   assert.equal((await s.call('/jobs/keys')).body.keys[0].running, 0);
   // the daily count of unattended replies
-  const used = (await s.call('/automation')).body.usage;
-  await s.limits({ dailyReplies: Math.max(1, used?.startedRoot ?? 1) });
+  // 1.124.3: the day's unattended starts are in automation-state.json; /api/automation's usage has replies and cost, and
+  // no startedRoot, so the limit used to be 1 whatever had run
+  const used = JSON.parse(fs.readFileSync(path.join(s.data, 'automation-state.json'), 'utf8')).today.startedRoot;
+  assert.equal(used, 1, 'the job stopped by Pause all counted');
+  await s.limits({ dailyReplies: used });
   const daily = await s.job(secret, { data: 'over the day' });
   assert.equal(daily.body.reason, 'daily_limit', JSON.stringify(daily.body));
   await s.limits({ dailyReplies: 'off' });

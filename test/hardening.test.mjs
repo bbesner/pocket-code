@@ -151,7 +151,7 @@ test('PC-10: /api/health tells a stranger only that Pocket answers; the counts a
   const health=async h=>(await s.fetch('/api/health',{headers:h})).json();
   for(const h of [{'x-forwarded-for':'203.0.113.7'},{'cf-connecting-ip':'203.0.113.7'},{'cf-connecting-ip':'203.0.113.7','x-forwarded-for':'203.0.113.7'}])
     assert.deepEqual(await health(h),{ok:true},'a caller through a proxy, signed out: '+JSON.stringify(h));
-  const direct=await health({});assert.equal(direct.ok,true);assert.equal(direct.active,0,'a direct loopback request (deploy scripts, pocket-init) gets the counts');
+  const direct=await health({});assert.equal(direct.ok,true);assert.equal(direct.active,0,'a direct loopback request (deploy scripts, pocket-init) gets the counts');assert.equal(direct.busy,0,'1.124.3: and the replies a restart would cut short, for the self-update script');
   assert.equal(typeof direct.uptime,'number');
   const owner=(await s.login()).cookie;
   const signedIn=await health({cookie:owner,'cf-connecting-ip':'203.0.113.7'});assert.equal(signedIn.active,0,'the signed-in owner through the tunnel gets them too');
