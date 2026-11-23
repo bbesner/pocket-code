@@ -343,13 +343,26 @@ const shiftDay = (key, n) => { const d = new Date(key + 'T12:00:00Z'); d.setUTCD
 // ---------- automation-state.json: the day's counts and notices ----------
 const EMPTY_DAY = day => ({ day, startedRoot: 0, startedOwnerRoot: 0, openrouterRoot: 0, openrouterOwnerRoot: 0, replies: 0, cost: 0, tokens: 0, notices: [] });
 export class AutomationState {
-  constructor(file, { zone = () => '', now = () => Date.now(), write = atomicWrite } = {}) {
-    this.file = file; this.zone = zone; this.now = now; this.write = write;
+  constructor(file, { zone = () => '', now = () => Date.now(), write = atomicWrite, log = (...a) => console.log(new Date().toISOString(), ...a) } = {}) {
+    this.file = file; this.zone = zone; this.now = now; this.write = write; this.log = log; this.saveError = null;
     let s = null;
     try { s = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { }
     this.state = s && typeof s === 'object' && typeof s.today?.day === 'string' ? { today: { ...EMPTY_DAY(s.today.day), ...s.today }, days: Array.isArray(s.days) ? s.days : [] } : { today: EMPTY_DAY(dayKey(this.now(), this.zone())), days: [] };
   }
-  save() { try { this.write(this.file, this.state); } catch { /* counts are best effort */ } }
+  // 1.124.4: a failed write keeps the counts in memory (rolling them back would loosen the limits while Pocket runs,
+  // and a throw would break a reply that has already started), but no longer silently: save() returns false, saveError
+  // holds when and why (the Automation page warns from it), and the log has one line for a run of failures and one when
+  // a save works again. A restart before then reads the last good save, so the day's counts can come back lower.
+  save() {
+    try { this.write(this.file, this.state); } catch (e) {
+      const code = e.code || e.message;
+      if (!this.saveError) this.log(`${this.file} could not be saved (${code}): today's unattended counts are kept in memory, but a restart before a save works again would forget them and the daily limits could be passed. Check that the data folder has space and can be written.`);
+      this.saveError = { at: this.saveError?.at || new Date(this.now()).toISOString(), code };
+      return false;
+    }
+    if (this.saveError) { this.saveError = null; this.log(`${this.file} saved again: today's unattended counts are on disk.`); }
+    return true;
+  }
   // A new day starts fresh counts; yesterday's totals go into the 7-day history. Only forward: a time zone moved
   // west (or a clock stepped back) gives an earlier day key, and that must not reset today's count early.
   rollover() {

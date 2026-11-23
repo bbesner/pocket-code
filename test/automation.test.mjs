@@ -250,3 +250,30 @@ test('the audit file takes one line per event and never message text', () => {
   assert.ok(!fs.readFileSync(file, 'utf8').includes('words'));
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
 });
+
+// 1.124.4: a state write that fails (here a real read-only data folder) keeps today's counts in memory, so the limits
+// hold while Pocket runs, and says so: save() is false, saveError is set and one line is logged for the run of failures.
+// A restart before the next good save would read the lower count from the file; that is what the Automation page warns of.
+test('a daily count that cannot be saved is kept in memory, flagged and logged once, and the next good save clears it', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-')), file = path.join(dir, 'automation-state.json');
+  const logged = [], opts = { now: () => NOW, zone: () => 'UTC', log: (...a) => logged.push(a.join(' ')) };
+  try {
+    const st = new auto.AutomationState(file, opts);
+    st.recordStart({ rootOrigin: 'job' }); st.recordFinish({ rootOrigin: 'job', engine: 'acp', cost: 0.75 });
+    assert.equal(st.saveError, null); assert.deepEqual(logged, []);
+    const committed = fs.readFileSync(file);
+    fs.chmodSync(dir, 0o555);
+    st.recordStart({ rootOrigin: 'job' }); st.recordFinish({ rootOrigin: 'job', engine: 'acp', cost: 0.75 });
+    assert.equal(st.save(), false);
+    assert.deepEqual([st.counts().startedRoot, st.counts().openrouterRoot], [2, 1.5], 'memory keeps the counts');
+    assert.equal(st.saveError.code, 'EACCES'); assert.match(st.saveError.at, /^2026-11-21T15:00:00/);
+    assert.equal(logged.length, 1, 'logged once for the run of failures');
+    assert.match(logged[0], /automation-state\.json could not be saved \(EACCES\)/);
+    assert.ok(fs.readFileSync(file).equals(committed), 'the file is as it was');
+    assert.equal(new auto.AutomationState(file, { ...opts, log: () => {} }).counts().startedRoot, 1, 'a restart now would read the last good save');
+    fs.chmodSync(dir, 0o755);
+    assert.equal(st.save(), true); assert.equal(st.saveError, null);
+    assert.equal(logged.length, 2); assert.match(logged[1], /saved again/);
+    assert.equal(new auto.AutomationState(file, opts).counts().startedRoot, 2);
+  } finally { fs.chmodSync(dir, 0o755); fs.rmSync(dir, { recursive: true, force: true }); }
+});

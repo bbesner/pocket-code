@@ -856,3 +856,17 @@ test('a queued start that finds a reply already running goes back to pending and
   assert.equal(s.prompts('claude').filter(x => x === 'race queued').length, 1, 'once');
   assert.deepEqual((await s.queue(id)).items, []);
 });
+
+// 1.124.4: when automation-state.json cannot be written (here a directory sits where its temporary file goes, so only
+// this file fails), today's counts are kept in memory and the Automation page says a restart may lower them; the log
+// has one line for it, however often the page is opened.
+test('Today\'s counts that cannot be saved: Settings → Automation warns, and the log says it once', { timeout: 60_000 }, async t => {
+  const dir = tmpDir(), data = path.join(dir, 'data');
+  fs.mkdirSync(path.join(data, 'automation-state.json.tmp'), { recursive: true });
+  fs.writeFileSync(path.join(data, 'automation-state.json'), JSON.stringify({ today: { day: '2020-01-01', startedRoot: 3, replies: 3 }, days: [] })); // an earlier day: opening the page rolls it over and saves
+  const s = await boot(t, 18988, { dir });
+  const view = (await s.call('/automation')).body;
+  assert.ok(view.warnings.some(w => /^Today's counts of unattended replies and OpenRouter spend could not be saved, so after a restart they may be lower/.test(w)), JSON.stringify(view.warnings));
+  assert.equal((await s.call('/automation')).body.warnings.length, view.warnings.length);
+  assert.equal(s.logs().match(/automation-state\.json could not be saved \(EISDIR\)/g)?.length, 1, s.logs().slice(-1500));
+});

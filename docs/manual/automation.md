@@ -153,6 +153,8 @@ When a limit holds work, Pocket tells you once per reason per day, not once per 
 
 **Unattended replies** at the bottom of the page shows **Today** (replies, cost and tokens) and a **Last 7 days** table of **Day**, **Replies**, **Tokens** and **Cost**, newest day first. It counts every finished reply Pocket started without you. Claude reports a cost per reply, which on a plan is what the same tokens would cost, not a charge. Codex reports tokens.
 
+If Pocket can't write the day's counts to `automation-state.json` (a full disk, a data folder it can't write), it keeps them in memory, so the daily limits still hold, and the top of the page says *Today's counts of unattended replies and OpenRouter spend could not be saved, so after a restart they may be lower than they are and the daily limits could be passed.* The log says so once. Free the space before restarting Pocket; the warning goes, and the log says *saved again*, at the next save that works.
+
 ## Check-backs
 
 A check-back is one more reply, later, in the conversation that set it. You say "check the page in 15 minutes and tell me", the agent sets a check-back, and at that time Pocket starts the conversation's next reply by itself. The agent does the check, replies, and Pocket sends you a push with the result. It is for a conversation looking again at a page, a deploy or a job's result. When *you* have to do something later, a [task](tasks.md) is still the right thing.

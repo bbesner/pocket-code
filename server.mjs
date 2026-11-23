@@ -653,7 +653,7 @@ const ownerZone = () => settings.ownerTimezone || process.env.POCKET_TZ || '';
 // live in automation-state.json; pause, resume, settings changes and finished unattended replies go to
 // automation-audit.jsonl, never with message text. Every unattended start passes gateUnattended; owner sends never do.
 const AUTO_AUDIT_FILE = path.join(DATA_DIR, 'automation-audit.jsonl');
-const autoState = new auto.AutomationState(path.join(DATA_DIR, 'automation-state.json'), { zone: () => ownerZone() });
+const autoState = new auto.AutomationState(path.join(DATA_DIR, 'automation-state.json'), { zone: () => ownerZone(), log }); // 1.124.4: a failed save is logged
 const autoAudit = entry => auto.appendAudit(AUTO_AUDIT_FILE, entry);
 const autoValues = group => auto.groupValues(settings.automation, group);
 const pausedNow = () => settings.paused && typeof settings.paused === 'object' && settings.paused.at ? settings.paused : null;
@@ -6433,8 +6433,11 @@ app.post('/api/resume', requireAuth, ownerControl, (_req, res) => {
 
 // ---------- 1.117: Settings → Automation ----------
 function automationView() {
-  const d = auto.describe(settings.automation);
-  return { paused: pausedView(), groups: d.groups, warnings: d.warnings, notices: autoState.notices(), usage: autoState.usage(), checkbacks: checkbackSummary(), jobs: jobSummary() };
+  const d = auto.describe(settings.automation), notices = autoState.notices(), usage = autoState.usage();
+  // 1.124.4: today's counts live in memory only while automation-state.json cannot be written (read after notices() and
+  // usage(), which save when the day rolls over)
+  const warnings = autoState.saveError ? [...d.warnings, "Today's counts of unattended replies and OpenRouter spend could not be saved, so after a restart they may be lower than they are and the daily limits could be passed. Check that Pocket's data folder has space and can be written."] : d.warnings;
+  return { paused: pausedView(), groups: d.groups, warnings, notices, usage, checkbacks: checkbackSummary(), jobs: jobSummary() };
 }
 app.get('/api/automation', requireAuth, (_req, res) => { res.setHeader('Cache-Control', 'private, no-store'); res.json(automationView()); });
 // All or nothing, checked here; a saved value applies to the next start or tick (a running reply keeps what it started with).
