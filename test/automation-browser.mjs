@@ -172,7 +172,7 @@ export async function runAutomationRegressions({p,base,out,repo,rows,settings,sc
  await p.click('.session-switcher [data-pause-toggle]');await p.waitForSelector('[data-pause-go]');
  await p.click('[data-pause-go]');await p.waitForSelector('.pause-banner');
  assert.deepEqual(f.posts,['pause']);
- await p.waitForFunction(()=>document.querySelector('#toast')?.textContent==='Paused. Stopped 3 replies running (2 Claude, 1 Codex), 2 background jobs. Held 1 usage-limit retry.');
+ await p.waitForFunction(()=>document.querySelector('#toast')?.textContent==='Paused. Stopped 3 replies running (2 Claude, 1 Codex), 2 background jobs, Inbox Watch. Held 1 usage-limit retry.');
  assert.equal(await p.$eval('.pause-banner .pause-text',e=>e.textContent),'Pocket is paused. Your own messages still run. 1 usage-limit retry is held.');
  assert.equal(await p.$eval('.composerwrap',e=>e.getBoundingClientRect().bottom),composerBefore,'the composer stays put');
  assert.ok(await p.$eval('.pause-resume',e=>e.getBoundingClientRect().height>=44));
