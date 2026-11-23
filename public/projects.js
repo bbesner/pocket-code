@@ -278,7 +278,7 @@ function projectBriefing(p){
 function startProject(p){
  saveBriefing(projectBriefing(p));
  // 1.106: a Conductor project's start carries the mode and the lead per agent, so New offers Conductor or Solo without a fetch.
- writeLocal('pc-new-start',{project:p.id,projectName:p.name,cwd:p.directory||'',...(p.mode==='conductor'?conductorStartFields({mode:'conductor'}):{})});
+ writeLocal(newStartKeyOf(NEW_BASE),{project:p.id,projectName:p.name,cwd:p.directory||'',...(p.mode==='conductor'?conductorStartFields({mode:'conductor'}):{})});
  const last=p.sessions[p.sessions.length-1];
  try{if(p.directory)localStorage.setItem('pc-lastproj',p.directory);if(last)localStorage.setItem('pc-provider',window.PocketEngines.providerOf(last));}catch{}
  showNew();

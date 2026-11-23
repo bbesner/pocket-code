@@ -287,6 +287,24 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.equal(await page.$eval('#first',e=>e.value),'Beside draft survives resizing.');
   });
   await page.evaluate(()=>{for(const pane of [...splitPanes])closePane(pane.key);localStorage.removeItem('pc-dock-kind');});
+  const newBeside=async()=>{await page.evaluate(()=>openBeside(null));await page.waitForSelector('#panes iframe');const f=await(await page.$('#panes iframe')).contentFrame();await f.waitForSelector('#first');return f;};
+  const clearNewKeys=()=>page.evaluate(()=>{for(const p of [...splitPanes])closePane(p.key);['pc-new-start','pc-draft-new','pc-outbox-new','pc-attachments-new','pc-new-briefing-new'].forEach(k=>localStorage.removeItem(k));});
+  await check('New beside (1.124.3): a New pane keeps its own project start, apart from the main window\'s',async()=>{
+   await page.setViewport({width:1440,height:900});await openChat(idle);
+   const mainStart={project:'p-fixture-main',projectName:'Main window project'};
+   await clearNewKeys();await page.evaluate(s=>localStorage.setItem('pc-new-start',JSON.stringify(s)),mainStart); // what Start on a project card leaves for the main window's New
+   try{
+    const pane=await newBeside();
+    assert.equal(await pane.$eval('#new-project',e=>e.hidden),true,'the pane does not take the main window\'s project');
+    // A project started inside the pane is the pane's own; the main window's start stays as it was.
+    await pane.evaluate(()=>startProject({id:'p-fixture-beside',name:'Beside project',directory:'',tasks:[],history:[],sessions:[],reminders:[]}));
+    await pane.waitForFunction(()=>{const b=document.querySelector('#new-project');return b&&!b.hidden&&b.textContent.includes('Beside project');});
+    assert.deepEqual(await page.evaluate(()=>JSON.parse(localStorage.getItem('pc-new-start'))),mainStart,'the main window keeps its start');
+    const key=await page.evaluate(()=>splitPanes[0].key);
+    await page.evaluate(k=>closePane(k),key);
+    assert.equal(await page.evaluate(k=>localStorage.getItem('pc-new-start-new-pane-'+k),key),null,'closing the pane drops its start');
+   }finally{await clearNewKeys();}
+  });
   await page.setViewport({width:390,height:844});await chat();
   await check('Toolbar overflow offers working controls and preserves draft',async()=>{
    await page.waitForSelector('.toolbar-next:not([hidden])');

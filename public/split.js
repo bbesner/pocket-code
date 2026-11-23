@@ -112,8 +112,8 @@ function openBeside(id,before){
 }
 function closePane(key){
  splitPanes=splitPanes.filter(p=>p.key!==key);saveSplit();paintSplit();
- // the pane's own New-session draft, attachments, choices and retry state go with it
- for(const k of ['pc-draft-','pc-attachments-','pc-prefs-','pc-outbox-'])try{localStorage.removeItem(k+'new-pane-'+key);}catch{}
+ // the pane's own New-session draft, attachments, choices, retry state and project start (1.124.3) go with it
+ for(const k of ['pc-draft-','pc-attachments-','pc-prefs-','pc-outbox-','pc-new-start-'])try{localStorage.removeItem(k+'new-pane-'+key);}catch{}
 }
 // Close the MAIN conversation (never available inside a pane — panes use pane-close).
 // Closing never deletes or hides the session; it only asks the server to end its live
@@ -123,8 +123,8 @@ function promoteFirstPane(){
  if(!splitPanes.length)return false;
  const p=splitPanes[0];
  splitPanes=splitPanes.filter(x=>x.key!==p.key);saveSplit();
- // a New-session pane becoming main brings its draft, attachments, choices and retry state
- if(!p.id)for(const k of ['pc-draft-','pc-attachments-','pc-prefs-','pc-outbox-'])try{const v=localStorage.getItem(k+'new-pane-'+p.key);if(v!=null)localStorage.setItem(k+'new',v);localStorage.removeItem(k+'new-pane-'+p.key);}catch{}
+ // a New-session pane becoming main brings its draft, attachments, choices, retry state and project start (1.124.3)
+ if(!p.id)for(const [from,to] of [...['pc-draft-','pc-attachments-','pc-prefs-','pc-outbox-'].map(k=>[k+'new-pane-'+p.key,k+'new']),[newStartKeyOf('new-pane-'+p.key),newStartKeyOf('new')]])try{const v=localStorage.getItem(from);if(v!=null)localStorage.setItem(to,v);localStorage.removeItem(from);}catch{}
  location.hash=p.id?tabHref(p.id):'#/new';
  paintSplit();
  return true;
