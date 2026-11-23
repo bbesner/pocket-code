@@ -4365,7 +4365,10 @@ function sendDocument(res, r, { download = false, framed = false } = {}) {
   res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   const ancestors = framed ? "frame-ancestors 'self'" : "frame-ancestors 'none'";
-  res.setHeader('Content-Security-Policy', r.kind === 'html' ? `sandbox allow-scripts allow-popups allow-downloads allow-forms; ${ancestors}` : `default-src 'none'; style-src 'unsafe-inline'; ${ancestors}`);
+  // A video or audio file opened by its own address plays in the browser's media document, whose player loads the
+  // same address again as media: without media-src that load is blocked and the player stays grey.
+  const media = /^(video|audio)\//.test(mimeOf(r.file)) ? " media-src 'self';" : '';
+  res.setHeader('Content-Security-Policy', r.kind === 'html' ? `sandbox allow-scripts allow-popups allow-downloads allow-forms; ${ancestors}` : `default-src 'none'; style-src 'unsafe-inline';${media} ${ancestors}`);
   res.setHeader('Content-Disposition', `${download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(r.file)}`);
   res.type(mimeOf(r.file));
   const file = storedDocument(r); if (!file) return res.status(404).end();
