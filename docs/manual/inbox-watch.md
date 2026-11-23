@@ -449,7 +449,8 @@ an earlier Not useful on its story: your own hand wins.
    conversation from, and learns from new examples.
 2. The watcher finds threads with new messages since the last check (through a connector, by searching by date from
    the day before the last check and skipping the messages it has already seen) and syncs the Gmail label. Mail counts
-   as seen only once its thread is in the backlog, so a check that stops part-way leaves it to the next one.
+   as seen only once its thread is in the backlog, so a check that stops part-way leaves it to the next one. Through a
+   connector a check reads at most 3 days back: after a longer gap, `monitor.log` says which days were not checked.
 3. The [first pass](#first-pass), when on, sets aside clearly routine mail.
 4. The judge reads the rest in batches. With each thread it gets related mail from the archive, the open stories with
    their timelines, the alerts already sent (the newest few, and others from the last day that share a word with the
@@ -647,6 +648,10 @@ or more while a search for the last day's mail found some, so the connector is a
 nothing (as the claude.ai Gmail connector did for searches bounded in seconds from 2026-10-27 until 1.83.1). Update
 Pocket Code; if it is current, report it with the line from `state/monitor.log`. The watcher keeps checking every
 minute and catches up the missed mail once a search works again.
+
+**`monitor.log` says "the last check was … days ago and a check reads at most 3 days back".** Through a connector, a
+check after more than 3 days without one (Pocket or the connector was down) reads only the last 3 days. Mail that arrived
+in the days the line names was not checked: look through it in Gmail.
 
 **"Inbox Watch hasn't reported since …"** The watcher has been silent for a day. For Pocket's own watcher, check
 that `POCKET_INBOX_RUNNER` is not `0` and that there is no `STOP` file in `inbox-watch-data/`; `inbox-watch-data/status.json` and
