@@ -900,6 +900,19 @@ test('§4 signal: a child ignoring TERM is KILLed within the 5 s grace and the r
   assert.ok(ex, 'relay did not exit'); assert.equal(ex.code, 1);
 });
 
+// Mutation check (2026-11-23): a KILL moved from 5 s to 6 s passed the test above, which allows up to 8 s. Here the grace
+// is bounded on both sides, with SIGINT (the signal the real tool's npm wrapper ignores).
+test('§4 signal: a child ignoring the stop signal is KILLed at the five-second grace, not later', T, async t => {
+  const ctx = await makeCtx(t);
+  const r = ctx.start({ mode: 'stubborn' }); const s = await r.ready();
+  const t0 = Date.now();
+  process.kill(r.p.pid, 'SIGINT');
+  assert.ok(await until(() => !alive(s.pid), 7000, 25), 'stubborn child still alive 7 s after SIGINT');
+  const dt = Date.now() - t0;
+  assert.ok(dt >= 4500 && dt <= 5500, `child killed ${dt} ms after the signal, not at the five-second grace`);
+  assert.ok(r.recs().some(x => x.kind === 'signal' && x.sig === 'SIGINT'), 'SIGINT not forwarded first');
+});
+
 test('§4 child output step 5: closing the agent stdout read end never leaks; child does not outlive; restart is pre-fill', T, async t => {
   const ctx = await makeCtx(t); const v = sec('out'); ctx.daemon.values.co = v;
   const r = ctx.start(); const s = await r.ready();
