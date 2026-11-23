@@ -287,6 +287,37 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.equal(await page.$eval('#first',e=>e.value),'Beside draft survives resizing.');
   });
   await page.evaluate(()=>{for(const pane of [...splitPanes])closePane(pane.key);localStorage.removeItem('pc-dock-kind');});
+  const newBeside=async()=>{await page.evaluate(()=>openBeside(null));await page.waitForSelector('#panes iframe');const f=await(await page.$('#panes iframe')).contentFrame();await f.waitForSelector('#first');return f;};
+  const clearNewKeys=()=>page.evaluate(()=>{for(const p of [...splitPanes])closePane(p.key);['pc-new-start','pc-draft-new','pc-outbox-new','pc-attachments-new','pc-new-briefing-new'].forEach(k=>localStorage.removeItem(k));});
+  await check('New beside (1.124.3): a New pane keeps its own project start, apart from the main window\'s',async()=>{
+   await page.setViewport({width:1440,height:900});await openChat(idle);
+   const mainStart={project:'p-fixture-main',projectName:'Main window project'};
+   await clearNewKeys();await page.evaluate(s=>localStorage.setItem('pc-new-start',JSON.stringify(s)),mainStart); // what Start on a project card leaves for the main window's New
+   try{
+    const pane=await newBeside();
+    assert.equal(await pane.$eval('#new-project',e=>e.hidden),true,'the pane does not take the main window\'s project');
+    // A project started inside the pane is the pane's own; the main window's start stays as it was.
+    await pane.evaluate(()=>startProject({id:'p-fixture-beside',name:'Beside project',directory:'',tasks:[],history:[],sessions:[],reminders:[]}));
+    await pane.waitForFunction(()=>{const b=document.querySelector('#new-project');return b&&!b.hidden&&b.textContent.includes('Beside project');});
+    assert.deepEqual(await page.evaluate(()=>JSON.parse(localStorage.getItem('pc-new-start'))),mainStart,'the main window keeps its start');
+    const key=await page.evaluate(()=>splitPanes[0].key);
+    await page.evaluate(k=>closePane(k),key);
+    assert.equal(await page.evaluate(k=>localStorage.getItem('pc-new-start-new-pane-'+k),key),null,'closing the pane drops its start');
+   }finally{await clearNewKeys();}
+  });
+  await check('New beside (1.124.3): closing the main conversation never overwrites the main window\'s unsent New draft',async()=>{
+   await page.setViewport({width:1440,height:900});await openChat(idle);
+   await clearNewKeys();await page.evaluate(()=>saveDraft(NEW_BASE,'Main window draft, never sent.'));
+   try{
+    const pane=await newBeside();
+    await pane.type('#first','Beside draft, also unsent.');
+    await page.waitForFunction(()=>localStorage.getItem('pc-draft-new-pane-'+splitPanes[0].key)==='Beside draft, also unsent.');
+    await clickControl(page,'#chatmore');await clickControl(page,'#so-close');await page.waitForFunction(()=>location.hash==='#/new'&&document.querySelector('#first'));
+    assert.equal(await page.$eval('#first',e=>e.value),'Main window draft, never sent.','the main window\'s draft is still there');
+    assert.equal(await page.evaluate(()=>splitPanes.length),1,'the New pane stays beside');
+    assert.equal(await pane.$eval('#first',e=>e.value),'Beside draft, also unsent.','and keeps its own draft');
+   }finally{await clearNewKeys();}
+  });
   await page.setViewport({width:390,height:844});await chat();
   await check('Toolbar overflow offers working controls and preserves draft',async()=>{
    await page.waitForSelector('.toolbar-next:not([hidden])');
@@ -2524,6 +2555,37 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     assert.ok(await settle(()=>!document.querySelector('.task-form')),'the second Save goes through and closes the task sheet');
     assert.equal(await page.evaluate(id=>fetch('/api/tasks').then(r=>r.json()).then(s=>s.tasks.find(t=>t.id===id).text),tid),TEXT);
    }finally{Object.assign(settings,was);await page.evaluate(()=>Promise.all(['/api/board/reset','/api/tasks/reset'].map(u=>fetch(u,{method:'POST'})))).catch(()=>{});}
+  });
+  // 1.124.3: Remind me and Edit step closed before the server answered and sent the revision the card had when they
+  // opened, so an agent's change in between had the reminder's words or the step's new text refused and gone.
+  await check('Projects stale sheets (1.124.3): a reminder or a step edit typed while an agent changed the card stays in its sheet, and the next try goes in',async()=>{
+   await page.setViewport({width:1440,height:900});const settings=settingsState(),was=settings.projects;settings.projects=true;
+   const ID='warehouse-stock-report',SAYS='Ask the supplier for the corrected invoice.',STEP='Count the returns shelf and the back room';
+   const agent=b=>page.evaluate((id,b)=>fetch('/api/board/act',{method:'POST',body:JSON.stringify({project:id,...b})}),ID,b);
+   const card=()=>page.evaluate(id=>fetch('/api/board').then(r=>r.json()).then(s=>s.projects.find(p=>p.id===id)),ID);
+   const settle=async(fn,...a)=>{for(let i=0;i<40;i++){if(await page.evaluate(fn,...a))return true;await pause(100);}return false;};
+   const refused=async()=>{await page.waitForFunction(()=>/This project changed since you loaded it/.test(document.querySelector('#toast')?.textContent||''));await page.evaluate(()=>{document.querySelector('#toast').textContent='';});};
+   try{
+    await page.evaluate(()=>fetch('/api/board/reset',{method:'POST'}));
+    await page.goto(base+'/?stale-sheets=1#/projects/'+ID);await page.waitForSelector('.project-card [data-remind]');
+    await clickControl(page,'.project-card [data-remind]');await page.waitForSelector('.reminder-form [name="text"]');
+    await page.type('.reminder-form [name="text"]',SAYS);await agent({action:'note',text:'Ledger re-imported by the agent.'});
+    await clickControl(page,'.sheet [data-pick="tomorrow"]');await refused();
+    assert.equal(await page.$eval('.reminder-form [name="text"]',e=>e.value),SAYS,'the reminder sheet stays open with its words');
+    await clickControl(page,'.sheet [data-pick="tomorrow"]');
+    assert.ok(await settle(()=>!document.querySelector('.reminder-form')),'the next pick sets the reminder');
+    assert.ok((await card()).reminders.some(r=>r.label===SAYS),'with its words');
+    await page.waitForSelector('.project-card [data-task-more]');
+    await clickControl(page,'.project-card [data-task-more]');await page.waitForSelector('.sheet [data-edit]');
+    await clickControl(page,'.sheet [data-edit]');await page.waitForSelector('#step-check');
+    await page.$eval('.sheet form [name="text"]',e=>{e.value='';});await page.type('.sheet form [name="text"]',STEP);
+    await agent({action:'note',text:'Shelf labels reprinted by the agent.'});
+    await clickControl(page,'.sheet form .primary');await refused();
+    assert.equal(await page.$eval('.sheet form [name="text"]',e=>e.value),STEP,'the step sheet stays open with the new text');
+    await clickControl(page,'.sheet form .primary');
+    assert.ok(await settle(()=>!document.querySelector('#step-check')),'the next Save goes through');
+    assert.ok((await card()).tasks.some(t=>t.text===STEP),'with the new text');
+   }finally{settings.projects=was;await page.evaluate(()=>fetch('/api/board/reset',{method:'POST'})).catch(()=>{});}
   });
 
   await check('Documents (1.30): off by default, then the library, a sandboxed HTML document, Markdown and CSV views, sharing, keep from Results, the project section, tabs, split, rail, settings and the phone',async()=>{

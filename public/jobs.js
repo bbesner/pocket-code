@@ -705,16 +705,19 @@ const JobKeys = (() => {
     const empty = runs.length === 0, noteText = empty ? 'No runs yet. A run shows here when a script calls Pocket with this key.' : '';
     if (note.textContent !== noteText) note.textContent = noteText;
     setHidden(note, !empty); setHidden(ul, empty);
-    ul.querySelectorAll(':scope > [data-job-run]').forEach(li => { if (!runs.some(r => r.run === li.dataset.jobRun)) li.remove(); });
+    // 1.124.3: the rows are the newest 20 runs, so a row pushed past the 20th goes (it grew while the sheet stayed open).
+    const shown = runs.slice(0, 20);
+    ul.querySelectorAll(':scope > [data-job-run]').forEach(li => { if (!shown.some(r => r.run === li.dataset.jobRun)) li.remove(); });
     let prev = null;
-    for (const r of runs.slice(0, 20)) {
+    for (const r of shown) {
       let li = ul.querySelector(`:scope > [data-job-run="${CSS.escape(r.run)}"]`);
-      if (!li) {
-        // A run opens its conversation; one that never started has none, so it is a line, not a link.
-        li = document.createElement('li'); li.dataset.jobRun = r.run;
+      if (!li) { li = document.createElement('li'); li.dataset.jobRun = r.run; }
+      // A run opens its conversation; one that never started has none, so it is a line, not a link. 1.124.3: a run first
+      // drawn before its conversation was recorded becomes the link once it is.
+      if (li.firstElementChild?.tagName !== (r.conversation ? 'A' : 'DIV')) {
         const a = document.createElement(r.conversation ? 'a' : 'div'); a.className = 'job-run';
         if (r.conversation) { a.href = '#/chat/' + encodeURIComponent(r.conversation); a.onclick = () => closeCurrentSheet?.(); }
-        li.append(a);
+        li.replaceChildren(a);
       }
       const a = li.firstElementChild, html = runInner(r);
       if (s.runsWritten.get(a) !== html) { a.innerHTML = html; s.runsWritten.set(a, html); }

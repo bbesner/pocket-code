@@ -10,7 +10,8 @@ const NEW_BASE=PANE&&PANE_KEY?'new-pane-'+PANE_KEY:'new';
 // that draft's key while it shows; everything else on New keeps the plain key.
 let NEW_KEY=NEW_BASE,newView=null;
 const newSlotKey=id=>'new-s-'+id;
-const newStartKeyOf=key=>/^new-s-/.test(key)?'pc-new-start-'+key:'pc-new-start';
+// 1.124.3: a New pane's start is its own too, so a project started in the main window never shows (or is used) beside.
+const newStartKeyOf=key=>/^new-(s|pane)-/.test(key)?'pc-new-start-'+key:'pc-new-start';
 // ?solo=1 (1.31): this window shows one view on its own, in its own browser tab or app window: no rail, no tab
 // strip, no pane controls. "Open in a new window" for a project or a document.
 const SOLO=!PANE&&new URLSearchParams(location.search).has('solo');
