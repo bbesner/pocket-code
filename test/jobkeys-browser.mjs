@@ -147,6 +147,22 @@ export async function runJobKeysRegressions({p,base,out,repo,scan,settings=null}
  assert.equal(await p.$eval('.job-key-sheet [data-job-toggle]',e=>e.textContent),'Turn on');
  await close();
 
+ console.log('Job keys (fixture, 1.124.3): Recent runs stays the newest 20 while the sheet is open, and a run becomes a link once its conversation is recorded');
+ const runsBefore=f.runs['jk-disk0001'];
+ try{
+  const now=Date.now(),run=(n,status,ago,conversation='job-conv-many'+n)=>({run:'jr-many'+n,keyId:'jk-disk0001',name:'disk-check',conversation,status,startedAt:iso(now-ago*MIN)});
+  // newest first: a run just reserved, its conversation not recorded yet, then 24 that finished
+  f.runs['jk-disk0001']=[run(0,'starting',1,null),...Array.from({length:24},(_,i)=>run(i+1,'done',i+2))];
+  await automation();await p.waitForFunction(()=>document.querySelectorAll('[data-job-keys] .job-key-row').length===2);
+  await p.click('[data-job-keys] [data-job-open]');await p.waitForFunction(()=>document.querySelectorAll('[data-job-runs] > li').length===20);
+  assert.equal(await p.$eval('[data-job-run="jr-many0"] .job-run',e=>e.tagName),'DIV','no conversation yet: a line, not a link');
+  // five newer runs, and the first run's conversation is now recorded
+  f.runs['jk-disk0001']=[...Array.from({length:5},(_,i)=>run(100+i,'done',0)),{...f.runs['jk-disk0001'][0],conversation:'job-conv-late',status:'done'},...f.runs['jk-disk0001'].slice(1)];
+  await p.waitForSelector('[data-job-run="jr-many100"]',{timeout:8000});
+  assert.deepEqual(await p.$$eval('[data-job-runs] > li',x=>x.map(l=>l.dataset.jobRun)),f.runs['jk-disk0001'].slice(0,20).map(r=>r.run),'the newest 20, no more');
+  await close();
+ }finally{f.runs['jk-disk0001']=runsBefore;}
+
  if(settings){
   console.log('Job keys (fixture, 1.124): the read-only Jobs group in Tasks');
   const tasksBefore=settings.tasks;settings.tasks=true;

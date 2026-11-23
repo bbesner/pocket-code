@@ -705,9 +705,11 @@ const JobKeys = (() => {
     const empty = runs.length === 0, noteText = empty ? 'No runs yet. A run shows here when a script calls Pocket with this key.' : '';
     if (note.textContent !== noteText) note.textContent = noteText;
     setHidden(note, !empty); setHidden(ul, empty);
-    ul.querySelectorAll(':scope > [data-job-run]').forEach(li => { if (!runs.some(r => r.run === li.dataset.jobRun)) li.remove(); });
+    // 1.124.3: the rows are the newest 20 runs, so a row pushed past the 20th goes (it grew while the sheet stayed open).
+    const shown = runs.slice(0, 20);
+    ul.querySelectorAll(':scope > [data-job-run]').forEach(li => { if (!shown.some(r => r.run === li.dataset.jobRun)) li.remove(); });
     let prev = null;
-    for (const r of runs.slice(0, 20)) {
+    for (const r of shown) {
       let li = ul.querySelector(`:scope > [data-job-run="${CSS.escape(r.run)}"]`);
       if (!li) {
         // A run opens its conversation; one that never started has none, so it is a line, not a link.
