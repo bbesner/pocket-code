@@ -1625,8 +1625,9 @@ async function pumpTail(id, file) {
           if (!line.trim()) continue;
           let o; try { o = JSON.parse(line); } catch { continue; }
           const m = normalizeLine(o);
-          // id = transcript offset: a browser reconnect sends it back as Last-Event-ID
-          if (m) { try { t.res.write(`id: ${at}\ndata: ${JSON.stringify({ type: m.role === 'user' ? 'user' : 'assistant', msg: m, offset: at })}\n\n`); } catch { } }
+          // id = transcript offset: a browser reconnect sends it back as Last-Event-ID. The w: prefix (1.124.2) keeps it
+          // apart from a turn's event numbers, which the same URL carries while a reply runs.
+          if (m) { try { t.res.write(`id: w:${at}\ndata: ${JSON.stringify({ type: m.role === 'user' ? 'user' : 'assistant', msg: m, offset: at })}\n\n`); } catch { } }
         }
       } finally { await fh.close(); }
     }
@@ -4803,9 +4804,10 @@ app.get('/api/commands', requireAuth, async (req, res) => {
 // Where a stream connection's replay starts: after the last event the browser saw
 // (Last-Event-ID on an automatic reconnect), else after the events the client already
 // has from the transcript (?from, sent on a fresh connection), else from the start.
+// Only a turn's own event number counts (1.124.2): a watch-mode id (w:<offset>) from before the turn began is not one.
 function replayFrom(req, turn) {
-  const last = Number(req.headers['last-event-id']);
-  if (Number.isFinite(last)) return last + 1;
+  const h = String(req.headers['last-event-id'] ?? '');
+  if (/^\d+$/.test(h)) return Number(h) + 1;
   const from = Number(req.query.from);
   return Number.isFinite(from) && from >= 0 ? Math.min(from, turn.events.length) : 0;
 }
@@ -4864,7 +4866,12 @@ app.get('/api/session/:id/events', requireAuth, async (req, res) => {
   const file = await findSessionFile(id);
   if (!file) { clearInterval(ka); res.write(`data: {"type":"idle"}\n\n`); return res.end(); }
   const size = (await fsp.stat(file)).size;
-  const last = Number(req.headers['last-event-id']);
+  const h = String(req.headers['last-event-id'] ?? '');
+  // 1.124.2: a bare number is a turn's event number: the reply this browser was following ended (or a restart dropped
+  // it) while the connection was down. It is not a transcript offset, and the URL's offset is from before that reply,
+  // so either would show messages twice. Tell the browser the turn is over; it reads the conversation again.
+  if (/^\d+$/.test(h)) { clearInterval(ka); res.write(`data: {"type":"done"}\n\n`); return res.end(); }
+  const last = /^w:\d+$/.test(h) ? Number(h.slice(2)) : NaN;
   let offset = Number.isFinite(last) ? last : Number(req.query.offset);
   if (!Number.isFinite(offset) || offset < 0 || offset > size) offset = size;
   res.write(`data: {"type":"watch"}\n\n`);

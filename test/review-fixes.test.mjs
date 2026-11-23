@@ -40,7 +40,7 @@ async function fixture(t,port,env={}){
  t.after(async()=>{await stop();killAll();fs.rmSync(dir,{recursive:true,force:true});});
  fs.mkdirSync(path.join(dir,'sessions','test-workspace'),{recursive:true});
  await start();
- return {dir,port,start,stop,call,calls,health,state,until,streamFor,logs:()=>logs,alive:()=>child.exitCode===null};
+ return {dir,port,headers,start,stop,call,calls,health,state,until,streamFor,logs:()=>logs,alive:()=>child.exitCode===null};
 }
 const msg=text=>({text,clientMessageId:randomUUID()});
 
@@ -203,10 +203,36 @@ test('watch mode numbers events by transcript offset so a reconnect resumes, and
  const msgs=all.map(d=>JSON.parse(d)).filter(d=>d.offset);
  assert.ok(msgs.length>=2,'user and assistant lines replayed from offset 0');
  const last=msgs.at(-1).offset;
- const resumed=(await f.streamFor(id,'?offset=0',500,{'last-event-id':String(last)})).map(d=>JSON.parse(d)).filter(d=>d.offset);
+ const resumed=(await f.streamFor(id,'?offset=0',500,{'last-event-id':'w:'+last})).map(d=>JSON.parse(d)).filter(d=>d.offset); // 1.124.2: the id the stream wrote
  assert.deepEqual(resumed,[],'nothing before Last-Event-ID is replayed');
  const slow=(await f.call('/new',{cwd:repo,...msg('__SLOW__ running')})).body.id;
  const live=await f.streamFor(slow,'?offset=0',300);
  assert.match(live[0]||'',/"type":"attach"/);
  assert.match(live[0],/"key":"[0-9a-z]+:\d+"/);
+});
+
+// 1.124.2: a turn numbers its events from 0 and watch mode numbers them by transcript offset, on one URL. A browser
+// that reconnects by itself sends whichever id it saw last, so each kind of stream must not read the other's.
+test('a reconnect carrying the other kind of stream id is not read as its own',async t=>{
+ const f=await fixture(t,18436);
+ const id=(await f.call('/new',{cwd:repo,...msg('first message here')})).body.id;
+ assert.ok(await f.until(async()=>await f.state(id)==='finished'));
+ await f.call(`/session/${id}/message`,msg('second message here'));
+ assert.ok(await f.until(async()=>(await f.call(`/session/${id}`)).body.messages?.length>=4&&await f.state(id)==='finished'));
+ const size=(await f.call(`/session/${id}`)).body.size;
+ // the reply was streaming (turn event ids 0..3) and ended while the connection was down: the reconnect lands in
+ // watch mode with that turn's id, and the URL the stream was opened with
+ const after=(await f.streamFor(id,`?offset=${size}&from=0`,600,{'last-event-id':'3'})).map(d=>JSON.parse(d));
+ assert.deepEqual(after.filter(d=>d.type==='user'||d.type==='assistant'),[],'the transcript is not replayed from byte 3');
+ assert.ok(after.some(d=>d.type==='done'),'the browser is told the turn ended, so it reads the conversation again');
+ // watch mode writes its ids with a w: prefix, which is what the browser sends back
+ const ids=await (async()=>{const ac=new AbortController();const r=await fetch(`http://127.0.0.1:${f.port}/api/session/${id}/events?offset=0`,{headers:f.headers,signal:ac.signal});
+  let seen='';const reader=r.body.getReader();const read=(async()=>{try{for(;;){const {value,done}=await reader.read();if(done)break;seen+=new TextDecoder().decode(value);}}catch{}})();
+  await sleep(500);ac.abort();await read;return seen.split('\n').filter(l=>l.startsWith('id: ')).map(l=>l.slice(4));})();
+ assert.ok(ids.length>=4&&ids.every(i=>/^w:\d+$/.test(i)),'watch ids: '+ids);
+ // the other way: a watch id reaching a running turn replays the turn from the start, not from event 5001
+ const q=(await f.call('/new',{cwd:repo,...msg('__QUESTION__')})).body.id;
+ assert.ok(await f.until(async()=>await f.state(q)==='input'));
+ const into=(await f.streamFor(q,'?offset=0',500,{'last-event-id':'w:5000'})).filter(d=>!d.includes('"attach"'));
+ assert.ok(into.some(d=>d.includes('"questions"')),'the turn\'s events are replayed');
 });
