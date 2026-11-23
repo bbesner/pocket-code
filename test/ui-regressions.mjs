@@ -737,6 +737,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
   await check('Attention filter includes Response ready replies until they are opened',async()=>{
    const done=rows.find(r=>r.state.kind==='finished')||rows[4];const saved=done.state,at=Date.now();
    done.state={kind:'finished',label:'Response ready',at};
+   await page.setViewport({width:1440,height:900}); // its own size: run alone (POCKET_CHECK) it had the browser's 800x600, where the row's More did not open
    await page.goto(base+'/#/');await page.waitForSelector('[data-filter="attention"]');
    delete done.seenAt;await page.evaluate(id=>{localStorage.removeItem('pc-seen-'+id);serverSeen.delete(id);seenPending.delete(id);},done.id);await page.evaluate(()=>refreshSessions());await pause(300);
    await clickControl(page,'[data-filter="attention"]');await pause(200);
@@ -751,6 +752,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
   await check('Mark reviewed clears Response ready without opening it, singly or all at once with Undo',async()=>{
    const done=rows.find(r=>r.state.kind==='finished')||rows[4];const saved=done.state,at=Date.now();
    done.state={kind:'finished',label:'Response ready',at};
+   await page.setViewport({width:1440,height:900}); // its own size: run alone (POCKET_CHECK) it had the browser's 800x600, where the row's More did not open
    await page.goto(base+'/#/');await page.waitForSelector('[data-filter="attention"]');
    delete done.seenAt;await page.evaluate(id=>{localStorage.removeItem('pc-seen-'+id);serverSeen.delete(id);seenPending.delete(id);},done.id);await page.evaluate(()=>refreshSessions());await pause(300);
    await clickControl(page,'[data-filter="attention"]');await pause(200);
