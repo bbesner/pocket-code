@@ -73,6 +73,20 @@ test('store: a link reserves its name, takes only what it asked for, works once,
   clock+=31*86400e3;again.purge();assert.equal(again.intakes.length,0);
 });
 
+test('1.124.3: opening or posting to an intake address is not Vault use, so a stranger cannot hold off the idle lock',()=>{
+  const dir=tmp(),file=path.join(dir,'vault.enc');let clock=Date.parse('2026-11-23T12:00:00Z');
+  const s=new VaultStore(file,{key:parseKey(newKey()),now:()=>clock});
+  const {token}=s.createIntake({name:'idle-link',kind:'api_key',for:'Pat'});
+  s.setPassphrase('a long made-up passphrase','a long made-up passphrase');
+  // The routes behind /intake/<anything>: a malformed token, a well-formed unknown one, the real one, and posts that fail.
+  for(const probe of [()=>s.resolveIntake('x'),()=>s.resolveIntake('A'.repeat(43)),()=>s.resolveIntake(token),
+    ()=>{try{s.submitIntake('A'.repeat(43),{nonce:'0'.repeat(32),values:{value:'made-up-value-1'}});}catch{}},
+    ()=>{try{s.submitIntake(token,{nonce:'0'.repeat(32),values:{value:'made-up-value-1'}});}catch{}}]){clock+=5*60_000;probe();}
+  clock+=60_000;assert.equal(s.idleLockDue(15),true,'26 minutes after the last real use, the 15-minute lock is due');
+  s.lock();assert.throws(()=>s.resolveIntake(token),e=>e.code==='vault_locked','a locked Vault still answers 423');
+  fs.rmSync(dir,{recursive:true,force:true});
+});
+
 test('page: the form, the states, escaping, the brand and its contrast',()=>{
   const brand=intakeBrand({POCKET_INTAKE_ORG:'Example <Security>',POCKET_INTAKE_ACCENT:'#ff6b00'});
   assert.ok(contrast([0xff,0x6b,0],brand.ink==='#ffffff'?[255,255,255]:[0x1a,0x17,0x15])>=4.5,'the button ink passes AA on the accent');

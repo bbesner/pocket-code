@@ -178,7 +178,10 @@ export class VaultStore {
   load(data) { const legacy = !(data.version >= STORE_SCHEMA); this.intakes = (Array.isArray(data.intakes) ? data.intakes : []).filter(r => r && typeof r.id === 'string' && NAME_RE.test(r.name || '') && /^[0-9a-f]{64}$/.test(r.tokenHash || '')); this.items = (Array.isArray(data.items) ? data.items : []).filter(i => i && typeof i.id === 'string' && NAME_RE.test(i.name || '')).map(i => this.normalize(legacy && i.policy === 'ask' ? { ...i, policy: 'default' } : i)); this.lastActivityAt = this.now(); }
   get mode() { return this.salt ? 'passphrase' : 'key'; }
   get locked() { return this.items === null; }
-  open() { if (this.locked) throw fail('The Vault is locked. Ask the owner to unlock it in Pocket Code.', 423, { code: 'vault_locked' }); this.lastActivityAt = this.now(); return this; }
+  open() { this.unlocked(); this.lastActivityAt = this.now(); return this; }
+  // 1.124.3: the check alone, for the unauthenticated intake page: anyone can request /intake/<anything>, and that must not
+  // count as use, or a stranger could keep a passphrase Vault from locking itself when idle. A real fill still counts (save).
+  unlocked() { if (this.locked) throw fail('The Vault is locked. Ask the owner to unlock it in Pocket Code.', 423, { code: 'vault_locked' }); return this; }
   // Passphrase mode: unlock derives the key from the passphrase and the file's salt and decrypts; lock forgets both the
   // key and every item. Switching modes rewrites the file under the other key.
   unlock(passphrase) {
@@ -480,7 +483,7 @@ export class VaultStore {
   // The link a token opens, whatever its state, or null. Every stored hash is compared, in constant time, with no early
   // return, so how long the lookup takes says nothing about which links exist.
   resolveIntake(token) {
-    this.open();
+    this.unlocked();
     if (typeof token !== 'string' || !INTAKE_TOKEN_RE.test(token)) return null;
     const h = Buffer.from(tokenHash(token), 'hex'); let found = null;
     for (const r of this.intakes) if (timingSafeEqual(Buffer.from(r.tokenHash, 'hex'), h) && !found) found = r;
@@ -491,7 +494,7 @@ export class VaultStore {
   // written in one save, so a failed write leaves the link open and nothing stored. Only the fields the link asked for are
   // taken; the kind's fixed fields are required (a credentials link needs at least one of its fields).
   submitIntake(token, { nonce, values, notes = '' } = {}) {
-    this.open();
+    this.unlocked();
     const hit = this.resolveIntake(token); if (!hit || hit.state !== 'pending') throw fail('This link is no longer active.', 404, { code: 'intake_inactive' });
     const r = hit.intake, now = this.now(), at = iso(now);
     if (!VaultStore.intakeNonceOk(r, nonce)) throw fail('This form is out of date. Open the link again.', 403, { code: 'intake_nonce' });
