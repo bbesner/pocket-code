@@ -42,6 +42,7 @@ import {AgentActivity,ClaudeAgentFiles,SubagentIndex,subagentDir} from './subage
 import {VoiceService} from './voice.mjs';
 import {automation,createTitler,cleanTitle,generateTitle,generateCodexTitle,TITLE_VERSION,summarizeAway,awayDigest,awayWorthSummary,createRetitler,retitle,summarizeForTask} from './titles.mjs';
 import zlib from 'node:zlib';
+import { staticGzip } from './static-gzip.mjs';
 import {sessionIdFromRef,bestSnippet,cleanMemstemSnippet} from './search.mjs';
 import {PromptStore} from './prompts.mjs';
 import {ClaudeLogin} from './claude-login.mjs';
@@ -2924,6 +2925,9 @@ app.get('/manifest.webmanifest', (_req, res, next) => {
   const m = assistantOn() ? { ...MANIFEST, name: 'Pocket Assistant', short_name: 'Pocket Assistant', description: 'Your assistant for email, documents, quotes and everyday work' } : MANIFEST;
   res.setHeader('Cache-Control', 'no-cache'); res.type('application/manifest+json').send(JSON.stringify(m));
 });
+// 1.124.5: the app's scripts, styles and page go out gzipped when the browser accepts it (static-gzip.mjs); the rest
+// falls through to express.static as before.
+app.use(staticGzip(path.join(import.meta.dirname, 'public')));
 app.use(express.static(path.join(import.meta.dirname, 'public'), { index: 'index.html', maxAge: '5m',
   setHeaders(res, file) { if (['index.html', 'sw.js'].includes(path.basename(file))) res.setHeader('Cache-Control', 'no-cache'); },
 }));
