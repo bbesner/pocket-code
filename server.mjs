@@ -4904,6 +4904,10 @@ app.get('/api/session/:id/events', requireAuth, async (req, res) => {
       req.on('close', () => { clearInterval(ka); cxTurn.subs.delete(res); });
       return;
     }
+    // 1.124.3: a bare number is a turn's event number (as for Claude below): the reply this browser followed ended while the
+    // connection was down. Read as an item id it matched nothing, every item counted as seen, and the reply's end never
+    // showed. Tell the browser the turn is over; it reads the conversation again.
+    if (/^\d+$/.test(String(req.headers['last-event-id'] ?? ''))) { clearInterval(ka); res.write(`data: {"type":"done"}\n\n`); return res.end(); }
     res.write(`data: {"type":"watch"}\n\n`);
     // id = item id: a reconnect (Last-Event-ID) or a reopen (?after) resumes after it
     const after = String(req.headers['last-event-id'] || req.query.after || '') || null;
