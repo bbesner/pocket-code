@@ -215,6 +215,26 @@ test('the public address is learned only from a signed-in request, never from a 
   assert.equal(saved(),'https://pocket.example.com','and a stranger cannot replace it');
 });
 
+// 1.124.2: the time zone and the public address are saved settings too. When Pocket cannot save them (a full disk, a data
+// folder it can't write; here the save's temporary file is a folder), neither is kept in memory: the time zone answers 503
+// (the page sends it again on its next load) and GET /api/me still answers. Before, /api/me never answered, and each value
+// stayed in memory unsaved, so the next report found nothing to change and a restart lost it.
+test('1.124.2: a time zone or public address that cannot be saved is not kept, /api/me still answers, and the next report saves it',async t=>{
+  const s=await server(t,20621);
+  const owner=(await s.login()).cookie,saved=k=>{try{return JSON.parse(fs.readFileSync(path.join(s.dir,'data','pocket-settings.json'),'utf8'))[k];}catch{return undefined;}};
+  const tmp=path.join(s.dir,'data','pocket-settings.json.tmp');
+  const zone=()=>s.fetch('/api/timezone',{method:'POST',headers:{cookie:owner},body:{tz:'Europe/Berlin'}});
+  const me=()=>fetch(s.url('/api/me'),{headers:{cookie:owner,'x-forwarded-host':'pocket.example.com','x-forwarded-proto':'https'},signal:AbortSignal.timeout(5000)}).then(r=>r.status,e=>e.name);
+  fs.mkdirSync(tmp);
+  const z=await zone();
+  assert.equal(z.status,503);assert.equal((await z.json()).error,'Pocket could not save the time zone. Check that its data folder has space and can be written; the page sends it again when it next loads.');
+  assert.equal(await me(),200,'/api/me answers');
+  assert.match(s.logs(),/owner time zone not saved: /);assert.match(s.logs(),/public address not saved: /);
+  fs.rmdirSync(tmp);
+  assert.equal((await zone()).status,200);assert.equal(saved('ownerTimezone'),'Europe/Berlin','the next report saves it');
+  assert.equal(await me(),200);assert.equal(saved('publicUrl'),'https://pocket.example.com');
+});
+
 // CodeQL js/type-confusion-through-parameter-tampering: the pre-auth JSON parser hands these raw-body routes an array, whose length passed the check.
 test('CodeQL: the upload routes refuse a JSON body instead of failing on it',async t=>{
   const s=await server(t,20501);

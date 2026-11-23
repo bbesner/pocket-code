@@ -758,7 +758,12 @@ function learnPublicUrl(req) { // the owner's own address, from a signed-in requ
   if (!host || LOOPBACK_HOSTS.test(host)) return;
   const proto = (req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0].trim();
   const url = `${proto}://${host.split(',')[0].trim()}`;
-  if (url !== settings.publicUrl) { settings.publicUrl = url; saveSettings(); }
+  if (url === settings.publicUrl) return;
+  // 1.124.2: a save that fails (a full disk) is not kept in memory, and /api/me still answers: it used to answer 503 and
+  // keep the address unsaved, so the next request matched it and a restart lost it.
+  const prev = settings.publicUrl;
+  settings.publicUrl = url;
+  try { saveSettings(); } catch (e) { if (prev === undefined) delete settings.publicUrl; else settings.publicUrl = prev; log(`public address not saved: ${e.message}`); }
 }
 const emailSettings = () => ({ configured: mailer.configured, from: mailer.from || '', to: settings.notifyEmail || '', on: emailOn(), hook: Boolean(REMINDER_HOOK), error: mailer.error || null, base: publicBase() });
 async function mailDue(item, { ahead = false } = {}) {
@@ -4488,13 +4493,20 @@ app.post('/api/settings', requireAuth, (req, res) => {
   if (routerKey !== undefined) { if (routerKey) { const tmp = ROUTER_KEY_FILE + '.tmp'; fs.writeFileSync(tmp, routerKey, { mode: 0o600 }); fs.chmodSync(tmp, 0o600); fs.renameSync(tmp, ROUTER_KEY_FILE); } else try { fs.rmSync(ROUTER_KEY_FILE, { force: true }); } catch { } }
   if (next.vaultAccess !== undefined && settings.vaultAccess !== next.vaultAccess) log(`vault agent access: ${settings.vaultAccess} -> ${next.vaultAccess}`);
   const prevContextPolicy = settings.contextPolicy; // 1.92
+  // 1.124.2: saved before anything is rebuilt; a save that fails (a full disk) puts every key back, so the change is not
+  // live in memory behind an error and then lost at the next restart.
+  const prev = new Map([...unset, ...Object.keys(next)].map(k => [k, Object.hasOwn(settings, k) ? { v: settings[k] } : null]));
   for (const k of unset) delete settings[k];
   Object.assign(settings, next);
+  try { saveSettings(); } catch (e) {
+    for (const [k, p] of prev) { if (p) settings[k] = p.v; else delete settings[k]; }
+    log(`settings not saved: ${e.message}`);
+    return res.status(503).json({ error: 'Pocket could not save the change, so nothing changed. Check that its data folder has space and can be written, then try again.' });
+  }
   if (routerTouched) buildRouter();
   if (accessTouched) buildAccess();
   if ('offeredClaudeModels' in next) log(`claude models offered: ${claudeOffer().offered.join(',') || '(none)'} (${claudeOffer().source})`);
   if ('trustedActions' in next) log(`trusted actions: ${trustedRules().length} rule(s) (${trustedSettings().source})`);
-  saveSettings();
   if (['projects', 'documents', 'tasks', 'inbox', 'coordination', 'assistantMode'].some(k => k in next) || vaultToggled) syncAgentSkills();
   if (vaultToggled) restartIdleRunners('vault setting changed');
   if (vaultToggled && settings.vault) warnVaultPath();
@@ -5015,14 +5027,21 @@ app.post('/api/tasks/summary', requireAuth, tasksOn, async (req, res) => {
 });
 
 // 1.74: the owner's time zone, from the browser they sign in with (Inbox Watch's digest, quiet hours and look-ahead follow it).
-function learnTimezone(tz) {
-  if (typeof tz !== 'string' || !tz || tz.length > 64 || tz === settings.ownerTimezone) return;
-  try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); } catch { return; }
-  settings.ownerTimezone = tz; saveSettings(); log(`owner time zone: ${tz}`);
+function learnTimezone(tz) { // false: it could not be saved (1.124.2)
+  if (typeof tz !== 'string' || !tz || tz.length > 64 || tz === settings.ownerTimezone) return true;
+  try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); } catch { return true; }
+  // 1.124.2: a save that fails is not kept in memory: kept, the page's next report matched it and it was never saved
+  const prev = settings.ownerTimezone;
+  settings.ownerTimezone = tz;
+  try { saveSettings(); } catch (e) { if (prev === undefined) delete settings.ownerTimezone; else settings.ownerTimezone = prev; log(`owner time zone not saved: ${e.message}`); return false; }
+  log(`owner time zone: ${tz}`); return true;
 }
 // 1.118 (PC-12): the browser reports its zone with a POST from Pocket's own page; GET /api/me?tz= used to store it, and a
 // link on another site could set it, since the cookie rides along on a top-level GET.
-app.post('/api/timezone', ownPageJson, requireAuth, (req, res) => { learnTimezone(req.body?.tz); res.json({ ok: true }); });
+app.post('/api/timezone', ownPageJson, requireAuth, (req, res) => {
+  if (!learnTimezone(req.body?.tz)) return res.status(503).json({ error: 'Pocket could not save the time zone. Check that its data folder has space and can be written; the page sends it again when it next loads.' });
+  res.json({ ok: true });
+});
 // ---------- 1.69: inbox routes ----------
 // Inbox Watch: the owner's cookie or the loopback token (a direct loopback request only, as for Tasks and start links).
 // POST /api/inbox is the worker's one call: the entry, the push (kind alerts, urgent) and, when asked, the email.

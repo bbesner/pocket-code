@@ -109,3 +109,22 @@ test('a settings patch is checked whole before any of it applies', async t => {
   r = await call('/settings', { projects: !before.projects, notifyEmail: 'owner@example.test' }); assert.equal(r.status, 200);
   assert.equal(r.body.projects, !before.projects, 'a patch that passes applies whole'); assert.equal(r.body.notifyEmail, 'owner@example.test');
 });
+
+// 1.124.2: a change Pocket cannot save (a full disk, a data folder it can't write; here the save's temporary file is a
+// folder) is not kept. It used to apply in memory behind a generic 503, and was lost at the next restart.
+test('1.124.2: a settings change that cannot be saved is not kept, and the answer says so', async t => {
+  const { dir, call, logs } = await server(t, 18685, {});
+  assert.equal((await call('/settings', { access: { enabled: false } })).status, 200);
+  const before = (await call('/settings')).body, tmp = path.join(dir, 'data', 'pocket-settings.json.tmp');
+  fs.mkdirSync(tmp);
+  let r = await call('/settings', { projects: !before.projects, tasks: !before.tasks, notifyEmail: 'owner@example.test', access: null });
+  assert.equal(r.status, 503);
+  assert.equal(r.body?.error, 'Pocket could not save the change, so nothing changed. Check that its data folder has space and can be written, then try again.');
+  const after = (await call('/settings')).body;
+  assert.deepEqual([after.projects, after.tasks, after.notifyEmail, after.access], [before.projects, before.tasks, before.notifyEmail, before.access], 'nothing changed');
+  assert.match(logs(), /settings not saved: /);
+  fs.rmdirSync(tmp);
+  r = await call('/settings', { projects: !before.projects, notifyEmail: 'owner@example.test' });
+  assert.equal(r.status, 200); assert.equal(r.body.projects, !before.projects); assert.equal(r.body.notifyEmail, 'owner@example.test');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'pocket-settings.json'), 'utf8')).notifyEmail, 'owner@example.test');
+});
