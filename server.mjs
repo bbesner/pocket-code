@@ -7567,8 +7567,22 @@ app.post('/api/jobs/requests/:id/answer', requireAuth, ownerControl, jobsGate, (
     log(`job key request=${p.id} allow failed, the key file was not written (${error.code})`);
     return res.status(e.status || 500).json({ ...error, request: jobRequestView(kept) });
   }
-  const key = jobStore.updateKey(made.key.id, { keyFile: file, fileHash: made.key.keyHash });
-  const done = jobStore.updateProposal(p.id, { status: 'allowed', answeredAt: at, keyId: key.id, keyName: key.name, keyFile: file, ...(changed.length ? { edited: changed } : {}), error: undefined });
+  // 1.124.4: when the key file's path or the request's Allow cannot be saved, the file and the key are undone as above, the
+  // request stays pending with the reason, and Allow can be pressed again. Only the file's write used to be undone: the
+  // request stayed pending beside an enabled key, a second Allow was refused as a taken name and the agent saw it expire.
+  let key, done;
+  try {
+    key = jobStore.updateKey(made.key.id, { keyFile: file, fileHash: made.key.keyHash });
+    done = jobStore.updateProposal(p.id, { status: 'allowed', answeredAt: at, keyId: key.id, keyName: key.name, keyFile: file, ...(changed.length ? { edited: changed } : {}), error: undefined });
+  } catch (e) {
+    removeKeyFile(file, made.key.keyHash);
+    let kept = false; try { jobStore.deleteKey(made.key.id); } catch (e2) { kept = true; log(`job key not removed after its Allow failed id=${made.key.id}: ${e2.code || e2.message}`); }
+    const error = { error: `The key could not be saved: ${e.code || e.message}. ${kept ? `The key "${made.key.name}" was made but could not be removed; delete it in Job keys.` : 'Nothing was created.'}`, code: 'file_error' };
+    let shown = jobStore.proposal(p.id);
+    try { shown = jobStore.updateProposal(p.id, { error: { ...error, at } }); } catch (e3) { log(`job key request=${p.id} error not saved: ${e3.code || e3.message}`); }
+    log(`job key request=${p.id} allow failed, the key could not be saved (${e.code || e.message})`);
+    return res.status(500).json({ ...error, request: jobRequestView(shown) });
+  }
   jobAudit('created', key, { fields: Object.keys(fields), keyFile: true, request: p.id });
   jobReqAudit('proposal_allowed', done, { keyId: key.id, ...(changed.length ? { edited: changed } : {}) });
   log(`job key request allowed request=${p.id} key=${key.id} name=${key.name}${changed.length ? ` edited=${changed.join(',')}` : ''}`);
