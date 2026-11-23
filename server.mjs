@@ -664,14 +664,15 @@ const fmtOwnerWhen = ms => { const o = { weekday: 'short', hour: 'numeric', minu
 const startOrigin = o => { const origin = auto.normOrigin(o?.origin); return origin === 'owner' ? { ...OWNER_START } : { origin, ...(o.originRef ? { originRef: String(o.originRef) } : {}), rootOrigin: auto.normRoot(o.rootOrigin) }; };
 // May this unattended start go ahead? Codex is read live only when a Codex ceiling applies, so an install with nothing
 // switched on makes no extra call; Claude's reading is the last one a reply reported (stale readings pass).
-// `hold` (a job's run id): a start that passes counts in the day's count at once, until noteStart records it or the start
-// fails, so calls that arrive together can't all pass while each one's start is awaited (Codex, OpenRouter).
+// `hold` (a job's run id; 1.124.3: or a check-back's id): a start that passes counts in the day's count at once, until
+// noteStart records it or the start fails, so calls that arrive together can't all pass while each one's start is awaited
+// (Codex, OpenRouter).
 const startsPending = new Set();
 async function gateUnattended(info) {
   const lim = autoValues('limits'), root = auto.normRoot(info.rootOrigin), apply = auto.limitsApply(root, lim), paused = Boolean(pausedNow());
   const codexReading = !paused && apply.ceilings && info.engine === 'codex' && CODEX_ON && (lim.codexWeekly !== 'off' || lim.codexFiveHour !== 'off')
     ? await codex.codexRateLimits().catch(() => null) : null;
-  const counts = autoState.counts(); counts.startedRoot = (counts.startedRoot || 0) + startsPending.size; // a pending start is a job's (root job)
+  const counts = autoState.counts(); counts.startedRoot = (counts.startedRoot || 0) + startsPending.size; // a pending start is a job's or (1.124.3) a check-back's: root job or checkback
   const r = auto.unattendedGate({ ...info, rootOrigin: root, attendedOnly: !takesUnattended(info.engine) }, {
     paused, ownBlocked: ownMessagesBlocked(), features: { checkback: checkbacksOn(), job: jobsOn() }, limits: lim, // 1.119: check-backs; job keys
     claude: apply.ceilings ? usage.accountSummary() : null, codex: codexReading, counts, nextDay: autoState.nextDay(), now: Date.now(),
@@ -6666,11 +6667,16 @@ async function runDueCheckbacks() {
   if (missed.length) await pushMissed(missed);
 }
 // Start one due check-back. Marked running and saved before anything starts. Returns whether a reply started.
+// 1.124.3: a check-back that passes the gate holds its place in the day's count (gateUnattended's hold, as a job's does)
+// until noteStart records it or the start ends without it; a job call in between read the count without it and passed too.
 async function startCheckback(c0, late) {
+  try { return await startCheckbackHeld(c0, late); } finally { startsPending.delete(c0.id); }
+}
+async function startCheckbackHeld(c0, late) {
   const id = c0.sessionId;
   let c = checkbacks.update(c0.id, { status: 'running', held: undefined, markedAt: cbIso(cbNow()) });
   if (CHECKBACK_GAP) await testCheckbackGap(c.id);
-  const g = await gateUnattended({ origin: 'checkback', originRef: c.id, rootOrigin: 'checkback', engine: c.engine, sessionId: id });
+  const g = await gateUnattended({ origin: 'checkback', originRef: c.id, rootOrigin: 'checkback', engine: c.engine, sessionId: id, hold: c.id });
   c = checkbacks.get(c.id);
   if (!c || c.status !== 'running') return false; // the owner cancelled it while the gate read
   if (!g.ok) {
