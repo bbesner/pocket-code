@@ -63,6 +63,19 @@ def test_inbox_entry_keeps_the_pocket_path():
     assert calls[-1][calls[-1].index("--url") + 1] == PATH_LINK, calls[-1]
 
 
+def test_an_alert_sent_again_carries_the_same_dedupe_key():
+    # 1.124.1: a run killed after Pocket took an alert and before it was recorded sends it again at the next run; Pocket
+    # answers a key it already has as a duplicate (no second entry, push or email), so the key must be the alert's own.
+    p = D.PocketPush({"root": tempfile.mkdtemp()}, print)
+    p.inbox = True
+    calls = []
+    p._node = lambda script, args, stdin=None: calls.append(args) or type("R", (), {"returncode": 0, "stdout": '{"entry": {"id": "e1"}, "duplicate": true}', "stderr": ""})()
+    alert = {**ALERT, "dedupe_key": "harbor-gate|3901fb24cd", "issue_key": "harbor-gate"}
+    assert p.send_alert(alert, pocket_url=None).startswith("inbox=e1") and p.send_alert(alert, pocket_url=None).startswith("inbox=e1")
+    keys = [c[c.index("--dedupe") + 1] for c in calls]
+    assert keys == ["harbor-gate|3901fb24cd"] * 2, calls
+
+
 def test_a_refused_card_does_not_cost_the_digest():
     p = D.PocketPush({"root": tempfile.mkdtemp()}, lambda *a: None)
     p.inbox = True

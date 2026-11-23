@@ -619,6 +619,96 @@ def test_gmail_token_is_private_from_the_start():
         os.umask(old)
 
 
+def test_mail_counts_as_seen_only_once_its_thread_is_in_the_backlog():
+    """Review 2026-11-23 (inbox-02): the connector committed its seen marks (mail.sqlite) before the engine put the thread in
+    the backlog (monitor.sqlite), so a run killed in between used the mail up without judging it. Each run below is the real
+    engine.run() in a forked child, SIGKILLed at one point of the window; a healthy run follows and must judge the mail once."""
+    import signal
+    from inbox_monitor import config as cfgmod
+    from inbox_monitor import engine as E
+
+    def die():
+        os.kill(os.getpid(), signal.SIGKILL)
+
+    def child(fn):
+        sys.stdout.flush()
+        pid = os.fork()
+        if pid == 0:
+            code = 70
+            try:
+                code = fn() or 0
+            finally:
+                os._exit(code)
+        _, status = os.waitpid(pid, 0)
+        return f"killed {os.WTERMSIG(status)}" if os.WIFSIGNALED(status) else f"exit {os.WEXITSTATUS(status)}"
+
+    def kill_in_fetch(m):
+        search = m.fetch.search
+        m.fetch.search = lambda *a: (search(*a), die())  # the connector's read came back; the run dies before it returns
+        return m
+
+    def kill_in_label_sync(m):
+        E.label_sync = lambda *a, **k: die()  # the slow step after the fetch: Gmail searches, maybe a model call
+        return m
+
+    def kill_before_seen(m):
+        m.commit_seen = die  # the backlog is committed, the seen marks are not
+        return m
+    names = ("gmail_client", "process", "label_sync", "learn_safely", "sync_memory", "heartbeat", "tidy_due", "scheduled", "in_quiet_hours")
+    saved = {k: getattr(E, k) for k in names}
+    try:
+        for point, kill in (("in the fetch", kill_in_fetch), ("in the label sync", kill_in_label_sync), ("before the seen marks", kill_before_seen)):
+            b = Box()
+            now = int(time.time())
+            b.data["threads"] = [{"id": "t1", "messages": [msg("m1", "t1", now - 60)]}]
+            b.save()
+            d = b.dir / "watch"
+            d.mkdir()
+            (d / "config.toml").write_text('[owner]\nname = "Alex"\nemail = "alex@example.com"\ntimezone = "UTC"\n\n[judge]\nkind = "claude"\nmodel = "sonnet"\n')
+            E.configure(cfgmod.load(d / "config.toml"))
+            E.DELIVERIES = []
+            E.learn_safely = E.scheduled = E.heartbeat = lambda *a, **k: None
+            E.sync_memory = lambda *a, **k: 0
+            E.tidy_due = E.in_quiet_hours = lambda *a, **k: False
+            E.label_sync = saved["label_sync"]
+            judged = b.dir / "judged.txt"
+
+            def process(store, archive, gmail, run_id, todo, until, dry_run, fetch_live, cursor_note="", awake=False):
+                with judged.open("a") as f:
+                    f.writelines(t + "\n" for t in todo)
+                store.db.executemany("delete from backlog where thread_id=?", [(t,) for t in todo])
+                store.commit()
+                return len(todo), 0, None
+            E.process = process
+            s = E.Store(E.DB_PATH)
+            s.set("history_cursor", f"t:{now - 600}")  # an earlier good check, ten minutes ago
+            s.commit()
+            s.db.close()
+            E.gmail_client = lambda: kill(b.mail())
+            how = child(lambda: E.run(False, False))
+            assert how == "killed 9", (point, how)
+            E.label_sync = saved["label_sync"]
+            E.gmail_client = b.mail
+            assert E.run(False, False) == 0
+            assert E.run(False, False) == 0, "and a third check finds nothing new"
+            got = judged.read_text().split() if judged.exists() else []
+            assert got == ["t1"], f"killed {point}: judged {got}"
+        # A baseline (Pocket's first check: start from now) records what it saw, or the first real check judges it all.
+        E.gmail_client = b.mail
+        s = E.Store(E.DB_PATH)
+        s.db.execute("delete from meta where key='history_cursor'")
+        s.commit()
+        s.db.close()
+        b.data["threads"].append({"id": "t2", "messages": [msg("m2", "t2", now - 30)]})
+        b.save()
+        assert E.run(False, True) == 0
+        assert E.run(False, False) == 0
+        assert judged.read_text().split() == ["t1"], "the baseline's mail is not news"
+    finally:
+        for k, v in saved.items():
+            setattr(E, k, v)
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

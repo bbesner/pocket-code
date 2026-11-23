@@ -41,6 +41,9 @@ const Automation = (() => {
     return parts.length ? parts.join(', ') + '.' : '';
   }
   const ownLine = () => state.ownMessages === 'blocked' ? 'Your own messages wait until you resume.' : 'Your own messages still run.';
+  // 1.124.1: the server could not save the pause (a full disk, a read-only data folder): it holds, but only until a restart.
+  const UNSAVED = 'Pocket could not save this pause, so a restart of Pocket would end it.';
+  const unsavedLine = p => p?.unsaved ? ' ' + UNSAVED : '';
   // The banner's held line: " 1 usage-limit retry is held.", " 3 check-backs are held.", " 1 usage-limit retry and 2 check-backs are held."
   function heldLine(h) {
     const r = h?.retries > 0 ? h.retries : 0, c = h?.checkbacks > 0 && window.pocketFeatures?.checkbacks ? h.checkbacks : 0;
@@ -57,7 +60,7 @@ const Automation = (() => {
   /* ---------- state ---------- */
   // What the page shows of the state. A refresh that leaves it the same touches nothing: no banner, header, control or
   // list repaint (the regular list refresh brings the list's `pause`, the return to the tab a /api/pause; see test/automation-browser.mjs).
-  const shown = () => JSON.stringify([state.paused?.at || null, state.ownMessages, state.held?.retries || 0, state.held?.checkbacks || 0, Boolean(window.pocketFeatures?.checkbacks), on()]);
+  const shown = () => JSON.stringify([state.paused?.at || null, Boolean(state.paused?.unsaved), state.ownMessages, state.held?.retries || 0, state.held?.checkbacks || 0, Boolean(window.pocketFeatures?.checkbacks), on()]);
   let lastShown = null;
   function apply(d) {
     if (!d || typeof d !== 'object') return;
@@ -118,7 +121,7 @@ const Automation = (() => {
       document.body.prepend(banner);
     }
     const held = heldLine(state.held);
-    const text = `Pocket is paused. ${ownLine()}${held}`;
+    const text = `Pocket is paused. ${ownLine()}${held}${unsavedLine(state.paused)}`;
     const p = banner.querySelector('.pause-text'); if (p.textContent !== text) p.textContent = text;
     const title = state.paused?.at ? 'Paused at ' + timeOf(state.paused.at) : '';
     if (banner.title !== title) banner.title = title;
@@ -158,7 +161,7 @@ const Automation = (() => {
     let d;
     try { d = await api('/pause'); } catch (e) { toast(e.message || 'Could not reach Pocket.'); return 'failed'; }
     apply(d);
-    if (d.paused) { toast('Pocket is already paused.'); return 'already'; }
+    if (d.paused) { toast('Pocket is already paused.' + unsavedLine(d.paused)); return 'already'; }
     if (d.confirm === false) return await doPause() ? 'paused' : 'failed';
     confirmSheet(d);
     return 'confirm';
@@ -194,7 +197,7 @@ const Automation = (() => {
       // "Paused. Stopped 2 replies running (2 Claude), 1 background job. Held 1 usage-limit retry."
       const s = r.stopped || {}, stopped = wouldText({ replies: s.replies, jobs: s.jobs, background: s.background });
       const held = wouldText({ retries: s.retries, checkbacks: s.checkbacks });
-      toast(['Paused.', stopped && 'Stopped ' + stopped, held && 'Held ' + held].filter(Boolean).join(' '));
+      toast(['Paused.', stopped && 'Stopped ' + stopped, held && 'Held ' + held, r.paused?.unsaved && UNSAVED].filter(Boolean).join(' '));
       poll(true); if (typeof refreshSessions === 'function') refreshSessions();
       return true;
     } catch (e) {

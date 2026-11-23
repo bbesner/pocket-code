@@ -3,6 +3,45 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.124.1] — 2026-11-23 · build 223
+
+The first batch from a whole-code review at 1.123.1 (the last one was at 1.7): the five faults it graded high, and the
+one medium that opens two of them. Each was reproduced by a test before it was fixed. One was also in the owner's turn
+recordings: two usage limits, both announced as **Response ready**, neither picked up again.
+
+- **A Claude usage limit is no longer read as a finished reply.** The CLI reports a limit (and any other API error) as
+  a result with `subtype: success` and `is_error: true`; Pocket read only the subtype. It now reads both, so a limit
+  shows **Waiting for usage reset** and the task carries on after the reset, and another API error shows **Didn't
+  finish** with the error's words, starts nothing from the queue and ends a job's run as failed. The limit wording the
+  CLI uses now (*You've hit your … limit · resets Nov 24, 2pm (UTC)*) is read, with its date and time zone.
+- **The retry survives Pocket closing the idle process.** A retry was skipped as "continued elsewhere" whenever the
+  transcript's file time moved, which the CLI's own exit bookkeeping does when Pocket closes an idle process (ten
+  minutes by default, well inside any wait for a reset). It is now skipped only when another app added a user or
+  assistant turn, the same test the external-activity watcher uses, and the retry's marker carries the size to compare.
+- **A limit with a message queued arms the retry too**, as on Codex and OpenRouter. The queue holds through the wait
+  and follows the retry's reply. Claude armed none then, which left the limit as a failed reply and the queue waiting.
+  A message sent while background jobs held the earlier login is the exception, as before: it starts on the new login.
+- **Pause all holds when the settings can't be saved.** With a full disk or a read-only data folder, the save threw
+  after the paused flag was set and before anything was stopped: nothing was stopped, and a second press answered
+  *already paused*. Pause all now stops and holds everything regardless, each step guarded on its own,
+  and says *Pocket could not save this pause, so a restart of Pocket would end it* in the toast and the banner; the
+  next save that works saves the pause. **Resume** saves before it lets anything go: if a saved pause can't be dropped
+  it answers 503, stays paused and says so. A change in Settings → Automation that can't be saved is rolled back.
+- **Inbox Watch: an alert a killed check never sent goes out at the start of the next check**, once, and later alerts
+  on that story are no longer swallowed by the unsent one. Each alert's delivery is committed as it is sent.
+- **Inbox Watch: connector mail counts as seen only once its thread is in the backlog**, so a check killed between
+  fetching and judging leaves the mail for the next check instead of skipping it for good.
+- **Inbox Watch: a check running when Pocket restarts finishes.** Its output pipe closes with the old daemon, and the
+  next log line killed the run (the common way into the two faults above). The watcher now turns its output away from
+  the dead pipe and keeps logging to `monitor.log`.
+- Manual: Automation › Pause all (if the pause or Resume can't be saved) and the `limit` outcome; Conversations
+  (usage-limit retry and the queue); Inbox Watch (seen mail, unsent alerts, a check across a restart).
+- Tested: new `test/claude-limit.test.mjs` (the real result shapes and wordings; a limit with and without a queue; a
+  500; a job's run; end to end across the idle close); `test/job-settle.test.mjs` (the skip test now adds a real turn
+  from another app; a job's retry across the idle close); `test/pause-routes.test.mjs` (`1.124.1:` pause, resume and
+  settings saves that fail); `inbox-watch/tests/test_process.py`, `test_connector.py`, `test_delivery.py`.
+  `test/fake-claude.mjs` now models the limit as the CLI sends it; the old fixture used a shape the CLI never produces.
+
 ## [1.124.0] — 2026-11-23 · build 222
 
 Asked for by the owner: one place to see and manage the work that runs without them. Check-backs already had a read-only

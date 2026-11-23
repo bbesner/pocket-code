@@ -149,8 +149,15 @@ lines.on('line',line=>{
       return;
     }
     // 1.87 parity markers: __PLAN__ (a TodoWrite list), __EDIT__ (an Edit with before/after, in the transcript),
-    // __LIMIT__ (a usage limit that resets 2 s from now, as the real CLI words it)
-    if(text.includes('__LIMIT__')){const at=Math.ceil((Date.now()+2000)/1000);console.log(JSON.stringify({type:'system',subtype:'init',session_id:id}));console.log(JSON.stringify({type:'result',subtype:'error_during_execution',is_error:true,result:'Claude AI usage limit reached|'+at,error:'Claude AI usage limit reached|'+at,duration_ms:100}));working=false;return;}
+    // __LIMIT__ (a usage limit that resets 2 s from now). 1.124.1: in the shape the real CLI ends such a reply with, recorded
+    // from real runs: subtype "success" with is_error true, the API's status and the message in `result`. The words are
+    // FAKE_CLAUDE_LIMIT_TEXT when set (the current CLI's "You've hit your … limit · resets …"), else the older
+    // "Claude AI usage limit reached|<epoch>". __LIMITERR__ ends on an error subtype instead, which carries `errors`
+    // and no `result`; __APIERR__ on an API error that is not a limit (a 500), in the same shape as a limit.
+    if(text.includes('__LIMIT__')||text.includes('__LIMITERR__')||text.includes('__APIERR__')){const at=Math.ceil((Date.now()+2000)/1000),words=process.env.FAKE_CLAUDE_LIMIT_TEXT||'Claude AI usage limit reached|'+at;console.log(JSON.stringify({type:'system',subtype:'init',session_id:id}));
+      console.log(JSON.stringify(text.includes('__LIMITERR__')?{type:'result',subtype:'error_during_execution',is_error:true,errors:[words],duration_ms:100}
+        :text.includes('__APIERR__')?{type:'result',subtype:'success',is_error:true,api_error_status:500,result:'API Error: 500 {"type":"error","error":{"type":"api_error","message":"Internal server error"}}',duration_ms:100}
+        :{type:'result',subtype:'success',is_error:true,api_error_status:429,result:words,duration_ms:100}));working=false;return;}
     if(text.includes('__PLAN__')){const m={type:'assistant',message:{role:'assistant',content:[{type:'tool_use',id:'toolu_plan_'+Date.now(),name:'TodoWrite',input:{todos:[{content:'Read the code',status:'completed',activeForm:'Reading the code'},{content:'Fix the bug',status:'in_progress',activeForm:'Fixing the bug'}]}}]}};append(m);console.log(JSON.stringify(m));}
     if(text.includes('__EDIT__')){const tid='toolu_edit_'+Date.now(),m={type:'assistant',message:{role:'assistant',content:[{type:'tool_use',id:tid,name:'Edit',input:{file_path:path.join(process.cwd(),'parity.txt'),old_string:'old line',new_string:'new line'}}]}};append(m);console.log(JSON.stringify(m));const r={type:'user',message:{role:'user',content:[{type:'tool_result',tool_use_id:tid,content:'The file was edited.'}]}};append(r);console.log(JSON.stringify(r));}
     // __USAGE__: emit the rate-limit and context figures the real CLI reports

@@ -446,7 +446,8 @@ an earlier Not useful on its story: your own hand wins.
 1. The watcher applies the decisions you made in Pocket (Resolved, Not useful, Restore), notes which alerts you started a
    conversation from, and learns from new examples.
 2. The watcher finds threads with new messages since the last check (through a connector, by searching by date from
-   the day before the last check and skipping the messages it has already seen) and syncs the Gmail label.
+   the day before the last check and skipping the messages it has already seen) and syncs the Gmail label. Mail counts
+   as seen only once its thread is in the backlog, so a check that stops part-way leaves it to the next one.
 3. The [first pass](#first-pass), when on, sets aside clearly routine mail.
 4. The judge reads the rest in batches. With each thread it gets related mail from the archive, the open stories with
    their timelines, the alerts already sent (the newest few, and others from the last day that share a word with the
@@ -457,13 +458,16 @@ an earlier Not useful on its story: your own hand wins.
    digest that will not be sent: such mail goes on the list if it is work, and otherwise updates its story. For a notify it also names the kind of urgency, if any, and in one sentence what gets worse if it
    waits; your push settings decide from that whether it pushes.
 5. Alerts go out together once every batch is judged, so a later batch can fold a new fact into an alert that has not
-   left yet. The same fact is never alerted twice.
+   left yet. The same fact is never alerted twice. An alert a stopped check never sent goes out at the start of the
+   next one (held until morning in quiet hours, dropped if its story was resolved since); Pocket knows it by its key,
+   so one that had already reached the Inbox is not listed or pushed again.
 6. Due items run: the digest, a look-ahead, the tidy pass. Then the watcher reports to Pocket with its settings, status
    and costs (the heartbeat).
 
 A check judges up to 20 threads; a burst waits in a backlog and is spread over the next checks. If a judge call
 fails, the batch stays in the backlog and is judged afresh next time. Pocket stops a run of its own watcher that takes more
-than 30 minutes.
+than 30 minutes. A check still running when Pocket restarts (an update) finishes on its own, logging to `monitor.log`;
+the next check waits for it.
 
 ### Where data lives
 

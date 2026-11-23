@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.124.0
+checked: 1.124.1
 sources: automation.mjs, checkbacks.mjs, job-keys.mjs, public/automation.js, scripts/pocket-checkback.mjs, scripts/pocket-run.mjs, scripts/pocket-jobkey.mjs, skills/pocket-checkback/SKILL.md, skills/pocket-jobs/SKILL.md, server.mjs, queue.mjs, codex.mjs, acp.mjs, sidechat.mjs, coordination.mjs, usage.mjs, inbox-runner.mjs, public/voice-text.js
 -->
 # Automation: Pause all, check-backs, job keys and limits on unattended work
@@ -62,6 +62,10 @@ When your own messages are **Blocked**, the banner reads *Your own messages wait
 ### A restart keeps the pause
 
 The pause is saved. After Pocket restarts it is still paused, and a retry that was waiting is still held.
+
+**If the pause can't be saved.** When Pocket can't write its settings (a full disk, a read-only data folder), **Pause all** still stops and holds everything, and Pocket stays paused until it restarts. The toast and the banner add *Pocket could not save this pause, so a restart of Pocket would end it.* Once the disk is fixed, the next setting you save saves the pause with it, and the sentence goes away. **Resume** on a pause that was never saved resumes as usual, so you can also resume and pause again.
+
+**If Resume can't be saved.** Pocket stays paused, with everything still held, because a restart would read the saved pause again. It says *Pocket could not save its settings, so it is still paused and nothing was resumed. Check that its data folder has space and can be written, then press Resume again.* A change in **Settings → Automation** that can't be saved is not kept either: it says *Pocket could not save the change, so nothing changed.*
 
 ### Pause all settings
 
@@ -510,7 +514,7 @@ One call is one run. The status is worked out each time it is asked.
 | `outcome` | When | `error` | Push |
 |---|---|---|---|
 | `stopped` | The reply had stopped at a usage limit, and a message you sent in its conversation replaced the retry, or a reply you started was already running when the retry came due. | *The reply stopped at a usage limit, and a message sent in its conversation replaced the retry.* | None, as for any stopped run |
-| `limit` | The retry was skipped (a reply you did not start was already running, or the conversation moved on elsewhere), something other than you replaced it, or its start failed; or Pause all held it and **On Resume, re-arm held usage-limit retries** is off; or nothing carries the limited run on. | *The reply stopped at a usage limit and was not retried.* | *Something went wrong* |
+| `limit` | The retry was skipped (a reply you did not start was already running, or another app, such as a terminal or code-server, added a turn to the conversation while it waited), something other than you replaced it, or its start failed; or Pause all held it and **On Resume, re-arm held usage-limit retries** is off; or nothing carries the limited run on. | *The reply stopped at a usage limit and was not retried.* | *Something went wrong* |
 | `jobs_off` | **Job keys** was switched off when the retry came due. | *The reply stopped at a usage limit, and Job keys were switched off before it was retried.* | *Something went wrong* |
 | `interrupted` | A restart cut the reply off (its process is gone), or nothing carries the run on any more. | *The reply was cut off (Pocket restarted, or the agent's process ended) and did not finish.* | *Something went wrong* |
 
