@@ -210,6 +210,8 @@ Pocket Code runs on macOS since 1.47. The differences from Linux:
 - File previews in Files need `brew install poppler imagemagick` (PDFs and images); HTML previews
   use Chrome or Chromium from `/Applications`.
 - The turn watchdog reads process activity with `ps` instead of `/proc`; behavior is the same.
+- The Git panel's worktree list finds programs running in a worktree with `lsof` instead of `/proc` (since 1.124.2;
+  before, every row said it could not be read). If `lsof` cannot answer, the row stays in **Has work**.
 - A daemon restart reattaches Codex session processes as on Linux (since 1.81): with no `/proc`, Pocket
   proves a recorded app-server is the one it started from its start time as `ps` reports it. Earlier
   releases forgot the record at every restart and left the app-server holding the conversation; one
