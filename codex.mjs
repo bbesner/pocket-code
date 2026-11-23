@@ -868,9 +868,11 @@ function spawnTransport(extraEnv = {}) {
   return t;
 }
 
-function writeSessionMeta(s) {
+// 1.124.4: returns whether the marker is on disk. `strict` rethrows a failed write (the first one: a process Pocket could not
+// record is not started, as on the Claude side, 1.89 F-11); otherwise a failure is logged once per session, as there.
+function writeSessionMeta(s, { strict = false } = {}) {
   const t = s.conn?.transport, turn = s.turn;
-  if (!t || !s.threadId || s.exited) return;
+  if (!t || !s.threadId || s.exited) return true;
   const meta = {
     threadId: s.threadId, cliBin:s.cliBin||null, pid: t.pid, keeperPid: t.keeperPid, key: t.key, bootId: BOOT_ID, pidStart: t.pidStart ?? null, keeperStart: t.keeperStart ?? null, approvalMode: s.approvalMode, cwd: s.cwd, model: s.model, effort: s.effort, runnerToken: s.runnerToken || null,
     turn: turn ? { turnId: turn.turnId, startedAt: turn.startedAt, userText: turn.userText, offset: turn.offset, executionMode: turn.executionMode, ...originOf(turn) } : null, // 1.117: origin
@@ -878,7 +880,13 @@ function writeSessionMeta(s) {
     waitingForApproval: Boolean(turn?.approvals?.list().length || turn?.approvalUnavailable),
   };
   // 1.73.7: written whole and renamed into place; a torn file could not be adopted and its app-server kept the writer lock.
-  try { fs.writeFileSync(t.files.meta + '.tmp', JSON.stringify(meta), { mode: 0o600 }); fs.renameSync(t.files.meta + '.tmp', t.files.meta); } catch { }
+  try { fs.writeFileSync(t.files.meta + '.tmp', JSON.stringify(meta), { mode: 0o600 }); fs.renameSync(t.files.meta + '.tmp', t.files.meta); s.metaFailed = null; return true; }
+  catch (e) {
+    if (strict) throw e;
+    if (!s.metaFailed) log(`codex session marker not written thread=${s.threadId} pid=${t.pid}: ${e.message}`);
+    s.metaFailed = e;
+    return false;
+  }
 }
 // 1.73.7: a recorded pid is signalled or adopted only when it is provably the process Pocket started: same boot (boot id, or
 // for a pre-1.73.7 file, written after this boot began) and, when recorded, the same start time. After a reboot the kernel
@@ -1163,9 +1171,20 @@ async function openCodexSession({ threadId, forkFrom, cwd, model, approvalMode, 
     }
     throw e;
   }
+  // 1.124.4: the marker is written before the session is registered. A process Pocket could not record outlived a restart
+  // unmanaged, holding the thread's writer lock, so every later message was refused as open in another surface until
+  // someone killed it by hand. When the write fails the app-server and its keeper are killed and the start is refused.
+  try { writeSessionMeta(s, { strict: true }); }
+  catch (e) {
+    const t = conn.transport;
+    signalGroup(t.keeperPid, 'SIGKILL'); signalGroup(conn.pid, 'SIGKILL');
+    conn.close();
+    for (const f of [t.files.meta + '.tmp', t.files.out, t.files.err]) { try { fs.unlinkSync(f); } catch { } }
+    log(`codex session refused thread=${s.threadId} pid=${conn.pid}: its marker could not be written (${e.message})`);
+    throw Object.assign(new Error(`Pocket Code could not record the Codex process on disk, so it did not start it (${e.code || e.message}). Check the server's free disk space, then send again.`), { code: 500, notStarted: true });
+  }
   wireSession(s, conn);
   codexSessions.set(s.threadId, s);
-  writeSessionMeta(s);
   log(`codex session start thread=${s.threadId} pid=${conn.pid} resume=${Boolean(threadId)}`);
   return s;
 }

@@ -867,11 +867,14 @@ done({ ok: r.ok, err: r.err, sessions: C.codexSessions.size, fds: ourFds(), aliv
     try {
       const A = need(await runChild(w, String.raw`
 failFs('renameSync', '.session.json');
-const r = await startTurn(); await sleep(300); done({ ok: r.ok, err: r.err });`), 'A');
+const r = await startTurn(); await sleep(300); done({ ok: r.ok, err: r.err, code: r.code });`), 'A');
       await sleep(500);
       const liveFakes = sessionFakesSince(w, 0).filter(f => alive(f.pid));
       const B = need(await runChild(w, ADOPT), 'B');
       assert.ok(!A.ok || markerFor(w, T), 'startCodexTurn reported success but no session marker exists on disk');
+      // 1.124.4: refused as not started, in words the owner can act on (the route answers 503 not_started)
+      assert.equal(A.ok, false); assert.equal(A.code, 500);
+      assert.match(A.err, /^Pocket Code could not record the Codex process on disk, so it did not start it \(EIO\)\. Check the server's free disk space, then send again\.$/);
       assert.ok(liveFakes.length === 0 || B.sessions.length === liveFakes.length, 'restart cannot find ' + liveFakes.length + ' surviving writer-lock holder(s); adopted ' + B.sessions.length);
     } finally { reap(w); }
   });
