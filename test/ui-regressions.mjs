@@ -305,6 +305,19 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     assert.equal(await page.evaluate(k=>localStorage.getItem('pc-new-start-new-pane-'+k),key),null,'closing the pane drops its start');
    }finally{await clearNewKeys();}
   });
+  await check('New beside (1.124.3): closing the main conversation never overwrites the main window\'s unsent New draft',async()=>{
+   await page.setViewport({width:1440,height:900});await openChat(idle);
+   await clearNewKeys();await page.evaluate(()=>saveDraft(NEW_BASE,'Main window draft, never sent.'));
+   try{
+    const pane=await newBeside();
+    await pane.type('#first','Beside draft, also unsent.');
+    await page.waitForFunction(()=>localStorage.getItem('pc-draft-new-pane-'+splitPanes[0].key)==='Beside draft, also unsent.');
+    await clickControl(page,'#chatmore');await clickControl(page,'#so-close');await page.waitForFunction(()=>location.hash==='#/new'&&document.querySelector('#first'));
+    assert.equal(await page.$eval('#first',e=>e.value),'Main window draft, never sent.','the main window\'s draft is still there');
+    assert.equal(await page.evaluate(()=>splitPanes.length),1,'the New pane stays beside');
+    assert.equal(await pane.$eval('#first',e=>e.value),'Beside draft, also unsent.','and keeps its own draft');
+   }finally{await clearNewKeys();}
+  });
   await page.setViewport({width:390,height:844});await chat();
   await check('Toolbar overflow offers working controls and preserves draft',async()=>{
    await page.waitForSelector('.toolbar-next:not([hidden])');
