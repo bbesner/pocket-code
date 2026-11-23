@@ -28,6 +28,7 @@ import inspect
 import json
 import os
 import re
+import select
 import sqlite3
 import subprocess
 import sys
@@ -393,7 +394,10 @@ def log(msg: str) -> None:
     if MODE.sim:
         stamp += f" [sim {now_et().strftime('%a %H:%M')}]"
     line = f"{stamp} {msg}"
-    print(line, flush=True)
+    try:
+        print(line, flush=True)
+    except OSError:
+        quiet_lost_output()
     if LOG_PATH is None:
         return
     try:
@@ -401,6 +405,36 @@ def log(msg: str) -> None:
             f.write(line + "\n")
     except OSError:
         pass
+
+
+def quiet_lost_output() -> None:
+    """1.124.1: whoever read this watcher's output is gone. A Pocket restart during a check leaves Pocket's watcher running
+    with nobody reading its stdout and stderr (the runner starts it with pipes, and pm2 does not stop it), and the next
+    log line raised BrokenPipeError, which ended the run wherever it was: alerts committed but never sent, mail marked seen
+    but never judged. Now the output goes to /dev/null and the run carries on to its end, logging to monitor.log; the
+    lock keeps the restarted Pocket's checks from starting until it is done. stderr follows when its reader is gone too."""
+    try:
+        sink = os.open(os.devnull, os.O_WRONLY)
+    except OSError:
+        return
+    try:
+        os.dup2(sink, sys.stdout.fileno())
+        if output_lost(sys.stderr.fileno()):
+            os.dup2(sink, sys.stderr.fileno())
+    except (OSError, ValueError, AttributeError):  # no file behind it (a test's StringIO): nothing to point elsewhere
+        pass
+    finally:
+        os.close(sink)
+
+
+def output_lost(fd: int) -> bool:
+    """Whether fd is a pipe nobody reads any more (poll reports an error on it without writing)."""
+    try:
+        p = select.poll()
+        p.register(fd, select.POLLOUT)
+        return any(ev & (select.POLLERR | select.POLLHUP) for _, ev in p.poll(0))
+    except (OSError, ValueError, AttributeError):
+        return False
 
 
 def in_quiet_hours(t: dt.datetime | None = None) -> bool:

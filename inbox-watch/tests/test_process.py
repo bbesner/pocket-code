@@ -1,11 +1,17 @@
 """The judge's decisions through the real process(): quiet hours hold an alert, Check now sends it, and a batch that fails
-part-way leaves nothing behind (1.77.1); a judge reply that does not parse is asked for again (1.77.6); `notify --dry-run` keeps nothing (1.77.8); resolving an entry in Pocket closes its story (1.77.10). A fake archive, judge and Pocket; no Gmail, model or network.
+part-way leaves nothing behind (1.77.1); a judge reply that does not parse is asked for again (1.77.6); `notify --dry-run` keeps nothing (1.77.8); resolving an entry in Pocket closes its story (1.77.10).
+A run killed outright (SIGKILL) or left with a closed output pipe still gets its alerts out exactly once (1.124.1): those
+runs go through the real run() in a forked child. A fake archive, judge and Pocket; no Gmail, model or network.
 
     python3 tests/test_process.py
 """
+import json
+import os
+import signal
 import sys
 import tempfile
 import time
+import traceback
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -271,6 +277,156 @@ def test_a_decision_turn_carries_the_newest_alerts_and_the_related_ones():
     assert [a["issue_key"] for a in kept] == [f"story-{i}" for i in range(E.RECENT_ALERTS_ALWAYS)] + ["harbor-hoa-gate-outage"], kept
     # a word every story shares does not make an alert related
     assert E.relevant_alerts(alerts, batch, common={"harbor", "gate"})[-1]["issue_key"] == f"story-{E.RECENT_ALERTS_ALWAYS - 1}"
+
+
+# ---------------------------------------------------------------- runs that end badly (1.124.1)
+GATE, INVOICE, GATE2 = "18f0aa01b2c3d4f1", "18f0aa01b2c3d4f2", "18f0aa01b2c3d4f3"
+MAIL = {GATE: ("Gate down", "The gate is down."), INVOICE: ("Invoice 7", "Invoice 7 attached."),
+        GATE2: ("Gate still down", "Gate still down, residents locked out.")}
+
+
+def die():
+    """The process ends here with no finally and no commit: the runner's 30-minute SIGKILL, or the machine going down."""
+    os.kill(os.getpid(), signal.SIGKILL)
+
+
+class LedgerPocket:
+    """Pocket as it looks from more than one process: entries kept in a file, and an alert whose dedupe key Pocket already
+    has comes back as a duplicate and adds nothing (POST /api/inbox, inbox.mjs add). `die_after_send` ends the process
+    once the entry is in, before the watcher can record that it went."""
+    kind = "pocket"
+
+    def __init__(self, path, die_after_send=False):
+        self.path, self.die_after_send = Path(path), die_after_send
+
+    def entries(self):
+        return [json.loads(x) for x in self.path.read_text().splitlines()] if self.path.exists() else []
+
+    def send_alert(self, a, pocket_url=None, held_note=False):
+        if any(e["dedupe"] == a["dedupe_key"] for e in self.entries()):
+            return "duplicate"
+        with self.path.open("a") as f:
+            f.write(json.dumps({"title": a["subject"], "dedupe": a["dedupe_key"]}) + "\n")
+        if self.die_after_send:
+            die()
+        return "e"
+
+
+class LedgerArchive(FakeArchive):
+    def thread(self, tid, until):
+        subject, body = MAIL[tid]
+        return [{"thread_id": tid, "message_id": f"m-{tid}", "subject": subject, "labels": "[]", "ts": NOW - 60,
+                 "sender": "site@example.com", "recipients": "alex@example.com", "from_owner": 0, "body": body}]
+
+
+def gate_decision(tid):
+    key, fact = ("inv-7", "Invoice 7 is due.") if tid == INVOICE else ("gate", "Residents are locked out." if tid == GATE2 else "The gate is down.")
+    return E.validate_story_fields({"thread_id": tid, "action": "notify", "issue_key": key, "title": MAIL[tid][0], "status": "open",
+                                    "priority": "high", "confidence": 0.9, "new_fact": fact, "user_message": fact,
+                                    "evidence": [{"message_id": f"m-{tid}"}]}, {f"m-{tid}"})
+
+
+def run_setup(die_after_send=False):
+    """A state directory and the fakes run() needs: a mail source that reports what `MAILED` holds, the judge above, a
+    Pocket in a file, and nothing that would call a model or Pocket's own commands."""
+    store, _ = setup()
+    store.db.execute("delete from backlog")
+    store.commit()
+    store.db.close()
+    pocket = LedgerPocket(E.STATE / "pocket.jsonl", die_after_send)
+    E.DELIVERIES = [pocket]
+    mailed = []
+
+    class Mail:
+        def cursor_ok(self, c):
+            return True
+
+        def profile_history_id(self):
+            return "t:2"
+
+        def changed_threads(self, cursor):
+            got = set(mailed)
+            mailed.clear()
+            return got, "t:2", False
+
+    real_process = E.process
+
+    def process(store, archive, gmail, run_id, todo, until, dry_run, fetch_live, cursor_note="", awake=False):
+        return real_process(store, LedgerArchive(), gmail, run_id, todo, until, dry_run, False, cursor_note, awake)
+    E.gmail_client, E.process = Mail, process
+    E.decide = lambda store, archive, gmail, batch, until, related=None: [gate_decision(b["thread_id"]) for b in batch]
+    E.group_bundles = lambda bundles, related: [[b] for b in bundles]
+    E.in_quiet_hours = lambda *a: False
+    E.learn_safely = lambda *a, **k: None
+    E.sync_memory = lambda *a, **k: 0
+    E.heartbeat = lambda *a, **k: None
+    E.tidy_due = lambda *a, **k: False
+    E.scheduled = lambda *a, **k: None
+    s = E.Store(E.DB_PATH)
+    s.set("history_cursor", "t:1")
+    s.commit()
+    s.db.close()
+    return pocket, mailed
+
+
+RUN_FAKES = ("process", "gmail_client", "decide", "group_bundles", "in_quiet_hours", "learn_safely", "sync_memory", "heartbeat", "tidy_due", "scheduled")
+
+
+def with_run_fakes(fn):
+    saved = {k: getattr(E, k) for k in RUN_FAKES}
+    try:
+        return fn()
+    finally:
+        for k, v in saved.items():
+            setattr(E, k, v)
+
+
+def in_child(fn):
+    """fn() in a forked child, the way Pocket's runner starts the watcher: how it ended ("exit <code>" or "killed <signal>"),
+    and the traceback if it raised (written to a file, since its output may be the thing that is gone)."""
+    err = E.STATE / "child-error.txt"
+    sys.stdout.flush()  # or the child prints what the parent had not written yet
+    sys.stderr.flush()
+    pid = os.fork()
+    if pid == 0:
+        code = 70
+        try:
+            code = fn() or 0
+        except BaseException:  # noqa: BLE001
+            err.write_text(traceback.format_exc())
+        os._exit(code)
+    _, status = os.waitpid(pid, 0)
+    how = f"killed {os.WTERMSIG(status)}" if os.WIFSIGNALED(status) else f"exit {os.WEXITSTATUS(status)}"
+    return how, err.read_text() if err.exists() else ""
+
+
+def alerts_now():
+    s = E.Store(E.DB_PATH)
+    try:
+        return {r["dedupe_key"].split("|")[0] + ("" if r["status"] != "merged" else "+"): r["status"] for r in s.db.execute("select dedupe_key, status from alerts")}
+    finally:
+        s.db.close()
+
+
+def test_a_closed_output_pipe_does_not_end_the_run():
+    # Review 2026-11-23 (inbox-03): a Pocket restart during a check leaves the watcher running with nobody reading its
+    # stdout and stderr. Its next log line raised BrokenPipeError and the run stopped wherever it was.
+    def check():
+        pocket, mailed = run_setup()
+        mailed.append(GATE)
+
+        def orphaned():
+            r, w = os.pipe()
+            os.close(r)  # the daemon that read the pipe is gone
+            os.dup2(w, 1)
+            os.dup2(w, 2)
+            return E.run(False, False)
+        how, err = in_child(orphaned)
+        assert how == "exit 0", (how, err)
+        assert alerts_now() == {"gate": "sent"} and [e["title"] for e in pocket.entries()] == ["Gate down"], (alerts_now(), pocket.entries())
+        logged = E.LOG_PATH.read_text()
+        assert "changed threads: 1" in logged and "run 1 done" in logged, logged
+    with_run_fakes(check)
 
 
 if __name__ == "__main__":
