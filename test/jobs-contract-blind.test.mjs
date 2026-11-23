@@ -1061,7 +1061,8 @@ test('DIV-9: audit — store mutations write no audit file of their own (module 
   assert.deepEqual(fs.readdirSync(path.dirname(ce.file)), ['checkbacks.json']);
 });
 
-test('DIV-10: target lstatSync EACCES must throw and leave an existing non-key file in place', () => {
+// Not reachable on POSIX (a folder without search permission fails the temp-file write first); kept for the 1.124.4 hardening.
+test('writeKeyFile: a target lstat error other than ENOENT throws and leaves an existing non-key file in place', () => {
   const { home } = keyHome();
   const probe = J.writeKeyFile('~/probe', 'job1', fakeSecret('A'), { home });
   const target = path.join(home, 'k', path.basename(probe));

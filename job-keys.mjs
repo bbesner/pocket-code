@@ -111,7 +111,7 @@ export function writeKeyFile(folder, name, secret, { home = os.homedir(), taken 
   const file = path.join(dir, name + '.key');
   const owner = taken ? taken(canonKeyFile(file)) : null;
   if (owner) throw fail(`${file} is the key file of the job key "${owner}", so Pocket won't write another key there. Choose another folder or name.`, 409, 'file_taken');
-  let exists = true; try { fs.lstatSync(file); } catch { exists = false; }
+  let exists = true; try { fs.lstatSync(file); } catch (e) { if (e.code !== 'ENOENT') throw e; exists = false; } // 1.124.4: only a missing file is "not there", as above
   if (exists && !isKeyFile(file)) throw fail(`${file} is already there and is not a job key file, so Pocket left it as it is. Choose another folder or name.`, 409, 'file_exists');
   const tmp = path.join(dir, `.${name}.key.${hex(4)}.tmp`);
   fs.writeFileSync(tmp, secret + '\n', { mode: 0o600, flag: 'wx' });
