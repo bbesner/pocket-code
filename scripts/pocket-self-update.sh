@@ -9,7 +9,7 @@ set -uo pipefail
 dir=$1 target=$2 expected=$3 pmid=$4 port=$5 status=$6 node=$7 repo=$8 from=$9
 tag="v$target"
 # Tests shorten the waits; the daemon passes no such variables.
-tries=${POCKET_SELF_UPDATE_TRIES:-45} settle=${POCKET_SELF_UPDATE_SETTLE:-10} beat=${POCKET_SELF_UPDATE_BEAT:-60}
+tries=${POCKET_SELF_UPDATE_TRIES:-45} settle=${POCKET_SELF_UPDATE_SETTLE:-10} beat=${POCKET_SELF_UPDATE_BEAT:-60} idle=${POCKET_SELF_UPDATE_IDLE_TRIES:-300}
 branch='' prev='' moved=0
 
 # say <phase> [error] [backup dir]: rewrite the progress file atomically.
@@ -29,6 +29,9 @@ served() { # the version Pocket serves on its port, or nothing
 # The PID PM2 has for our process. `pm2 pid` takes only a name and prints nothing for an id, so read it from jlist.
 app_pid() {
   pm2 jlist 9>&- 2>/dev/null | "$node" -e 'let t="";process.stdin.on("data",d=>t+=d).on("end",()=>{try{const a=JSON.parse(t.slice(t.indexOf("[")));const p=a.find(x=>String(x.pm_id)===process.argv[1]);process.stdout.write(String(p?.pid||""));}catch{}})' "$pmid"
+}
+busy() { # the replies a restart would cut short, from the daemon's /api/health (1.124.3); 0 when it does not say
+  "$node" -e 'fetch(`http://127.0.0.1:${process.argv[1]}/api/health`,{signal:AbortSignal.timeout(5000)}).then(r=>r.json()).then(j=>process.stdout.write(String(Number(j.busy)||0))).catch(()=>process.stdout.write("0"))' "$port"
 }
 healthy() { "$node" -e 'fetch(`http://127.0.0.1:${process.argv[1]}/api/health`,{signal:AbortSignal.timeout(5000)}).then(r=>r.json()).then(j=>process.exit(j.ok?0:1)).catch(()=>process.exit(1))' "$port"; }
 # wait_for <version> <old pid>: up to 90 s for a new process to serve it and answer health, then still the same process and
@@ -107,6 +110,12 @@ moved=1
 npm ci --silent --no-audit --no-fund || { put_back || not_back "Installing $tag's packages failed"; fail "Installing $tag's packages failed. Pocket stays on $from."; }
 npm run -s check:release -- --released || { put_back || not_back "$tag did not pass its release check"; fail "$tag did not pass its release check. Pocket stays on $from."; }
 
+# 1.124.3: the daemon checked for running replies when Update was pressed, and a reply can start in the minutes since (a
+# message, a check-back, a job). Wait for them, up to 10 minutes, so the restart does not cut one short; if they keep
+# running, put the version that is running back rather than restart under them.
+n=0
+for _ in $(seq 1 "$idle"); do n=$(busy); [ "$n" = 0 ] && break; echo "$(date -u +%H:%M:%S) waiting for $n replies to finish"; sleep 2; done
+if [ "$n" != 0 ]; then put_back || not_back 'Replies kept running while Pocket waited to restart'; fail "Replies kept running while Pocket waited to restart, so it did not restart and stays on $from. Update again when they finish."; fi
 say restarting
 old_pid=$(app_pid)
 pm2 restart "$pmid" 9>&- >/dev/null

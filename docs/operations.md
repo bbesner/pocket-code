@@ -358,7 +358,8 @@ was when the button was pressed; the tag `v<version>` must be on `origin/main`; 
 It backs up the git-ignored private files to `~/backups/pocket-code-<version>-update-<time>/`
 (`private-state.tar.gz`, `prev-head.txt`, `prev-branch.txt`); a backup `tar` could not finish, or one that does
 not list back, is removed and the update stops with nothing changed (1.124.2). It then runs `npm ci` and `check:release --released`,
-then `pm2 restart <its pm_id>` (the stored PM2 environment is kept; Pocket reads `.env` itself) and waits up
+then waits until no reply is running (`busy` from `/api/health`; a reply can start after the button was pressed) for up to
+10 minutes, putting the previous version back if replies keep running (1.124.3), then `pm2 restart <its pm_id>` (the stored PM2 environment is kept; Pocket reads `.env` itself) and waits up
 to 90 seconds for a new process that serves the release and answers `/api/health`, and is still the same
 process 10 seconds later. Then `pm2 save`. If any step after the checkout moves fails, the checkout and
 packages go back to the previous commit; if the new version does not come up, the previous version is

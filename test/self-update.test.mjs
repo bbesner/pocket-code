@@ -92,9 +92,10 @@ function release(src,v,extra){
 }
 // A stand-in Pocket: serves release.json from the checkout (as the daemon does, from disk) and /api/health. A release
 // whose package.json has "broken": true exits at start, like a daemon that cannot boot.
+// 1.124.3: /api/health's busy is the number in pm2/busy (99: a reply that never ends); each answer counts one down, a reply finishing.
 const SERVER=`import http from 'node:http';import fs from 'node:fs';const [dir,port]=process.argv.slice(2);
 if(JSON.parse(fs.readFileSync(dir+'/package.json','utf8')).broken)process.exit(1);
-http.createServer((q,r)=>{if(q.url==='/release.json'){r.end(fs.readFileSync(dir+'/public/release.json'));}else if(q.url==='/api/health'){r.end('{"ok":true}');}else{r.statusCode=404;r.end();}}).listen(Number(port),'127.0.0.1');`;
+http.createServer((q,r)=>{if(q.url==='/release.json'){r.end(fs.readFileSync(dir+'/public/release.json'));}else if(q.url==='/api/health'){const f=import.meta.dirname+'/busy';let n=0;try{n=Number(fs.readFileSync(f,'utf8'))||0;}catch{}if(n>0&&n<99)fs.writeFileSync(f,String(n-1));r.end(JSON.stringify({ok:true,busy:n}));}else{r.statusCode=404;r.end();}}).listen(Number(port),'127.0.0.1');`;
 // A stand-in PM2 for one app (pm_id 0): jlist, pid (empty for an id, as PM2 does), restart (stop the old process, start a new one), save.
 const PM2=`#!/usr/bin/env bash
 st="$FAKE_PM2_STATE"
@@ -255,4 +256,20 @@ test('1.124.3: the script beats its lock file while a step is quiet, and stops w
   assert.equal(fs.existsSync(seen),true,'the heartbeat touched the lock file during npm ci');
   const after=fs.statSync(lock).mtimeMs;await new Promise(res=>setTimeout(res,2500));
   assert.equal(fs.statSync(lock).mtimeMs,after,'no heartbeat outlives the script');
+});
+
+test('1.124.3: a reply started during the update holds the restart until it ends; one that does not end leaves Pocket where it was',{timeout:120000},async t=>{
+  const {dir,st,env,run,served}=await setup(t,{port:freePort()});
+  const head=sh(dir,'rev-parse','HEAD'),restarts=()=>(fs.readFileSync(path.join(st,'calls'),'utf8').match(/restart/g)||[]).length,before=restarts();
+  env.POCKET_SELF_UPDATE_IDLE_TRIES='3';
+  fs.writeFileSync(path.join(st,'busy'),'99');
+  const r=run('1.1.0','1.0.0');
+  assert.equal(r.status,1,r.stdout+r.stderr);assert.equal(r.job.phase,'failed');
+  assert.equal(r.job.error,'Replies kept running while Pocket waited to restart, so it did not restart and stays on 1.0.0. Update again when they finish.');
+  assert.equal(restarts(),before,'Pocket was not restarted under the reply');
+  assert.equal(sh(dir,'rev-parse','HEAD'),head,'the checkout went back');assert.equal(await served(),'1.0.0');
+  // A reply that ends while the script waits: the restart follows it.
+  fs.writeFileSync(path.join(st,'busy'),'2');
+  const ok=run('1.1.0','1.0.0');
+  assert.equal(ok.job.phase,'complete',ok.stdout+ok.stderr);assert.match(ok.stdout,/waiting for 2 replies to finish/);assert.equal(await served(),'1.1.0');
 });
