@@ -118,7 +118,7 @@ async function setup(t,{port}){
     return {...r,job:JSON.parse(fs.readFileSync(status,'utf8'))};
   };
   const served=async()=>(await(await fetch(`http://127.0.0.1:${port}/release.json`)).json()).version;
-  return {d,dir,st,bin,run,served};
+  return {d,dir,st,bin,env,run,served};
 }
 // A stand-in for a real tool (tar, npm) that misbehaves the way the body says and otherwise is the real one.
 const which=tool=>execFileSync('sh',['-c','command -v '+tool],{encoding:'utf8'}).trim();
@@ -200,4 +200,34 @@ test('1.124.2: when npm ci fails and putting the old packages back fails too, th
   fs.writeFileSync(n,'0');failCi(1);
   const ok=run('1.1.0','1.0.0');
   assert.equal(ok.job.phase,'failed');assert.equal(ok.job.error,"Installing v1.1.0's packages failed. Pocket stays on 1.0.0.");
+});
+
+test('1.124.3: without flock (macOS has none) the job says flock is missing, not that another update is running',{timeout:60000},async t=>{
+  const {d,dir,env,run}=await setup(t,{port:freePort()});
+  const head=sh(dir,'rev-parse','HEAD');
+  // Every program on PATH but flock, as on a Mac.
+  const farm=path.join(d,'no-flock');fs.mkdirSync(farm);
+  for(const p of process.env.PATH.split(':'))try{for(const f of fs.readdirSync(p))if(f!=='flock'&&!fs.existsSync(path.join(farm,f)))fs.symlinkSync(path.join(p,f),path.join(farm,f));}catch{}
+  env.PATH=env.PATH.split(':')[0]+':'+farm;
+  const r=run('1.1.0','1.0.0');
+  assert.equal(r.status,1,r.stdout+r.stderr);assert.equal(r.job.phase,'failed');
+  assert.doesNotMatch(r.job.error,/Another Pocket Code update is running/);
+  assert.equal(r.job.error,"flock is not on Pocket's PATH, so it cannot update itself. Update it from the server.");
+  assert.equal(sh(dir,'rev-parse','HEAD'),head);
+});
+
+test('1.124.3: the backup needs GNU tar: a BSD tar is refused before anything changes, and GNU tar as gtar is used',{timeout:120000},async t=>{
+  const {d,dir,bin,run,served}=await setup(t,{port:freePort()});
+  const head=sh(dir,'rev-parse','HEAD');
+  // macOS's tar is bsdtar: it does not take GNU tar's --warning or --ignore-failed-read.
+  wrap(bin,'tar',`case "$*" in *--version*) echo 'bsdtar 3.5.3 - libarchive 3.5.3 zlib/1.2.11'; exit 0 ;; *--warning=*|*--ignore-failed-read*) echo 'tar: Option --warning=no-file-changed is not supported' >&2; exit 1 ;; esac`);
+  const r=run('1.1.0','1.0.0');
+  assert.equal(r.status,1,r.stdout+r.stderr);assert.equal(r.job.phase,'failed');
+  assert.match(r.job.error,/needs GNU tar/);assert.match(r.job.error,/brew install gnu-tar/);
+  assert.equal(sh(dir,'rev-parse','HEAD'),head,'nothing changed');
+  assert.deepEqual(fs.existsSync(path.join(d,'backups'))?fs.readdirSync(path.join(d,'backups')):[],[]);
+  // Homebrew's GNU tar is gtar: with it on PATH the update goes through.
+  fs.writeFileSync(path.join(bin,'gtar'),`#!/bin/sh\nexec '${which('tar')}' "$@"\n`,{mode:0o755});
+  const ok=run('1.1.0','1.0.0');
+  assert.equal(ok.job.phase,'complete',ok.stdout+ok.stderr);assert.equal(await served(),'1.1.0');
 });

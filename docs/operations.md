@@ -367,8 +367,8 @@ daemon carries on, but run `npm ci` in the checkout before it next restarts. The
 
 Progress is in `pocket-self-update.json` in the data folder (a job silent for 20 minutes shows as
 interrupted) and the script's output in `pocket-self-update.log`; both are git-ignored. Requirements: PM2
-(the daemon must run under it), a git checkout, `git`, `npm`, `pm2`, `tar` and `flock` on the daemon's
-PATH. Running an operator update on such an install works as before; an operator script that expects a
+(the daemon must run under it), a git checkout, `git`, `npm`, `pm2`, GNU `tar` and `flock` on the daemon's
+PATH (on macOS, Homebrew's `gnu-tar`, used as `gtar`, and `flock`; the job names what is missing). Running an operator update on such an install works as before; an operator script that expects a
 particular `HEAD` will find the owner may already have moved it.
 
 ## Restarted questions and approvals

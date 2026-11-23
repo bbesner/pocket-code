@@ -53,10 +53,14 @@ put_back() { # return the checkout and its packages to what was running; fails w
 not_back() { fail "$1, and putting $from's packages back failed too. Pocket keeps running for now but will not start again after a restart until you run npm ci in $dir on the server. Backup: $backup"; }
 
 cd "$dir" || fail 'Could not open the Pocket Code folder. Nothing was changed.'
+# 1.124.3: the tools are checked before the lock is taken. macOS has no flock(1), and the lock then failed every time with
+# "Another Pocket Code update is running". The backup takes GNU tar's options; on macOS tar is bsdtar, and GNU tar is gtar.
+for tool in git npm pm2 tar flock; do command -v "$tool" >/dev/null || fail "$tool is not on Pocket's PATH, so it cannot update itself. Update it from the server."; done
+gnutar=$(command -v gtar || command -v tar)
+case "$("$gnutar" --version 2>/dev/null)" in *'GNU tar'*) ;; *) fail "Pocket's backup needs GNU tar, and $gnutar is not GNU tar. Install it (on macOS: brew install gnu-tar), or update Pocket from the server. Nothing was changed." ;; esac
 exec 9>"$status.lock"
 flock -n 9 || fail 'Another Pocket Code update is running.'
 say checking
-for tool in git npm pm2 tar flock; do command -v "$tool" >/dev/null || fail "$tool is not on Pocket's PATH, so it cannot update itself. Update it from the server."; done
 origin=$(git config --get remote.origin.url)
 case "$origin" in
   "https://github.com/$repo"|"https://github.com/$repo.git"|"git@github.com:$repo.git") ;;
@@ -82,8 +86,8 @@ git ls-files --others --ignored --exclude-standard -z | grep -zv '^node_modules/
 # 1 = a file changed while it was read (a live log): fine. 1.124.2: 2 is GNU tar's fatal error (a disk that filled, say); a
 # turn file that vanished is only a warning under --ignore-failed-read, status 0. The archive must also list back, and a
 # backup that failed is removed, so it neither stays on a full disk nor passes for a backup.
-tar --warning=no-file-changed --ignore-failed-read --null -czf "$backup/private-state.tar.gz" -T "$backup/files.nul"; rc=$?
-if [ "$rc" -gt 1 ] || ! [ -s "$backup/private-state.tar.gz" ] || ! tar -tzf "$backup/private-state.tar.gz" >/dev/null 2>&1; then
+"$gnutar" --warning=no-file-changed --ignore-failed-read --null -czf "$backup/private-state.tar.gz" -T "$backup/files.nul"; rc=$?
+if [ "$rc" -gt 1 ] || ! [ -s "$backup/private-state.tar.gz" ] || ! "$gnutar" -tzf "$backup/private-state.tar.gz" >/dev/null 2>&1; then
   rm -rf -- "$backup"
   fail 'The backup could not be written, so Pocket removed it. Nothing was changed. Check that the server has room for the backup, then try again.'
 fi
