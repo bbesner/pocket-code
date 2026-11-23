@@ -2548,7 +2548,8 @@ async function finalizeTurn(sessionId, turn, code) {
           : `Ready${result.cost != null ? ` · $${result.cost.toFixed(2)}` : ''}${result.duration_ms ? ` · ${Math.round(result.duration_ms / 1000)}s` : ''}`;
     findSessionFile(sessionId)
       .then(f => f ? sessionMeta(f, sessionId) : null)
-      .then(m => pushNotify(sessionId, m?.title || 'Claude conversation', withOriginLabel(originLabel, body))) // 1.117: names a non-owner origin
+      // 1.124.5: titled as the list titles it (a job's name, not its opening line "[cron:job-…] …"); the rename stays first
+      .then(m => pushNotify(sessionId, (m && finishTitle(m).title) || 'Claude conversation', withOriginLabel(originLabel, body))) // 1.117: names a non-owner origin
       .catch(() => { });
   }
   }

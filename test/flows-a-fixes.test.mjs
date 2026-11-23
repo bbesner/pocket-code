@@ -165,3 +165,61 @@ test('a-20: a side chat that is answering counts as busy for /api/health (and so
   await s.until(async () => (await s.call(`/session/${id}/side`)).body.chat?.busy === false, 8000, 'the side chat to stop');
   assert.equal(await busy(), 0);
 });
+
+// A push service on this machine (as in test/checkback-routes.test.mjs): one subscribed device, every push decrypted.
+// `refuseOver`: bytes of request body above which it answers 413, as a real push service does above 4096.
+async function pushService(t, { refuseOver = Infinity } = {}) {
+  const dir = tmpDir(), key = path.join(dir, 'key.pem'), cert = path.join(dir, 'cert.pem');
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  execFileSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-keyout', key, '-out', cert, '-days', '1', '-subj', '/CN=127.0.0.1'], { stdio: 'ignore' });
+  const device = createECDH('prime256v1'); device.generateKeys();
+  const auth = randomBytes(16).toString('base64url'), got = [];
+  const server = https.createServer({ key: fs.readFileSync(key), cert: fs.readFileSync(cert) }, (req, res) => {
+    const chunks = []; req.on('data', c => chunks.push(c));
+    req.on('end', () => {
+      const raw = Buffer.concat(chunks);
+      if (raw.length > refuseOver) { got.push({ refused: raw.length }); res.writeHead(413); return res.end(); }
+      try { got.push(JSON.parse(ece.decrypt(raw, { version: 'aes128gcm', privateKey: device, authSecret: auth }).toString('utf8'))); }
+      catch (err) { got.push({ error: err.message }); }
+      res.writeHead(201); res.end();
+    });
+  });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  t.after(() => new Promise(r => server.close(r)));
+  const vapid = webpush.generateVAPIDKeys();
+  return {
+    env: { VAPID_PUBLIC: vapid.publicKey, VAPID_PRIVATE: vapid.privateKey, NODE_TLS_REJECT_UNAUTHORIZED: '0' },
+    seed: data => { fs.mkdirSync(data, { recursive: true }); fs.writeFileSync(path.join(data, 'push-subs.json'), JSON.stringify([{ endpoint: `https://127.0.0.1:${server.address().port}/push/device`, keys: { p256dh: device.getPublicKey('base64url'), auth } }])); },
+    all: got,
+  };
+}
+async function bootWithPush(t, port, { env = {}, refuseOver } = {}) {
+  const push = await pushService(t, { refuseOver }), dir = tmpDir();
+  push.seed(path.join(dir, 'data'));
+  return { push, s: await boot(t, port, { dir, env: { ...push.env, ...env } }) };
+}
+
+// a-x-1: a finished Claude reply's push was titled with the transcript's raw title. In a job's conversation that is the
+// job's opening line ("[cron:job-disk-check Disk check] Look at the disk…"), where the list shows the job's name.
+test('a-x-1: a Claude reply\'s push is titled as the list titles the conversation (a job\'s name, a rename)', { timeout: 60_000 }, async t => {
+  const { push, s } = await bootWithPush(t, 21186);
+  assert.equal((await s.call('/automation/settings', { group: 'jobs', values: { jobs: true } })).status, 200);
+  const k = await s.call('/jobs/keys', { name: 'disk-check', workspace: s.cwd, engine: 'claude', model: 'default', instruction: 'Look at the disk and say what grew.', access: 'full' });
+  assert.equal(k.status, 201, JSON.stringify(k.body));
+  const run = await fetch(`http://127.0.0.1:${s.port}/api/jobs/run`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + k.body.secret }, body: JSON.stringify({ data: 'go', wait: 20 }), signal: AbortSignal.timeout(30000) }).then(r => r.json());
+  const id = run.conversation;
+  assert.ok(id, JSON.stringify(run));
+  await s.idle(id);
+  await s.call(`/session/${s.e(id)}/pin`, { pinned: true }); // a job's rows are grouped away from the list until pinned
+  const row = await s.until(async () => (await s.call('/sessions')).body.sessions.find(x => x.id === id), 8000, 'the list row');
+  assert.equal(row.title, 'Disk check', 'the list shows the job\'s name');
+  // a later reply in that conversation (the agent's own follow-up takes the same path), and one after a rename
+  const reply = async (text, what) => {
+    const n = push.all.length;
+    assert.equal((await s.call(`/session/${s.e(id)}/message`, { text, approvalMode: 'full' })).status, 202);
+    return s.until(() => push.all.slice(n).find(x => x.tag === id), 10000, what);
+  };
+  assert.equal((await reply('and what grew?', 'the reply\'s push')).title, 'Disk check');
+  assert.equal((await s.call(`/session/${s.e(id)}/rename`, { name: 'Disk report' })).status, 200);
+  assert.equal((await reply('and since?', 'the push after the rename')).title, 'Disk report');
+});
