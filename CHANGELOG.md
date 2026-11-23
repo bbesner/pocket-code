@@ -3,6 +3,22 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.124.7] — 2026-11-23 · build 229
+
+One fix, found by a test that failed once in CI.
+
+- **The vault's file check closes its files before it returns.** `pinCommand` (the check of what a vault command will
+  run, made before a run is claimed) started closing the files it had opened and returned without waiting. A file
+  handle closes on Node's thread pool, so when the pool was busy, as on a loaded CI runner, the check came back while
+  its files were still open. Measured: 1 run in 2,000 on an idle machine, every run with the thread pool busy. The
+  files were read-only and closed a moment later, so nothing was exposed; the fault was that the check did not keep
+  its own promise. A run plan now also has `closed()`, which settles when every close it started is done;
+  `pinCommand` waits for it. `close()` itself is unchanged and still returns at once, so the server's run path is as
+  before.
+- **Tests:** the contract test `pinCommand does not resolve while its file handles are still open` now keeps the
+  thread pool busy while it checks five runs, so it fails every time on 1.124.6 instead of once in a while.
+- **Migration:** none. **Rollback to 1.124.6:** nothing to undo.
+
 ## [1.124.6] — 2026-11-23 · build 228
 
 One fix, contributed in #293.

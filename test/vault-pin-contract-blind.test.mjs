@@ -573,9 +573,18 @@ describe('plan.close', () => {
     assert.deepEqual(seen, []);
   });
   test('pinCommand does not resolve while its file handles are still open', async () => {
-    const cwd = tmpDir('pin-'); const f = put(cwd, 'arg.txt', 'x');
-    await pinCommand({ argv: ['true', f], cwd }, { PATH: SYS });
-    assert.equal(fdsInto(cwd), 0, 'pinCommand resolved before FileHandle.close() finished');
+    // FileHandle.close() finishes on the thread pool. On an idle machine it usually wins the race against a pinCommand that
+    // does not wait for it (1 run in 2,000 lost it, 1.124.6), so the pool is kept busy here, as on a loaded CI runner:
+    // then a pinCommand that does not wait resolves with the handle still open every time.
+    let busy = true; const spin = () => { if (busy) crypto.pbkdf2('k', 's', 20000, 32, 'sha256', spin); };
+    for (let i = 0; i < 8; i += 1) spin();
+    try {
+      for (let k = 0; k < 5; k += 1) {
+        const cwd = tmpDir('pin-'); const f = put(cwd, 'arg.txt', 'x');
+        await pinCommand({ argv: ['true', f], cwd }, { PATH: SYS });
+        assert.equal(fdsInto(cwd), 0, 'pinCommand resolved before FileHandle.close() finished');
+      }
+    } finally { busy = false; }
   });
 });
 
