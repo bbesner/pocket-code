@@ -25,7 +25,8 @@ Type in the message box at the bottom and press the send button.
   or **Plan first**. These choices are remembered per conversation on this browser.
 - When delivery cannot be confirmed (the network dropped mid-send), the message stays on the device and the box shows
   **Retry same message**, **Review conversation** and **Discard message** (which deletes the unsent message). Retry resends with the same request id, so the
-  server does not start a second reply for a message it already received. A message the server refused shows **Edit
+  server does not start a second reply for a message it already received. A message the server refused, or could not
+  start at all (a full disk, a folder that is gone), reads **Not sent:** with the server's reason and shows **Edit
   message** instead of Review conversation.
 - When the last reply failed, the end of the conversation says so and offers **Send again** (the same text as a new reply)
   and **Edit message** (puts it back in the box). This notice comes from the server, so every device shows it.

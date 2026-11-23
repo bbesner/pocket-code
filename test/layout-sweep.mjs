@@ -86,6 +86,12 @@ function measureInPage({touch,scope}){
   else if(hidY&&e.scrollHeight>e.clientHeight+2&&!(s.webkitLineClamp&&s.webkitLineClamp!=='none'))out.cut.push({el:describe(e),axis:'y',by:e.scrollHeight-e.clientHeight});
   if(!hidX&&!scrollsSideways(e)&&(r.right>vw+1)&&s.position!=='fixed')out.offscreen.push({el:describe(e),left:Math.round(r.left),right:Math.round(r.right),text:true});
  }
+ // 1.124.5: a sheet's own text lines start where its heading does (14 px in); one that hangs out to the left, or is
+ // inset twice, is measured against the heading's text edge.
+ const sheet=document.querySelector('.sheet[role=dialog]'),head=sheet&&sheet.querySelector('h2');out.inset=[];
+ if(sheet&&head&&shown(head)){const edge=e=>e.getBoundingClientRect().left+parseFloat(getComputedStyle(e).paddingLeft),want=edge(head);
+  for(const e of sheet.querySelectorAll(':scope > .sheet-help, .settings-scope, :scope > [data-environment] > *')){if(!shown(e)||!inView(e.getBoundingClientRect()))continue;
+   const by=Math.round(edge(e)-want);if(Math.abs(by)>3)out.inset.push({el:describe(e),by});}}
  return out;
 }
 
@@ -98,6 +104,7 @@ const problemsOf=(cell,allow={})=>{
  for(const c of m.cut)if(!allowed(allow.cut,c.el))p.push(`text cut (${c.axis}, ${c.by}px): ${c.el}`);
  for(const c of m.covered)if(!allowed(allow.covered,c.el))p.push(`covered by ${c.by}: ${c.el}`);
  for(const u of m.unnamed)p.push(`no accessible name: ${u}`);
+ for(const i of m.inset||[])if(!allowed(allow.inset,i.el))p.push(`${Math.abs(i.by)}px ${i.by<0?'left':'right'} of the sheet heading: ${i.el}`);
  for(const v of cell.axe||[])for(const n of v.nodes)if(!allowed(allow.axe,v.id+' '+n.target.join(' ')))p.push(`axe ${v.id}: ${n.target.join(' ')}${n.summary?' — '+n.summary.replace(/\s+/g,' ').slice(0,140):''}`);
  for(const e of cell.errors||[])p.push('page error: '+e.slice(0,200));
  return [...new Set(p)];

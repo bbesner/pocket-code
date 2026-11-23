@@ -336,6 +336,7 @@ mark.fmark.cur { background: var(--clay); color: var(--on-accent); }
   display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--dim);
   border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; background: var(--bg);
 }
+.chip[hidden] { display: none; } /* 1.124.5: display:inline-flex beat the hidden attribute (Retry name-sync setting showed all the time) */
 .chip svg.i { width: 15px; height: 15px; stroke-width: 1.7; }
 .chip.set { color: var(--clay); border-color: var(--clay-deep); }
 .attachrow { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
@@ -646,6 +647,11 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .report-table [align=center] { text-align: center; }
 .codewrap .copybtn { min-height: 36px; min-width: 44px; font-size: 13px; }
 .sheet-help { color: var(--dim); font-size: 14px; margin: 8px 0 16px; line-height: 1.5; }
+/* 1.124.5: a sheet's heading and rows start 14 px in; its help line, a Settings scope label and the Accounts sheet's
+   body started at the sheet's own padding, 14 px to their left (the layout sweep now measures this). :where() keeps
+   this as weak as .sheet-help itself, so a sheet's own margin rule further down replaces it instead of adding to it. */
+:where(.sheet) > .sheet-help { margin-inline: 14px; }
+.sheet > [data-environment] { margin-inline: 14px; }
 .results-sheet { max-width: 760px; }
 .results-tools { display: flex; gap: 10px; margin-bottom: 14px; }
 .results-tools input,.skill-search { min-width: 0; flex: 1; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; color: var(--text); padding: 10px 12px; font: inherit; font-size: 16px; }
@@ -736,6 +742,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .approvals-sheet { max-width:880px;padding:16px; }
 .approvals-sheet h2 { padding-left:0; }
 .approvals-sheet .sheet-help { max-width:70ch; }
+.approvals-sheet > .sheet-help { margin-inline:0; }
 .approval-card { padding-block:20px;border-bottom:1px solid var(--line); }
 .approval-card:last-child { border-bottom:0; }
 .approval-card h3 { font-size:18px;line-height:1.4;overflow-wrap:anywhere; }
@@ -889,7 +896,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .question-custom { display:block;font-size:14px;color:var(--dim);margin-top:12px; }
 .question-custom input { display:block;width:100%;min-height:44px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--text);padding:10px;font:16px system-ui;margin-top:6px; }
 .question-error { color:var(--err);font-size:14px; }.question-form .primary { min-height:44px;padding:12px 18px; }
-.provider-account { padding:16px 0;border-bottom:1px solid var(--line); }.provider-account h3 { font-size:16px;margin-bottom:8px; }.provider-account p { overflow-wrap:anywhere; }
+.provider-account { padding:16px 0;border-bottom:1px solid var(--line); }.provider-account h3, [data-environment] h3 { font-size:16px;margin-bottom:8px; }.provider-account p { overflow-wrap:anywhere; }
 .provider-actions { display:flex;flex-wrap:wrap;gap:8px; }
 .provider-account .sheet-help { margin-bottom:8px; }
 .chip.claude-stop { color:var(--err);border-color:color-mix(in srgb,var(--err) 55%,transparent); }
@@ -1169,6 +1176,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .status-in-header:not(.compact-header) header.bar h1 .run-confirmation { display: block; flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .status-in-header:not(.compact-header) header.bar h1 .tag:not(:empty) + .run-confirmation::before { content: '·'; margin-right: 6px; color: var(--faint); }
 @media (max-width: 400px) { .status-in-header:not(.compact-header) header.bar h1 .tag:not(:empty) + .run-confirmation::before { content: none; } }
+html.assistant .status-in-header:not(.compact-header) header.bar h1 .tag:not(:empty) + .run-confirmation::before { content: none; } /* 1.124.5: the folder is hidden there, so the state began with a stray dot */
 /* Scheduled runs: one collapsed group at the end of All. */
 .automated-group > summary { list-style: none; cursor: pointer; display: flex; align-items: baseline; gap: 10px; min-height: 44px; padding-right: 18px; }
 .automated-group > summary::-webkit-details-marker { display: none; }
@@ -1405,7 +1413,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .share-url .chip { flex: none; }
 .chip.ok { color: var(--ok); border-color: var(--ok); }
 .share-url input:focus-visible { outline: 2px solid var(--clay); outline-offset: 1px; }
-.share-note { padding-inline: 14px; margin-top: 0; }
+.share-note { margin-inline: 14px; margin-top: 0; }
 .document-options .opt-group:first-of-type { margin-top: 0; }
 /* 1.32: the library as a grid of previews. A card is a picture with the row's words under it; the picture comes from
    /thumb when this install can make one, else the kind stands in. Actions sit on the picture and show on hover or focus. */
@@ -1470,7 +1478,7 @@ video.doc-media { width: 100%; max-height: 70vh; background: #000; }
 /* 1.33: one navigation and control language across the workspace. */
 .settings-index .opt { justify-content: space-between; min-height: 72px; }
 .settings-index .opt > .i { transform: rotate(180deg); flex: none; color: var(--dim); }
-.settings-scope { color: var(--dim); font-size: 13px; font-weight: 500; margin: 20px 0 8px; }
+.settings-scope { color: var(--dim); font-size: 13px; font-weight: 500; margin: 20px 14px 8px; }
 .sheet-back { margin: 0 48px 16px 0; min-height: 44px; }
 .library-error { padding: 16px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 16px; }
 .library-error p { margin: 0 0 12px; color: var(--dim); }
@@ -1549,6 +1557,8 @@ header.bar .chat-statebar { border: 0; background: none; padding: 0; order: 10; 
 .push-kinds .opt:disabled { opacity: .55; cursor: default; }
 .email-form { display: flex; flex-direction: column; gap: 8px; }
 .email-form .voice-field { margin: 0; }
+.email-form .vault-field-error { margin: 0; }
+.email-form input[aria-invalid=true] { border-color: var(--err); }
 .settings-sheet #s-ahead:disabled, .settings-sheet #s-badge:disabled { opacity: .55; cursor: default; }
 /* 1.52: Settings → Agents & instance → Claude models in the picker. The catalog as the same option rows the
    notification kinds use; a model this computer's Claude Code policy blocks keeps its row, with a dashed ring and
@@ -2093,7 +2103,8 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 .inbox-item-facts { margin: 6px 0 0; font-size: 13px; color: var(--dim); }
 .inbox-item-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 10px; }
 .inbox-item-actions:empty { display: none; }
-.inbox-item-actions .chip { min-height: 36px; padding: 4px 10px; font-size: 13.5px; text-decoration: none; gap: 5px; }
+.inbox-item-actions .chip { min-height: 44px; padding: 4px 10px; font-size: 13.5px; text-decoration: none; gap: 5px; }
+@media (pointer: fine) { .inbox-item-actions .chip { min-height: 36px; } } /* 1.124.5: 36 px was the size on a phone too */
 .inbox-item-actions .chip .i { width: 16px; height: 16px; }
 .inbox-item-alert { color: var(--clay); border-color: var(--clay); }
 .inbox-item-state { font-size: 13.5px; font-weight: 600; color: var(--clay); margin-right: 4px; }
@@ -2165,6 +2176,7 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 .sheet.side-sheet { height: min(760px, 85dvh); }
 .workspace-dock.side-sheet { flex-basis: 420px; padding-bottom: 0; }
 .side-help { margin: 0 4px 10px; }
+.sheet.side-sheet > h2 { padding-left: 4px; } /* 1.124.5: the side chat's body sits 4 px in, like a chat; its heading sat 10 px further */
 .side-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .side-empty { color: var(--dim); font-size: 15px; line-height: 1.5; margin: 6px 4px; max-width: 46ch; }
 .msgs.side-msgs { padding: 4px 4px 12px; gap: 14px; }
@@ -2190,7 +2202,7 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 .lineage-sep { color: var(--faint); }
 .branch-label { display: block; font-weight: 600; margin: 4px 0 8px; color: var(--text); }
 .branch-sheet .queue-editor { margin-bottom: 4px; }
-.branch-note { margin: 8px 0 14px; }
+.branch-note { margin: 8px 14px 14px; }
 .branch-warn { color: var(--warn); }
 .branch-sheet > .primary { margin: 0; width: 100%; }
 .branch-alt { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); color: var(--dim); font-size: 14px; }
@@ -2222,6 +2234,7 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 
 .cli-updates-sheet { padding-inline: 20px; }
 .cli-updates-sheet > h2 { padding-inline: 0; }
+.cli-updates-sheet > .sheet-help { margin-inline: 0; }
 .cli-updates-sheet > .cli-update-actions { position: sticky; bottom: -10px; display: grid; grid-template-columns: 1fr 1fr; background: var(--surface); padding: 12px 0; }
 .cli-updates-sheet > .cli-update-actions .primary { grid-column: 1 / -1; }
 .cli-updates-sheet > .cli-update-actions .chip { justify-content: center; }
@@ -2246,7 +2259,7 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 .agent-note .title-note { text-wrap: pretty; max-width: 62ch; }
 .agent-note code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; color: var(--text); background: var(--raised); border-radius: 6px; padding: 1px 6px; }
 #pe-done-help, #pe-works-help, #step-check-help, #new-start-none { text-wrap: pretty; } /* DESIGN.md: notes wrap pretty */
-.sheet .sheet-note, .mode-sheet .sheet-help { padding-inline: 14px; } /* on the rows' inset, under the heading */
+.sheet .sheet-note, .mode-sheet .sheet-help { margin-inline: 14px; } /* on the rows' inset, under the heading */
 /* 1.107: the Conductor info button sits at the end of the row it explains (.mode-row), a 44px target in --dim. Hover or
    keyboard focus shows its text as a tooltip; a tap or click opens the same text under the row on --raised. The handoff
    card names its project on one line with the start as a chip; New's Start a project is an ordinary chip. */
@@ -2295,7 +2308,7 @@ html.pocket-paused .frame header.bar { padding-top: 10px; } /* the banner takes 
 .railhead:has(#railmore) .density-toggle { font-size: 0; gap: 0; padding-inline: 6px; }
 /* The confirmation reuses Stop all Claude replies' pair: Pause all in the error outline, Keep running plain. */
 .pause-would { margin: 4px 14px 0; font-size: 16px; line-height: 1.5; color: var(--text); text-wrap: pretty; }
-.pause-sheet > .sheet-help, .pause-sheet > .question-error { margin-inline: 14px; }
+.pause-sheet > .question-error { margin-inline: 14px; }
 .pause-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 14px; }
 .pause-actions .chip { min-height: 44px; padding-inline: 16px; font-size: 14px; }
 .pause-actions .chip .i { width: 15px; height: 15px; }

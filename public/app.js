@@ -944,7 +944,8 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     </div>
     <button class="opt" id="s-badge" aria-pressed="false"><span class="dot"></span><span>Count on the app icon<span class="sub" id="s-badge-state">How many tasks and reminders are due, on the installed app's icon</span></span></button>
     <button class="opt" id="s-ahead" disabled aria-pressed="false"><span class="dot"></span><span>Notice a day before<span class="sub" id="s-ahead-state">Loading the reminder setting…</span></span></button>
-    <div class="title-settings" id="s-email-wrap"><form class="email-form" id="s-email-form"><label class="voice-field">Email due tasks and reminders to<input type="email" name="to" id="s-email" placeholder="you@example.com" maxlength="200" autocomplete="email" disabled></label>
+    <div class="title-settings" id="s-email-wrap"><form class="email-form" id="s-email-form" novalidate><label class="voice-field">Email due tasks and reminders to<input type="email" name="to" id="s-email" placeholder="you@example.com" maxlength="200" autocomplete="email" aria-describedby="s-email-err" disabled></label>
+      <p class="vault-field-error" id="s-email-err" role="alert"></p>
       <span class="vault-set-actions"><button class="chip" type="submit" id="s-email-save" disabled>Save</button><button class="chip" type="button" id="s-email-test" disabled>Send a test</button></span>
       <p class="title-note" id="s-email-note" role="status">Loading the email setting…</p></form></div>
     <button class="opt" id="s-review-all" disabled aria-pressed="false"><span class="dot"></span><span>Mark all reviewed bar<span class="sub" id="s-review-all-state">Loading this setting…</span></span></button>
@@ -1110,11 +1111,18 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     catch (err) { toast('Could not save: ' + (err.message || 'error')); }
     finally { paintNotifySettings(); }
   };
+  sh.querySelector('#s-email').addEventListener('input', () => { sh.querySelector('#s-email-err').textContent = ''; sh.querySelector('#s-email').removeAttribute('aria-invalid'); });
   sh.querySelector('#s-email-form').onsubmit = async e => {
-    e.preventDefault(); if (!srv) return; const to = sh.querySelector('#s-email').value.trim(), save = sh.querySelector('#s-email-save'); save.disabled = true;
+    e.preventDefault(); if (!srv) return; const input = sh.querySelector('#s-email'), to = input.value.trim(), save = sh.querySelector('#s-email-save'), errEl = sh.querySelector('#s-email-err');
+    // 1.124.5: a wrong address is named under the field and the field keeps focus; the browser's own bubble and a toast
+    // were the only signs, and both are gone in seconds.
+    const refuse = msg => { errEl.textContent = msg; input.setAttribute('aria-invalid', 'true'); input.focus(); };
+    errEl.textContent = ''; input.removeAttribute('aria-invalid');
+    if (to && !input.validity.valid) { refuse('That does not look like an email address.'); return; }
+    save.disabled = true; let refused = '';
     try { srv = await api('/settings', { method: 'POST', body: JSON.stringify({ notifyEmail: to }), signal: AbortSignal.timeout(8000) }); toast(to ? 'Reminders will be emailed to ' + to : 'Email reminders off'); }
-    catch (err) { toast(err.message || 'Could not save the address'); }
-    finally { paintNotifySettings(); }
+    catch (err) { refused = err.message || 'Could not save the address.'; }
+    finally { paintNotifySettings(); if (refused) { input.value = to; refuse(refused); } } // the repaint puts the saved address back; a refused one stays to be corrected
   };
   sh.querySelector('#s-email-test').onclick = async e => {
     const btn = e.currentTarget; btn.disabled = true; sh.querySelector('#s-email-note').textContent = 'Sending a test message…';
@@ -3922,7 +3930,9 @@ async function submitPending(id) {
       sendsInFlight.delete(id); holdSecretSend(id, pending.text, e.body?.matches || []);
       return;
     }
-    const rejected = e.status >= 400 && e.status < 500 && e.code !== 'delivery_uncertain';
+    // 1.124.5: 503 not_started is the server saying for certain that nothing ran (a full disk, a missing folder) and that
+    // it kept no receipt. That is "Not sent" with the server's reason, not "Delivery not confirmed"; Retry sends it again.
+    const rejected = e.code === 'not_started' || (e.status >= 400 && e.status < 500 && e.code !== 'delivery_uncertain');
     pending.rejected = rejected;
     pending.error = e.code === 'delivery_uncertain' ? e.message
       : e.status === 409 && e.body?.paused ? Automation.refused() // 1.117: own messages blocked while paused; Retry sends it after Resume
@@ -4521,7 +4531,10 @@ async function renderNew({ home = false, slot = '' } = {}) {
       if (projectLinkError && payload.project) toast(`Started, but not linked to ${payload.projectName || 'the project'}: ${projectLinkError}`);
       return true;
     } catch (e) {
-      if (e.status >= 400 && e.status < 500 && e.code !== 'delivery_uncertain') saveOutbox(NK, null);
+      // 1.124.5: not_started is certain (nothing ran, no receipt kept), so nothing is left to check: the draft stays in the
+      // box to change or start again, and the reason stays on the page instead of a note that said "not yet confirmed".
+      if (e.code === 'not_started' || (e.status >= 400 && e.status < 500 && e.code !== 'delivery_uncertain')) saveOutbox(NK, null);
+      if (e.code === 'not_started') { hint(`Not sent: ${e.message}`); return false; }
       if (e.code === 'start_used') { clearDraft(NK); localStorage.removeItem(SK); localStorage.removeItem(BK); if (slot) forgetNewSlot(slot); location.hash = '#/chat/' + e.body.id; return false; } // 1.96: another tap or device started it
       if (e.code === 'secret_detected') holdSecretStart(newPending?.payload.text || text, e.body?.matches || []);
       else if (e.status === 409 && e.body?.paused) { hint(Automation.refused()); toast('Pocket is paused.', { action: 'Resume', onAction: () => Automation.resume() }); } // 1.117: the draft stays in the box

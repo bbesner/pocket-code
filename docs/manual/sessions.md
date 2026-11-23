@@ -70,7 +70,9 @@ If something is missing, the reason shows above the box: **Choose a workspace ab
 path.** or **Write what you would like done first.** If the start request was sent but not confirmed
 (a dropped connection), the screen says **Start request not yet confirmed. Retry checks the same
 request.** **Retry start** sends the same request again without starting a second conversation;
-**Discard start** drops it, along with what you wrote.
+**Discard start** drops it, along with what you wrote. If the server answers that it could not start
+the conversation at all (a full disk, a folder that is gone), the reason shows above the box as
+**Not sent: …**; what you wrote stays, and **Start** tries again once the cause is fixed.
 
 A briefing a task's or project's **Start** puts in the box stays only for that visit. Leave without starting
 and the next **New conversation** opens empty, unless you edited the briefing. A draft you typed yourself
@@ -657,6 +659,7 @@ for a provisioned install, set `POCKET_CLAUDE_MODELS` and restart Pocket.
 | A reply says the model *is not offered in Settings* or *is blocked by this computer's Claude Code policy* | The chosen model is not offered. | Choose another model, or offer it in **Settings → Agents & instance**. |
 | *Choose a Claude model from the model menu, then send again.* | An old tab sent a Codex model to Claude (or the reverse). | Pick a model from the menu. |
 | **Start request not yet confirmed** | The start was sent but the answer was lost. | **Retry start** (it cannot start a duplicate) or **Discard start**. |
+| **Not sent:** and a reason, above the message box | The server could not start the conversation or the reply (a full disk, a missing folder). Nothing ran. | Fix what the reason names, then **Start** again; in a conversation, **Retry same message** or **Edit message**. |
 | **Status unavailable** or **Status unconfirmed. Reconnecting…** | The list check failed or is older than 15 seconds. | Wait, or use **Refresh**; work on the server continues. |
 | *Could not search inside conversations.* | The search request failed or timed out. | **Try again**. |
 | No generated titles | Titles are off, or neither CLI is installed and signed in (Settings shows the reason). | Turn on **Generate short titles**, or sign the CLI in. |

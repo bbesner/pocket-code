@@ -28,7 +28,7 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 function pocketPhase(j,installed){
   const to=j.to||'the release';
   const t={queued:'Preparing the update…',checking:'Checking the Pocket Code folder…','backing-up':'Backing up Pocket’s data…',installing:`Installing ${to}…`,restarting:'Restarting Pocket. This page reconnects by itself.','rolling-back':`${to} did not start. Going back to ${j.from}…`,
-    complete:installed===j.to?`Updated to ${to}.`:`Updated to ${to}. Reload Pocket to use it.`,failed:'The update did not finish. '+(j.error||''),interrupted:j.error||'The update stopped without finishing.'};
+    complete:installed===j.to?`Updated to ${to}.`:`Updated to ${to}. Reload Pocket to use it.`,failed:j.error||'The update did not finish.',interrupted:j.error||'The update stopped without finishing.'};
   return t[j.phase]||j.phase;
 }
 let pocketRestart=false;

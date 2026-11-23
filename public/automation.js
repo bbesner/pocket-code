@@ -218,7 +218,7 @@ const Automation = (() => {
       if (typeof CheckBacks !== 'undefined') CheckBacks.refresh();
       poll(true); if (typeof refreshSessions === 'function') refreshSessions();
       // Focus would be lost with the banner; the message box or the page heading takes it.
-      if (button?.closest('.pause-banner')) (document.querySelector('#box:not([readonly])') || document.querySelector('#first') || document.querySelector('header.bar h1'))?.focus?.({ preventScroll: true });
+      if (button?.closest('.pause-banner')) (document.querySelector('#box:not([readonly])') || document.querySelector('#first') || document.querySelector('#listmore') || document.querySelector('#chatmore'))?.focus?.({ preventScroll: true }); // 1.124.5: the list's More button (Pause all lives there); a heading without tabindex took nothing
     } catch (e) { toast(e.message || 'Could not resume.'); }
     finally { if (button?.isConnected) button.disabled = false; }
   }
@@ -389,7 +389,7 @@ const Automation = (() => {
     host = sh;
     bindToggles(sh);
     const body = sh.querySelector('#s-automation-body'); if (!body) return;
-    if (!on()) { body.innerHTML = '<p class="title-note">This server does not offer automation settings yet.</p>'; body.setAttribute('aria-busy', 'false'); return; }
+    if (!on()) { body.innerHTML = `<p class="title-note">${typeof PANE !== 'undefined' && PANE && window.pocketFeatures?.automation ? 'Automation and Pause all are in the main window.' : 'This server does not offer automation settings yet.'}</p>`; body.setAttribute('aria-busy', 'false'); return; }
     try { data = await api('/automation'); if (!sh.isConnected) return; apply({ paused: data.paused ?? null }); paintSettings(); }
     catch (e) { if (sh.isConnected) { body.innerHTML = `<p class="title-note">${esc(e.message || 'Could not load the automation settings.')}</p>`; body.setAttribute('aria-busy', 'false'); } }
   }

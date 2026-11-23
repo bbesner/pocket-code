@@ -778,6 +778,8 @@ See [For agents](for-agents.md).
 
 **The page says *This server does not offer automation settings yet.*** The server is on an older version.
 
+**The page says *Automation and Pause all are in the main window.*** You opened Settings in a split pane. Automation and **Pause all** are left out of a pane; use the main window's Settings and its **More** menu.
+
 **A build or watcher stopped when I paused.** Pause all stops background jobs. Turn off **Pause all also stops background jobs** to leave them running until one of them starts a reply. Pocket still stops that reply while paused, which ends the conversation's process and any other jobs in it. A job whose reply was still running ends with the reply either way.
 
 **My own message was refused.** **Your own messages while paused** is **Blocked until you resume**. Tap **Resume**, then send again, or change the setting.

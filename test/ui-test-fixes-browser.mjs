@@ -227,6 +227,113 @@ export async function runUiTestFixes({browser,base,rows,out,settingsState=()=>({
   await post(page,'/api/documents/reset');
  }));
 
+ // ---- Settings, Updates, Automation and the Inbox --------------------------------------------------------------------
+ const REASON='Pocket Code could not record the process on disk, so it did not start it. Check the free disk space, then send again.';
+ await check('A message the server did not start says Not sent and gives the server\'s reason, in a chat and on New',PHONE,async page=>{
+  await intercept(page,async(r,u)=>{
+   if(r.method()==='POST'&&(/^\/api\/session\/[^/]+\/message$/.test(u.pathname)||u.pathname==='/api/new')){await r.respond({status:503,contentType:'application/json',body:JSON.stringify({error:REASON,code:'not_started'})});return true;}
+  });
+  await openChat(page,idle.id);await page.evaluate(id=>{saveOutbox(id,null);clearDraft(id);},idle.id);
+  await page.type('#box','Count the pallets in aisle 4');await page.click('#send');
+  await page.waitForFunction(()=>document.querySelector('#retry-message'));
+  const chat=await page.evaluate(()=>({text:document.querySelector('#delivery-status p').textContent,edit:Boolean(document.querySelector('#edit-message')),review:Boolean(document.querySelector('#review-message')),box:document.querySelector('#box').value}));
+  assert.equal(chat.text,'Not sent: '+REASON,'the server\'s own reason, not "Delivery not confirmed"');
+  assert.deepEqual([chat.edit,chat.review,chat.box],[true,false,'Count the pallets in aisle 4'],'it can be edited (nothing was sent), and the words are back in the box');
+  await page.click('#discard-message');
+  await page.goto(base+'/?ui-fix=6#/new');await page.waitForSelector('#first');await page.waitForSelector('#start');
+  await page.evaluate(()=>{for(const k of Object.keys(localStorage))if(k.startsWith('pc-outbox'))localStorage.removeItem(k);});
+  await page.type('#first','Recount the cold room');await page.click('#start');
+  await page.waitForFunction(()=>{const h=document.querySelector('#start-hint');return h&&!h.hidden&&h.textContent;});
+  const fresh=await page.evaluate(()=>({hint:document.querySelector('#start-hint').textContent,note:document.querySelector('#new-delivery').hidden,first:document.querySelector('#first').value,start:document.querySelector('#start').disabled,route:location.hash}));
+  assert.equal(fresh.hint,'Not sent: '+REASON);
+  assert.deepEqual([fresh.note,fresh.first,fresh.start,fresh.route],[true,'Recount the cold room',false,'#/new'],'no "not yet confirmed" note; the draft stays and Start works again');
+ });
+
+ await check('Updates: a failed Pocket Code update shows the server\'s reason once',PHONE,async page=>{
+  const error='The update did not start. Nothing was changed. The log is pocket-self-update.log in Pocket\'s data folder.';
+  const state={enabled:true,timeZone:'America/New_York',hour:4,checkedAt:Date.now(),checking:false,job:null,providers:[],
+   pocket:{key:'pocket',name:'Pocket Code',enabled:true,installed:'1.124.4',latest:'1.125.0',available:true,notes:'https://example.test/releases/tag/v1.125.0',guide:'https://example.test/docs/operations.md',
+    self:{enabled:true,available:true,reason:null,job:{id:'self-x',running:false,phase:'failed',from:'1.124.4',to:'1.125.0',error}}}};
+  await page.goto(base+'/#/all');await page.waitForSelector('.session-home');
+  await intercept(page,async(r,u)=>{if(u.pathname.startsWith('/api/cli-updates')){await r.respond({status:200,contentType:'application/json',body:JSON.stringify(state)});return true;}});
+  await page.evaluate(()=>pollCliUpdates());await page.evaluate(()=>openCliUpdates());
+  await page.waitForFunction(()=>/did not start/.test(document.querySelector('#pocket-update-row')?.textContent||''));
+  const text=await page.$eval('#pocket-update-row',e=>e.textContent);
+  assert.ok(text.includes(error),'the reason is shown');assert.ok(!text.includes('did not finish'),'without "The update did not finish." in front of "The update did not start.": '+text.slice(0,200));
+ });
+
+ await check('Settings: a hidden chip is hidden, labels start at the heading\'s edge, and the email field names its own error',PHONE,async page=>{
+  await page.goto(base+'/#/all');await page.waitForSelector('#settings');await page.waitForFunction(()=>typeof settingsSheet==='function');
+  const edges=sel=>page.evaluate(sel=>{const edge=e=>Math.round(e.getBoundingClientRect().left+parseFloat(getComputedStyle(e).paddingLeft));const sh=document.querySelector('.sheet[role=dialog]');
+   return {head:edge(sh.querySelector('h2')),lines:[...sh.querySelectorAll(sel)].filter(e=>e.getClientRects().length).map(edge)};},sel);
+  await page.evaluate(()=>settingsSheet({category:'conversation'}));await page.waitForSelector('#s-titles',{visible:true});
+  await page.waitForFunction(()=>!document.querySelector('#s-sync')?.disabled);
+  assert.deepEqual(await page.$eval('#s-sync-retry',e=>[e.hidden,getComputedStyle(e).display]),[true,'none'],'"Retry name-sync setting" is not shown when nothing failed');
+  const scope=await edges('.settings-scope');assert.ok(scope.lines.length>=2);
+  assert.ok(scope.lines.every(x=>Math.abs(x-scope.head)<=1),'"This device" starts where the heading does: '+JSON.stringify(scope));
+  // Accounts: the body is on the heading's inset, and every heading in it is one size
+  await page.evaluate(()=>settingsSheet({category:'agents'}));await page.waitForSelector('#s-environment',{visible:true});await page.click('#s-environment');
+  await page.waitForFunction(()=>document.querySelectorAll('.sheet[role=dialog] [data-environment] h3').length>=2);
+  const env=await edges('[data-environment] > *');assert.ok(env.lines.every(x=>x>=env.head-1),'the Accounts body does not hang out to the left of its heading: '+JSON.stringify(env));
+  assert.deepEqual([...new Set(await page.$$eval('.sheet[role=dialog] [data-environment] h3',hs=>hs.map(h=>getComputedStyle(h).fontSize)))],['16px'],'"Conversation controls" is the size of the account headings');
+  // The email address: a wrong one is named under the field, by the page and by the server alike
+  await page.evaluate(()=>settingsSheet({category:'notifications'}));await page.waitForSelector('#s-email',{visible:true});await page.waitForFunction(()=>!document.querySelector('#s-email').disabled);
+  const state=()=>page.evaluate(()=>({err:document.querySelector('#s-email-err').textContent,role:document.querySelector('#s-email-err').getAttribute('role'),invalid:document.querySelector('#s-email').getAttribute('aria-invalid'),focus:document.activeElement?.id,value:document.querySelector('#s-email').value,novalidate:document.querySelector('#s-email-form').noValidate}));
+  await page.$eval('#s-email',e=>{e.value='';});await page.type('#s-email','owner-at-example');await page.keyboard.press('Enter');
+  await page.waitForFunction(()=>document.querySelector('#s-email-err').textContent);
+  assert.deepEqual(await state(),{err:'That does not look like an email address.',role:'alert',invalid:'true',focus:'s-email',value:'owner-at-example',novalidate:true});
+  await page.type('#s-email','x');assert.deepEqual(await page.evaluate(()=>[document.querySelector('#s-email-err').textContent,document.querySelector('#s-email').getAttribute('aria-invalid')]),['',null],'typing clears it');
+  await page.$eval('#s-email',e=>{e.value='';});await page.type('#s-email','owner@example');await page.click('#s-email-save'); // the browser accepts this one; the server does not
+  await page.waitForFunction(()=>document.querySelector('#s-email-err').textContent);
+  assert.deepEqual(await state(),{err:'That does not look like an email address.',role:'alert',invalid:'true',focus:'s-email',value:'owner@example',novalidate:true},'a refusal from the server lands in the same place, and the address stays to be corrected');
+ });
+
+ await check('Settings in a split pane says where Automation is, not that the server lacks it',DESKTOP,async page=>{
+  await page.setViewport({width:480,height:900,deviceScaleFactor:1});
+  await page.goto(base+'/?pane=uifix#/all');await page.waitForFunction(()=>typeof settingsSheet==='function'&&window.pocketFeatures);
+  assert.equal(await page.evaluate(()=>Boolean(window.pocketFeatures.automation)),true,'the fixture server offers automation');
+  await page.evaluate(()=>settingsSheet({category:'automation'}));
+  await page.waitForFunction(()=>document.querySelector('#s-automation-body')?.getAttribute('aria-busy')==='false');
+  assert.equal(await page.$eval('#s-automation-body',e=>e.textContent.trim()),'Automation and Pause all are in the main window.');
+ });
+
+ await check('Inbox: after Dismiss or Resolved the focus is on the next entry, times read PM, and an item\'s buttons are full size on touch',PHONE,page=>withSettings({inbox:true},async()=>{
+  await page.goto(base+'/#/');await page.waitForSelector('[data-filter="all"]');await post(page,'/api/inbox/reset');
+  try{
+   await page.goto(base+'/?ui-fix=7#/inbox');await page.waitForSelector('.inbox-view [data-inbox-open]');
+   await page.evaluate(()=>{inboxFilter='open';paintInboxView();});
+   const ids=()=>page.$$eval('#inbox-main [data-inbox-open]',bs=>bs.map(b=>b.dataset.inboxOpen));
+   const before=await ids();assert.ok(before.length>=2,'the fixture has two or more open entries: '+before.length);
+   await page.focus(`[data-inbox-dismiss="${before[0]}"]`);await page.keyboard.press('Enter');
+   await page.waitForFunction(id=>!document.querySelector(`#inbox-main [data-inbox-open="${id}"]`),{},before[0]);
+   assert.equal(await page.evaluate(()=>document.activeElement?.dataset?.inboxOpen||document.activeElement?.tagName),before[1],'after the row\'s X, focus is on the entry now in its place');
+   await page.keyboard.press('Enter');await page.waitForSelector(SHEET+' [data-resolve]');await page.focus(SHEET+' [data-resolve]');await page.keyboard.press('Enter');
+   await page.waitForFunction(id=>!document.querySelector('.sheet[role=dialog]')&&!document.querySelector(`#inbox-main [data-inbox-open="${id}"]`),{},before[1]);
+   assert.equal(await page.evaluate(()=>document.activeElement?.dataset?.inboxOpen||document.activeElement?.tagName),before[2]||'H2','after Resolved in the sheet, too (the Inbox heading when it was the last entry)');
+   assert.match(await page.evaluate(()=>inboxWhen('2026-11-23T21:48:00Z')),/\d:\d\d\s[AP]M$/,'"4:48 PM", as everywhere else in the app');
+   const chip=await page.evaluate(()=>{const w=document.createElement('div');w.className='inbox-item-actions';w.innerHTML='<button class="chip">Resolved</button>';document.body.append(w);const h=w.firstChild.getBoundingClientRect().height;w.remove();return {h,coarse:matchMedia('(pointer: coarse)').matches};});
+   assert.ok(!chip.coarse||chip.h>=44,'44px on a touch screen (was 36): '+JSON.stringify(chip));
+  }finally{await post(page,'/api/inbox/reset');}
+ }));
+
+ await check('Resume on the home list leaves the focus on the More button, and Assistant mode\'s header has no stray dot',DESKTOP,async page=>{
+  const {automationFixture:a}=await import('./automation-browser.mjs');
+  a.paused={at:new Date().toISOString(),by:'owner'};
+  try{
+   await page.goto(base+'/#/all');await page.waitForSelector('.pause-banner button');
+   const resume=await page.evaluateHandle(()=>[...document.querySelectorAll('.pause-banner button')].find(b=>/Resume/.test(b.textContent)));
+   await resume.focus();await page.keyboard.press('Enter');
+   await page.waitForFunction(()=>!document.querySelector('.pause-banner'));
+   assert.equal(await page.evaluate(()=>document.activeElement?.id),'listmore','not the page: the next Tab would have started from the top');
+  }finally{a.paused=null;}
+  await withSettings({assistantMode:true},async()=>{
+   await page.goto(base+'/?ui-fix=8#/chat/'+idle.id);await page.waitForFunction(id=>chatId===id&&document.querySelector('#box')&&document.documentElement.classList.contains('assistant'),{},idle.id);
+   const head=await page.evaluate(()=>{const run=document.querySelector('header.bar h1 .run-confirmation'),tag=document.querySelector('header.bar h1 .tag');
+    return {inHeader:Boolean(document.querySelector('.split.status-in-header:not(.compact-header)')),tag:Boolean(tag?.textContent.trim()),tagShown:tag?getComputedStyle(tag).display:'',dot:run?getComputedStyle(run,'::before').content:''};});
+   assert.deepEqual([head.inHeader,head.tag,head.tagShown],[true,true,'none'],'the state is in the header and Assistant mode hides the folder beside it');assert.equal(head.dot,'none','so no separator is drawn before the state');
+  });
+ });
+
  assert.deepEqual(errors,[],'no page errors');
  fs.writeFileSync(path.join(out,'ui-test-fixes.json'),JSON.stringify({checks},null,2));
  console.log(JSON.stringify({uiTestFixes:checks.length,ok:true}));
