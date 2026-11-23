@@ -140,6 +140,8 @@ export class JobKeyStore {
     this.proposals = Array.isArray(d.proposals) ? d.proposals.filter(p => p && REQUEST_RE.test(p.id) && typeof p.session === 'string' && p.fields && typeof p.fields === 'object'
       && PROPOSAL_STATUSES.includes(p.status) && !Number.isNaN(Date.parse(p.expiresAt))) : [];
     // A run left starting by a crash never started (the start happens after the reservation is saved and is settled at once).
+    // Not quite always (1.124.4): a crash between the engine's start and the server's `working` save (for Codex and
+    // OpenRouter, while their start call is answered), or after that save failed, leaves a reply that runs on, adopted.
     if (this.runs.some(r => r.status === 'starting')) this.commit(this.keys, this.runs.map(r => r.status === 'starting' ? { ...r, status: 'failed', outcome: 'not_started', endedAt: iso(this.now()) } : r));
   }
   write(data) {

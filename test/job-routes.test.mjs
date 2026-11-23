@@ -737,3 +737,24 @@ test('1.124.4: a rotation cut off after the new key was saved: after the restart
   assert.equal(third.status, 200); assert.ok(!third.body.file);
   assert.equal(fs.readFileSync(file, 'utf8'), 'pjk_' + 'Z'.repeat(43) + '\n');
 });
+
+test('1.124.4: a run whose reply started is answered as started when saving it as working fails; a retry with the same idempotency key is a repeat', { timeout: 90_000 }, async t => {
+  const dir = tmpDir();
+  const s = await boot(t, 19075, { dir, env: storeFault(dir) });
+  await s.turnOn();
+  const { secret } = await s.makeKey();
+  // saves: 1 the reservation, 2 working (fails once), 3 the conversation, 4 the key's last run
+  fault(dir, { store: 'job-keys.json', nth: 2, times: 1 });
+  const first = await s.job(secret, { data: 'disk at 91%', idempotencyKey: 'nightly-2026-11-23', wait: 20 });
+  noFault(dir);
+  assert.equal(first.status, 200, first.text);
+  assert.equal(first.body.status, 'done', JSON.stringify(first.body));
+  assert.equal(s.claudeCalls().length, 1, 'one start');
+  assert.match(s.logs(), /job run started, its state not saved run=/);
+  const again = await s.job(secret, { data: 'disk at 91%', idempotencyKey: 'nightly-2026-11-23', wait: 5 });
+  assert.equal(again.body.repeat, true, JSON.stringify(again.body));
+  assert.equal(again.body.run, first.body.run);
+  assert.equal(s.claudeCalls().length, 1, 'the retry started nothing');
+  const more = await s.job(secret, { data: 'and now?', conversation: first.body.conversation, wait: 20 });
+  assert.equal(more.body.status, 'done', 'the conversation is the key\'s: ' + JSON.stringify(more.body));
+});

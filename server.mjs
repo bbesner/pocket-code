@@ -7184,11 +7184,14 @@ async function jobStart(res, { k, r, conversation, data, instructions, refuse })
     return false;
   }
   // The reply may already have ended (and settled the run) while the start was awaited.
+  // 1.124.4: the reply is running now, so a save that fails from here is logged and the call is answered as started: a run
+  // left starting reads working and its reply's end settles it (jobFinished). It used to reach the caller's catch, which
+  // marked the run not_started while its reply ran, so a retry with the same idempotency key started a second reply.
+  const saved = (what, fn) => { try { fn(); } catch (e) { log(`job run started, ${what} not saved run=${r.run} key=${k.id} session=${id}: ${e.code || e.message}`); } };
   const cur = jobStore.run(r.run);
-  if (cur?.status === 'starting') jobStore.updateRun(r.run, { status: 'working', conversation: id });
-  else if (cur && !cur.conversation) jobStore.updateRun(r.run, { conversation: id });
-  jobStore.noteConversation(k.id, id);
-  jobStore.updateKey(k.id, { lastRunAt: r.startedAt });
+  saved('its state', () => { if (cur?.status === 'starting') jobStore.updateRun(r.run, { status: 'working', conversation: id }); else if (cur && !cur.conversation) jobStore.updateRun(r.run, { conversation: id }); });
+  saved('its conversation', () => jobStore.noteConversation(k.id, id));
+  saved('the key\'s last run', () => jobStore.updateKey(k.id, { lastRunAt: r.startedAt }));
   log(`job run started run=${r.run} key=${k.id} engine=${k.engine} session=${id}${conversation ? ' (continued)' : ''}`);
   return true;
 }
