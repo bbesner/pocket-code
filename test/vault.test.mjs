@@ -1,6 +1,6 @@
 // 1.39 vault: the encrypted store's rules, the scrubber and the daemon-side run, the /api/vault routes (what the owner's
 // cookie and an agent's token may each do), runner tokens, the agent line, and the CLI. No value ever reaches an agent.
-import test from 'node:test';
+import test,{after} from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -13,7 +13,10 @@ import {agentEnv} from '../environment.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
 const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|CODEX)_/.test(k)));
-const tmp=()=>fs.mkdtempSync(path.join(os.tmpdir(),'pocket-vault-'));
+// 1.124.4: every folder tmp() makes is removed when the file ends, also after a failed test (a test that removed its own
+// folder only at its end left one behind in the temp folder on every failure, and one test never removed its own).
+const tmpDirs=[];after(()=>{for(const d of tmpDirs)try{fs.rmSync(d,{recursive:true,force:true,maxRetries:5});}catch{}});
+const tmp=()=>{const d=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-vault-'));tmpDirs.push(d);return d;};
 const S1='11111111-1111-4111-8111-111111111111';
 const SECRET='sk-live-hunter2-0123456789abcdef';
 
@@ -800,7 +803,8 @@ test('HTTP (PC-02): an Always recipe holds what the command runs; a changed scri
 test('pinCommand (PC-02): the program, a #! interpreter and the one env names, file arguments and --flag=file; an unreadable file compares by size and times',async()=>{
   const dir=tmp(),bin=path.join(dir,'bin');fs.mkdirSync(bin);
   fs.writeFileSync(path.join(bin,'node-ish'),'#!/bin/sh\n',{mode:0o755});
-  fs.writeFileSync(path.join(dir,'tool.sh'),'#!/usr/bin/env -S node-ish --flag\n',{mode:0o755});
+  // 1.124.4: no -S here. env -S in a #! line can set its own PATH, so it is not offered Always (test/vault-pin.test.mjs).
+  fs.writeFileSync(path.join(dir,'tool.sh'),'#!/usr/bin/env node-ish\n',{mode:0o755});
   fs.writeFileSync(path.join(dir,'conf.json'),'{}');fs.writeFileSync(path.join(dir,'data.txt'),'x');
   const PATH=[bin,'/usr/bin','/bin'].join(':');
   const p=await pinCommand({argv:['./tool.sh','--config=conf.json','data.txt','-v','missing.txt',dir],cwd:dir},{PATH});

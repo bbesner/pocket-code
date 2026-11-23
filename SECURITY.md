@@ -523,8 +523,9 @@ the same rules and are recorded as `terminal`.
 
 **What an Always allow trusts.** A recipe holds the command's text (program, arguments, folder), its variables and what
 it runs: the program found on the Vault's own `PATH` (`POCKET_VAULT_PATH`, or the daemon's `PATH` at start, absolute
-folders only; never the caller's); the interpreter named on its `#!` line (and the program `#!/usr/bin/env` finds); the
-program a known launcher starts (`env`, `timeout`, `nice`, `nohup`, `stdbuf`, `ionice`, `setsid`, `taskset`, `chrt`,
+folders only; never the caller's); the interpreter named on its `#!` line (and the program `#!/usr/bin/env` finds, and
+the `#!` line of an interpreter that is itself a script); the program a known launcher starts (`env`, `timeout`, `nice`,
+`nohup`, `stdbuf`, `ionice`, `setsid`, `taskset`, `chrt`,
 `time`, `xargs`, `sudo`, `doas`, `flock`, `sshpass`), found on that `PATH` and passed to the launcher by full path; the
 script a known interpreter runs, found the way the interpreter finds it (`node job` runs `job`, else `job.js`, `job.json`
 or `job.node`; `python3 -m tool` runs `tool.py`, or `tool/__main__.py` with the package's `__init__.py` files, from the
@@ -576,8 +577,9 @@ with no file, `xargs … sh` reading names from a file, a `-r` path that does no
 from a partial package); a program that runs what it finds (`find -exec`, `-execdir`, `-ok`, `node --test`, `bun test`,
 `deno test`); a program that starts another command Pocket cannot follow (`parallel`, `watch`, `entr`, `nodemon`, `pm2`,
 `strace`, `gdb`, `chroot`, `unshare`, `su`, `runuser`, `script`, `systemd-run`, `tmux`, `screen`, `expect`, `cross-env`,
-`concurrently` and similar, or a launcher option Pocket does not know, such as `env -S` or `sudo -i`); a command run on
-another computer (`ssh` with a command, a `ProxyCommand`-style option, `rsync -e`, `scp -S`); scripts a project defines
+`concurrently` and similar, or a launcher option Pocket does not know, such as `env -S` (on the command line or in a
+`#!` line) or `sudo -i`); a command run on another computer (`ssh` with a command, a `ProxyCommand`-style option,
+`rsync -e` written any way, `scp -S` or `-D`, `sftp -S`, `-D` or a batch file); scripts a project defines
 (`npm run`, `npm test`, `npm install`, `npm publish` and every other npm, pnpm or yarn command except a short list that
 runs nothing of the project's, such as `npm whoami` or `npm view`; `node --run`, `bun run`, `deno task`); packages
 fetched and run (`npx`, `pnpx`, `bunx`, `npm exec`, `deno x`); containers (`docker`, `podman` and `nerdctl` commands
