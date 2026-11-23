@@ -2556,6 +2556,37 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     assert.equal(await page.evaluate(id=>fetch('/api/tasks').then(r=>r.json()).then(s=>s.tasks.find(t=>t.id===id).text),tid),TEXT);
    }finally{Object.assign(settings,was);await page.evaluate(()=>Promise.all(['/api/board/reset','/api/tasks/reset'].map(u=>fetch(u,{method:'POST'})))).catch(()=>{});}
   });
+  // 1.124.3: Remind me and Edit step closed before the server answered and sent the revision the card had when they
+  // opened, so an agent's change in between had the reminder's words or the step's new text refused and gone.
+  await check('Projects stale sheets (1.124.3): a reminder or a step edit typed while an agent changed the card stays in its sheet, and the next try goes in',async()=>{
+   await page.setViewport({width:1440,height:900});const settings=settingsState(),was=settings.projects;settings.projects=true;
+   const ID='warehouse-stock-report',SAYS='Ask the supplier for the corrected invoice.',STEP='Count the returns shelf and the back room';
+   const agent=b=>page.evaluate((id,b)=>fetch('/api/board/act',{method:'POST',body:JSON.stringify({project:id,...b})}),ID,b);
+   const card=()=>page.evaluate(id=>fetch('/api/board').then(r=>r.json()).then(s=>s.projects.find(p=>p.id===id)),ID);
+   const settle=async(fn,...a)=>{for(let i=0;i<40;i++){if(await page.evaluate(fn,...a))return true;await pause(100);}return false;};
+   const refused=async()=>{await page.waitForFunction(()=>/This project changed since you loaded it/.test(document.querySelector('#toast')?.textContent||''));await page.evaluate(()=>{document.querySelector('#toast').textContent='';});};
+   try{
+    await page.evaluate(()=>fetch('/api/board/reset',{method:'POST'}));
+    await page.goto(base+'/?stale-sheets=1#/projects/'+ID);await page.waitForSelector('.project-card [data-remind]');
+    await clickControl(page,'.project-card [data-remind]');await page.waitForSelector('.reminder-form [name="text"]');
+    await page.type('.reminder-form [name="text"]',SAYS);await agent({action:'note',text:'Ledger re-imported by the agent.'});
+    await clickControl(page,'.sheet [data-pick="tomorrow"]');await refused();
+    assert.equal(await page.$eval('.reminder-form [name="text"]',e=>e.value),SAYS,'the reminder sheet stays open with its words');
+    await clickControl(page,'.sheet [data-pick="tomorrow"]');
+    assert.ok(await settle(()=>!document.querySelector('.reminder-form')),'the next pick sets the reminder');
+    assert.ok((await card()).reminders.some(r=>r.label===SAYS),'with its words');
+    await page.waitForSelector('.project-card [data-task-more]');
+    await clickControl(page,'.project-card [data-task-more]');await page.waitForSelector('.sheet [data-edit]');
+    await clickControl(page,'.sheet [data-edit]');await page.waitForSelector('#step-check');
+    await page.$eval('.sheet form [name="text"]',e=>{e.value='';});await page.type('.sheet form [name="text"]',STEP);
+    await agent({action:'note',text:'Shelf labels reprinted by the agent.'});
+    await clickControl(page,'.sheet form .primary');await refused();
+    assert.equal(await page.$eval('.sheet form [name="text"]',e=>e.value),STEP,'the step sheet stays open with the new text');
+    await clickControl(page,'.sheet form .primary');
+    assert.ok(await settle(()=>!document.querySelector('#step-check')),'the next Save goes through');
+    assert.ok((await card()).tasks.some(t=>t.text===STEP),'with the new text');
+   }finally{settings.projects=was;await page.evaluate(()=>fetch('/api/board/reset',{method:'POST'})).catch(()=>{});}
+  });
 
   await check('Documents (1.30): off by default, then the library, a sandboxed HTML document, Markdown and CSV views, sharing, keep from Results, the project section, tabs, split, rail, settings and the phone',async()=>{
    await page.setViewport({width:1440,height:900});const sleep=ms=>new Promise(r=>setTimeout(r,ms));

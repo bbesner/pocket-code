@@ -304,7 +304,8 @@ function taskOptions(project,taskId){
   <button class="opt" data-edit>${IC.pen}<span>Edit the text<span class="sub">The step and what it passes when</span></span></button>`;
  const close=()=>closeCurrentSheet?.();
  sh.querySelector('[data-remind]').onclick=()=>{close();reminderSheet(project,taskId);};
- sh.querySelector('[data-edit]').onclick=()=>{close();stepSheet(t,({text,check})=>boardAct({action:'task-update',project,expected_revision:p.revision,task:taskId,text,...(check!==(t.check||'')?{check}:{})},'Step updated'));};
+ // 1.124.3: after a refused Save, the current revision, so the next Save is the owner's overwrite (as Edit project, 1.124.2)
+ sh.querySelector('[data-edit]').onclick=()=>{close();let revision=p.revision;stepSheet(t,({text,check})=>boardAct({action:'task-update',project,expected_revision:revision,task:taskId,text,...(check!==(t.check||'')?{check}:{})},'Step updated',cur=>{revision=cur.revision;}));};
  mountSheet(scrim,sh);
 }
 function linkedSessionOptions(project,sessionId){
@@ -332,7 +333,8 @@ function stepSheet(t,onSave){
  sh.innerHTML=`<h2>Edit step</h2><form class="project-form"><label class="voice-field">Text<input name="text" maxlength="300" required value="${esc(t.text)}" autocomplete="off"></label>
   <div class="voice-field"><label for="step-check">Passes when</label><input id="step-check" name="check" maxlength="300" value="${esc(t.check||'')}" autocomplete="off" aria-describedby="step-check-help"><p class="title-note" id="step-check-help">A check that shows this step is done. Optional.</p></div>
   <button class="primary" type="submit">Save</button></form>`;
- sh.querySelector('form').onsubmit=e=>{e.preventDefault();const text=e.target.elements.text.value.trim();if(!text)return;closeCurrentSheet?.();onSave({text,check:e.target.elements.check.value.trim()});};
+ // 1.124.3: the sheet closes once the step is saved; a refusal leaves it open with what was typed.
+ sh.querySelector('form').onsubmit=async e=>{e.preventDefault();const text=e.target.elements.text.value.trim();if(!text)return;if(await onSave({text,check:e.target.elements.check.value.trim()})&&sh.isConnected)closeCurrentSheet?.();};
  mountSheet(scrim,sh);
 }
 // Track (p = null) or edit a project. The directory defaults to the session's workspace when tracking from a session.
@@ -400,7 +402,9 @@ function reminderSheet(project,task){
  sh.innerHTML=`<h2>Remind me</h2><p class="sheet-name">${esc(t?t.text:p.name)}</p>
   ${picks.map(([k,label,d])=>`<button class="opt" data-pick="${k}"><span class="dot"></span><span>${label}<span class="sub">${esc(fmtDue(d.toISOString()))}</span></span></button>`).join('')}
   <form class="project-form reminder-form"><label class="voice-field">Another time<input type="datetime-local" name="when" required></label><label class="voice-field">Says<input name="text" maxlength="600" placeholder="${esc(t?t.text:'Revisit '+p.name)}" autocomplete="off"></label><button class="primary" type="submit">Set reminder</button></form>`;
- const send=(d,text)=>{closeCurrentSheet?.();boardAct({action:'remind',project,expected_revision:p.revision,at:d.toISOString(),task:task||undefined,text:text||''},'Reminder set for '+fmtDue(d.toISOString()));};
+ // 1.124.3: a reminder only adds to the card, so it goes with the current revision, and the sheet closes once it is set: a
+ // refusal leaves it open with what was typed, and the next try carries the revision the refusal brought.
+ const send=async(d,text)=>{if(await boardAct({action:'remind',project,expected_revision:(projectById(project)||p).revision,at:d.toISOString(),task:task||undefined,text:text||''},'Reminder set for '+fmtDue(d.toISOString()))&&sh.isConnected)closeCurrentSheet?.();};
  sh.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>send(picks.find(x=>x[0]===b.dataset.pick)[2],sh.querySelector('[name=text]').value.trim()));
  sh.querySelector('form').onsubmit=e=>{e.preventDefault();const d=new Date(e.target.elements.when.value);if(Number.isNaN(d.getTime()))return toast('Pick a date and time.');if(d.getTime()<Date.now()-60000)return toast('That time has passed.');send(d,e.target.elements.text.value.trim());};
  mountSheet(scrim,sh);
