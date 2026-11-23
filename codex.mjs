@@ -42,7 +42,16 @@ const plainObject = o => Boolean(o) && typeof o === 'object' && !Array.isArray(o
 function loadCodexUsage() { try { const o = JSON.parse(fs.readFileSync(USAGE_FILE, 'utf8')); if (plainObject(o)) return o; } catch { } return { context: {}, rateLimits: null }; }
 const codexUsage = loadCodexUsage();
 if (!plainObject(codexUsage.context)) codexUsage.context = {};
+// 1.124.4: a thread's record goes 30 days after its last update, the rule usage.mjs has had since 1.124.3 (a record with no
+// time is kept); nothing deleted one before, and the file is written whole. A reply's token updates are written together:
+// the first arms a 2 s write, and the reply's end writes at once (finish). They were written once per model call.
+const KEEP_CONTEXT_MS = 30 * 86400_000, USAGE_DELAY_MS = 2000;
+let usageTimer = null;
+function saveCodexUsageSoon() { if (!usageTimer) { usageTimer = setTimeout(saveCodexUsage, USAGE_DELAY_MS); usageTimer.unref?.(); } }
 function saveCodexUsage() {
+  clearTimeout(usageTimer); usageTimer = null;
+  const cut = Date.now() - KEEP_CONTEXT_MS;
+  for (const [id, r] of Object.entries(codexUsage.context)) if (Number.isFinite(r?.lastAt) && r.lastAt < cut) delete codexUsage.context[id];
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
     const tmp = USAGE_FILE + '.tmp';
@@ -924,6 +933,7 @@ export function adoptCodexSessions(hooksFor) {
 function finish(turn, ev) {
   if (turn.done) return;
   turn.done = true;
+  if (usageTimer) saveCodexUsage(); // 1.124.4: the reply's token updates, written together
   ownedFinishedAt.set(turn.threadId,Date.now());
   if(ownedFinishedAt.size>1000)ownedFinishedAt.delete(ownedFinishedAt.keys().next().value);
   const priorActivity=extSeen.get(turn.threadId);if(priorActivity)priorActivity.at=0;
@@ -1279,7 +1289,7 @@ function onTurnNotify(turn, method, params) {
         };
         // the turn's first call shows whether it resumed warm or cold (the Claude side's cacheFirst)
         if (turn.cacheFirst === undefined && used > 0) turn.cacheFirst = { hit: cached / used, read: cached, written: used - cached };
-        saveCodexUsage();
+        saveCodexUsageSoon(); // 1.124.4: written with the reply's other updates, at the latest when it ends
       }
       break;
     }

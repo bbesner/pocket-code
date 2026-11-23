@@ -809,15 +809,21 @@ const r = await startTurn(); await sleep(500); done({ ok: r.ok, err: r.err, stat
   test('DIV-1: usage context retention is bounded (stale thread ids pruned on save)', async () => {
     const w = newWorld(); const T = uid();
     const ctx = {}; for (let i = 0; i < 3000; i++) ctx['019a0000-0000-7000-8000-' + String(i).padStart(12, '0')] = { used: 1, cached: 0, window: 1000, estimated: false, model: 'gpt-fake', lastAt: 1577836800000 + i };
+    const recent = '019a0000-0000-7000-8000-recent000001', untimed = '019a0000-0000-7000-8000-untimed00001';
+    ctx[recent] = { used: 1, cached: 0, window: 1000, lastAt: Date.now() - 29 * 86400e3 }; ctx[untimed] = { used: 1, cached: 0, window: 1000 };
     fs.writeFileSync(path.join(w.data, 'codex-usage-state.json'), JSON.stringify({ context: ctx, rateLimits: null }), { mode: 0o600 });
-    setCtl(w, { threadId: T, on: { 'turn/start': COMPLETE() } });
+    // three model calls in one reply: their updates are written together (1.124.4), not once each
+    setCtl(w, { threadId: T, on: { 'turn/start': [STARTED, usageFrame(1000, 400, 10000), usageFrame(2000, 900, 10000), usageFrame(3000, 1500, 10000), COMPLETED()] } });
     try {
       const R = need(await runChild(w, String.raw`
-const r = await startTurn(); await until(() => r.h.finished, 5000); await sleep(200); done({ ok: r.ok, err: r.err });`), 'child');
+let writes = 0; const real = fs.renameSync; fs.renameSync = (...a) => { if (String(a[1]).endsWith('codex-usage-state.json')) writes++; return real.apply(fs, a); }; syncBuiltinESMExports();
+const r = await startTurn(); await until(() => r.h.finished, 5000); await sleep(200); done({ ok: r.ok, err: r.err, writes });`), 'child');
       assert.equal(R.ok, true, R.err);
       const u = JSON.parse(fs.readFileSync(path.join(w.data, 'codex-usage-state.json'), 'utf8'));
-      assert.ok(u.context[T], 'new thread recorded');
+      assert.equal(u.context[T]?.used, 3000, 'new thread recorded, with the last call\'s context');
       assert.ok(Object.keys(u.context).length < 3001, 'context grows without retention: ' + Object.keys(u.context).length + ' entries, oldest from 2020 still kept');
+      assert.deepEqual(Object.keys(u.context).sort(), [T, recent, untimed].sort(), 'records older than 30 days dropped; a newer one and one with no time kept');
+      assert.equal(R.writes, 1, 'the reply\'s three updates written once, at its end');
     } finally { reap(w); }
   });
 
