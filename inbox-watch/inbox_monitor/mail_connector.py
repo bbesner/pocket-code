@@ -615,6 +615,7 @@ class ConnectorMail:
         self.on_call = on_call
         self.search_cap = int(mail.get("search_cap", 400))
         self._cache: dict[str, list[dict]] = {}  # thread id -> messages read this run
+        self._seen: dict[str, tuple[str, int]] = {}  # 1.124.1: message id -> (thread id, when), seen this run, written by commit_seen()
         self.db = sqlite3.connect(state_dir / "mail.sqlite", timeout=60)
         self.db.execute("pragma busy_timeout=60000")
         self.db.execute("create table if not exists connector_seen(message_id text primary key, thread_id text, seen_at integer)")
@@ -681,11 +682,11 @@ class ConnectorMail:
             unseen = False
             for t in page:
                 msgs = [m for m in t.get("messages") or [] if m.get("id")]
-                fresh = [m for m in msgs if not self.db.execute("select 1 from connector_seen where message_id=?", (m["id"],)).fetchone()]
+                fresh = [m for m in msgs if not self._was_seen(m["id"])]
                 unseen = unseen or bool(fresh)
                 if fresh and not all(SKIP_LABELS & set(m.get("labelIds") or []) for m in fresh) and not (self.scope and new_outbound(t)):
                     changed.add(t["id"])
-                self.db.executemany("insert or ignore into connector_seen(message_id,thread_id,seen_at) values(?,?,?)", [(m["id"], t["id"], now) for m in msgs])
+                self._mark_seen((m["id"], t["id"]) for m in msgs)
             if not token or not unseen:
                 break
         self.db.execute("delete from connector_seen where seen_at < ?", (now - 30 * 86400,))
@@ -724,11 +725,29 @@ class ConnectorMail:
 
     def baseline_threads(self, query: str | None = None, cap: int = 60) -> set[str]:
         found = self._search(self.scoped(query or self.baseline_query), cap, "fetch")
-        now = int(time.time())
-        self.db.executemany("insert or ignore into connector_seen(message_id,thread_id,seen_at) values(?,?,?)",
-                            [(m["id"], t["id"], now) for t in found for m in t.get("messages") or [] if m.get("id")])
-        self.db.commit()
+        self._mark_seen((m["id"], t["id"]) for t in found for m in t.get("messages") or [] if m.get("id"))
         return {t["id"] for t in found}
+
+    # 1.124.1: what a check saw is written only once the engine has the threads in its backlog (monitor.sqlite, another file,
+    # so no shared transaction). The marks used to be committed inside changed_threads, and a run killed between that and the
+    # backlog commit (a Pocket restart, the runner's 30-minute stop, a failed label sync) used the mail up without judging it.
+    # Now a run that dies first leaves no marks, and the next check, from the same cursor, reports the mail again.
+    def _was_seen(self, message_id: str) -> bool:
+        return message_id in self._seen or bool(self.db.execute("select 1 from connector_seen where message_id=?", (message_id,)).fetchone())
+
+    def _mark_seen(self, pairs) -> None:
+        now = int(time.time())
+        for mid, tid in pairs:
+            self._seen.setdefault(mid, (tid, now))
+
+    def commit_seen(self) -> None:
+        """Record what this check saw. The engine calls it once the changed threads are committed to its backlog."""
+        if not self._seen:
+            return
+        self.db.executemany("insert or ignore into connector_seen(message_id,thread_id,seen_at) values(?,?,?)",
+                            [(mid, tid, at) for mid, (tid, at) in self._seen.items()])
+        self.db.commit()
+        self._seen.clear()
 
     def search_ids(self, query: str, cap: int) -> list[str]:
         """Message ids for the query. The connector searches threads, so this is every listed message of each match."""
