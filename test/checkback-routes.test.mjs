@@ -766,9 +766,11 @@ test('A check-back\'s reply left in the queue by a restart keeps its origin when
   await s.until(() => s.logs().includes(`unattended start held (paused) origin=checkback session=${id}`), 15000, 'the held start to be refused');
   await sleep(600);
   assert.equal((await s.one(cb.id)).status, 'running', 'left to its reply in the queue');
+  // the owner's next reply ends, and the queue drains the row (1.124.5: it runs through Resume, which starts the row itself
+  // when no reply is running)
+  assert.equal((await s.call(`/session/${s.e(id)}/message`, { text: 'owner in between __SLOW__', approvalMode: 'full' })).status, 202);
+  await s.running(id);
   assert.equal((await s.call('/resume', {})).status, 200);
-  // the owner's next reply ends, and the queue drains the row
-  assert.equal((await s.call(`/session/${s.e(id)}/message`, { text: 'owner in between', approvalMode: 'full' })).status, 202);
   const done = await s.status(cb.id, 'done');
   assert.deepEqual([done.outcome.kind, done.outcome.summary], ['ok', 'Test response.']);
   const reply = s.audit().find(x => x.action === 'reply' && x.originRef === cb.id);
@@ -785,13 +787,61 @@ test('A check-back\'s reply left in the queue by a restart keeps its origin when
   fs.writeFileSync(settingsFile, JSON.stringify({ ...st2, paused: { at: new Date().toISOString(), by: 'owner' } }));
   s = await boot(t, 19019, { dir });
   await s.until(() => s.logs().includes(`unattended start held (paused) origin=checkback session=${second.id}`), 15000, 'the held start to be refused');
-  assert.equal((await s.call('/resume', {})).status, 200);
+  // 1.124.5: switched off before Resume, which now starts the held row itself (through the gate, which refuses it as off)
   assert.equal((await s.call('/automation/settings', { group: 'checkbacks', values: { checkbacks: false } })).status, 200);
+  assert.equal((await s.call('/resume', {})).status, 200);
+  await s.until(() => s.logs().includes(`unattended start held (feature_off) origin=checkback session=${second.id}`), 15000, 'the row to be refused as off at Resume');
+  const offAt = s.logs().length;
   assert.equal((await s.call(`/session/${s.e(second.id)}/message`, { text: 'owner in between, off', approvalMode: 'full' })).status, 202);
-  await s.until(() => s.logs().includes(`unattended start held (feature_off) origin=checkback session=${second.id}`), 15000, 'the drained row to be refused as off');
+  await s.until(() => s.logs().slice(offAt).includes(`unattended start held (feature_off) origin=checkback session=${second.id}`), 15000, 'the drained row to be refused as off');
   await s.idle(second.id);
   await sleep(600);
   assert.ok(!s.claudeCalls().some(c => c.id === second.id && /queued off note/.test(c.text || '')), 'the row did not start as a check-back');
+});
+
+// 1.124.5 (review 2026-11-23, a-03): the same held row, refused at boot by the pause. Resume left it for the owner's next
+// reply, so the card stayed "Checking back now"; and the owner's Run next instruction settled it as "lost track of its reply".
+async function heldCheckbackAtBoot(t, port, text) {
+  const dir = tmpDir();
+  let s = await boot(t, port, { dir });
+  await s.turnOn();
+  const { id, cb } = await ownerSets(s, text, { note: text + ' note' });
+  await s.stop();
+  const cbFile = path.join(s.data, 'checkbacks.json'), store = JSON.parse(fs.readFileSync(cbFile, 'utf8'));
+  Object.assign(store.checkbacks.find(c => c.id === cb.id), { status: 'running', markedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'), startedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z') });
+  fs.writeFileSync(cbFile, JSON.stringify(store));
+  fs.writeFileSync(path.join(s.data, 'followup-queue.json'), JSON.stringify([{ id: 'row-' + port, sessionId: id, text: `[Pocket check-back · set at 9:00 AM at your request · 1 of 6]\nWhat to check: ${text} note`, cwd: s.cwd, approvalMode: 'full',
+    origin: 'checkback', originRef: cb.id, rootOrigin: 'checkback', revision: 1, status: 'pending', createdAt: Date.now(), held: true }]));
+  const settingsFile = path.join(s.data, 'pocket-settings.json'), st = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+  fs.writeFileSync(settingsFile, JSON.stringify({ ...st, paused: { at: new Date().toISOString(), by: 'owner' } }));
+  s = await boot(t, port, { dir });
+  await s.until(() => s.logs().includes(`unattended start held (paused) origin=checkback session=${id}`), 15000, 'the held start to be refused');
+  await sleep(600);
+  assert.equal((await s.one(cb.id)).status, 'running');
+  return { s, id, cb };
+}
+test('a-03: Resume starts a check-back\'s reply that a restart left held and the pause refused at boot, and its end settles the card', { timeout: 120_000 }, async t => {
+  const { s, id, cb } = await heldCheckbackAtBoot(t, 21183, 'resume held');
+  const res = await s.call('/resume', {});
+  assert.equal(res.status, 200);
+  const done = await s.status(cb.id, 'done', 10000);
+  assert.deepEqual([done.outcome.kind, done.outcome.summary], ['ok', 'Test response.']);
+  const reply = s.audit().find(x => x.action === 'reply' && x.originRef === cb.id);
+  assert.deepEqual([reply?.origin, reply?.rootOrigin], ['checkback', 'checkback'], 'it ran as the check-back\'s reply');
+  assert.equal(s.claudeCalls().filter(c => c.id === id && /resume held note/.test(c.text || '')).length, 1, 'started once');
+  assert.deepEqual((await s.call(`/session/${s.e(id)}/queue`)).body.items, []);
+});
+test('a-03: a check-back\'s held reply the owner starts by hand from the queue is the owner\'s reply, and its end settles the card with its outcome', { timeout: 120_000 }, async t => {
+  const { s, id, cb } = await heldCheckbackAtBoot(t, 21184, 'owner held');
+  const row = (await s.call(`/session/${s.e(id)}/queue`)).body.items[0];
+  assert.equal(row.origin, 'checkback');
+  const r = await s.call(`/session/${s.e(id)}/queue/start`, { itemId: row.id });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  await s.idle(id);
+  const done = await s.status(cb.id, 'done', 10000);
+  assert.deepEqual([done.outcome.kind, done.outcome.summary], ['ok', 'Test response.'], 'settled from the reply, not "lost track"');
+  assert.ok(!s.audit().some(x => x.action === 'reply' && x.originRef === cb.id), 'the owner\'s reply, not an unattended one');
+  assert.equal(s.audit().filter(x => x.action === 'checkback' && x.event === 'finished' && x.id === cb.id).at(-1)?.outcome, 'ok');
 });
 
 test('A note is kept on one line: its line breaks can\'t add lines to the check-back\'s opening message', { timeout: 120_000 }, async t => {

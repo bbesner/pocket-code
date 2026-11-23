@@ -732,6 +732,9 @@ function shownOriginRef(t) {
 }
 // A finished unattended reply: the day's totals and one audit line. Returns the label the push leads with (null for owner).
 function noteFinish(id, turn, { cost, tokens, durationMs, outcome }) {
+  if (turn?.ownerCheckback) { // 1.124.5: before, the next pass settled it as "Pocket lost track of its reply"
+    try { checkbackFinished(id, turn, outcome, { ref: turn.ownerCheckback, byOwner: true }); } catch (e) { log(`check-back not recorded id=${turn.ownerCheckback} session=${id}: ${e.message}`); }
+  }
   if (!turn?.origin || turn.origin === 'owner') return null;
   const engine = engineForSessionId(id), rootOrigin = auto.normRoot(turn.rootOrigin);
   autoState.recordFinish({ rootOrigin, engine, cost, tokens });
@@ -2756,7 +2759,7 @@ function waitingTurn({ sessionId, cwd, text, attachments, retryAttempt, resume, 
 }
 // After a restart: a reply that was waiting for its conversation's closing process (held in the queue, first in line) starts
 // now, as the next message would, once any process the restart stopped for that conversation has gone (at most the stop's
-// two steps). A start that fails marks the row for review, as any queued message does.
+// two steps). A start that fails marks the row for review, as any queued message does. 1.124.5: Resume calls it too.
 function resumeHeldReplies() {
   for (const id of new Set(followups.rows.filter(x => x.held && x.status === 'pending').map(x => x.sessionId))) {
     const head = followups.list(id)[0]; if (!head?.held || head.status !== 'pending') continue;
@@ -3748,8 +3751,8 @@ async function codexTurnFinished(id, turn, ev) {
 function rowStart(row, by) {
   if (by === 'owner' || !row) return { ...OWNER_START };
   // 1.119: a check-back's reply left in the queue (a restart while it waited, then a refusal) keeps that origin when the queue
-  // drains it, so its end settles the check-back. The owner's Start makes it the owner's reply; the next pass settles the
-  // check-back once that reply ends (settleOrphanCheckbacks).
+  // drains it, so its end settles the check-back. The owner's Start makes it the owner's reply; 1.124.5: that reply's end
+  // settles the check-back with its outcome (turn.ownerCheckback, noteFinish).
   if (row.origin === 'checkback' && row.originRef) return { origin: 'checkback', originRef: String(row.originRef), rootOrigin: 'checkback' };
   const origin = by === 'held' ? auto.normOrigin(row.origin) : row.origin === 'coordination' ? 'coordination' : 'queue';
   return origin === 'owner' ? { ...OWNER_START } : { origin, ...(row.originRef ? { originRef: row.originRef } : {}), rootOrigin: auto.normRoot(row.rootOrigin) };
@@ -3772,7 +3775,10 @@ async function runNextFollowup(id, cwd, { replaceStale = false, by = 'queue' } =
   return followups.dispatch(id, async row => {
     // 1.81: queued with Full access before it was turned off: it never starts, and the row says why (not "not confirmed").
     if (row.approvalMode === 'full' && !ALLOW_FULL_ACCESS) throw Object.assign(new Error('Full access is turned off on this server; send it again with Review actions.'), { status: 403, notStarted: true });
-    return engineOf(id).startQueued(id, cwd, row, { replaceStale, from });
+    const out = await engineOf(id).startQueued(id, cwd, row, { replaceStale, from });
+    // 1.124.5: a check-back's reply the owner started by hand is the owner's reply; its end settles the card (noteFinish)
+    if (from.origin === 'owner' && row.origin === 'checkback' && row.originRef) { const t = ownedTurn(id); if (t) t.ownerCheckback = String(row.originRef); }
+    return out;
   }).catch(e => { if (e?.paused) { log(`queue start held (paused) session=${id}`); return null; } throw e; });
 }
 // The ACP engine's side of the adapter below, for both of its runtimes (OpenRouter through OpenCode, Antigravity).
@@ -6436,6 +6442,9 @@ function resumeAll() {
   if (autoValues('pause').rearmRetries) for (const m of [...heldRetries.values()]) { rearmRetry(m); rearmed++; }
   else for (const m of [...heldRetries.values()]) jobRetryDied(m, 'limit', 'held by Pause all and not re-armed at Resume'); // the retry stays held for the owner; the job's run ends
   const checkbacksOut = releaseCheckbacksOnResume(); // 1.119: overdue ones run within the catch-up window, or are missed (runOverdue)
+  // 1.124.5: a reply a restart left held in the queue (a check-back's among them) that the pause refused at boot starts now,
+  // through the same gate as at boot; before, it waited for the owner's next reply or Run next instruction.
+  if (was) resumeHeldReplies();
   if (was) autoAudit({ action: 'resume', rearmed, checkbacks: checkbacksOut, ...(inboxWatch ? { inboxWatch } : {}), pausedFor: Date.now() - Date.parse(was.at) || 0 });
   log(`Resume: re-armed ${rearmed} retr(ies)${inboxWatch === 'left_paused' ? '; Inbox Watch left paused' : ''}`);
   return { rearmed, inboxWatch, checkbacks: checkbacksOut };
@@ -6782,8 +6791,9 @@ async function startCheckbackHeld(c0, late) {
 // that is turned off, and whether or not a browser has it open: the owner asked to be told). The ordinary push is not sent.
 // turn.checkbackHandled (no ordinary push) is set only once this push is really going out, or was muted on purpose; a
 // check-back that is no longer running, or a save that failed, leaves the ordinary push in place. The caller catches a throw.
-function checkbackFinished(id, turn, outcome) {
-  const c = checkbacks.get(turn.originRef);
+// 1.124.5: byOwner, the owner started its reply from the queue by hand: the card is settled, and the owner's reply has its own push.
+function checkbackFinished(id, turn, outcome, { ref = turn.originRef, byOwner = false } = {}) {
+  const c = checkbacks.get(ref);
   if (!c || c.status !== 'running') return;
   const kind = { ok: 'ok', error: 'failed', stopped: 'stopped', limit: 'limit' }[outcome] || 'failed';
   const line = kind === 'ok' ? replyFirstLine(turn.events.filter(e => e.type === 'assistant').map(e => e.msg)) : '';
@@ -6792,7 +6802,7 @@ function checkbackFinished(id, turn, outcome) {
   const done = checkbacks.finish(c.id, 'done', kind, summary);
   checkbackUnsaved.delete(c.id);
   cbAudit('finished', done, { outcome: kind });
-  if (kind !== 'ok' && kind !== 'failed') return;
+  if (byOwner || (kind !== 'ok' && kind !== 'failed')) return;
   turn.checkbackHandled = true;
   if (mutes.has(id) && !checkbackSettings().pushWhenMuted) return log(`check-back push muted session=${id}`);
   checkbackTitle(id).then(title => pushRaw(`Checked back · ${title}`, kind === 'ok' ? line || 'Done' : 'Something went wrong. Tap to see what happened', { tag: id, url: '/#/chat/' + id, kind: 'automation' }))
