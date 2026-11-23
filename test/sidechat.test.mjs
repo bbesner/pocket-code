@@ -395,3 +395,26 @@ test('1.122.2: the empty result can come before any question; what a skipped res
   results=resultsOf(paid.events);
   near(results[0].cost,0.11,'the answer and what the skipped result spent');near(results[1].cost,0.05,'counted once');near(results[1].total,0.16,'the total');
 });
+
+// 1.124.2: the real CLI ends a reply that hit a usage limit or an API error with subtype "success" and is_error true (the
+// shapes test/fake-claude.mjs records for __LIMIT__ and __APIERR__). The side chat read only the subtype, so the panel
+// showed such a reply as answered, with its cost and time, and never said what went wrong.
+test('1.124.2: a usage limit or an API error ends the side chat\'s answer as an error, in the CLI\'s words',()=>{
+  const sc=new SideChats({normalize:()=>null,idleMs:0});
+  const at=Math.ceil(Date.now()/1000)+3600,api='API Error: 500 {"type":"error","error":{"type":"api_error","message":"Internal server error"}}';
+  for(const [how,o,error] of [
+    ['a usage limit',{type:'result',subtype:'success',is_error:true,api_error_status:429,result:'Claude AI usage limit reached|'+at,duration_ms:100},'Claude AI usage limit reached'],
+    ['an API error',{type:'result',subtype:'success',is_error:true,api_error_status:500,result:api,duration_ms:100},api],
+    ['an API error with no words',{type:'result',subtype:'success',is_error:true,api_error_status:529,result:'',duration_ms:100},'API error 529'],
+    ['an error with nothing said',{type:'result',subtype:'success',is_error:true,result:'',duration_ms:100},'The reply failed'],
+  ]){
+    const chat=sc.make('parent-1');chat.busy=true;
+    sc.line(chat,JSON.stringify(o));
+    const results=resultsOf(chat.events);
+    assert.equal(chat.busy,false,how);assert.equal(results.length,1,how);
+    assert.deepEqual([results[0].ok,results[0].error],[false,error],how);
+  }
+  const chat=sc.make('parent-1');chat.busy=true;
+  sc.line(chat,JSON.stringify({type:'result',subtype:'success',is_error:false,num_turns:1,result:'Yes.',duration_ms:100}));
+  assert.deepEqual([resultsOf(chat.events)[0].ok,resultsOf(chat.events)[0].error],[true,null],'an answer is still an answer');
+});

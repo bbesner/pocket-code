@@ -127,10 +127,14 @@ export function codexSideFork(threadId, config = {}) {
 
 const userLine = text => JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } }) + '\n';
 // The CLI's own reason when it ends a turn early, in words for the panel.
+// 1.124.2: a usage limit or an API error ends with subtype "success" and is_error true, its words in `result` (a limit's
+// "Claude AI usage limit reached|<reset epoch>"; the epoch is left off).
+const resultOk = o => o.subtype === 'success' && !o.is_error;
 function resultError(o) {
-  if (o.subtype === 'success') return null;
+  if (resultOk(o)) return null;
   if (/budget/i.test(o.subtype)) return 'This side chat reached its spending cap. Start a new one to keep asking.';
   if (o.subtype === 'error_during_execution' && !o.result) return 'Stopped';
+  if (o.subtype === 'success') return String(o.result || '').replace(/\|\s*\d{10}\s*$/, '').trim().slice(0, 300) || (o.api_error_status ? `API error ${o.api_error_status}` : 'The reply failed');
   return String(o.result || o.subtype || 'The reply failed').slice(0, 300);
 }
 
@@ -322,7 +326,7 @@ export class SideChats {
       chat.busy = false;
       const cost = r.cost + chat.pending;
       chat.pending = 0; chat.total += cost;
-      this.emit(chat, { type: 'result', ok: o.subtype === 'success', error: resultError(o), cost, total: chat.total, duration_ms: o.duration_ms });
+      this.emit(chat, { type: 'result', ok: resultOk(o), error: resultError(o), cost, total: chat.total, duration_ms: o.duration_ms });
       this.arm(chat);
     }
   }
