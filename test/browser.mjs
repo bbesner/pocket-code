@@ -507,6 +507,13 @@ try{
  if(process.env.POCKET_INBOX_NEWS_ONLY){const {runInboxNewsRegressions}=await import('./inbox-news-browser.mjs');await runInboxNewsRegressions({browser,base,rows,out,settings:fixtureSettings,received,inboxStore,inboxCaughtUp,inboxSplits,conversations});console.log(JSON.stringify({ok:true,inboxNewsOnly:true,screenshots:out}));throw Object.assign(Error('inbox news only'),{docsOnly:true});}
  if(process.env.POCKET_COMPLETE_ONLY){const {runCompleteRegressions}=await import('./complete-browser.mjs');await runCompleteRegressions({browser,base,rows,out,conversations,releases,settings:fixtureSettings});console.log(JSON.stringify({ok:true,completeOnly:true,screenshots:out}));throw Object.assign(Error('complete only'),{docsOnly:true});}
  if(process.env.POCKET_PROJECT_MODE_ONLY){const {runProjectModeRegressions}=await import('./project-mode-browser.mjs');await runProjectModeRegressions({browser,base,rows,out,repo,settings:fixtureSettings,modes:uiModes,boardActs,conversations,scan:null});console.log(JSON.stringify({ok:true,projectModeOnly:true,screenshots:out}));throw Object.assign(Error('project mode only'),{docsOnly:true});}
+ if(process.env.POCKET_SWEEP){ /* POCKET_SWEEP=all|<area>: the layout sweep in layout-sweep.mjs (every surface, six layouts, light and dark); reports, asserts nothing unless POCKET_SWEEP_STRICT */
+  const {runLayoutSweep}=await import('./layout-sweep.mjs');
+  const sweepCtx={browser,base,rows,out,repo,settingsState:()=>fixtureSettings,modes:uiModes,conversations,inboxStore,coord:coordFixture,vaultFixture,received,board,taskStore,docStore,sideFixture,
+   setRequests:r=>{questionRequests=r.questions||[];approvalRequests=r.approvals||[];}};
+  await runLayoutSweep(sweepCtx);
+  throw Object.assign(Error('sweep only'),{docsOnly:true});
+ }
  if(process.env.POCKET_THEME_ONLY){
   const {runThemeRegressions}=await import('./theme-browser.mjs');
   await runThemeRegressions({browser,base,rows,out,settings:fixtureSettings,modes:uiModes,setRequests:r=>{questionRequests=r.questions||[];approvalRequests=r.approvals||[];}});
