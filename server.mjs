@@ -1774,7 +1774,7 @@ function rearmRetry(m) {
 }
 function scheduleRetry(sessionId, turn, resetAt) {
   const m = {
-    sessionId, cwd: turn.cwd, at: resetAt, createdAt: Date.now(), userText: turn.userText,
+    sessionId, cwd: turn.cwd, at: resetAt, createdAt: Date.now(), userText: turn.userText, ...(ownedTranscriptSize.has(sessionId) ? { ownedSize: ownedTranscriptSize.get(sessionId) } : {}), // 1.124.1
     model: turn.model || turn.requestedModel || null, effort: turn.effort || null, approvalMode:turn.approvalMode, attempt: (turn.retryAttempt || 0) + 1, fork: turn.runner?.fork || null,
     rootOrigin: auto.normRoot(turn.rootOrigin), ...(turn.originRef ? { originRef: turn.originRef } : {}), // 1.117: a retry carries the root of the turn it retries
   };
@@ -1841,7 +1841,11 @@ async function fireRetryNow(m) {
   if (TEST_START_GAP) await testStartGap(m.sessionId);
   const file = await findSessionFile(m.sessionId);
   try { // the user (or code-server) may have moved the session along during the wait
-    if (file && (await fsp.stat(file)).mtimeMs > m.createdAt + 15_000) {
+    // 1.124.1: only a user or assistant turn another app added after ours counts, as for the external activity watcher
+    // (1.88.1). The file's time moved whenever Pocket closed the idle process during the wait (the CLI's exit bookkeeping),
+    // which waits for a usage reset nearly always outlast, so the retry was dropped. The marker keeps our size for when
+    // the remembered one is gone.
+    if (file && foreignTurns(m.sessionId, ownedTranscriptSize.get(m.sessionId) ?? m.ownedSize).since) {
       return log(`retry skipped (session continued elsewhere) session=${m.sessionId}`); // a job's run ends by jobSettle (nothing carries it on)
     }
   } catch { }

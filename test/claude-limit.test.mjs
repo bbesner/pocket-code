@@ -138,3 +138,29 @@ test('A Claude reply that ends on an API error is not a finished reply: a usage 
   const run = await s.job(k.body.secret, { data: 'go __APIERR__', wait: 20 });
   assert.equal(run.body.status, 'failed', JSON.stringify(run.body)); assert.equal(run.body.outcome, 'error');
 });
+
+test('End to end: the real limit result waits for the reset it names, the queue holds, Pocket closes the idle process meanwhile, and the retry still carries the conversation on', { timeout: 120_000 }, async t => {
+  // The reset is the next whole hour (UTC), as the CLI words it; a negative buffer brings the retry to 30 s from now, so
+  // the process's idle close (17 s after the reply, past the old 15 s grace) and its exit bookkeeping come first.
+  const now = Date.now(), reset = Math.ceil((now + 120_000) / 3600_000) * 3600_000, buffer = now + 30_000 - reset;
+  const s = await boot(t, 19132, { FAKE_CLAUDE_LIMIT_TEXT: realLimit(reset), POCKET_RETRY_BUFFER_MS: String(buffer), POCKET_IDLE_CLOSE_MS: '17000' });
+  const id = await s.start('long task __LIMIT__');
+  const w = await s.until(async () => { const x = await s.session(id); return x?.state?.label === 'Waiting for usage reset' ? x : null; }, 10000, 'the limit to be seen');
+  assert.notEqual(w.state.kind, 'finished');
+  assert.equal(w.state.retryAt - buffer, reset, 'the retry is set for the reset the message names');
+  // a message queued while it waits is held: nothing starts before the retry
+  assert.equal((await s.queue(id, 'then tidy up')).status, 202);
+  await sleep(1500);
+  assert.equal(s.calls().filter(c => c.id === id).length, 1, 'only the first reply ran');
+  // Pocket closes the idle process; the CLI writes its exit bookkeeping to the transcript
+  await s.until(() => new RegExp(`session process closing session=${id} pid=\\d+ reason=idle`).test(s.logs()), 25000, 'the idle close');
+  const file = path.join(s.dir, 'sessions', 'test-workspace', id + '.jsonl');
+  await s.until(() => fs.readFileSync(file, 'utf8').includes('"type":"cost-state"'), 5000, 'the exit bookkeeping');
+  // the retry still runs, the conversation carries on, and the queued message follows it
+  await s.until(() => s.logs().includes(`auto-resume after rate limit session=${id}`) || s.logs().includes(`retry skipped (session continued elsewhere) session=${id}`), 30000, 'the retry to come due');
+  assert.ok(!s.logs().includes(`retry skipped (session continued elsewhere) session=${id}`), 'Pocket\'s own idle close is not another app continuing the conversation');
+  await s.until(() => s.calls().some(c => c.id === id && /interrupted by an API rate limit/.test(c.text)), 10000, 'the retry\'s reply');
+  await s.until(() => s.calls().some(c => c.id === id && c.text === 'then tidy up'), 15000, 'the queued message after the retry');
+  const done = await s.idle(id);
+  assert.equal(done.state?.label, 'Response ready');
+});

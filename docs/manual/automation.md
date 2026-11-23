@@ -510,7 +510,7 @@ One call is one run. The status is worked out each time it is asked.
 | `outcome` | When | `error` | Push |
 |---|---|---|---|
 | `stopped` | The reply had stopped at a usage limit, and a message you sent in its conversation replaced the retry, or a reply you started was already running when the retry came due. | *The reply stopped at a usage limit, and a message sent in its conversation replaced the retry.* | None, as for any stopped run |
-| `limit` | The retry was skipped (a reply you did not start was already running, or the conversation moved on elsewhere), something other than you replaced it, or its start failed; or Pause all held it and **On Resume, re-arm held usage-limit retries** is off; or nothing carries the limited run on. | *The reply stopped at a usage limit and was not retried.* | *Something went wrong* |
+| `limit` | The retry was skipped (a reply you did not start was already running, or another app, such as a terminal or code-server, added a turn to the conversation while it waited), something other than you replaced it, or its start failed; or Pause all held it and **On Resume, re-arm held usage-limit retries** is off; or nothing carries the limited run on. | *The reply stopped at a usage limit and was not retried.* | *Something went wrong* |
 | `jobs_off` | **Job keys** was switched off when the retry came due. | *The reply stopped at a usage limit, and Job keys were switched off before it was retried.* | *Something went wrong* |
 | `interrupted` | A restart cut the reply off (its process is gone), or nothing carries the run on any more. | *The reply was cut off (Pocket restarted, or the agent's process ended) and did not finish.* | *Something went wrong* |
 
