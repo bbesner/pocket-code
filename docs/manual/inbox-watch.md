@@ -470,7 +470,7 @@ an earlier Not useful on its story: your own hand wins.
 
 A check judges up to 20 threads; a burst waits in a backlog and is spread over the next checks. If a judge call
 fails, the batch stays in the backlog and is judged afresh next time. Pocket stops a run of its own watcher that takes more
-than 30 minutes. A check still running when Pocket restarts (an update) finishes on its own, logging to `monitor.log`;
+than 30 minutes, with any judge or mail read it started. A check still running when Pocket restarts (an update) finishes on its own, logging to `monitor.log`;
 the next check waits for it.
 
 ### Where data lives

@@ -11,6 +11,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { signalGroup } from './proctree.mjs';
 
 const MINUTE = 60_000;
 const RUN_LIMIT_MS = 30 * MINUTE;
@@ -70,7 +71,8 @@ export class InboxRunner {
     const s = this.settings();
     if (!s.inbox || this.external()) return;
     if (this.busy) {
-      if (this.now() - this.busy.startedAt > RUN_LIMIT_MS) { this.log(`inbox runner: ${this.busy.what} ran over 30 min; stopped`); this.busy.proc.kill('SIGKILL'); }
+      // 1.124.3: the whole group, so a judge or connector read the check started stops with it instead of running on unwatched
+      if (this.now() - this.busy.startedAt > RUN_LIMIT_MS) { this.log(`inbox runner: ${this.busy.what} ran over 30 min; stopped`); if (!signalGroup(this.busy.proc.pid, 'SIGKILL')) this.busy.proc.kill('SIGKILL'); }
       return;
     }
     if (!fs.existsSync(this.config)) return this.setup();
@@ -101,7 +103,7 @@ export class InboxRunner {
     const env = { ...this.env(), PATH: [path.dirname(process.execPath), this.env().PATH || ''].join(path.delimiter) };
     return new Promise(resolve => {
       let out = '', err = '';
-      const proc = spawn(this.python, argv, { cwd: this.dir, env, stdio: ['ignore', 'pipe', 'pipe'] });
+      const proc = spawn(this.python, argv, { cwd: this.dir, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true }); // 1.124.3: leader of its own group
       this.busy = { proc, startedAt: this.now(), what };
       proc.stdout.on('data', d => { out = (out + d).slice(-20000); });
       proc.stderr.on('data', d => { err = (err + d).slice(-20000); });
