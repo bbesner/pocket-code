@@ -44,6 +44,7 @@ async function fakeMain() {
   rec({ kind: 'start', pid: process.pid, argv: process.argv.slice(2), envKeys: Object.keys(process.env).sort(), runner: process.env.POCKET_RUNNER_TOKEN ?? null });
   for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(sig, () => { rec({ kind: 'signal', sig }); if (MODE !== 'stubborn') process.exit(0); });
   if (MODE === 'grandchild') { const g = spawn('sleep', ['40'], { stdio: 'ignore' }); rec({ kind: 'grandchild', pid: g.pid }); g.unref(); }
+  if (MODE === 'closeStdin') { process.stdin.destroy(); try { fs.closeSync(0); } catch {} rec({ kind: 'closed' }); setInterval(() => {}, 1000); return; }
   const out = s => process.stdout.write(s + '\n');
   const reply = (id, result) => out(JSON.stringify({ jsonrpc: '2.0', id, result }));
   const wait = ms => new Promise(r => setTimeout(r, ms));
@@ -995,15 +996,21 @@ test('DIV-3: closing agent input stops a server that ignores EOF and the relay e
   assert.ok(await until(() => !alive(s.pid), 1000), 'MCP server still running after agent input closed');
 });
 
-test('DIV-4: a failed write of the substituted call yields a tool error or a clean stop, not silence', T, async t => {
+// Bug review DIV-4 (TEST-BUG): the blind test made the write throw at once, which Node never does for a child's pipe.
+// This is the real condition: a server that closes its input and keeps running, so the write fails later with EPIPE.
+test('§4 a server that closes its input: the fill being written gets a tool error, the server is stopped, the relay exits non-zero', T, async t => {
   const ctx = await makeCtx(t);
-  ctx.daemon.values.d4 = 'D4FAILMARK-' + sec('d4');
-  const r = ctx.start({ preload: true, env: { SHIM_WRITE_FAIL_MARKER: 'D4FAILMARK' } }); await r.ready();
+  const v = sec('d4'); ctx.daemon.values.d4 = v;
+  const r = ctx.start({ mode: 'closeStdin' }); const s = await r.ready();
+  assert.ok(await until(() => r.recs().some(x => x.kind === 'closed'), 3000), 'server did not close its input');
   const f = call('browser_type', { text: '{{vault:d4}}' }); r.send(f);
-  const ok = await until(() => (r.msgs().find(x => x.id === f.id)?.result?.isError === true) || r.exit, 4000);
-  assert.equal(ctx.daemon.reqs.length, 1, 'release did not happen'); assert.ok(!r.gotId(f.id), 'injected write failure did not fire');
-  assert.ok(ok, 'fill write failed silently: no tool error and the relay kept running');
-  assert.ok(!r.err.includes(ctx.daemon.values.d4) && !r.out.includes(ctx.daemon.values.d4), 'value leaked');
+  const resp = await r.resp(f.id, 5000);
+  assert.equal(ctx.daemon.reqs.length, 1, 'release did not happen');
+  assert.equal(resp?.result?.isError, true, 'the fill being written got no answer');
+  const ex = await r.waitExit(8000);
+  assert.ok(ex, 'relay still running after its server closed its input'); assert.notEqual(ex.code, 0, 'relay exited 0');
+  assert.ok(await until(() => !alive(s.pid), 2000), 'server outlived the relay');
+  assert.ok(!r.err.includes(v) && !r.out.includes(v), 'value in the relay output');
 });
 
 test('DIV-5: a newline-bearing value printed as raw text across two stdout lines does not leak', T, async t => {
