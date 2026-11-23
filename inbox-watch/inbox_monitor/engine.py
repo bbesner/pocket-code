@@ -2711,9 +2711,15 @@ def apply_feedback(store: Store, dry_run: bool = False) -> None:
             log(f"{d.kind} feedback failed: {ex}")
             continue
         done = []
-        own = {r[0] for r in store.db.execute("select entry_id from tidy_log where acted=1")}
+        # 1.124.2: only the tidy's own act is skipped (the same decision, made no later than the tidy logged it). Before, every
+        # later decision on an entry the tidy had once taken off was acked as the tidy's: Restore, Not useful and a merge on it
+        # were never applied.
+        own = {r[0]: (r[1], r[2]) for r in store.db.execute(
+            "select entry_id, verdict, max(at) from tidy_log where acted=1 and verdict!='open' group by entry_id")}
         for it in items:
-            if it.get("id") in own:  # the tidy pass made this decision and already applied it to the story
+            tidied = own.get(it.get("id"))
+            if (tidied and it.get("action") == ("resolved" if tidied[0] == "resolved" else "dismissed")
+                    and _iso_utc(it.get("at")) <= _iso_utc(tidied[1])):  # the tidy pass made this decision and already applied it
                 done.append(it["id"])
                 continue
             if it.get("kind") == "digest-item":

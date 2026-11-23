@@ -367,7 +367,8 @@ its threads (your own replies marked) and answers:
 Every change must cite the email that proves it; money, security and legal items need explicit proof, and a request
 with several parts stays open until every part is done, and so does one whose latest email asks you or your assistant
 for something nobody has done yet. The reason becomes the entry's note, shown in Done, and the
-next morning digest lists what was taken off. **Restore** brings any of them back.
+next morning digest lists what was taken off. **Restore** brings any of them back, and what you do with a restored
+entry afterwards (Not useful, Resolved, a merge) reaches the watcher like a decision on any other entry.
 
 ### Your list in Gmail
 

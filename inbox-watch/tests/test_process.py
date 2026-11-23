@@ -207,6 +207,50 @@ def test_resolving_in_pocket_closes_the_story():
     assert status("story-c") == "open", "restore reopens"
 
 
+def test_the_owner_s_decisions_on_an_entry_the_tidy_took_off_are_applied():
+    # Review 2026-11-23 (inbox-04): apply_feedback acked every decision on an entry the tidy pass had once acted on as the
+    # tidy's own, so Restore, Not useful and a merge on it were never applied. Only the tidy's own act is skipped now.
+    store, pocket = setup()
+    for k in ("inv-42", "inv-43", "inv-44", "inv-45"):
+        store.upsert_story({"issue_key": k, "status": "open", "priority": "normal", "new_fact": f"{k} opened."}, None)
+    store.link("inv-43", B)
+    tidied = E.now_utc() - E.dt.timedelta(minutes=10)
+    at = lambda minutes: (tidied + E.dt.timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731 - Pocket's form
+    for eid, key, verdict in (("e1", "inv-42", "resolved"), ("e3", "inv-43", "handled"), ("e4", "inv-45", "resolved")):
+        if verdict == "resolved":  # what tidy() does after Pocket took the entry off
+            store.db.execute("update issues set status='resolved' where issue_key=?", (key,))
+        store.db.execute("insert into tidy_log(at,entry_id,issue_key,title,verdict,reason,evidence,acted) values(?,?,?,?,?,?,?,?)",
+                         (E.iso(tidied), eid, key, f"Invoice {key[-2:]}", verdict, "paid", "[]", 1))
+    store.commit()
+    acked = []
+    pocket.ack = acked.extend
+    item = lambda eid, key, action, minutes, **kw: {"id": eid, "action": action, "at": at(minutes), "note": "", "title": f"Invoice {key[-2:]}",  # noqa: E731
+                                                     "story": key, "source": "inbox-monitor", "kind": "alert", **kw}
+    owner_said = lambda key: [r["fact"] for r in store.events(key) if r["kind"] == "feedback"]  # noqa: E731
+    # the tidy's own act, read back on the next run: acked, and not told to the story as the owner's
+    pocket.feedback = lambda: [item("e1", "inv-42", "resolved", 0), item("e3", "inv-43", "dismissed", 0)]
+    E.apply_feedback(store)
+    assert acked == ["e1", "e3"] and owner_said("inv-42") == [], (acked, owner_said("inv-42"))
+    # the owner restores e1, then marks it Not useful
+    pocket.feedback = lambda: [item("e1", "inv-42", "restore", 2)]
+    E.apply_feedback(store)
+    assert store.story("inv-42")["status"] == "open", "Restore on a tidied entry reopens its story"
+    pocket.feedback = lambda: [item("e1", "inv-42", "not_useful", 3)]
+    E.apply_feedback(store)
+    assert store.story("inv-42")["not_useful_at"], "Not useful on a tidied entry keeps its story off the list"
+    assert store.db.execute("select count(*) from lessons where ref='not_useful:e1'").fetchone()[0] == 1, "no lesson learned"
+    # e3, handled by the tidy, restored and then merged into another entry: its story joins that one
+    pocket.feedback = lambda: [item("e3", "inv-43", "dismissed", 4, mergedInto="e9", intoStory="inv-44")]
+    E.apply_feedback(store)
+    joined = store.db.execute("select 1 from story_threads where issue_key='inv-44' and thread_id=?", (B,)).fetchone()
+    assert store.story("inv-43")["status"] == "resolved" and joined, "the merge was not applied"
+    # e4, resolved by the tidy, restored and resolved again by the owner: the same action, later, is the owner's
+    pocket.feedback = lambda: [item("e4", "inv-45", "resolved", 5)]
+    E.apply_feedback(store)
+    assert any("marked this resolved" in f for f in owner_said("inv-45")), owner_said("inv-45")
+    assert acked == ["e1", "e3", "e1", "e1", "e3", "e4"], acked
+
+
 def test_two_labelled_copies_share_one_entry():
     # 2026-10-28: both copies of a reply labelled in Gmail, folded into one alert; the second follows the first's entry.
     store, pocket = setup()
