@@ -171,7 +171,14 @@ export class AcpClient {
   // (a `model` on session/prompt is ignored, and the turn runs on OpenCode's own default model).
   setConfigOption(sessionId, configId, value) { return this.request('session/set_config_option', { sessionId, configId, value }); }
   cancel(sessionId) { this.notify('session/cancel', { sessionId }); }
-  close() { this.closed = true; try { this.proc.kill('SIGTERM'); } catch { } }
+  close() {
+    this.closed = true;
+    // 1.124.2: requests still waiting are answered now, as codex.mjs AppServer.close does (1.73.8). The exit that follows
+    // finds the client closed and rejects nothing, so an open session/prompt used to wait out its one-hour timer.
+    for (const [, p] of this.pending) { clearTimeout(p.timer); p.reject(new Error('acp client closed')); }
+    this.pending.clear();
+    try { this.proc.kill('SIGTERM'); } catch { }
+  }
 }
 
 // Fail-closed default answer to a server->client request Pocket chose not to handle.
@@ -763,7 +770,13 @@ export function stopAcpTurn(sessionId, note = null) {
 export function closeAcpSession(sessionId) {
   const bare = bareAcpId(sessionId);
   const s = acpSessions.get(bare);
-  if (s) { try { s.client.close(); } catch { } acpSessions.delete(bare); acpTurns.delete(bare); if (s.instructionsFile) fs.rm(s.instructionsFile, { force: true }, () => { }); }
+  if (!s) return;
+  try { s.client.close(); } catch { }
+  acpSessions.delete(bare);
+  // 1.124.2: a reply still running on it ends here, as stopped when Stop came first (the release route's Stop the reply).
+  // It used to be dropped from acpTurns only, and stayed open, unreachable, until its prompt timed out an hour later.
+  if (s.turn && !s.turn.done) finishAcpTurn(s.turn, { stopReason: 'error', error: `${s.runtime.name} was closed during this reply.` });
+  if (s.instructionsFile) fs.rm(s.instructionsFile, { force: true }, () => { });
 }
 // The session whose OpenCode process was started with this ask key (Pocket's ask tool presents it).
 export const acpSessionByAskKey = key => [...acpSessions.values()].find(s => s.askKey && s.askKey === key) || null;

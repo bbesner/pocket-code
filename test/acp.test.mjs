@@ -15,6 +15,8 @@ const baseEnv = store => ({ ...process.env, POCKET_ACP_STORE: store });
 const turnOpts = (store, extra = {}) => ({ cmd: process.execPath, args: [FAKE], env: baseEnv(store), text: 'do the thing', model: 'openrouter/deepseek/deepseek-v4.1-flash-1017', hooks: {}, ...extra });
 const collect = () => { const ev = []; return { emit: e => ev.push(e), ev }; };
 const waitFor = async (fn, ms = 10000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (fn()) return true; await new Promise(r => setTimeout(r, 20)); } return false; };
+// A test that fails with a request still waiting would otherwise keep the run open until that request's timer.
+const unhang = turn => { for (const [, p] of turn?.client?.pending || []) clearTimeout(p.timer); };
 const afterEach = () => { for (const [, s] of acpSessions) { try { s.client.close(); } catch { } } acpSessions.clear(); acpTurns.clear(); };
 
 test('id namespace helpers', () => {
@@ -98,6 +100,25 @@ test('stopAcpTurn cancels during a pending permission', async () => {
   await turn.promptDone;
   assert.ok(ev.some(e => e.type === 'result' && e.stopReason === 'cancelled'));
   afterEach();
+});
+
+// 1.124.2: closing the pane with "Stop the reply" stops the reply and closes its process at once (server.mjs release).
+// The process exits before it answers the cancel; the reply used to stay open until its one-hour prompt timeout.
+test('stop and close at once: the reply ends as stopped now, not at the prompt timeout', async () => {
+  const store = mkStore();
+  const { emit, ev } = collect(), finished = [];
+  const turn = await startAcpTurn(turnOpts(store, { text: 'wait __HANG__', env: { ...baseEnv(store), FAKE_ACP_NO_ASK: '1' }, hooks: { emit, onFinish: r => finished.push(r) } }));
+  try {
+    assert.ok(await waitFor(() => turn.openPrompts === 1), 'the prompt is open');
+    stopAcpTurn(turn.sessionId); closeAcpSession('acp:' + turn.sessionId);
+    assert.ok(await waitFor(() => turn.done, 3000), 'the reply ended');
+    const r = ev.find(e => e.type === 'result');
+    assert.deepEqual([r.ok, r.stopReason, r.error], [false, 'cancelled', 'Stopped by you']);
+    assert.ok(ev.some(e => e.type === 'done'), 'open streams are told it is over');
+    assert.equal(finished.length, 1, 'onFinish ran once');
+    assert.equal(turn.client.pending.size, 0, 'no request is left waiting on its timer');
+    assert.ok(!acpTurns.has(turn.sessionId) && !acpSessions.has(turn.sessionId));
+  } finally { unhang(turn); afterEach(); }
 });
 
 test('busy: a second turn on a live session is rejected 409', async () => {
