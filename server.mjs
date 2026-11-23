@@ -4912,7 +4912,10 @@ app.get('/api/session/:id/events', requireAuth, async (req, res) => {
   // watch mode: mirror the transcript live (turns driven by code-server / terminal)
   const file = await findSessionFile(id);
   if (!file) { clearInterval(ka); res.write(`data: {"type":"idle"}\n\n`); return res.end(); }
-  const size = (await fsp.stat(file)).size;
+  let size; try { size = (await fsp.stat(file)).size; } catch (e) { clearInterval(ka); throw e; } // 1.124.3: moved away since the find
+  // 1.124.3: a client that left during the awaits above has closed already, and the 'close' listener below would never
+  // run: the keepalive and the tailer would stay until a restart.
+  if (req.destroyed || res.writableEnded) { clearInterval(ka); return; }
   const h = String(req.headers['last-event-id'] ?? '');
   // 1.124.2: a bare number is a turn's event number: the reply this browser was following ended (or a restart dropped
   // it) while the connection was down. It is not a transcript offset, and the URL's offset is from before that reply,

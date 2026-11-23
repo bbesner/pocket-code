@@ -236,3 +236,34 @@ test('a reconnect carrying the other kind of stream id is not read as its own',a
  const into=(await f.streamFor(q,'?offset=0',500,{'last-event-id':'w:5000'})).filter(d=>!d.includes('"attach"'));
  assert.ok(into.some(d=>d.includes('"questions"')),'the turn\'s events are replayed');
 });
+
+// 1.124.3 (http-02): watch mode awaits the transcript's path and size before it listens for the client leaving. A client
+// that left during those awaits (a quick switch of conversation, a phone suspending the page) had already closed, so the
+// late listener never ran and the stream's keepalive and tailer stayed for good; a stat that threw left the keepalive too.
+// test/sse-probe.mjs counts the live keepalives in the daemon and holds the awaits open.
+test('watch mode: a client that leaves while the stream is set up, or a transcript gone before its size is read, leaves no keepalive behind',async t=>{
+ const pdir=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-sse-probe-')),probe=path.join(pdir,'live');
+ t.after(()=>fs.rmSync(pdir,{recursive:true,force:true}));
+ const f=await fixture(t,18437,{NODE_OPTIONS:'--import '+path.join(repo,'test/sse-probe.mjs'),SSE_PROBE_FILE:probe});
+ const id=(await f.call('/new',{cwd:repo,...msg('first')})).body.id;
+ assert.ok(await f.until(async()=>await f.state(id)==='finished'));
+ const live=async()=>{await sleep(300);return Number(fs.readFileSync(probe,'utf8'));};
+ const url=`http://127.0.0.1:${f.port}/api/session/${id}/events?offset=0`;
+ // an ordinary watch stream holds one keepalive while it is open, and none once it closes
+ let ac=new AbortController();const open=fetch(url,{headers:f.headers,signal:ac.signal}).then(r=>r.body.getReader().read()).catch(()=>{});
+ assert.equal(await live(),1,'one keepalive while the stream is open');
+ ac.abort();await open;
+ assert.equal(await live(),0,'none after it closes');
+ // the client leaves while the stream is still finding the transcript
+ fs.writeFileSync(probe+'.slow','');
+ for(let i=0;i<3;i++){ac=new AbortController();const p=fetch(url,{headers:f.headers,signal:ac.signal}).catch(()=>{});await sleep(100);ac.abort();await p;}
+ await sleep(600);fs.rmSync(probe+'.slow');
+ assert.equal(await live(),0,'no keepalive left by a client that left during the awaits');
+ // the transcript is gone between finding it and reading its size: the request fails, the keepalive goes with it
+ fs.writeFileSync(probe+'.statfail','');
+ await f.streamFor(id,'?offset=0',300);
+ fs.rmSync(probe+'.statfail');
+ assert.match(f.logs(),/request failed GET \/api\/session\/[^/]+\/events: Error: ENOENT/);
+ assert.equal(await live(),0,'no keepalive left by a stat that threw');
+ assert.ok(f.alive());
+});
