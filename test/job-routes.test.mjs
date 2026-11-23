@@ -673,3 +673,37 @@ test('1.124: the Tasks view\'s Jobs group: each key\'s state and newest run, for
   await s.settings({ jobs: false });
   assert.ok(!('jobs' in (await s.call('/tasks')).body), 'Job keys off: no group, keys kept');
 });
+
+// 1.124.4 (bug review of 2026-11-23): a store save that fails, or a kill, at the step a route reaches it. test/store-fault.mjs,
+// loaded into the server, fails the nth rename of <data>/<store>.tmp counted from when the rule was written.
+const storeFault = dir => ({ NODE_OPTIONS: '--import ' + path.join(repo, 'test/store-fault.mjs'), STORE_FAULT_FILE: path.join(dir, 'store-fault') });
+let faultRules = 0;
+const fault = (dir, rule) => fs.writeFileSync(path.join(dir, 'store-fault'), JSON.stringify({ ...rule, rule: ++faultRules }));
+const noFault = dir => fs.rmSync(path.join(dir, 'store-fault'), { force: true });
+
+test('1.124.4: a key file whose path could not be recorded is removed with the key; when that removal cannot be saved either, the answer still comes and says so', { timeout: 60_000 }, async t => {
+  const dir = tmpDir();
+  const s = await boot(t, 19073, { dir, env: storeFault(dir) });
+  await s.turnOn();
+  const make = name => s.call('/jobs/keys', { name, workspace: s.cwd, engine: 'claude', instruction: 'Look at the disk.', folder: '~/keys/' });
+  const keyFile = name => path.join(s.home, 'keys', name + '.key');
+  // saves: 1 the key, 2 its file's path (fails once), 3 the rollback's delete
+  fault(dir, { store: 'job-keys.json', nth: 2, times: 1 });
+  const r = await make('disk-check');
+  noFault(dir);
+  assert.equal(r.body?.code, 'file_error', r.text);
+  assert.equal(r.body.error, 'The key file could not be written: ENOSPC. Nothing was created.');
+  assert.ok(!fs.existsSync(keyFile('disk-check')), 'no key file is left holding a key the owner was told was not made');
+  assert.deepEqual((await s.call('/jobs/keys')).body.keys, []);
+  assert.equal((await make('disk-check')).status, 201, 'the same name can be made again');
+  // every save fails from the second on: the rollback's delete fails too
+  fault(dir, { store: 'job-keys.json', nth: 2, times: 0 });
+  const r2 = await make('nightly');
+  noFault(dir);
+  assert.equal(r2.body?.code, 'file_error', r2.text);
+  assert.equal(r2.body.error, 'The key file could not be written: ENOSPC. The key "nightly" was made but could not be removed; delete it in Job keys.');
+  assert.ok(!fs.existsSync(keyFile('nightly')), 'its file is removed all the same');
+  const left = (await s.call('/jobs/keys')).body.keys.find(k => k.name === 'nightly');
+  assert.ok(left && !left.keyFile, 'listed as the answer says, with no key file');
+  assert.equal((await s.call(`/jobs/keys/${left.id}/delete`, {})).status, 200);
+});

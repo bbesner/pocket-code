@@ -7324,7 +7324,17 @@ app.post('/api/jobs/keys', requireAuth, ownerControl, jobsGate, (req, res) => {
   let file = null;
   if (wantsKeyFile(b)) {
     try { file = writeKeyFile(keyFileFolder(b), made.key.name, made.secret, { home: HOME, taken: keyFileTaken(made.key.id) }); jobStore.updateKey(made.key.id, { keyFile: file }); }
-    catch (e) { jobStore.deleteKey(made.key.id); if (!e.status) log(`job key file not written: ${e.message}`); return res.status(e.status || 400).json({ error: e.status ? e.message : `The key file could not be written: ${e.code || e.message}. Nothing was created.`, code: e.code && e.status ? e.code : 'file_error' }); }
+    catch (e) {
+      // 1.124.4: when the file was written but its path could not be saved, the file goes too (only while it holds this key),
+      // and a rollback that cannot be saved either still gets this answer, saying what is left; the file used to stay with a
+      // key the owner was told was not made, and the second failure answered a bare 503.
+      if (file) removeKeyFile(file, made.key.keyHash);
+      let kept = false; try { jobStore.deleteKey(made.key.id); } catch (e2) { kept = true; log(`job key not removed after its file failed id=${made.key.id}: ${e2.code || e2.message}`); }
+      if (!e.status) log(`job key file not written: ${e.message}`);
+      const why = e.status ? e.message : `The key file could not be written: ${e.code || e.message}.`;
+      const error = kept ? `${why} The key "${made.key.name}" was made but could not be removed; delete it in Job keys.` : e.status ? why : `${why} Nothing was created.`;
+      return res.status(e.status || 400).json({ error, code: e.code && e.status ? e.code : 'file_error' });
+    }
   }
   jobAudit('created', made.key, { fields: Object.keys(fields), ...(file ? { keyFile: true } : {}) });
   log(`job key created id=${made.key.id} name=${made.key.name} engine=${made.key.engine}`);
