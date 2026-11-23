@@ -878,7 +878,7 @@ function writeSessionMeta(s, { strict = false } = {}) {
   if (!t || !s.threadId || s.exited) return true;
   const meta = {
     threadId: s.threadId, cliBin:s.cliBin||null, pid: t.pid, keeperPid: t.keeperPid, key: t.key, bootId: BOOT_ID, pidStart: t.pidStart ?? null, keeperStart: t.keeperStart ?? null, approvalMode: s.approvalMode, cwd: s.cwd, model: s.model, effort: s.effort, runnerToken: s.runnerToken || null,
-    turn: turn ? { turnId: turn.turnId, startedAt: turn.startedAt, userText: turn.userText, offset: turn.offset, executionMode: turn.executionMode, ...originOf(turn) } : null, // 1.117: origin
+    turn: turn ? { turnId: turn.turnId, startedAt: turn.startedAt, userText: turn.userText, offset: turn.offset, executionMode: turn.executionMode, ...(turn.autonomous ? { autonomous: true } : {}), ...originOf(turn) } : null, // 1.117: origin; 1.124.4: started by the agent
     waitingForInput: Boolean(turn && (turn.questions?.list().length || turn.approvals?.list().length || turn.inputUnavailable || turn.approvalUnavailable)),
     waitingForApproval: Boolean(turn?.approvals?.list().length || turn?.approvalUnavailable),
   };
@@ -938,7 +938,7 @@ export function adoptCodexSessions(hooksFor) {
     codexSessions.set(s.threadId, s);
     live.add(m.key);
     if (m.turn) {
-      const turn = makeTurn(s, { text: m.turn.userText, executionMode: m.turn.executionMode, hooks: s.hooks, offset, ...originOf(m.turn) }); // 1.117: origin
+      const turn = makeTurn(s, { text: m.turn.userText, executionMode: m.turn.executionMode, hooks: s.hooks, offset, autonomous: m.turn.autonomous === true, ...originOf(m.turn) }); // 1.117: origin; 1.124.4: and who started it
       // A request the app-server sent before the restart was skipped above; the turn is
       // blocked on it until the user stops it. Say so instead of showing "Running".
       Object.assign(turn, { turnId: m.turn.turnId, startedAt: m.turn.startedAt || turn.startedAt, adopted: true,
@@ -1070,8 +1070,8 @@ function onSessionNotify(s, method, params) {
     makeTurn(s, { text: '', hooks: s.hooks, autonomous: true });
     log(`codex turn start (started by the agent) thread=${s.threadId}`);
     onTurnNotify(s.turn, method, params); // its turn id first, so the daemon's hook can stop it (1.117: paused)
-    writeSessionMeta(s);
     try { s.hooks?.onAutonomous?.(s.turn); } catch (e) { log(`onAutonomous threw thread=${s.threadId}: ${e.message}`); }
+    writeSessionMeta(s); // 1.124.4: after the hook, so the origin it sets is in the marker and survives a restart
     return;
   }
   if (s.turn) {

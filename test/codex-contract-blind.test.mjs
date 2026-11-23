@@ -925,12 +925,12 @@ done({ ok: true, ret, stopped, gone: !!gone, results: r.t.events.filter(e => e.t
     assert.fail('scheduleRetry lives in server.mjs; it cannot be driven from codex.mjs without starting the service, which this review forbids');
   });
 
-  test('DIV-8: adopted autonomous turn keeps its autonomous mark after restart', async () => {
+  test('DIV-8: adopted autonomous turn keeps its autonomous mark and the origin its hook gave it after restart', async () => {
     const w = newWorld(); const T = uid();
     setCtl(w, { threadId: T, turnId: 'turn-1', on: { 'turn/start': [...COMPLETE(), { delay: 300, frame: { method: 'turn/started', params: { threadId: '$T', turn: { id: 'turn-auto', status: 'inProgress', items: [] } } } }] } });
     try {
       const A = need(await runChild(w, String.raw`
-const r = await startTurn(); if (!r.ok) done({ ok: false, err: r.err });
+const r = await startTurn({ onAutonomous: t => Object.assign(t, { origin: 'job', rootOrigin: 'job', originRef: 'run-1' }) }); if (!r.ok) done({ ok: false, err: r.err });
 await until(() => C.codexTurns.get(r.t.threadId) && C.codexTurns.get(r.t.threadId).turnId === 'turn-auto', 4000);
 await sleep(300);
 const t = C.codexTurns.get(r.t.threadId);
@@ -942,6 +942,7 @@ done({ ok: true, auto: t ? t.autonomous : null, turnId: t ? t.turnId : null });`
       const turn = B.turns.find(x => x.threadId === T);
       assert.ok(turn, 'autonomous turn adopted');
       assert.equal(turn.autonomous, true, 'autonomous mark lost on adoption');
+      assert.deepEqual([turn.origin, turn.rootOrigin, turn.originRef], ['job', 'job', 'run-1'], 'the origin the hook gave the turn is lost on adoption');
     } finally { reap(w); }
   });
 });
