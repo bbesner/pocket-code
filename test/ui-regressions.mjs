@@ -1495,9 +1495,11 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.waitForSelector('.task-item');
    // Remind later on a dated task: the project reminder's quick picks, the task re-dated.
    const later=await page.evaluate(()=>{const t=tasksSnap.tasks.find(x=>x.text==='Chase the revised camera quote');taskSheet(t.id);return t.dueAt;});
-   await page.waitForSelector('.task-sheet [data-later]');await clickControl(page,'.task-sheet [data-later]');await page.waitForSelector('.sheet [data-pick="week"]');
-   assert.deepEqual(await page.$$eval('.sheet [data-pick]',els=>els.map(e=>e.dataset.pick)),['tomorrow','three','monday','week']);
-   await clickControl(page,'.sheet [data-pick="week"]');await page.waitForFunction(prev=>tasksSnap.tasks.find(x=>x.text==='Chase the revised camera quote').dueAt!==prev,{},later);
+   await page.waitForSelector('.task-sheet [data-later]');await clickControl(page,'.task-sheet [data-later]');await page.waitForSelector('.sheet [data-pick="monday"]');
+   // 1.124.5: on a Monday "In a week" is the same morning as "Next Monday" and is left out, so the last pick depends on the day
+   const lastPick=await page.evaluate(()=>new Date().getDay()===1?'monday':'week');
+   assert.deepEqual(await page.$$eval('.sheet [data-pick]',els=>els.map(e=>e.dataset.pick)),lastPick==='week'?['tomorrow','three','monday','week']:['tomorrow','three','monday']);
+   await clickControl(page,`.sheet [data-pick="${lastPick}"]`);await page.waitForFunction(prev=>tasksSnap.tasks.find(x=>x.text==='Chase the revised camera quote').dueAt!==prev,{},later);
    const moved=new Date(await page.evaluate(()=>tasksSnap.tasks.find(x=>x.text==='Chase the revised camera quote').dueAt));assert.equal(moved.getHours(),9,'9 AM in the device zone');assert.ok(moved.getTime()-Date.now()>6*86400000,'a week out');
    // The sheet: facts and the briefing; Start writes the New session draft in the task's workspace.
    await clickControl(page,'.task-item [data-task-open]');await page.waitForSelector('.task-sheet');
@@ -2404,7 +2406,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.type('[data-task-add] input','Post the inventory adjustment');await page.keyboard.press('Enter');
    await page.waitForFunction(()=>document.querySelectorAll('.task-row').length===3);c=await card();assert.deepEqual(c.steps[2],['Post the inventory adjustment',false,'']);
    await clickControl(page,'[data-remind]');await page.waitForSelector('.sheet [data-pick="tomorrow"]');
-   const picks=await page.$$eval('.sheet [data-pick]',els=>els.map(e=>e.textContent.replace(/\s+/g,' ').trim()));assert.equal(picks.length,4);assert.match(picks[0],/^Tomorrow morning/);
+   const picks=await page.$$eval('.sheet [data-pick]',els=>els.map(e=>e.textContent.replace(/\s+/g,' ').trim()));assert.equal(picks.length,await page.evaluate(()=>new Date().getDay()===1?3:4),'four picks, three on a Monday (1.124.5)');assert.match(picks[0],/^Tomorrow morning/);
    await clickControl(page,'.sheet [data-pick="tomorrow"]');await page.waitForFunction(()=>document.querySelectorAll('.reminder-title').length===1);
    c=await card();assert.deepEqual(c.reminders,['Revisit Warehouse stock report']);
    await clickControl(page,'[data-finish]');await page.waitForSelector('.sheet [data-yes]');await clickControl(page,'.sheet [data-yes]');
