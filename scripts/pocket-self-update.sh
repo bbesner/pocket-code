@@ -125,7 +125,9 @@ if wait_for "$target" "$old_pid"; then
   exit 0
 fi
 say rolling-back
-put_back
+# 1.124.3: a put-back that failed is said, not restarted into "Pocket went back": the new version is not running, and the old
+# one cannot start without its checkout and packages.
+put_back || fail "$target did not start, and putting $from back failed too. Pocket may not be running: on the server, check out $from in $dir (its commit is in prev-head.txt in the backup), run npm ci in $dir and restart it with PM2. Backup: $backup"
 old_pid=$(app_pid)
 pm2 restart "$pmid" 9>&- >/dev/null
 wait_for "$from" "$old_pid" || fail "$target did not start, and Pocket could not confirm $from came back. Check the server. Backup: $backup"

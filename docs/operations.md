@@ -364,7 +364,7 @@ to 90 seconds for a new process that serves the release and answers `/api/health
 process 10 seconds later. Then `pm2 save`. If any step after the checkout moves fails, the checkout and
 packages go back to the previous commit; if the new version does not come up, the previous version is
 restarted too. If the previous packages cannot be installed again either, the job says so (1.124.2): the running
-daemon carries on, but run `npm ci` in the checkout before it next restarts. The daemon refuses to start it while a reply or a CLI upgrade is running.
+daemon carries on, but run `npm ci` in the checkout before it next restarts. When the new version did not start and the previous one cannot be put back, the job says so and does not restart (1.124.3): check out the commit in the backup's `prev-head.txt`, run `npm ci` and restart with PM2. The daemon refuses to start it while a reply or a CLI upgrade is running.
 
 Progress is in `pocket-self-update.json` in the data folder (the script touches `pocket-self-update.json.lock`
 every minute while it runs; a job with neither for 20 minutes died with its server and shows as interrupted, 1.124.3) and the script's output in `pocket-self-update.log`; both are git-ignored. Requirements: PM2

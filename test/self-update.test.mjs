@@ -273,3 +273,16 @@ test('1.124.3: a reply started during the update holds the restart until it ends
   const ok=run('1.1.0','1.0.0');
   assert.equal(ok.job.phase,'complete',ok.stdout+ok.stderr);assert.match(ok.stdout,/waiting for 2 replies to finish/);assert.equal(await served(),'1.1.0');
 });
+
+test('1.124.3: when the new version does not start and putting the old one back fails too, the job says so, not that Pocket went back',{timeout:120000},async t=>{
+  const {d,dir,bin,run}=await setup(t,{port:freePort()});
+  assert.equal(run('1.1.0','1.0.0').job.phase,'complete');
+  // 1.2.0 installs but does not start; then the npm ci that puts 1.1.0's packages back fails (the registry is unreachable).
+  const n=path.join(d,'npm-ci-runs');
+  wrap(bin,'npm',`if [ "$1" = ci ]; then c=$(cat '${n}' 2>/dev/null || echo 0); echo $((c+1)) > '${n}'; if [ "$c" -ge 1 ]; then rm -rf node_modules; echo 'npm error network request failed' >&2; exit 1; fi; fi`);
+  const r=run('1.2.0','1.1.0');
+  assert.equal(r.status,1,r.stdout+r.stderr);assert.equal(r.job.phase,'failed');
+  assert.doesNotMatch(r.job.error,/went back to/);
+  assert.match(r.job.error,/^1\.2\.0 did not start, and putting 1\.1\.0 back failed too\. Pocket may not be running/);
+  assert.ok(r.job.error.includes(`npm ci in ${dir}`),r.job.error);assert.ok(r.job.error.includes(r.job.backup),'the backup is named');
+});
