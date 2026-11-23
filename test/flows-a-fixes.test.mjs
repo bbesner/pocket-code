@@ -116,3 +116,33 @@ test('a-07: Pause all leaves a background agent\'s waiting request alone with th
   await s.until(() => !alive(pidB), 5000, 'the process to end');
   assert.equal((await s.session(b)).state.label, 'Stopped');
 });
+
+// a-11: Inbox decisions were stamped to the second, so an Undo (or Not useful) in the same second as the decision had the
+// same `at`, and the watcher's '<id>@<at>' ack for the first decision acked the second one unapplied.
+test('a-11: a change to an Inbox decision in the same second gets a later stamp, so the ack of the first leaves it pending', async t => {
+  const { InboxStore } = await import('../inbox.mjs');
+  const dir = tmpDir(), clock = Date.parse('2026-11-20T10:00:00.100Z');
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const s = new InboxStore(path.join(dir, 'inbox.json'), { now: () => clock });
+  const e = s.add({ title: 'Gate alert', story: 'gate' });
+  s.act({ action: 'resolve', id: e.id });
+  const first = s.feedback().find(f => f.id === e.id);
+  s.act({ action: 'restore', id: e.id }); // the same second
+  const undo = s.feedback().find(f => f.id === e.id);
+  assert.equal(undo.action, 'restore');
+  assert.ok(Date.parse(undo.at) > Date.parse(first.at), `the Undo is stamped after the decision: ${first.at} then ${undo.at}`);
+  assert.equal(s.ack([`${e.id}@${first.at}`]), 0, 'the watcher\'s ack of the decision it read does not ack the Undo');
+  assert.equal(s.feedback().find(f => f.id === e.id)?.action, 'restore');
+  s.act({ action: 'not_useful', id: e.id }); // again the same second
+  const nu = s.feedback().find(f => f.id === e.id);
+  assert.ok(Date.parse(nu.at) > Date.parse(undo.at), 'and Not useful after the Undo');
+  // a digest item's chip
+  const d = s.add({ kind: 'digest', title: 'Digest', text: 'x', items: [{ ref: 'a1', section: 'worth', title: 'Fence', text: 't', story: 'fence' }] });
+  s.act({ action: 'resolve', id: d.id, item: 'a1' });
+  const ri = s.feedback().find(f => f.id === `${d.id}/a1`);
+  s.act({ action: 'restore', id: d.id, item: 'a1' });
+  const ui = s.feedback().find(f => f.id === `${d.id}/a1`);
+  assert.equal(ui.action, 'restore'); assert.ok(Date.parse(ui.at) > Date.parse(ri.at), `the item's Undo is stamped after: ${ri.at} then ${ui.at}`);
+  assert.equal(s.ack([`${d.id}/a1@${ri.at}`]), 0);
+  assert.equal(s.feedback().find(f => f.id === `${d.id}/a1`)?.action, 'restore');
+});
