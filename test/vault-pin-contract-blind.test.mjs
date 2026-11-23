@@ -621,6 +621,58 @@ describe('concurrency and cache', () => {
 });
 
 // ---------------------------------------------------------------------------------------------
+// Added after the review's mutation check (1.124.4): one test for each planted bug the blind tests above let through.
+describe('mutation check follow-ups', () => {
+  test('a file of exactly the size limit is still hashed (sparse file)', async () => {
+    const cwd = tmpDir('pin-'); const f = path.join(cwd, 'edge.bin'); fs.writeFileSync(f, ''); fs.truncateSync(f, PIN_LIMITS.fileBytes);
+    const want = crypto.createHash('sha256'), zero = Buffer.alloc(1 << 20);
+    for (let n = 0; n < PIN_LIMITS.fileBytes; n += zero.length) want.update(zero.subarray(0, Math.min(zero.length, PIN_LIMITS.fileBytes - n)));
+    const r = row(await pinCommand({ argv: ['true', f], cwd }, { PATH: SYS }), f);
+    assert.equal(r.why, undefined, 'not recorded as too large'); assert.equal(r.sha256, want.digest('hex'));
+  });
+  test('the hash cache is cleared when it reaches its limit: a file hashed before is read again', async () => {
+    const cwd = tmpDir('pin-'); const a = put(cwd, 'a.bin', crypto.randomBytes(PIN_LIMITS.small + 4096)), b = put(cwd, 'b.bin', crypto.randomBytes(PIN_LIMITS.small + 4096));
+    const fresh = await import(`../vault-pin.mjs?cache=${Date.now()}`);
+    fresh.PIN_LIMITS.cache = 1;
+    let readOfA = 0;
+    const { restore } = trackOpens((p, fh) => p === a ? proxyHandle(fh, { read: async (...args) => { const r = await fh.read(...args); readOfA += r.bytesRead; return r; } }) : fh);
+    try {
+      await fresh.pinCommand({ argv: ['true', a], cwd }, { PATH: SYS }); // a into the cache (1 of 1)
+      await fresh.pinCommand({ argv: ['true', b], cwd }, { PATH: SYS }); // full: cleared, then b
+      readOfA = 0;
+      const pin = await fresh.pinCommand({ argv: ['true', a], cwd }, { PATH: SYS });
+      assert.ok(readOfA >= fs.statSync(a).size, `a was not hashed again (${readOfA} bytes read)`);
+      assert.equal(row(pin, a).sha256, sha(fs.readFileSync(a)));
+    } finally { restore(); }
+  });
+  test('a known process starter (pm2 start job) is refused as starts', async () => {
+    const bin = tmpDir('pin-'); exe(bin, 'pm2'); put(bin, 'job', 'x\n');
+    const pin = await pinCommand({ argv: ['pm2', 'start', 'job'], cwd: bin }, { PATH: `${bin}:${SYS}` });
+    assert.deepEqual(view(pin.refuse), { why: 'starts', how: 'pm2' });
+  });
+  // plan.verify() with the open handle's metadata held as it was when the file was pinned, so only the check under test
+  // can see the change.
+  async function verifyWithStableHandle(change) {
+    const cwd = tmpDir('pin-'); const f = put(cwd, 'a.txt', 'aaaa');
+    const plan = await prepareRun({ argv: ['true', f], cwd }, { PATH: SYS, forRun: true });
+    const seen = new Map(), real = fs.fstatSync;
+    let restore = patch(fs, 'fstatSync', (fd, ...a) => { const st = real.call(fs, fd, ...a); seen.set(fd, st); return st; });
+    try { plan.verify(); } finally { restore(); }
+    change(cwd, f);
+    restore = patch(fs, 'fstatSync', (fd, ...a) => seen.get(fd) ?? real.call(fs, fd, ...a));
+    try { return { f, error: (() => { try { plan.verify(); return null; } catch (e) { return e; } })() }; } finally { restore(); plan.close(); }
+  }
+  test('plan.verify() refuses when the path now leads to another file, even if the open handle looks unchanged', async () => {
+    const { f, error } = await verifyWithStableHandle((cwd, f) => { const n = put(cwd, 'n.txt', 'aaaa'); fs.renameSync(n, f); });
+    assert.ok(error, 'the swap by rename went unnoticed'); assert.equal(error.code, 'request_stale'); assert.equal(error.changedPath, f);
+  });
+  test('plan.verify() refuses when a small file\'s bytes changed, even if its metadata looks unchanged', async () => {
+    const { f, error } = await verifyWithStableHandle((cwd, f) => fs.writeFileSync(f, 'bbbb'));
+    assert.ok(error, 'the changed bytes went unnoticed'); assert.equal(error.code, 'request_stale'); assert.equal(error.changedPath, f);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
 const base = () => ({
   v: 2, program: '/p',
   files: [
