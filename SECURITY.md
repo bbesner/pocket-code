@@ -632,7 +632,11 @@ the calls that make a picture (`browser_take_screenshot`, `browser_pdf_save`, `s
 `POCKET_VAULT_PICTURE_TOOLS`): Playwright MCP saves every screenshot and PDF to a file and names
 it, and the agent could open that file with its own tools. Since 1.124.3 it also refuses any call
 that names a `filename` (Playwright MCP saves a snapshot, an evaluate result or a log there), as
-the relay scrubs only what comes back to the agent, never a file the server writes. The relay is the agent's own
+the relay scrubs only what comes back to the agent, never a file the server writes. Since 1.124.4
+the browser tool running calls side by side cannot slip such a call past a fill: one that arrives
+while a fill waits (for approval too) is held until the fill settles, and a fill is typed only once
+every such call sent before it has answered (it is refused, with nothing typed, after
+`POCKET_VAULT_PICTURE_WAIT` seconds, default 30). The relay is the agent's own
 tool, running as the same user, and the agent drives the page: the agent that asked for a fill
 can read the value back, and so can the page. The placeholder keeps the value out of the
 transcript in normal use; it does not keep it out of the agent's reach. Allow a fill as you would
