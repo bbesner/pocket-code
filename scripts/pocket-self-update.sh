@@ -10,7 +10,8 @@ dir=$1 target=$2 expected=$3 pmid=$4 port=$5 status=$6 node=$7 repo=$8 from=$9
 tag="v$target"
 # Tests shorten the waits; the daemon passes no such variables.
 tries=${POCKET_SELF_UPDATE_TRIES:-45} settle=${POCKET_SELF_UPDATE_SETTLE:-10} beat=${POCKET_SELF_UPDATE_BEAT:-60} idle=${POCKET_SELF_UPDATE_IDLE_TRIES:-300}
-branch='' prev='' moved=0
+[ "$idle" -ge 1 ] 2>/dev/null || idle=1 # the wait loop below says `restarting` and reads the PID, so it runs at least once
+branch='' prev='' moved=0 old_pid=''
 
 # say <phase> [error] [backup dir]: rewrite the progress file atomically. 1.124.4: it returns the writer's status (it returned
 # echo's, so a progress write that failed went unnoticed and the job sat at its last phase); each call says what a failure does.

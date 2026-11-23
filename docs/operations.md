@@ -720,7 +720,10 @@ Once a value has been typed, image, audio and blob content from the server is re
 relay's life, since a screenshot of a page showing the value cannot be scrubbed; text snapshots still work. Calls that
 make a picture (`browser_take_screenshot`, `browser_pdf_save`, `screenshot`, and any tool in the comma-separated
 `POCKET_VAULT_PICTURE_TOOLS`) are refused from then on and never reach the server (1.124.2), because Playwright MCP saves
-each picture to a file and names it in its reply.
+each picture to a file and names it in its reply. A picture or `filename` call sent while a fill waits is held until
+the fill settles, and a fill waits up to `POCKET_VAULT_PICTURE_WAIT` seconds (default 30) for one sent before it to
+answer, then is refused with nothing typed (1.124.4). A server that closes its input is stopped (SIGTERM, then SIGKILL
+after five seconds) and the relay exits non-zero (1.124.4).
 `POCKET_VAULT_FILL_WAIT` (seconds, default 90) is how long a fill waits for an approval before telling the agent to
 call again; the relay gives the daemon that long plus 15 seconds to answer (1.73.3), refuses an answer that is not one
 string per placeholder, and starts the server without any of the daemon's own secrets (the same list `agentEnv` keeps
