@@ -50,7 +50,7 @@ function handle(m) { const c = ctl(); const r = (c.methods || {})[m.method] || {
 let buf = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', d => { buf += d; let i; while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); if (!l.trim()) continue; let m; try { m = JSON.parse(l); } catch { continue; } fs.appendFileSync(recv, JSON.stringify(m) + '\n'); if (m.method && m.id !== undefined && m.id !== null) handle(m); } });
-process.stdin.on('end', () => { if (!c0.ignoreTerm) process.exit(0); });
+process.stdin.on('end', () => { if (!c0.ignoreTerm && !c0.keepOnEof) process.exit(0); });
 setInterval(() => {}, 1 << 30);
 `;
 const BIN = tmpDir('codex-bin-');
@@ -312,6 +312,9 @@ test('makeTransport.drain: lines before skipBefore are replayed; a request there
     x.tr.drain(); x.tr.drain();
     assert.equal(x.got.join(''), l1 + resolved + l2, 'replayed, the requests held back');
     assert.deepEqual(x.writer.writes.map(w => JSON.parse(w)), [{ jsonrpc: '2.0', id: 7, result: { decision: 'decline' } }], 'the unresolved one declined once');
+    // 1.124.4 (mutation check, pass 2 #7): a later line in the log does not decline it again
+    x.append('{"later":1}\n'); x.tr.drain();
+    assert.equal(x.writer.writes.length, 1, 'declined once, not again when the log grows');
   } finally { x.tr.exit(0); }
 });
 
@@ -341,6 +344,18 @@ test('makeTransport.drain: >1 MiB of multibyte lines arrives complete across cap
     assert.ok(!joined.includes('�'), 'no replacement characters');
     assert.equal(joined.length, content.length);
     assert.equal(joined, content);
+  } finally { x.tr.exit(0); }
+});
+
+// 1.124.4 (mutation check, pass 1 #6): a pass reads exactly DRAIN_MAX (1 MiB) of a longer log, no more and no less.
+test('makeTransport.drain: one pass of a long log reads exactly 1 MiB', async () => {
+  let content = ''; let i = 0;
+  while (Buffer.byteLength(content) < 1.6 * 1048576) content += JSON.stringify({ i: i++, s: 'x'.repeat(200) }) + '\n';
+  const x = mkTransport({ content });
+  try {
+    x.tr.drain();
+    assert.equal(x.tr.offset, 1 << 20, 'the first pass stops at 1 MiB');
+    assert.equal(Buffer.byteLength(x.got.join('')) + x.tr.rem.length, 1 << 20, 'and every byte it read is forwarded or held');
   } finally { x.tr.exit(0); }
 });
 
@@ -539,6 +554,42 @@ test('fail step: initialize error — start rejects and the spawned child is ter
   const sp = sessionFakesSince(W0, t0);
   assert.ok(sp.length >= 1, 'precondition: a session child was spawned');
   assert.ok(await until(() => sp.every(f => !alive(f.pid)), 6000), 'child left running after initialize failure');
+});
+
+// 1.124.4 (mutation check, pass 2 #1): an app-server that outlives its input closing still goes, by the SIGTERM to its group.
+test('fail step: initialize error — an app-server that keeps running when its input closes is terminated too', async () => {
+  setCtl(W0, { keepOnEof: true, methods: { initialize: { error: { code: -1, message: 'init refused' } } } });
+  const t0 = Date.now();
+  let sp = [];
+  try {
+    await assert.rejects(start(hooks()), e => e.message === 'init refused');
+    sp = sessionFakesSince(W0, t0);
+    assert.ok(sp.length >= 1, 'precondition: a session child was spawned');
+    assert.ok(await until(() => sp.every(f => !alive(f.pid)), 4000), 'child left running after initialize failure');
+  } finally { for (const f of sp) { try { process.kill(f.pid, 'SIGKILL'); } catch {} } }
+});
+
+// 1.124.4 (mutation check, pass 2 #3): the turn id turn/start answers with is in the marker as soon as the start returns,
+// with no turn/started after it.
+test('startCodexTurn: the marker holds the turn id from the turn/start reply', async () => {
+  const T = uid(); setCtl(W0, { threadId: T, turnId: 'turn-reply-only', on: {} });
+  try {
+    const t = await start(hooks());
+    assert.equal(t.turnId, 'turn-reply-only', 'precondition: the reply set the turn id');
+    assert.equal(markerFor(W0, T)?.m?.turn?.turnId, 'turn-reply-only', 'the marker has the turn id');
+  } finally { await closeQuiet(T); }
+});
+
+// 1.124.4 (mutation check, pass 2 #8): an approval card that arrives on its own, after turn/started, is in the marker.
+test('native inbox: an approval that arrives after turn/started is recorded in the marker', async () => {
+  const T = uid();
+  setCtl(W0, { threadId: T, turnId: 'turn-late', on: { 'turn/start': [STARTED, { delay: 400, frame: { id: 8401, method: 'item/commandExecution/requestApproval', params: { threadId: '$T', turnId: '$TURN', itemId: 'c1', command: 'echo later', cwd: '/tmp' } } }] } });
+  try {
+    const h = hooks();
+    const t = await start(h);
+    assert.ok(await until(() => cards(t.approvals) === 1, 4000), 'precondition: the card arrived');
+    assert.equal(markerFor(W0, T)?.m?.waitingForApproval, true, 'the marker says the turn waits for an approval');
+  } finally { await closeQuiet(T); }
 });
 
 test('fail step: turn/start error — rejects with .rpc, finish emits failure, close releases the process', async () => {
@@ -969,4 +1020,9 @@ test('cleanup: close main sessions and reap every stand-in process', async () =>
   for (const w of worlds) reap(w);
   assert.ok(true);
 });
-after(() => { setTimeout(() => process.exit(), 3000).unref(); });
+// 1.124.4: reaped here as well, so a run filtered by name (which skips the cleanup test) leaves no stand-in behind
+after(async () => {
+  for (const s of [...C.codexSessions.values()]) { try { await C.closeCodexSession(s, 'cleanup'); } catch {} }
+  for (const w of worlds) reap(w);
+  setTimeout(() => process.exit(), 3000).unref();
+});
