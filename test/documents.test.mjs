@@ -147,6 +147,18 @@ test('HTTP: documents are off until Settings turns them on; raw is sandboxed; pu
   const pub=await call('/api/documents/'+dash.id,{visibility:'public'});assert.equal(pub.body.url,'/files/dashboard.html');
   const pf=await raw('/files/dashboard.html');assert.equal(pf.status,200);assert.match(pf.headers.get('content-security-policy'),/^sandbox allow-scripts[^;]*; frame-ancestors 'none'$/);assert.match(pf.text,/<script>/,'the document is sent as itself');
   assert.equal((await raw('/files/../server.mjs')).status,404);assert.equal((await raw('/files/.trash')).status,404);
+  // 1.124.6: a video opened by its own address plays in the browser's media document, whose player loads the same address
+  // again as media. Its policy allows that load and nothing more; every other kind keeps the policy it had.
+  const clip=await fetch(base()+'/api/documents',{method:'POST',headers:{cookie:'pc_auth='+cookie,'x-filename':'clip.mp4','content-type':'application/octet-stream'},body:'not a real video'}).then(r=>r.json());
+  assert.equal(clip.kind,'video');
+  const clipRaw=await raw('/api/documents/'+clip.id+'/raw',{cookie:'pc_auth='+cookie});
+  assert.equal(clipRaw.headers.get('content-type'),'video/mp4');assert.equal(clipRaw.headers.get('content-security-policy'),"default-src 'none'; style-src 'unsafe-inline'; media-src 'self'; frame-ancestors 'self'");
+  assert.equal((await call('/api/documents/'+clip.id,{visibility:'public'})).body.url,'/files/clip.mp4');
+  assert.equal((await raw('/files/clip.mp4')).headers.get('content-security-policy'),"default-src 'none'; style-src 'unsafe-inline'; media-src 'self'; frame-ancestors 'none'",'a public video');
+  const clipLink=await call('/api/documents/'+clip.id,{visibility:'link'});
+  assert.equal((await raw('/share/'+clipLink.body.token)).headers.get('content-security-policy'),"default-src 'none'; style-src 'unsafe-inline'; media-src 'self'; frame-ancestors 'none'",'a video shared by link');
+  assert.equal((await raw('/api/documents/'+sheet.id+'/raw',{cookie:'pc_auth='+cookie})).headers.get('content-security-policy'),"default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'self'",'a file that is not media has no media-src');
+  assert.equal((await call('/api/documents/bulk',{action:'trash',ids:[clip.id]})).body.done.length,1);assert.deepEqual((await call('/api/documents/bulk',{action:'delete',ids:[clip.id]})).body.done.map(d=>d.id),[clip.id]);
   // 1.76.3: the stored copy replaced by a symlink (anything running as the daemon's user can do it) serves nothing, to nobody: not the link's target.
   const stored=path.join(docsDir,'dashboard.html'),storedBytes=fs.readFileSync(stored);fs.rmSync(stored);fs.symlinkSync(path.join(repo,'server.mjs'),stored);
   const viaLink=await raw('/files/dashboard.html');assert.equal(viaLink.status,404,'a public link does not follow a link out of the library');assert.doesNotMatch(viaLink.text,/import /);
