@@ -305,8 +305,10 @@ test('a background subagent asking permission after the reply ended shows as a n
  const d=await f.call(`/session/${id}/approvals/${requests[0].id}/decision`,{decision:'allow'});assert.equal(d.status,200);
  assert.ok(await f.until(()=>responses().includes('"request_id":"bg-ask","behavior":"allow"')),'the allow reached the CLI');
  assert.ok(await f.until(async()=>['background','finished'].includes(await f.state(id))),'no stand-in turn is left running');
- assert.match(f.logs(),/turn done \(background job's request answered\)/);
  assert.ok(await f.until(async()=>await f.state(id)==='finished',6000),'the agent finishes and the CLI reports it');
+ // 1.124.2 (turns-04): the message typed meanwhile turned the stand-in into the owner's reply, so answering the request
+ // no longer closes it under that reply (which then ran as one the agent started); only the agent's report is its own.
+ assert.equal((f.logs().match(/turn start \(started by the agent\)/g)||[]).length,1);
  assert.ok(f.transcript(id).includes('The background agent finished.'));
  assert.equal(f.pids().size,1);
 });

@@ -4116,9 +4116,18 @@ app.post('/api/session/:id/message', requireAuth, ownerSendGate, validateApprova
     const opts = turnOpts(req.body);
     // steer first: inject into the running turn (model sees it at the next boundary);
     // fall back to the queue when the pipe is gone (adopted without its pipe) or closing
+    const standIn = running.controlOnly;
     if (mode !== 'queue' && steerTurn(running, promptText(text, opts.attachments))) {
+      // 1.124.2: a stand-in for a background agent's request becomes the owner's reply (the CLI answers this message in
+      // it): not stopped as one the agent started while paused, not closed when the request is answered, and recorded
+      // as the owner's. Done before the CLI's answer can be read (the log is read on a timer, after this returns).
+      if (standIn) {
+        Object.assign(running, { controlOnly: false, autonomous: false, userText: text, ...OWNER_START });
+        delete running.originRef; delete running.autoLimit;
+        noteStart(id, OWNER_START); writeRunnerMeta(running.runner);
+      }
       broadcast(running, { type: 'user', msg: { role: 'user', text, ts: new Date().toISOString() } });
-      const skipped = running.controlOnly ? 0 : skipQuestions(running.questions); // the message is in first, so Claude reads it with the skip (1.82: a background subagent's question is not skipped)
+      const skipped = standIn ? 0 : skipQuestions(running.questions); // the message is in first, so Claude reads it with the skip (1.82: a background subagent's question is not skipped)
       log(`steered message into running turn session=${id}${skipped ? ` skipped=${skipped} question request(s)` : ''}`);
       return res.status(202).json({ ok: true, steered: true, ...(skipped && { skippedQuestions: skipped }) });
     }
