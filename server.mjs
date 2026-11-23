@@ -2168,6 +2168,9 @@ function spawnRunner({ sessionId, cwd, resume, fork, model, effort, mode }) {
   proc.unref();
   // The keeper holds a write end across server restarts and exits when the CLI does.
   const keeper = spawn('sh', ['-c', 'while kill -0 "$1" 2>/dev/null; do sleep 5; done', 'pocket-keeper', String(proc.pid)], { detached: true, stdio: ['ignore', hold, 'ignore'], env: agentEnv(process.env) });
+  // 1.124.4: a keeper that cannot start (the process limit, no `sh`) says so with an 'error' event a tick later; with no
+  // listener that took the whole daemon down. The CLI is killed instead, and the session ends through its exit.
+  keeper.on('error', e => { log(`session process keeper failed session=${sessionId} pid=${proc.pid}: ${e.message}; closing the session`); signalGroup(proc.pid, 'SIGKILL'); });
   keeper.unref();
   const writer = fs.createWriteStream(null, { fd: hold });
   writer.on('error', () => { });

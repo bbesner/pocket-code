@@ -5,7 +5,7 @@ import { test, describe, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tmpDir, patch, failFsFor, snapshot, unchanged, track, alive, until } from './bugreview-faults.mjs';
 
@@ -839,6 +839,25 @@ done({ ok: r.ok, err: r.err, fds: ourFds() });`), 'child');
       await sleep(500);
       const orphans = sessionFakesSince(w, 0).filter(f => alive(f.pid) && !markers(w).some(x => x.m && x.m.pid === f.pid));
       assert.deepEqual({ orphanPrimaries: orphans.length, openFds: R.fds }, { orphanPrimaries: 0, openFds: [] }, 'failed spawn left an unrecorded detached primary and/or open session fds');
+    } finally { reap(w); }
+  });
+
+  // 1.124.4: the other branch of DIV-2. A keeper that cannot start (no `sh` on the PATH here; the process limit in life)
+  // fails with an 'error' event a tick later, which had no listener: the whole daemon died of it.
+  test('DIV-2: a keeper that fails to start asynchronously does not crash the daemon; the start fails and the app-server goes', async () => {
+    const w = newWorld(); const T = uid();
+    const noSh = tmpDir('codex-nosh-'); fs.symlinkSync(execFileSync('sh', ['-c', 'command -v mkfifo'], { encoding: 'utf8' }).trim(), path.join(noSh, 'mkfifo'));
+    setCtl(w, { threadId: T, on: { 'turn/start': COMPLETE() } });
+    try {
+      const r = await runChild(w, String.raw`
+const primaries = [], real = cp.spawn; cp.spawn = (...a) => { const c = real(...a); if (a[0] === process.env.CODEX_BIN) primaries.push(c.pid); return c; }; syncBuiltinESMExports(); // watched, not changed
+const r = await startTurn(); await sleep(800);
+done({ ok: r.ok, err: r.err, sessions: C.codexSessions.size, fds: ourFds(), alive: primaries.filter(p => { try { process.kill(p, 0); return true; } catch { return false; } }), started: primaries.length });`, { env: { PATH: noSh } });
+      const R = need(r, 'child (the daemon stand-in must survive)');
+      assert.equal(R.ok, false, 'the start fails');
+      assert.equal(R.started, 1, 'precondition: the app-server was spawned before the keeper failed');
+      assert.deepEqual({ sessions: R.sessions, alive: R.alive, fds: R.fds }, { sessions: 0, alive: [], fds: [] }, 'no session, no app-server, no open session files');
+      assert.match(r.out, /keeper failed/, 'the failure is logged');
     } finally { reap(w); }
   });
 

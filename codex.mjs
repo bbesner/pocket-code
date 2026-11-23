@@ -832,17 +832,33 @@ function spawnTransport(extraEnv = {}) {
   fs.mkdirSync(CX_LOG_DIR, { recursive: true, mode: 0o700 });
   const key = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const files = cxFiles(key);
-  for (const f of [files.out, files.err]) fs.writeFileSync(f, '', { mode: 0o600 });
-  ensurePipeDir(CX_PIPE_DIR, CX_PIPES.top);
-  execFileSync('mkfifo', ['-m', '600', files.fifo]);
-  const hold = fs.openSync(files.fifo, fs.constants.O_RDWR); // never blocks; lets the read end open
-  const inFd = fs.openSync(files.fifo, 'r');
-  const outFd = fs.openSync(files.out, 'a'), errFd = fs.openSync(files.err, 'a');
-  const proc = spawn(CODEX_BIN, ['app-server', '--listen', 'stdio://'], { stdio: [inFd, outFd, errFd], detached: true, env: { ...agentEnv(process.env), ...extraEnv } });
-  fs.closeSync(inFd); fs.closeSync(outFd); fs.closeSync(errFd);
-  proc.unref();
-  const keeper = spawn('sh', ['-c', 'while kill -0 "$1" 2>/dev/null; do sleep 5; done', 'pocket-keeper', String(proc.pid)], { detached: true, stdio: ['ignore', hold, 'ignore'], env: agentEnv(process.env) }); // 1.73.7: not the daemon's secrets
-  keeper.unref();
+  // 1.124.4: a step that throws on the way (a full disk, a file or process limit) undoes the ones before it: the app-server
+  // already spawned is killed, the descriptors opened are closed and the files made are removed. It used to leave the
+  // app-server running unrecorded and the pipe held open by the daemon.
+  let hold = null, proc = null, keeper = null;
+  const fds = [];
+  try {
+    for (const f of [files.out, files.err]) fs.writeFileSync(f, '', { mode: 0o600 });
+    ensurePipeDir(CX_PIPE_DIR, CX_PIPES.top);
+    execFileSync('mkfifo', ['-m', '600', files.fifo]);
+    hold = fs.openSync(files.fifo, fs.constants.O_RDWR); // never blocks; lets the read end open
+    fds.push(fs.openSync(files.fifo, 'r')); fds.push(fs.openSync(files.out, 'a')); fds.push(fs.openSync(files.err, 'a'));
+    proc = spawn(CODEX_BIN, ['app-server', '--listen', 'stdio://'], { stdio: fds, detached: true, env: { ...agentEnv(process.env), ...extraEnv } });
+    while (fds.length) fs.closeSync(fds.pop());
+    proc.unref();
+    keeper = spawn('sh', ['-c', 'while kill -0 "$1" 2>/dev/null; do sleep 5; done', 'pocket-keeper', String(proc.pid)], { detached: true, stdio: ['ignore', hold, 'ignore'], env: agentEnv(process.env) }); // 1.73.7: not the daemon's secrets
+    // 1.124.4: a keeper that cannot start (the process limit, no `sh`) says so with an 'error' event a tick later; with no
+    // listener that took the whole daemon down. The app-server is killed instead, and the session ends through its exit.
+    const app = proc;
+    keeper.on('error', e => { log(`codex session keeper failed pid=${app.pid}: ${e.message}; closing the session`); signalGroup(app.pid, 'SIGKILL'); });
+    keeper.unref();
+  } catch (e) {
+    if (proc) { proc.on('error', () => { }); if (proc.pid) signalGroup(proc.pid, 'SIGKILL'); }
+    for (const fd of [...fds, hold]) if (fd != null) { try { fs.closeSync(fd); } catch { } }
+    for (const f of [files.fifo, files.out, files.err]) { try { fs.unlinkSync(f); } catch { } }
+    log(`codex session process not started: ${e.message}`);
+    throw e;
+  }
   const writer = fs.createWriteStream(null, { fd: hold });
   writer.on('error', () => { });
   const t = makeTransport({ pid: proc.pid, keeperPid: keeper.pid, key, files, writer, offset: 0 });
