@@ -391,3 +391,23 @@ test('a reconnect carrying a turn event number after the Codex reply ended is to
  const data=seen.split('\n').filter(l=>l.startsWith('data: ')).map(l=>JSON.parse(l.slice(6)));
  assert.ok(data.some(d=>d.type==='done'),'the browser is told the turn ended: '+JSON.stringify(data));
 });
+
+// 1.124.4: a Codex start refused before an app-server was running (here: the pipe directory is refused) answered 500 on the
+// message route and the delivery receipt kept it, so Retry same message replayed the failure. It answers 503 not_started, as
+// the Claude route does since 1.124.3, and the same message goes through once the cause is gone.
+test('a Codex start that never reached the app-server keeps no delivery receipt, so Retry same message sends it',async t=>{
+ const pipes=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-pipes-'));t.after(()=>fs.rmSync(pipes,{recursive:true,force:true}));
+ const f=await fixture(t,18407,{POCKET_PIPE_DIR:pipes,POCKET_IDLE_CLOSE_MS:'300'});
+ const id=(await f.call('/new',{cwd:repo,provider:'codex',...msg('first')})).body.id;
+ assert.ok(await f.until(async()=>f.calls().length===1&&await f.idle(id)&&await f.procs()===0,6000),'its app-server closed when idle');
+ const codexDir=path.join(pipes,'codex');fs.rmSync(codexDir,{recursive:true,force:true});fs.writeFileSync(codexDir,''); // a file where the pipe directory goes
+ const send=msg('send it once it can start');
+ const first=await f.call(`/session/${id}/message`,send);
+ assert.equal(first.status,503,JSON.stringify(first.body));assert.equal(first.body.code,'not_started');
+ assert.equal(f.calls().length,1,'only the first message reached an app-server');
+ assert.equal(await f.procs(),0,'no app-server was left running');
+ fs.rmSync(codexDir);
+ const again=await f.call(`/session/${id}/message`,send);
+ assert.equal(again.status,202,'Retry same message starts it: '+JSON.stringify(again.body));
+ assert.ok(await f.until(()=>f.calls().some(c=>c.text==='send it once it can start')));
+});

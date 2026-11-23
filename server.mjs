@@ -4151,7 +4151,9 @@ app.post('/api/session/:id/message', requireAuth, ownerSendGate, validateApprova
       await startCodexFromApi({ id, threadId: tid, text, body: req.body });
       return res.status(202).json({ ok: true, ...carriedOn(id, gone) });
     } catch (e) {
-      return res.status(e.code === 409 ? 409 : e.code === 423 ? 423 : 500).json({ error: String(e.message) });
+      // 1.124.4: a Codex start refused before an app-server ran, or before its marker could be written, is 503 not_started, as
+      // the Claude route below: the delivery receipt does not keep it, so Retry same message sends it once the cause is gone
+      return res.status(e.code === 409 ? 409 : e.code === 423 ? 423 : e.notStarted ? 503 : 500).json({ error: String(e.message), ...(e.code !== 409 && e.code !== 423 && e.notStarted && { code: 'not_started' }) });
     }
   }
   if (isAcpId(id)) {

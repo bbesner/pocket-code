@@ -860,7 +860,7 @@ function spawnTransport(extraEnv = {}) {
     for (const fd of [...fds, hold]) if (fd != null) { try { fs.closeSync(fd); } catch { } }
     for (const f of [files.fifo, files.out, files.err]) { try { fs.unlinkSync(f); } catch { } }
     log(`codex session process not started: ${e.message}`);
-    throw e;
+    throw Object.assign(e, { notStarted: true }); // nothing is running: the message routes answer 503 not_started and keep no receipt
   }
   const writer = fs.createWriteStream(null, { fd: hold });
   writer.on('error', () => { });
