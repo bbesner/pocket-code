@@ -949,9 +949,10 @@ test('§3 restart: filled, scrub table and pending map reset; temp files byte-id
 });
 
 // ================================ §7 divergences ================================
-test('DIV-1: picture/filename calls sent while a fill is in flight are held, then refused once it succeeds', T, async t => {
-  let open; const gate = new Promise(r => { open = r; });
-  const ctx = await makeCtx(t, { handler: async (q, res, d) => { await gate; json(res, 200, { ok: true, values: pick(d.values, q.body.refs) }); } });
+// Bug review DIV-1 (REAL, fixed in 1.124.4): these calls used to reach the server while the fill waited for its release.
+test('§5 picture and filename calls sent while a fill waits are held, then refused if it fills or forwarded if it fails', T, async t => {
+  let open, gate; const shut = () => { gate = new Promise(r => { open = r; }); }; shut();
+  const ctx = await makeCtx(t, { handler: async (q, res, d) => { await gate; q.body.refs[0] === 'd1' ? json(res, 200, { ok: true, values: pick(d.values, q.body.refs) }) : json(res, 403, { error: 'Not allowed here.' }); } });
   ctx.daemon.values.d1 = sec('d1');
   const r = ctx.start(); await r.ready();
   const f = call('browser_type', { text: '{{vault:d1}}' }); r.send(f);
@@ -964,6 +965,14 @@ test('DIV-1: picture/filename calls sent while a fill is in flight are held, the
   assert.ok(!r.gotId(file.id), 'filename call reached the child across an in-flight fill');
   assert.deepEqual(r.msgs().find(x => x.id === shot.id), LE(shot.id, PIC('browser_take_screenshot')));
   assert.deepEqual(r.msgs().find(x => x.id === file.id), LE(file.id, FNAME('browser_snapshot')));
+  // A fill that fails types nothing, so the held calls then go through.
+  shut(); const r2 = ctx.start(); await r2.ready();
+  const f2 = call('browser_type', { text: '{{vault:nope}}' }); r2.send(f2);
+  await until(() => ctx.daemon.reqs.length === 2, 3000);
+  const shot2 = call('browser_take_screenshot', {}); r2.send(shot2);
+  await sleep(200); assert.ok(!r2.gotId(shot2.id), 'screenshot went ahead of the fill it should wait for'); open();
+  assert.deepEqual(await r2.resp(f2.id), LE(f2.id, 'Not allowed here.'));
+  assert.ok(await r2.resp(shot2.id), 'held screenshot not answered'); assert.ok(r2.gotId(shot2.id), 'held screenshot refused after a failed fill');
 });
 
 test('DIV-2: a stop signal leaves no descendant of the MCP server running', T, async t => {

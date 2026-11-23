@@ -40,6 +40,10 @@ const FILL_TOOLS = [...new Set((process.env.POCKET_VAULT_FILL_TOOLS || 'browser_
 // and PDF to a file and names it in its answer, so withholding the inline image alone left the picture where the agent could
 // open it. POCKET_VAULT_PICTURE_TOOLS (comma-separated) adds a server's own picture tools to these; it never removes one.
 const PICTURE_TOOLS = [...new Set(['browser_take_screenshot', 'browser_pdf_save', 'screenshot', ...(process.env.POCKET_VAULT_PICTURE_TOOLS || '').split(',').map(s => s.trim()).filter(Boolean)])];
+// 1.124.4: the browser tool runs calls side by side, so a picture (or a call that saves to a file) sent before the first fill
+// and still running when the value is typed could hold it. A fill waits this many seconds for such calls to answer, then is
+// refused with nothing typed.
+const PICTURE_WAIT = Math.max(1, Number(process.env.POCKET_VAULT_PICTURE_WAIT) || 30);
 
 const argv = process.argv.slice(2), dash = argv.indexOf('--');
 const ours = dash === -1 ? [] : argv.slice(0, dash), child = dash === -1 ? argv : argv.slice(dash + 1);
@@ -115,11 +119,19 @@ async function release(refs, tool, retried = false) {
 }
 
 // 1.73.5: calls that need a release run one at a time, in order, and a client that closes its side waits for the last of them.
-let chain = Promise.resolve();
+// 1.124.4: fillsQueued counts the fills on the chain; picturesOut holds the ids of picture and `filename` calls forwarded
+// before any fill and not answered yet.
+let chain = Promise.resolve(), fillsQueued = 0;
+const picturesOut = new Set();
+const savesPicture = (tool, a) => PICTURE_TOOLS.includes(tool) || Boolean(a && typeof a === 'object' && 'filename' in a);
+async function picturesDone(seconds) { const end = Date.now() + seconds * 1000; while (picturesOut.size && Date.now() < end) await new Promise(r => setTimeout(r, 50)); return !picturesOut.size; }
 async function fill(msg, refs, tool) {
   try {
     const got = await release(refs, tool);
     if (got.error) return toolError(msg.id, got.error);
+    // 1.124.4: the value is typed only once no picture is still being taken. If one still is, the released value is dropped
+    // here: not typed, not remembered, and `filled` stays as it was.
+    if (!await picturesDone(PICTURE_WAIT)) return toolError(msg.id, `Pocket: ${tool} was not run: a screenshot, or a call that saves to a file, was still running in this browser session after ${PICTURE_WAIT} seconds, and it could have caught the value as it was typed. Nothing was typed. Call ${tool} again once that call has answered.`);
     filled = true;
     for (const [ref, value] of Object.entries(got.values)) remember(ref, value);
     const typed = deep(msg.params.arguments, s => s.replace(PLACEHOLDER_ALL, (m, ref) => got.values[ref] ?? m));
@@ -129,17 +141,26 @@ async function fill(msg, refs, tool) {
 readline.createInterface({ input: process.stdin }).on('line', line => {
   let msg; try { msg = JSON.parse(line); } catch { try { server.stdin.write(line + '\n'); } catch { } return; }
   if (msg?.method !== 'tools/call' || !msg.params) return toServer(msg);
+  handle(msg);
+}).on('close', () => chain.then(() => { try { server.stdin.end(); } catch { } }));
+function handle(msg, settled = false) {
   const tool = String(msg.params.name || 'tool');
+  // 1.124.4: a picture or `filename` call that arrives while a fill is queued and none has been typed yet waits on the chain,
+  // so the checks below are made once that fill has settled. Every other call still overtakes a waiting fill.
+  if (!settled && !filled && fillsQueued && savesPicture(tool, msg.params.arguments)) { chain = chain.then(() => { try { handle(msg, true); } catch (e) { toolError(msg.id, `The relay could not run ${tool}: ${e.message}`); } }); return; }
   if (filled && PICTURE_TOOLS.includes(tool)) return toolError(msg.id, `Pocket: ${tool} was not taken: a Vault value was typed into this browser session, so no screenshot, PDF or other picture of it is made for the rest of the session (a value cannot be scrubbed out of a picture, and the browser tool would save it to a file). Use text snapshots instead.`);
   // 1.124.3: the relay scrubs what comes back here, never a file the server writes. Playwright MCP saves a snapshot, an
   // evaluate result, console or network logs to `filename` when it is given, so after a fill no call may name one.
   if (filled && msg.params.arguments && typeof msg.params.arguments === 'object' && 'filename' in msg.params.arguments) return toolError(msg.id, `Pocket: ${tool} was not run: a Vault value was typed into this browser session, so nothing from it is saved to a file for the rest of the session (a file cannot be scrubbed; what comes back here is). Call it again without filename.`);
-  const refs = refsIn(msg.params.arguments); if (!refs.length) return toServer(msg);
+  const refs = refsIn(msg.params.arguments);
+  if (!refs.length) { if (!filled && msg.id !== undefined && savesPicture(tool, msg.params.arguments)) picturesOut.add(msg.id); return toServer(msg); }
   if (!FILL_TOOLS.includes(tool)) return toolError(msg.id, `Pocket types Vault values into ${FILL_TOOLS.join(', ')} only, not ${tool}: a value may be typed into a field, never handed to code or put in an address. Use a fill tool; the owner can set POCKET_VAULT_FILL_TOOLS for this relay if another tool should count.`);
-  chain = chain.then(() => fill(msg, refs, tool));
-}).on('close', () => chain.then(() => { try { server.stdin.end(); } catch { } }));
+  fillsQueued++; chain = chain.then(() => fill(msg, refs, tool)).finally(() => { fillsQueued--; });
+}
 
 readline.createInterface({ input: server.stdout }).on('line', line => {
+  // 1.124.4: the answer to a picture call forwarded before any fill takes it off picturesOut.
+  if (picturesOut.size) { try { const m = JSON.parse(line); if (m && typeof m === 'object' && !('method' in m)) picturesOut.delete(m.id); } catch { } }
   if (!filled) return process.stdout.write(line + '\n');
   let msg; try { msg = JSON.parse(line); } catch { return process.stdout.write(scrubText(line) + '\n'); }
   toClient(scrubDeep(stripBinary(msg)));
