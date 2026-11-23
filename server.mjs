@@ -1964,7 +1964,7 @@ function attachClaudeQuestions(turn,sessionId){
     inputs.delete(reply.id);turn.rawRequests?.delete(reply.id);
   },onChange:()=>{
     const pending=turn.questions.list().length;
-    try{const meta=JSON.parse(fs.readFileSync(turn.files.meta,'utf8'));meta.waitingForInput=Boolean(pending||turn.approvals?.list().length);fs.writeFileSync(turn.files.meta,JSON.stringify(meta),{mode:0o600});}catch{}
+    try{const meta=JSON.parse(fs.readFileSync(turn.files.meta,'utf8'));meta.waitingForInput=Boolean(pending||turn.approvals?.list().length);atomicWrite(turn.files.meta,meta);}catch{} // 1.124.4: written whole and renamed; a reader, or a crash, between the truncate and the write met an empty marker
     broadcast(turn,{type:'questions'});
     const last=turn.questions.list().at(-1);
     if(pending&&turn.questionNotified!==last.id&&!mutes.has(sessionId)){turn.questionNotified=last.id;pushNotify(sessionId,last.agent?'A subagent has a question':'Claude has a question','Open Pocket Code to answer it.').catch(()=>{});}
@@ -1975,7 +1975,7 @@ function attachClaudeQuestions(turn,sessionId){
     turn.stdin.write(JSON.stringify({type:'control_response',response:{subtype:'success',request_id:id,response}})+'\n',e=>{if(!e)turn.rawRequests?.delete(id);e?reject(e):resolve();});
   }),onChange:()=>{
     const requests=turn.approvals?.list()||[];
-    try{const meta=JSON.parse(fs.readFileSync(turn.files.meta,'utf8'));meta.waitingForApproval=Boolean(requests.length);meta.waitingForInput=Boolean(requests.length||turn.questions.list().length);fs.writeFileSync(turn.files.meta,JSON.stringify(meta),{mode:0o600});}catch{}
+    try{const meta=JSON.parse(fs.readFileSync(turn.files.meta,'utf8'));meta.waitingForApproval=Boolean(requests.length);meta.waitingForInput=Boolean(requests.length||turn.questions.list().length);atomicWrite(turn.files.meta,meta);}catch{} // 1.124.4: as above
     broadcast(turn,{type:'approvals'});
     const last=requests.at(-1);
     if(last&&turn.approvalNotified!==last.id&&!mutes.has(sessionId)){turn.approvalNotified=last.id;pushNotify(sessionId,last.agent?'A subagent is waiting for your OK':'Waiting for your OK','Open Pocket Code to review the pending action.').catch(()=>{});}

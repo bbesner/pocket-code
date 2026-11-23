@@ -36,6 +36,8 @@ rulings that changed nothing are in `docs/bug-review-decisions.md`, with four qu
   the Allow was sent with half a line in the audit. The file goes back to its size, the owner gets the existing 503
   *Nothing was approved*, and a trusted action shows a card instead.
 - **A trusted action's Allow that could not be delivered is logged on Codex and OpenRouter too**, as on Claude.
+- **Claude's session marker is written whole when a card appears or is answered** (temporary file, then rename). It was
+  rewritten in place, so a restart in that instant met an empty marker; the combined test run caught a reader doing so.
 
 **Automation** (`automation.mjs`)
 - **Counts that cannot be saved are flagged.** The day's unattended replies and OpenRouter spend stayed in memory
