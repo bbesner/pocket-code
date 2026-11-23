@@ -15,10 +15,19 @@ export function codexPermissionSettings(mode){
  return mode==='full'?{sandbox:'danger-full-access',approvalPolicy:'never'}:{sandbox:'read-only',approvalPolicy:'untrusted',config:{approvals_reviewer:'user'}};
 }
 // Store only identifiers, hashes and decisions. Tool arguments may contain secrets.
+// 1.124.4: a full disk or a file-size limit makes write(2) return a short count, not an error. A row cut short is not a
+// record: the file goes back to the size it had before the row (no fragment for the next row to join) and the audit
+// throws, so decide() answers 503 and autoAllow() shows a card. If the truncate fails too, it still throws.
 export function approvalAudit(file){
  return record=>{
   const fd=fs.openSync(file,'a',0o600);
-  try{fs.writeSync(fd,JSON.stringify({at:new Date().toISOString(),...record})+'\n');fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
+  try{
+   const row=Buffer.from(JSON.stringify({at:new Date().toISOString(),...record})+'\n'),before=fs.fstatSync(fd).size;
+   let written=0;
+   try{written=fs.writeSync(fd,row);}finally{if(written!==row.length)try{fs.ftruncateSync(fd,before);}catch{}}
+   if(written!==row.length)throw Object.assign(new Error(`approval record cut short (${written} of ${row.length} bytes written)`),{code:'EIO'});
+   fs.fsyncSync(fd);
+  }finally{fs.closeSync(fd);}
  };
 }
 export class ApprovalInbox {

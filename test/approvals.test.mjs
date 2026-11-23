@@ -64,3 +64,25 @@ test('the asking subagent is kept on the row, and a Codex agent-thread request i
  assert.equal(stranger.agent,null);assert.equal(stranger.request.params.threadId,'stranger','an unknown thread still fails closed downstream');
  assert.equal(codexApproval(homed.request,{...turn,cwd:'/w',approvalItems:new Map()}).canAllow,true);
 });
+// 1.124.4: a full disk (here a real 1 KB file-size limit, `ulimit -f 1`) makes write(2) return a short count rather than
+// an error. The decision row must then count as not recorded: nothing is sent, and no fragment is left in the file.
+test('an audit row the disk cut short records nothing and sends nothing',async()=>{
+ const {spawnSync}=await import('node:child_process');const fs=await import('node:fs');const os=await import('node:os');const path=await import('node:path');
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-approvals-')),file=path.join(dir,'approval-decisions.jsonl');
+ try{
+  fs.writeFileSync(file,'x'.repeat(900)+'\n',{mode:0o600});const before=fs.readFileSync(file);
+  // receive() records with a no-op audit so the decision is the row that crosses the limit; autoAllow records its own
+  const script=`const {ApprovalInbox,approvalAudit}=await import(process.env.MOD);const audit=approvalAudit(process.env.FILE),out={};
+   const writes=[];const mk=a=>new ApprovalInbox({sessionId:()=>'session-1',turnId:()=>'turn-1',audit:a,write:async(id,r)=>writes.push(id)});
+   const box=mk(()=>{});box.receive(${JSON.stringify(request)});box.audit=audit;
+   try{out.decide=await box.decide(box.list()[0].id,'allow');}catch(e){out.decide={status:e.status,message:e.message};}
+   out.auto=mk(audit).autoAllow({...${JSON.stringify(request)},nativeId:'native-2',rule:'Bash(echo)',tool:'Bash'});
+   await new Promise(r=>setTimeout(r,20));out.writes=writes;console.log(JSON.stringify(out));`;
+  const r=spawnSync('bash',['-c','ulimit -f 1; exec "$0" --input-type=module -e "$1"',process.execPath,script],{env:{...process.env,MOD:new URL('../approvals.mjs',import.meta.url).href,FILE:file},encoding:'utf8'});
+  assert.equal(r.status,0,r.stderr);const out=JSON.parse(r.stdout);
+  assert.deepEqual(out.decide,{status:503,message:'Could not record this decision. Nothing was approved; try again.'});
+  assert.equal(out.auto,false,'a trusted request whose record was cut short shows a card instead');
+  assert.deepEqual(out.writes,[],'no Allow was sent');
+  assert.ok(fs.readFileSync(file).equals(before),'the file holds exactly the bytes it had before');
+ }finally{fs.rmSync(dir,{recursive:true,force:true});}
+});

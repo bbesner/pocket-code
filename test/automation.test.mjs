@@ -250,3 +250,99 @@ test('the audit file takes one line per event and never message text', () => {
   assert.ok(!fs.readFileSync(file, 'utf8').includes('words'));
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
 });
+
+// 1.124.4: a state write that fails (here a real read-only data folder) keeps today's counts in memory, so the limits
+// hold while Pocket runs, and says so: save() is false, saveError is set and one line is logged for the run of failures.
+// A restart before the next good save would read the lower count from the file; that is what the Automation page warns of.
+test('a daily count that cannot be saved is kept in memory, flagged and logged once, and the next good save clears it', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-')), file = path.join(dir, 'automation-state.json');
+  const logged = [], opts = { now: () => NOW, zone: () => 'UTC', log: (...a) => logged.push(a.join(' ')) };
+  try {
+    const st = new auto.AutomationState(file, opts);
+    st.recordStart({ rootOrigin: 'job' }); st.recordFinish({ rootOrigin: 'job', engine: 'acp', cost: 0.75 });
+    assert.equal(st.saveError, null); assert.deepEqual(logged, []);
+    const committed = fs.readFileSync(file);
+    fs.chmodSync(dir, 0o555);
+    st.recordStart({ rootOrigin: 'job' }); st.recordFinish({ rootOrigin: 'job', engine: 'acp', cost: 0.75 });
+    assert.equal(st.save(), false);
+    assert.deepEqual([st.counts().startedRoot, st.counts().openrouterRoot], [2, 1.5], 'memory keeps the counts');
+    assert.equal(st.saveError.code, 'EACCES'); assert.match(st.saveError.at, /^2026-11-21T15:00:00/);
+    assert.equal(logged.length, 1, 'logged once for the run of failures');
+    assert.match(logged[0], /automation-state\.json could not be saved \(EACCES\)/);
+    assert.ok(fs.readFileSync(file).equals(committed), 'the file is as it was');
+    assert.equal(new auto.AutomationState(file, { ...opts, log: () => {} }).counts().startedRoot, 1, 'a restart now would read the last good save');
+    fs.chmodSync(dir, 0o755);
+    assert.equal(st.save(), true); assert.equal(st.saveError, null);
+    assert.equal(logged.length, 2); assert.match(logged[1], /saved again/);
+    assert.equal(new auto.AutomationState(file, opts).counts().startedRoot, 2);
+  } finally { fs.chmodSync(dir, 0o755); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+// 1.124.4: a state file that does not parse (torn by a power cut) or cannot be read (mode 000) is kept aside as
+// automation-state.json.corrupt-<UTC time> and logged, as the other stores are (store-file.mjs), and the day starts
+// empty. Before, the day silently started at zero and the next save replaced the only copy.
+test('a daily-state file that cannot be read or parsed is kept aside and logged, not overwritten', () => {
+  for (const [why, prepare] of [
+    ['not valid JSON', f => fs.writeFileSync(f, '{"today":{"day":"2026-11-21","startedRoot":40,"replies":40')],
+    ['EACCES', f => new auto.AutomationState(f, { now: () => NOW, zone: () => 'UTC', log: () => {} }).recordStart({ rootOrigin: 'job' })],
+  ]) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-')), file = path.join(dir, 'automation-state.json');
+    try {
+      prepare(file); const before = fs.readFileSync(file);
+      if (why === 'EACCES') fs.chmodSync(file, 0o000); // a valid file the daemon cannot read
+      const logged = [];
+      const st = new auto.AutomationState(file, { now: () => NOW, zone: () => 'UTC', log: (...a) => logged.push(a.join(' ')) });
+      assert.equal(st.counts().startedRoot, 0, why);
+      assert.equal(logged.length, 1, why); assert.match(logged[0], new RegExp(`automation-state\\.json could not be read \\(${why}\\): kept it as `));
+      const kept = fs.readdirSync(dir).filter(n => n.startsWith('automation-state.json.corrupt-'));
+      assert.equal(kept.length, 1, why);
+      st.recordStart({ rootOrigin: 'job' });
+      fs.chmodSync(path.join(dir, kept[0]), 0o600);
+      assert.ok(fs.readFileSync(path.join(dir, kept[0])).equals(before), `${why}: the kept copy holds the old bytes`);
+      assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).today.startedRoot, 1, `${why}: the new day is saved beside it`);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+});
+
+// 1.124.4: a full disk (here a real 1 KB file-size limit, `ulimit -f 1`) can leave part of an audit line in the file.
+// The next line starts on a line of its own, so only the torn line is lost, not the first good one after it.
+test('an audit line torn by a full disk does not swallow the next one', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-')), file = path.join(dir, 'automation-audit.jsonl');
+  try {
+    fs.writeFileSync(file, JSON.stringify({ at: '2026-11-21T15:00:00.000Z', action: 'pause', pad: 'x'.repeat(880) }) + '\n', { mode: 0o600 });
+    const script = `const auto = await import(process.env.MOD); auto.appendAudit(process.env.FILE, { action: 'settings', group: 'limits', keys: ['dailyReplies', 'openrouterDaily', 'longestReply', 'countWaiting'] });`;
+    const r = spawnSync('bash', ['-c', 'ulimit -f 1; exec "$0" --input-type=module -e "$1"', process.execPath, script], { env: { ...process.env, MOD: new URL('../automation.mjs', import.meta.url).href, FILE: file }, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(fs.statSync(file).size, 1024, 'the limit cut the line short');
+    auto.appendAudit(file, { action: 'resume', rearmed: 0 }); // space is back
+    const lines = fs.readFileSync(file, 'utf8').split('\n');
+    assert.equal(lines.at(-1), '', 'the file ends with a newline');
+    assert.deepEqual(JSON.parse(lines.at(-2)), { at: JSON.parse(lines.at(-2)).at, action: 'resume', rearmed: 0 }, 'the line after the torn one reads whole');
+    assert.equal(JSON.parse(lines[0]).action, 'pause');
+    assert.equal(lines.length, 4, 'the earlier line, the torn one, the new one');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+// 1.124.4: the audit stays best effort (it never stops a turn), but a line that could not be written is no longer
+// silent: appendAudit answers false, and the server's writer logs it at most once a minute, never with the line itself.
+test('an audit line that cannot be written is reported, at most once a minute and without its contents', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-')), file = path.join(dir, 'automation-audit.jsonl');
+  try {
+    assert.equal(auto.appendAudit(file, { action: 'pause' }), true);
+    fs.chmodSync(file, 0o400); // a file Pocket can no longer write
+    assert.equal(auto.appendAudit(file, { action: 'resume' }), false);
+    let now = NOW; const logged = [];
+    const write = auto.auditWriter(file, { now: () => now, log: (...a) => logged.push(a.join(' ')) });
+    assert.equal(write({ action: 'settings', group: 'limits', keys: ['dailyReplies'], sessionId: 'secret-session-id' }), false);
+    now += 30_000; write({ action: 'settings' }); write({ action: 'settings' });
+    assert.equal(logged.length, 1, 'once a minute at most');
+    assert.match(logged[0], /automation-audit\.jsonl could not be written: 1 audit line lost/);
+    assert.ok(!/limits|dailyReplies|secret-session-id|settings/.test(logged[0]), 'nothing of the line itself');
+    now += 30_000; write({ action: 'settings' });
+    assert.equal(logged.length, 2); assert.match(logged[1], /3 audit lines lost since the last note/);
+    fs.chmodSync(file, 0o600);
+    assert.equal(write({ action: 'resume' }), true); assert.equal(logged.length, 2);
+    assert.deepEqual(fs.readFileSync(file, 'utf8').trim().split('\n').map(l => JSON.parse(l).action), ['pause', 'resume']);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

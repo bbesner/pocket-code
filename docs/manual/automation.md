@@ -153,6 +153,10 @@ When a limit holds work, Pocket tells you once per reason per day, not once per 
 
 **Unattended replies** at the bottom of the page shows **Today** (replies, cost and tokens) and a **Last 7 days** table of **Day**, **Replies**, **Tokens** and **Cost**, newest day first. It counts every finished reply Pocket started without you. Claude reports a cost per reply, which on a plan is what the same tokens would cost, not a charge. Codex reports tokens.
 
+If Pocket can't write the day's counts to `automation-state.json` (a full disk, a data folder it can't write), it keeps them in memory, so the daily limits still hold, and the top of the page says *Today's counts of unattended replies and OpenRouter spend could not be saved, so after a restart they may be lower than they are and the daily limits could be passed.* The log says so once. Free the space before restarting Pocket; the warning goes, and the log says *saved again*, at the next save that works.
+
+If `automation-state.json` cannot be read or does not hold valid JSON when Pocket starts (a file damaged by a power cut, a hand edit, the wrong owner or mode), Pocket keeps it beside the original as `automation-state.json.corrupt-<time>`, names both in the server log, and starts the day's counts at zero, so the daily limits start again for the rest of that day. To get the counts back, stop Pocket, fix the kept copy and move it back to `automation-state.json`, then start Pocket.
+
 ## Check-backs
 
 A check-back is one more reply, later, in the conversation that set it. You say "check the page in 15 minutes and tell me", the agent sets a check-back, and at that time Pocket starts the conversation's next reply by itself. The agent does the check, replies, and Pocket sends you a push with the result. It is for a conversation looking again at a page, a deploy or a job's result. When *you* have to do something later, a [task](tasks.md) is still the right thing.
@@ -663,7 +667,7 @@ The reply itself has its usual `reply` line, with `origin` and `rootOrigin` set 
 
 ## The audit file
 
-`automation-audit.jsonl` in `POCKET_DATA_DIR` records, one line each, every pause (what it stopped and held) and resume (what it re-armed, and whether Inbox Watch resumed), every change to these settings, every limit notice and every finished unattended reply (its origin, engine, model, duration, cost or tokens and how it ended). It never holds message text. It is yours to read or rotate; Pocket only appends to it.
+`automation-audit.jsonl` in `POCKET_DATA_DIR` records, one line each, every pause (what it stopped and held) and resume (what it re-armed, and whether Inbox Watch resumed), every change to these settings, every limit notice and every finished unattended reply (its origin, engine, model, duration, cost or tokens and how it ended). It never holds message text. It is yours to read or rotate; Pocket only appends to it. A line that cannot be written (a full disk, a file Pocket can no longer write) never stops the reply or change it records; the server log says how many lines were lost, at most once a minute, and a line cut short by a full disk is left on its own so the next one reads whole.
 
 Job keys add lines with `"action":"job"` and `"action":"job_auth"` ([Job audit lines](#job-audit-lines)). The `pause` line counts the job replies it stopped (`jobs`, which are also counted in `replies`).
 
