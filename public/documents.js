@@ -201,7 +201,7 @@ function libraryHTML(){
  const filtered=docFilterProject||docFilterVis||docFilterKind||q;
  const heading=docFilterProject?projects.find(p=>p.id===docFilterProject)?.name||'Project':docFilterVis?visLong[docFilterVis]:docFilterKind?KIND_GROUPS.find(g=>g[0]===docFilterKind)[1]:q?'Matching':'All';
  const grid=gridOn();
- return `<div class="session-home-head"><h2>Files</h2><span class="project-head-actions"><span class="doc-layout" role="group" aria-label="Layout"><button class="icon" data-layout="list" aria-pressed="${!grid}" aria-label="List" title="List">${IC.list}</button><button class="icon" data-layout="grid" aria-pressed="${grid}" aria-label="Grid with previews" title="Grid with previews">${IC.grid}</button></span>${all.length||pick?`<button class="chip" id="doc-select" aria-pressed="${pick}">${pick?IC.tick+'Done':IC.task+'Select'}</button>`:''}${pick?'':`<button class="chip" id="doc-upload">${IC.up}Upload</button>`}${pick?'':'<input type="file" id="doc-file" multiple hidden>'}</span></div>
+ return keptAsideHTML(docsSnap.keptAside)+`<div class="session-home-head"><h2>Files</h2><span class="project-head-actions"><span class="doc-layout" role="group" aria-label="Layout"><button class="icon" data-layout="list" aria-pressed="${!grid}" aria-label="List" title="List">${IC.list}</button><button class="icon" data-layout="grid" aria-pressed="${grid}" aria-label="Grid with previews" title="Grid with previews">${IC.grid}</button></span>${all.length||pick?`<button class="chip" id="doc-select" aria-pressed="${pick}">${pick?IC.tick+'Done':IC.task+'Select'}</button>`:''}${pick?'':`<button class="chip" id="doc-upload">${IC.up}Upload</button>`}${pick?'':'<input type="file" id="doc-file" multiple hidden>'}</span></div>
   ${pick?'':docRequestsHTML()}
   <div class="documents-tools"><div class="session-search">${IC.search}<input type="search" id="doc-query" placeholder="Search files" aria-label="Search files by title, file name, project or conversation" value="${esc(docQuery)}" autocomplete="off"></div>
    ${projects.length?`<label class="voice-field doc-project-filter">Project<select id="doc-project"><option value="">All projects</option>${projects.map(p=>`<option value="${esc(p.id)}" ${docFilterProject===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>`:''}
@@ -218,6 +218,7 @@ function bindDocRows(root){
  root.querySelectorAll('a[data-document]').forEach(a=>a.onclick=e=>{const id='documents/'+a.dataset.document;openViewPreferred(id,'pc-documents-open',e,isWide()&&docView!==id);});
 }
 function bindLibrary(main){
+ bindKeptAside(main,docsSnap,paintDocumentsView); // 1.124.5
  main.querySelector('#doc-query').oninput=e=>{docQuery=e.target.value;paintDocumentsViewSoon();};
  main.querySelector('#doc-project')?.addEventListener('change',e=>{docFilterProject=e.target.value;paintDocumentsView();});
  main.querySelector('#doc-kind').onchange=e=>{docFilterKind=e.target.value;paintDocumentsView();};

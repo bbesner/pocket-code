@@ -202,3 +202,28 @@ test('b-14a: while the update restarts this version, a new message is refused wi
   assert.equal((await s.call(`/session/${encodeURIComponent(c)}/message`, { text: 'on the new version', approvalMode: 'full' })).status, 202);
   await s.until(() => s.calls().some(x => x.text === 'on the new version'), 15000, 'the message on the new version');
 });
+
+// ---------- b-16: a list that did not parse and was kept aside is shown to the owner until dismissed ----------
+test('b-16: documents, projects, tasks and coordination lists kept aside are named in their views (owner only) until dismissed', { timeout: 60_000 }, async t => {
+  const s = await boot(t, {}, { seed: data => { for (const f of ['documents.json', 'projects.json', 'tasks.json', 'coordination.json']) fs.writeFileSync(path.join(data, f), '{"broken": [1, 2,]}'); } });
+  assert.equal((await s.call('/settings', { documents: true, projects: true, tasks: true, coordination: true })).status, 200);
+  const routes = { documents: '/documents', projects: '/board', tasks: '/tasks', coordination: '/coordination' };
+  const kept = {};
+  for (const [store, route] of Object.entries(routes)) {
+    const body = (await s.call(route)).body;
+    assert.equal(body.keptAside?.length, 1, `${store}: ${JSON.stringify(body.keptAside)}`);
+    const [k] = body.keptAside;
+    assert.match(k.kept, new RegExp(`^${store}\\.json\\.corrupt-\\d{8}-\\d{6}$`));
+    assert.deepEqual(k, { store, kept: k.kept, file: path.join(s.data, store + '.json') });
+    assert.ok(fs.existsSync(path.join(s.data, k.kept)), 'the kept copy is there');
+    assert.equal((await s.call(route, null, s.bearer())).body.keptAside, undefined, `${store}: not for the CLI`);
+    kept[store] = k.kept;
+  }
+  assert.equal((await s.call('/kept-aside/dismiss', { kept: '../settings.json' })).status, 400);
+  assert.equal((await s.call('/kept-aside/dismiss', { kept: kept.documents })).status, 200);
+  assert.equal((await s.call('/documents')).body.keptAside, undefined, 'dismissed');
+  assert.equal((await s.call('/board')).body.keptAside[0].kept, kept.projects, 'the others stay');
+  // A kept copy moved back by hand (here, removed) takes its notice with it.
+  fs.rmSync(path.join(s.data, kept.tasks));
+  assert.equal((await s.call('/tasks')).body.keptAside, undefined);
+});

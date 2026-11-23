@@ -1483,6 +1483,8 @@ video.doc-media { width: 100%; max-height: 70vh; background: #000; }
 .library-error { padding: 16px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 16px; }
 .library-error p { margin: 0 0 12px; color: var(--dim); }
 .library-error .chip + .chip { margin-left: 8px; }
+.library-error code { overflow-wrap: anywhere; } /* 1.124.5: a kept copy's path on a phone */
+.library-error[data-kept] { margin: 16px 18px 0; } /* 1.124.5: inside the list's own margins, above its heading */
 .conversation-project[hidden] { display: none; }
 .chip.conversation-project span { max-width: 16em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .conversation-project.linked { color: var(--clay); }

@@ -492,6 +492,21 @@ const TASKS_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-tasks.mjs');
 // /api/coordination* only; who is asking comes from the runner token (coordCaller), never from the request body.
 const coord = new CoordStore(path.join(DATA_DIR, 'coordination.json'), { log });
 const COORD_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-coord.mjs');
+// 1.124.5: a list that did not parse was kept aside beside it and the store started empty (store-file.mjs), and only the log said
+// so. Each view's answer carries the kept copies of its list (to the owner, not the CLI) until the owner dismisses one; the names
+// dismissed are kept in the settings. A kept copy moved back by hand is gone, and so is its notice. Nothing is restored here.
+const KEPT_STORES = { projects: 'projects.json', tasks: 'tasks.json', documents: 'documents.json', coordination: 'coordination.json' };
+const KEPT_NAME = /^(projects|tasks|documents|coordination)\.json\.corrupt-\d{8}-\d{6}$/;
+let keptScan = { at: -1, names: [] }; // the data folder's entries, read again when the folder changes
+function keptAside(req, store) {
+  if (req.boardActor === 'cli') return {};
+  let at; try { at = fs.statSync(DATA_DIR).mtimeMs; } catch { return {}; }
+  if (at !== keptScan.at) { let names = []; try { names = fs.readdirSync(DATA_DIR).filter(n => KEPT_NAME.test(n)); } catch { } keptScan = { at, names }; }
+  const seen = Array.isArray(settings.keptSeen) ? settings.keptSeen : [];
+  const list = keptScan.names.filter(n => n.startsWith(KEPT_STORES[store] + '.corrupt-') && !seen.includes(n)).sort()
+    .map(kept => ({ store, kept, file: path.join(DATA_DIR, KEPT_STORES[store]) }));
+  return list.length ? { keptAside: list } : {};
+}
 const coordLive = () => Boolean(settings.coordination) && !assistantOn();
 const coordOn = (_req, res, next) => coordLive() ? next() : res.status(404).json({ error: 'Coordination is off. Turn it on in Settings → Projects, files, tasks & vault.', code: 'coordination_off' });
 // ---------- 1.119: check-backs (the store; the runner and routes are after Settings → Automation) ----------
@@ -5013,7 +5028,7 @@ app.get('/api/board', requireBoardAuth, boardOn, (req, res) => {
   const dir = typeof req.query.dir === 'string' ? req.query.dir : '';
   let snap;
   try { snap = board.snapshot({ dir }); } catch (e) { if (!e.status) throw e; return res.status(e.status).json({ error: e.message }); }
-  res.set('Cache-Control', 'private, no-store').json({ ...snap, push: { enabled: pushReady }, hook: Boolean(REMINDER_HOOK), email: emailOn(), conductor: projectModeOn() ? conductorLeads() : null, conductorStart: projectModeOn() ? conductorStart() : null }); // Project mode: the lead per engine, or null
+  res.set('Cache-Control', 'private, no-store').json({ ...snap, push: { enabled: pushReady }, hook: Boolean(REMINDER_HOOK), email: emailOn(), conductor: projectModeOn() ? conductorLeads() : null, conductorStart: projectModeOn() ? conductorStart() : null, ...keptAside(req, 'projects') }); // Project mode: the lead per engine, or null
 });
 app.post('/api/board/act', requireBoardAuth, boardOn, (req, res) => {
   const actor = req.boardActor || 'ui';
@@ -5037,7 +5052,7 @@ app.post('/api/board/import', requireBoardAuth, boardOn, (req, res) => {
 app.get('/api/tasks', requireBoardAuth, tasksOn, (req, res) => {
   const cb = req.boardActor === 'cli' ? null : checkbackTaskGroup(); // 1.119: the Tasks view's check-backs group, for the app only
   const jobs = req.boardActor === 'cli' ? null : jobTaskGroup(); // 1.124: and its Jobs group, for the app only (agents can't list keys)
-  res.set('Cache-Control', 'private, no-store').json({ ...taskStore.snapshot(), push: { enabled: pushReady }, hook: Boolean(REMINDER_HOOK), email: emailOn(), ...(cb ? { checkbacks: cb } : {}), ...(jobs ? { jobs } : {}) });
+  res.set('Cache-Control', 'private, no-store').json({ ...taskStore.snapshot(), push: { enabled: pushReady }, hook: Boolean(REMINDER_HOOK), email: emailOn(), ...(cb ? { checkbacks: cb } : {}), ...(jobs ? { jobs } : {}), ...keptAside(req, 'tasks') });
 });
 // 1.37: a task an agent adds from a session (pocket-tasks add --session) gets that session's title and
 // workspace, as the Add task button does, so the list names where it came from and Start opens in the right place.
@@ -5363,11 +5378,11 @@ async function coordSweep() {
   for (const offer of coord.sweep({ running: new Set(runningConversations()) })) await coordWake(offer);
 }
 setInterval(() => coordSweep().catch(e => log('coordination sweep: ' + e.message)), Math.max(100, Number(process.env.POCKET_COORD_SWEEP_MS) || 30_000)).unref();
-app.get('/api/coordination', requireBoardAuth, coordOn, (_req, res) => {
+app.get('/api/coordination', requireBoardAuth, coordOn, (req, res) => {
   const view = coord.snapshot();
   const titled = w => ({ ...w, title: coordHolderTitle(w) });
   res.set('Cache-Control', 'no-store').json({ ...view, holds: view.holds.map(h => ({ ...coordShown(h), waiters: h.waiters.map(titled) })), recent: view.recent.map(coordShown),
-    free: view.free.map(f => ({ ...f, waiters: f.waiters.map(titled), offer: f.offer && titled(f.offer) })) }); // 1.124.5: free names with a line or a recent offer
+    free: view.free.map(f => ({ ...f, waiters: f.waiters.map(titled), offer: f.offer && titled(f.offer) })), ...keptAside(req, 'coordination') }); // 1.124.5: free names with a line or a recent offer
 });
 app.post('/api/coordination/hold', requireBoardAuth, coordOn, (req, res) => {
   const holder = coordCaller(req, res); if (!holder) return;
@@ -5772,10 +5787,19 @@ async function documentSource(p) {
 const docError = (res, e) => { if (!e.status) throw e; res.status(e.status).json({ error: e.message }); };
 // 1.81 (#179): a file links only to a project that exists; a typo in --project used to link it to one nobody could open.
 const checkDocProject = p => { const id = typeof p === 'string' ? p.trim() : ''; if (id && !board.projects.some(x => x.id === id)) throw Object.assign(new Error(`There is no project with the id ${id}. pocket-board status --all lists the ids.`), { status: 400 }); };
+// 1.124.5: the owner's Dismiss on a kept-aside notice (keptAside above). The kept copy itself stays where it is.
+app.post('/api/kept-aside/dismiss', requireAuth, sameOrigin, (req, res) => {
+  const kept = String(req.body?.kept || '');
+  if (!KEPT_NAME.test(kept)) return res.status(400).json({ error: 'That is not a kept copy of a list.' });
+  settings.keptSeen = [...new Set([...(Array.isArray(settings.keptSeen) ? settings.keptSeen : []), kept])].slice(-50);
+  try { saveSettings(); } catch (e) { log(`kept-aside dismiss could not be saved: ${e.message}`); return res.status(503).json({ error: 'Pocket could not save that. Try again.' }); }
+  log(`kept-aside notice dismissed: ${kept}`);
+  res.json({ ok: true });
+});
 app.get('/api/documents', requireBoardAuth, docsOn, (req, res) => {
   const project = typeof req.query.project === 'string' ? req.query.project : '', q = typeof req.query.q === 'string' ? req.query.q : '';
   const owner = req.boardActor !== 'cli'; // PC-04: the requests waiting for the owner are the owner's to see
-  res.set('Cache-Control', 'private, no-store').json({ documents: docs.list({ project, q }), trash: docs.list({ trashed: true }), dir: DOCS_DIR, limits: { inlineHtml: DOC_LIMITS.inlineHtml, trashDays: DOC_LIMITS.trashDays }, thumbs: thumbs.capabilities(), ...(owner ? { requests: docs.pendingRequests(), answered: docs.answeredRequests() } : {}) });
+  res.set('Cache-Control', 'private, no-store').json({ documents: docs.list({ project, q }), trash: docs.list({ trashed: true }), dir: DOCS_DIR, limits: { inlineHtml: DOC_LIMITS.inlineHtml, trashDays: DOC_LIMITS.trashDays }, thumbs: thumbs.capabilities(), ...(owner ? { requests: docs.pendingRequests(), answered: docs.answeredRequests() } : {}), ...keptAside(req, 'documents') });
 });
 app.post('/api/documents', requireAuth, docsOn, express.raw({ type: () => true, limit: '30mb' }), (req, res) => {
   try {

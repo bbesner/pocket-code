@@ -111,6 +111,26 @@ export async function runFlowsBFixes({browser,base,rows,out,settingsState=()=>({
   }finally{await post('/api/documents/reset');}
  }));
 
+ // b-16: a list kept aside because it did not parse is named in its view, with what was reset, until Dismiss.
+ for(const [label,route,api,settingKey,ready] of [['Files','#/documents','/api/documents','documents','.document-item'],['Coordination','#/coordination','/api/coordination','coordination','.project-empty']])
+  await check(`${label}: a list that did not parse says it was kept aside and what was reset, until dismissed`,PHONE,(page,shot)=>withSettings({[settingKey]:true},async()=>{
+   const store=settingKey,kept=`${store}.json.corrupt-20261123-171918`,file=`/srv/pocket/data/${store}.json`;let dismissed=null;
+   await intercept(page,async(r,u)=>{
+    if(u.pathname===api&&r.method()==='GET'){const snap=coord&&store==='coordination'?{now:Date.now(),seeds:[],holds:[],recent:[],free:[]}:await (await fetch(base+u.pathname+u.search)).json();await json(r,{...snap,...(dismissed?{}:{keptAside:[{store,kept,file}]})});return true;}
+    if(u.pathname==='/api/kept-aside/dismiss'){dismissed=JSON.parse(r.postData()||'{}').kept;await json(r,{ok:true});return true;}
+   });
+   await page.goto(base+route);await page.waitForSelector('[data-kept]');await page.waitForSelector(ready);
+   const panel=await page.$eval('[data-kept]',e=>({text:e.querySelector('p').textContent,button:e.querySelector('button').textContent,h:Math.round(e.querySelector('button').getBoundingClientRect().height),fits:e.scrollWidth<=e.clientWidth,first:e===e.parentElement.firstElementChild}));
+   const reset=store==='documents'?'Files could not read its list, so it started a new one: titles, sharing and links were reset, and every file is private.':'Coordination could not read what was held and started empty.';
+   assert.deepEqual(panel,{text:`${reset} The old one was kept as ${kept}. To get it back, stop Pocket, fix the kept copy and move it back to ${file}.`,button:'Dismiss',h:panel.h,fits:true,first:true});
+   assert.ok(panel.h>=44,'Dismiss is a 44px target: '+panel.h);
+   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'nothing runs off the side');
+   await shot(`kept-aside-${store}`);
+   await page.click('[data-kept-dismiss]');await page.waitForFunction(()=>!document.querySelector('[data-kept]'));
+   assert.equal(dismissed,kept,'Dismiss names the kept copy');
+   await page.goto(base+route);await page.waitForSelector(ready);assert.equal(await page.$('[data-kept]'),null,'gone after a reload');
+  }));
+
  assert.deepEqual(errors,[],'no page errors');
  fs.writeFileSync(path.join(out,'ui-flows-b.json'),JSON.stringify({checks},null,2));
  console.log(JSON.stringify({flowsBFixes:checks.length,ok:true}));
