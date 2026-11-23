@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import https from 'node:https';
 import { spawn, execFileSync } from 'node:child_process';
-import { createHmac, createECDH, randomBytes } from 'node:crypto';
+import { createHmac, createECDH, randomBytes, randomUUID } from 'node:crypto';
 import webpush from 'web-push';
 import ece from 'http_ece';
 import { killStrays } from './stray-runners.mjs';
@@ -145,4 +145,23 @@ test('a-11: a change to an Inbox decision in the same second gets a later stamp,
   assert.equal(ui.action, 'restore'); assert.ok(Date.parse(ui.at) > Date.parse(ri.at), `the item's Undo is stamped after: ${ri.at} then ${ui.at}`);
   assert.equal(s.ack([`${d.id}/a1@${ri.at}`]), 0);
   assert.equal(s.feedback().find(f => f.id === `${d.id}/a1`)?.action, 'restore');
+});
+
+// a-20: /api/health's busy, which the self-update waits on, and the Update press's refusal left out a side chat that was
+// answering, so an update cut its answer short.
+test('a-20: a side chat that is answering counts as busy for /api/health (and so for the update)', { timeout: 60_000 }, async t => {
+  const dir = tmpDir(), ws = path.join(dir, 'sessions', 'test-workspace'), work = path.join(dir, 'home', 'work'), id = randomUUID();
+  fs.mkdirSync(ws, { recursive: true }); fs.mkdirSync(work, { recursive: true });
+  const line = o => JSON.stringify({ ...o, cwd: work, sessionId: id, timestamp: new Date().toISOString() });
+  fs.writeFileSync(path.join(ws, id + '.jsonl'), [line({ type: 'user', message: { role: 'user', content: 'Plan the upgrade' } }), line({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Here is the plan.' }] } })].join('\n') + '\n');
+  const s = await boot(t, 21185, { dir, env: { POCKET_VOICE: 'off', POCKET_MEMSTEM: '0' } });
+  const busy = async () => (await (await fetch(`http://127.0.0.1:${s.port}/api/health`)).json()).busy;
+  assert.equal(await busy(), 0);
+  const r = await s.call(`/session/${id}/side`, { text: 'A long answer __SIDEHANG__' });
+  assert.equal(r.status, 202, JSON.stringify(r.body));
+  await s.until(async () => (await s.call(`/session/${id}/side`)).body.chat?.busy, 8000, 'the side chat to answer');
+  assert.equal(await busy(), 1, 'the side chat\'s answer counts');
+  assert.equal((await s.call(`/side/${r.body.side}/stop`, {})).status, 200);
+  await s.until(async () => (await s.call(`/session/${id}/side`)).body.chat?.busy === false, 8000, 'the side chat to stop');
+  assert.equal(await busy(), 0);
 });

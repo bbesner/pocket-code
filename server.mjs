@@ -6099,7 +6099,8 @@ app.get('/api/file', requireAuth, (req, res) => {
 // tunnel included, learns only that Pocket answers.
 // 1.124.3: busy is every reply a restart would cut short, OpenRouter's and Antigravity's included: the self-update script asks
 // for it just before its PM2 restart, since replies can start in the minutes after the Update press was checked.
-const repliesRunning = () => turns.size + codex.codexTurns.size + [...acp.acpTurns.values()].filter(t => !t.stopped && !t.done).length;
+// 1.124.5: and a side chat that is answering (a restart ends it, and its answer with it)
+const repliesRunning = () => turns.size + codex.codexTurns.size + [...acp.acpTurns.values()].filter(t => !t.stopped && !t.done).length + liveSides().length;
 app.get('/api/health', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   if (!directLoopback(req) && !checkCookie(getCookie(req, 'pc_auth'))) return res.json({ ok: true });
