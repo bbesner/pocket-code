@@ -367,7 +367,9 @@ restarted too. If the previous packages cannot be installed again either, the jo
 daemon carries on, but run `npm ci` in the checkout before it next restarts. When the new version did not start and the previous one cannot be put back, the job says so and does not restart (1.124.3): check out the commit in the backup's `prev-head.txt`, run `npm ci` and restart with PM2. The daemon refuses to start it while a reply or a CLI upgrade is running.
 
 Progress is in `pocket-self-update.json` in the data folder (the script touches `pocket-self-update.json.lock`
-every minute while it runs; a job with neither for 20 minutes died with its server and shows as interrupted, 1.124.3) and the script's output in `pocket-self-update.log`; both are git-ignored. Requirements: PM2
+every minute while it runs; a job with neither for 20 minutes died with its server and shows as interrupted, 1.124.3;
+a job still queued two minutes after the press, with no lock file newer than the press, never started and shows as failed,
+1.124.4) and the script's output in `pocket-self-update.log`; both are git-ignored. Requirements: PM2
 (the daemon must run under it), a git checkout, `git`, `npm`, `pm2`, GNU `tar` and `flock` on the daemon's
 PATH (on macOS, Homebrew's `gnu-tar`, used as `gtar`, and `flock`; the job names what is missing). Running an operator update on such an install works as before; an operator script that expects a
 particular `HEAD` will find the owner may already have moved it.

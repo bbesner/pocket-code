@@ -39,7 +39,9 @@ const M = {
   busy: 'Replies are running. Update when they finish, so the restart does not cut them short.',
   interrupted: 'The update stopped without finishing, probably because the server restarted. Check the version shown here before you try again.',
   startFail: 'Could not start the update. Nothing was changed.',
+  notStarted: "The update did not start. Nothing was changed. The log is pocket-self-update.log in Pocket's data folder.",
 };
+const GRACE = 120_000; // 1.124.4: a queued job whose script has not taken its lock by then did not start
 
 // ---------------------------------------------------------------- class fixture
 function fixture({ enabled = true, pmId = '3', git = 'dir', headContent = SHA_A + '\n', envExtra = {}, setsid = true, clock = fakeClock(T0) } = {}) {
@@ -492,11 +494,16 @@ describe('divergences (class)', () => {
     startFailed(f, threw);
     assert.equal(f.make().begin({ from: '1.0.0', to: '1.1.0' }).job.phase, 'queued', 'a second press is let through');
   });
-  test('DIV-4: a failed error-listener write must not leave a running queued job', () => {
+  // Ruled not a fault on its own (two faults at once: the child fails AND the data folder refuses writes). Since 1.124.4 the
+  // not-started rule in job() covers it: the job reads running only for the two-minute grace, then as not started.
+  test('a failed error-listener write leaves the job queued only until the start grace, then reads as not started', () => {
     const f = fixture(); begin11(f.make());
     const r = failFsFor('renameSync', '.json.tmp');
     try { f.calls[0].child.emit('error', new Error('spawn failed')); } finally { r(); }
-    freshNotRunning(f, 'child failed to start, its failure write failed, and restart still sees a running job');
+    assert.equal(f.make().job().running, true, 'within the grace the job may still be starting');
+    f.clock.advance(GRACE + 1);
+    const j = f.make().job();
+    assert.equal(j.running, false); assert.equal(j.phase, 'failed'); assert.equal(j.error, M.notStarted);
   });
   test('DIV-5: an exception after process creation must not leave the child alive', async () => {
     const f = fixture(); let pid;
@@ -524,7 +531,10 @@ describe('divergences (class)', () => {
     try { process.kill(pid, 'SIGKILL'); } catch {}
     assert.ok(!(threw && running), 'begin threw (route says the update did not start) while the spawned updater is running');
   });
-  test('DIV-7: an updater that exits early without writing progress must be reported promptly', async () => {
+  // Rewritten in 1.124.4 to the requirement that can be met: nothing watches the script (under setsid -f the daemon's child
+  // exits at once whatever happens), so a script that dies before taking its lock is reported once the start grace has
+  // passed, not the moment it exits. Before the grace it still reads as running.
+  test('DIV-7: an updater that exits before taking its lock is reported as not started once the grace has passed', async () => {
     const f = fixture({ setsid: false, envExtra: { PATH: '/usr/bin:/bin' } });
     const early = path.join(f.base, 'early.sh'); fs.writeFileSync(early, 'exit 3\n');
     let child;
@@ -532,8 +542,13 @@ describe('divergences (class)', () => {
     begin11(su);
     await until(() => child.exitCode !== null, 3000);
     assert.equal(child.exitCode, 3, 'harness: stand-in updater exited 3');
-    await new Promise(r => setTimeout(r, 200));
-    freshNotRunning(f, 'updater exited with code 3 but restart still reports a running job until the 20-minute stale window');
+    f.clock.advance(GRACE - 1000);
+    let j = f.make().job(); assert.equal(j.phase, 'queued'); assert.equal(j.running, true, 'within the grace it is still running');
+    f.clock.advance(2000);
+    j = f.make().job();
+    assert.equal(j.running, false, 'updater exited with code 3 and the grace has passed, but restart still reports a running job');
+    assert.equal(j.phase, 'failed'); assert.equal(j.error, M.notStarted);
+    assert.equal(f.make().begin({ from: '1.0.0', to: '1.1.0' }).job.phase, 'queued', 'a second press is let through');
   });
   test('DIV-13: the updater must run from a stable copy outside the checkout it moves', () => {
     const f = fixture(); begin11(f.make());
@@ -870,6 +885,26 @@ describe('shell (stand-in repository)', { concurrency: 6 }, () => {
       const r = await runShell(E);
       assert.equal(r.code, 1, tail(r.out)); assert.equal(readStatus(E).error, SM.flock); assert.equal(readStatus(E).phase, 'failed');
       assert.equal(headOf(E), E.head); assert.equal(restarts(E).length, 0);
+    } finally { killGroup(holder.pid); }
+  }));
+  // 1.124.4: job() takes a queued job with no lock file newer than its start for one that never started. That rests on the
+  // script's lock open (exec 9>, a truncate) setting the file's time within seconds of launch, also when the file is already
+  // there and empty, as an earlier run leaves it. Here another holder has the lock, so the script stops at flock before its
+  // heartbeat could touch the file: only the open can have moved the time.
+  test('the script refreshes its lock file time within seconds of launch, also when the file is already there and empty', () => withShell({}, async E => {
+    const lock = E.status + '.lock'; fs.writeFileSync(lock, '');
+    const holder = spawn('/usr/bin/flock', [lock, '-c', 'echo ready; exec /usr/bin/sleep 30'], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    track(holder.pid);
+    try {
+      let out = ''; holder.stdout.on('data', d => { out += d; });
+      assert.ok(await until(() => out.includes('ready'), 3000));
+      const old = Date.now() / 1000 - 3600; fs.utimesSync(lock, old, old);
+      assert.equal(fs.statSync(lock).size, 0, 'harness: the lock file is there and empty');
+      const launched = Date.now();
+      const r = await runShell(E);
+      assert.equal(readStatus(E).error, SM.flock, tail(r.out));
+      const t = fs.statSync(lock).mtimeMs;
+      assert.ok(t >= launched - 1000 && t - launched < 5000, `lock time ${t - launched} ms from launch`);
     } finally { killGroup(holder.pid); }
   }));
   test('§Shell wrong origin', () => withShell({ prep: E => g(E.co, ['remote', 'set-url', 'origin', 'https://github.com/other-owner/fict-app'], E.home) }, async E => {

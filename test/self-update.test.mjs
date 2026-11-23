@@ -81,6 +81,28 @@ test('1.124.3: a job still beating its lock file is running, however long its st
   assert.equal(su.job().phase,'interrupted','a script that stopped beating 25 minutes ago died with its server');
 });
 
+test('1.124.4: an update whose script never took its lock reads as not started two minutes after the press, not running for 20',t=>{
+  const d=tmp(t);fs.mkdirSync(path.join(d,'.git'));let now=1_700_000_000_000;
+  const su=new SelfUpdate({checkout:d,dataDir:d,env:{POCKET_SELF_UPDATE:'1',pm_id:'1',PATH:'/usr/bin:/bin',HOME:d},port:1,now:()=>now,spawner:()=>({on(){},unref(){}})});
+  const lock=path.join(d,'pocket-self-update.json.lock'),notStarted="The update did not start. Nothing was changed. The log is pocket-self-update.log in Pocket's data folder.";
+  // The lock file an earlier update left: older than this press, so it says nothing about this one.
+  fs.writeFileSync(lock,'');fs.utimesSync(lock,new Date(now-3600e3),new Date(now-3600e3));
+  su.begin({from:'1.0.0',to:'1.1.0',head:HEAD});
+  now+=119_000;
+  assert.equal(su.job().phase,'queued');assert.equal(su.job().running,true,'still starting within the grace');
+  assert.throws(()=>su.begin({from:'1.0.0',to:'1.1.0',head:HEAD}),/already running/);
+  now+=2_000;
+  const j=su.job();assert.equal(j.phase,'failed');assert.equal(j.running,false);assert.equal(j.error,notStarted);
+  // A second press is let through, and this time the script takes its lock (the open refreshes the file's time).
+  su.begin({from:'1.0.0',to:'1.1.0',head:HEAD});const started=now;
+  fs.utimesSync(lock,new Date(started+1000),new Date(started+1000));
+  now+=5*60e3;
+  assert.equal(su.job().phase,'queued');assert.equal(su.job().running,true,'a script that took its lock is not reported as not started');
+  // Its heartbeat stopped and the job said nothing for 20 minutes: the old rule, interrupted.
+  now=started+1000+21*60e3;
+  assert.equal(su.job().phase,'interrupted');
+});
+
 // ---- the script, end to end ----
 const sh=(cwd,...a)=>execFileSync('git',a,{cwd,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
 const pkg=(v,extra={})=>JSON.stringify({name:'pocket-code',version:v,private:true,scripts:{'check:release':'true'},...extra},null,1);

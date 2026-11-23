@@ -14,6 +14,7 @@ export const SELF_UPDATE_FILE = 'pocket-self-update.json';
 export const SELF_UPDATE_LOG = 'pocket-self-update.log';
 const RUNNING = new Set(['queued', 'checking', 'backing-up', 'installing', 'restarting', 'rolling-back']);
 const STALE_MS = 20 * 60 * 1000; // a job that has said nothing for this long died with its server (reboot, OOM)
+const START_MS = 2 * 60 * 1000; // a queued job whose script has not taken its lock by then did not start (1.124.4)
 const version = v => typeof v === 'string' && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(v) ? v : null;
 const fail = (message, status = 409) => Object.assign(new Error(message), { status });
 
@@ -42,7 +43,11 @@ export class SelfUpdate {
     // 1.124.3: the script touches its lock file every minute while it runs, so a long quiet step (the backup of a large data
     // folder, npm ci) is not taken for a dead job, and a second press is not let through while the first still runs.
     let beat = 0; try { beat = fs.statSync(this.file + '.lock').mtimeMs; } catch {}
-    if (out.running && this.now() - Math.max(j.updatedAt || j.startedAt || 0, beat) > STALE_MS) Object.assign(out, { running: false, phase: 'interrupted', error: 'The update stopped without finishing, probably because the server restarted. Check the version shown here before you try again.' });
+    // 1.124.4: the script opens (truncates) its lock file within seconds of starting, which sets the file's time. A job still
+    // queued two minutes after the press, with no lock file newer than the press, never started (bash could not read the
+    // script, node was gone): say so then, instead of showing it preparing and refusing every press for 20 minutes.
+    if (out.phase === 'queued' && beat < (j.startedAt || 0) && this.now() - (j.startedAt || 0) > START_MS) Object.assign(out, { running: false, phase: 'failed', error: `The update did not start. Nothing was changed. The log is ${SELF_UPDATE_LOG} in Pocket's data folder.` });
+    else if (out.running && this.now() - Math.max(j.updatedAt || j.startedAt || 0, beat) > STALE_MS) Object.assign(out, { running: false, phase: 'interrupted', error: 'The update stopped without finishing, probably because the server restarted. Check the version shown here before you try again.' });
     return out;
   }
   // The checked-out commit, read from .git without running git (a route must not start a process per request).
