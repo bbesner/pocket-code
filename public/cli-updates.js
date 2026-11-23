@@ -97,8 +97,12 @@ async function openCliUpdates(){
     buttons();
   };
   async function refresh(){if(fetching||busy||!sh.isConnected)return;fetching=true;try{const s=await api('/cli-updates',{signal:AbortSignal.timeout(10000)});if(sh.isConnected)render(s);}catch(e){if(sh.isConnected)sh.querySelector('#cli-update-error').textContent=pocketRestart?'':'Could not load updates. Use Check now to retry.';}finally{fetching=false;}}
+  // 1.124.3: a POST answers with the plain snapshot: the older conversations and Pocket's self-update come only with GET.
+  // They are kept from the view on screen until the next refresh, so Update and Switch now do not vanish for a moment.
+  const withView=s=>({...s,pocket:s.pocket&&state?.pocket&&!('self' in s.pocket)?{...s.pocket,self:state.pocket.self}:s.pocket,
+    providers:s.providers.map(p=>{const o=state?.providers.find(x=>x.key===p.key);return o&&'older' in o&&!('older' in p)?{...p,older:o.older,olderSessions:o.olderSessions}:p;})});
   async function act(url,body){busy=true;sh.querySelectorAll('[data-cli-rollback],[data-cli-select],[data-cli-switch]').forEach(el=>el.disabled=true);buttons();sh.querySelector('#cli-update-error').textContent='';
-    try{const s=await api(url,{method:'POST',body:JSON.stringify(body),signal:AbortSignal.timeout(60000)});if(sh.isConnected){if(Array.isArray(s.providers))render(s);else sh.querySelector('#cli-job').textContent=s.message||'';}}catch(e){if(sh.isConnected)sh.querySelector('#cli-update-error').textContent=e.message;}finally{busy=false;if(state){sh.querySelectorAll('[data-cli-rollback],[data-cli-select],[data-cli-switch]').forEach(el=>el.disabled=!!state.job?.running||!!state.checking);}buttons();}}
+    try{const s=await api(url,{method:'POST',body:JSON.stringify(body),signal:AbortSignal.timeout(60000)});if(sh.isConnected){if(Array.isArray(s.providers))render(withView(s));else sh.querySelector('#cli-job').textContent=s.message||'';}}catch(e){if(sh.isConnected)sh.querySelector('#cli-update-error').textContent=e.message;}finally{busy=false;if(state){sh.querySelectorAll('[data-cli-rollback],[data-cli-select],[data-cli-switch]').forEach(el=>el.disabled=!!state.job?.running||!!state.checking);}buttons();}}
   sh.querySelector('#cli-check').onclick=()=>act('/cli-updates/check',{});
   sh.querySelector('#cli-upgrade').onclick=()=>act('/cli-updates/upgrade',{selections:selected().map(p=>({key:p.key,version:p.latest}))});
   sh.querySelector('#cli-later').onclick=()=>closeCurrentSheet?.();

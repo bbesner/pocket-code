@@ -9,7 +9,11 @@ export async function runCliUpdateRegressions({browser,base,out}){
  page.on('request',req=>{const url=new URL(req.url());if(!url.pathname.startsWith('/api/cli-updates'))return req.continue();
   if(offline)return req.respond({status:503,contentType:'application/json',body:'{"error":"Update status unavailable"}'});
   if(req.method()==='POST'){posts.push(JSON.parse(req.postData()));if(url.pathname.endsWith('/upgrade'))state.job={id:'job-one',running:true,phase:'testing',results:[]};if(url.pathname.endsWith('/pocket'))state.pocket.self.job={id:'self-one',running:true,phase:'restarting',from:state.pocket.installed,to:state.pocket.latest};}
-  return req.respond({status:req.method()==='POST'?202:200,contentType:'application/json',body:JSON.stringify(state)});
+  // 1.124.3: a POST answers as server.mjs does. Check now and Upgrade return the plain snapshot, without the older
+  // conversations or Pocket's self-update (only GET adds those); /pocket adds self; /switch answers with a message.
+  const {self,...pocket}=state.pocket||{},reply=url.pathname.endsWith('/switch')?{stopping:false,message:'Old process closing. The next turn will use the updated CLI.'}
+   :{...state,pocket:state.pocket&&{...pocket,...(url.pathname.endsWith('/pocket')?{self}:{})},providers:state.providers.map(({older,olderSessions,...p})=>p)};
+  return req.respond({status:req.method()==='POST'?202:200,contentType:'application/json',body:JSON.stringify(req.method()==='POST'?reply:state)});
  });
  try{
   for(const width of [390,1440]){
@@ -96,6 +100,18 @@ export async function runCliUpdateRegressions({browser,base,out}){
   state.pocket.self={enabled:true,available:false,reason:'Pocket is not running under PM2 here, so it cannot restart itself. Update it from the server.',job:null};
   await page.waitForFunction(()=>document.querySelector('#pocket-update-row').textContent.includes('not running under PM2'));
   assert.equal(await page.$('#pocket-self-update'),null);
+  // 1.124.3: Check now keeps the Update button and the older conversations on screen. The POST answers without them;
+  // rendering that reply swapped the button for the operator's How to update and dropped the Switch now list.
+  await page.keyboard.press('Escape');reset();state.pocket.self={enabled:true,available:true,reason:null,job:null};
+  state.providers[0].olderSessions=1;state.providers[0].older=[{key:'claude',id:'12345678-1234-1234-1234-123456789abc',title:'Review invoices',busy:false,version:'2.0.0'}];
+  await page.evaluate(()=>pollCliUpdates());await page.click('.cli-update-notice');await page.waitForSelector('#pocket-self-update');await page.waitForSelector('[data-cli-switch]');
+  await page.evaluate(()=>{window.__cliLost=[];const sh=document.querySelector('.cli-updates-sheet');new MutationObserver(()=>{
+   if(!sh.querySelector('#pocket-self-update'))window.__cliLost.push('Update button');if(sh.querySelector('#pocket-update-row a[href*="operations.md"]'))window.__cliLost.push('How to update');if(!sh.querySelector('[data-cli-switch]'))window.__cliLost.push('Switch now');}).observe(sh,{subtree:true,childList:true});});
+  const checked=page.waitForResponse(r=>r.request().method()==='POST'&&new URL(r.url()).pathname.endsWith('/api/cli-updates/check'),{timeout:10000});
+  await page.click('#cli-check');await checked;await page.waitForFunction(()=>!document.querySelector('#cli-check').disabled);await new Promise(r=>setTimeout(r,300));
+  assert.deepEqual([...new Set(await page.evaluate(()=>window.__cliLost))],[],'nothing the GET view shows goes missing after Check now');
+  assert.equal(await page.$eval('#pocket-self-update',e=>e.textContent),'Update to 1.108.0');
+  await page.keyboard.press('Escape');
   assert.deepEqual(errors,[]);console.log('CLI update browser checks passed: review, explicit selection, reconnect, failure, retry, success, accessibility at 390/1440; Pocket Code self-update (button, confirm, restart, done, failure, unavailable).');
  }finally{await page.close();}
 }
