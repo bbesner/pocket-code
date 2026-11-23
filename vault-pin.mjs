@@ -599,7 +599,9 @@ export async function prepareRun({ argv, cwd }, { PATH, forRun = false, tmpDir =
     const copyOf = bytes => {
       const d = fs.mkdtempSync(path.join(tmpDir, 'pocket-vault-')), f = path.join(d, 's');
       try { fs.writeFileSync(f, bytes, { mode: 0o400, flag: 'wx' }); const fd = { fd: fs.openSync(f, 'r'), copy: true }; fds.push(fd); return fdPath(fd); }
-      finally { fs.rmSync(f, { force: true }); fs.rmSync(d, { recursive: true, force: true }); }
+      // 1.124.4: the folder is removed even when removing the copy fails (that still stops the run: a copy that can be
+      // reached by its path is not run from); a failure on only the empty folder does not.
+      finally { try { fs.rmSync(f, { force: true }); } finally { try { fs.rmSync(d, { recursive: true, force: true }); } catch { } } }
     };
     if (copied) {
       if (scriptBang) {
