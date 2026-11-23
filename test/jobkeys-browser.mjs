@@ -21,7 +21,7 @@ export const jobsFixture={
  on(){return automationFixture.value('jobs','jobs')===true;},
  defaults(){return {access:'ask',mayAddInstructions:false,pushWhenDone:true,limits:{perHour:6,perDay:24,atOnce:1},folder:'~/.config/pocket/jobs/',fullAccessAllowed:false,workspace:null,engines:['claude','codex']};},
  reset(){
-  const now=Date.now();this.posts=[];this.gets=0;this.fileError={error:'Pocket could not write the key file: the folder is read-only.',code:'file_error'};
+  const now=Date.now();this.posts=[];this.requests=[];this.inTasks=true;this.gets=0;this.fileError={error:'Pocket could not write the key file: the folder is read-only.',code:'file_error'};
   const base={instruction:'Read the disk report in the data and say which volumes need attention. Change nothing.',mayAddInstructions:false,limits:{perHour:6,perDay:24,atOnce:1},pushWhenDone:true,createdAt:iso(now-3*24*60*MIN),rotatedAt:null};
   this.keys=[
    {...base,id:'jk-disk0001',name:'disk-check',title:'Disk check',workspace:'/home/owner/ops',engine:'claude',model:'default',effort:null,access:'ask',enabled:true,lastRunAt:iso(now-60*MIN),hasRun:true,running:1,keyFile:'/home/owner/.config/pocket/jobs/disk-check.key'},
@@ -39,6 +39,13 @@ export const jobsFixture={
   ],'jk-night001':[]};
  },
  view(k){return {...k};},
+ // 1.124: GET /api/tasks `jobs`, as server.mjs's jobTaskGroup: the keys with their newest run, the requests waiting.
+ requests:[],inTasks:true,
+ tasks(){
+  if(!this.on()||!this.inTasks)return {};
+  const keys=this.keys.map(k=>{const r=(this.runs[k.id]||[])[0];return {id:k.id,name:k.name,title:k.title,workspace:k.workspace,engine:k.engine,enabled:k.enabled!==false,running:k.running||0,lastRunAt:k.lastRunAt||null,...(r?{lastRun:{status:r.status==='starting'?'working':r.status,at:r.endedAt||r.startedAt,conversation:r.conversation}}:{})};});
+  return keys.length||this.requests.length?{jobs:{keys,requests:this.requests.map(r=>({...r}))}}:{};
+ },
 };
 
 // Answers /api/jobs/*; false when the request is not one of them.
@@ -62,7 +69,7 @@ const axeCheck=async(p,repo,sel)=>{if(!await p.evaluate(()=>typeof axe!=='undefi
 // Watches a node for `ms` and returns how many writes it saw.
 const writesDuring=(p,sel,ms)=>p.evaluate(async(sel,ms)=>{const el=document.querySelector(sel),recs=[],mo=new MutationObserver(r=>recs.push(...r));mo.observe(el,{subtree:true,childList:true,attributes:true,characterData:true});await new Promise(r=>setTimeout(r,ms));recs.push(...mo.takeRecords());mo.disconnect();return recs.length;},sel,ms);
 
-export async function runJobKeysRegressions({p,base,out,repo,scan}){
+export async function runJobKeysRegressions({p,base,out,repo,scan,settings=null}){
  const f=jobsFixture,a=automationFixture;a.reset();f.reset();
  const shots=process.env.POCKET_JOBKEYS_SHOTS||'/tmp/unattended-jobkeys-shots';fs.mkdirSync(shots,{recursive:true});
  const shot=async(name,el)=>{await p.evaluate(()=>document.querySelector('#toast')?.classList.remove('show'));if(el){await el.evaluate(e=>e.scrollIntoView({block:'center'}));await elementShot(el,{path:path.join(shots,'fixture-'+name+'.png')});}else await p.screenshot({path:path.join(shots,'fixture-'+name+'.png')});await p.screenshot({path:path.join(out,'jobkeys-'+name+'.png')});if(scan)await scan('jobkeys-'+name);};
@@ -139,6 +146,49 @@ export async function runJobKeysRegressions({p,base,out,repo,scan}){
  assert.equal(await p.$eval('.job-key-sheet input[name="workspace"]',e=>e.readOnly),false,'a key that never ran can still move');
  assert.equal(await p.$eval('.job-key-sheet [data-job-toggle]',e=>e.textContent),'Turn on');
  await close();
+
+ if(settings){
+  console.log('Job keys (fixture, 1.124): the read-only Jobs group in Tasks');
+  const tasksBefore=settings.tasks;settings.tasks=true;
+  f.keys[0].running=1;f.runs['jk-disk0001'][0]={...f.runs['jk-disk0001'][0],status:'needs_you'};
+  f.requests=[{id:'jp-fixture01',name:'weekly-backup',session:'job-conv-9',sessionTitle:'Backup checks',expiresAt:iso(Date.now()+20*60*MIN)}];
+  await p.evaluate(()=>{window.pocketFeatures.tasks=true;});
+  await p.goto(base+'/#/tasks');await p.waitForSelector('.job-task-group');
+  assert.equal(await p.$eval('#tk-jobs-h',e=>e.textContent),'Jobs 2 · 1 waiting for you');
+  const ran=await p.evaluate(at=>CheckBacks.when(at),f.keys[0].lastRunAt),expires=await p.evaluate(at=>CheckBacks.when(at),f.requests[0].expiresAt);
+  const items=await p.$$eval('.job-task-item',e=>e.map(x=>[x.querySelector('.title').textContent,x.querySelector('.session-status').textContent,Boolean(x.querySelector('a.job-task-chat'))]));
+  assert.deepEqual(items,[
+   ['Job key request: weekly-backup','Waiting for you·From Backup checks·Expires '+expires,false],
+   ['Disk check','Needs you·Last run '+ran+'·~/ops',true],
+   ['Nightly report','Off·Never ran·~/reports',false],
+  ]);
+  assert.equal(await p.$eval('.job-task-chat',e=>e.getAttribute('href')),'#/chat/job-conv-1');
+  assert.equal(await p.$$eval('.job-task-group :is(input,select,textarea,[data-task-check],[data-job-toggle],[data-job-delete])',e=>e.length),0,'nothing in the group changes a key');
+  const order=await p.$$eval('#tasks-main section h2',e=>e.map(x=>x.id).filter(Boolean));
+  assert.ok(order.indexOf('tk-jobs-h')>=0&&(order.indexOf('tk-checkbacks-h')<0||order.indexOf('tk-checkbacks-h')<order.indexOf('tk-jobs-h')),'Jobs follow Check-backs: '+order);
+  const hs=await p.$$eval('.job-task-item :is(.row,.job-task-chat)',x=>x.map(e=>Math.round(e.getBoundingClientRect().height)));
+  assert.ok(hs.every(h=>h>=36),'targets: '+hs);
+  await shot('tasks-jobs-group',await p.$('.job-task-group'));
+  await axeCheck(p,repo,'.job-task-group');
+  // a finished newest run says how it ended
+  f.runs['jk-disk0001'][0]={...f.runs['jk-disk0001'][2]};f.keys[0].running=0;
+  await p.evaluate(async()=>{await loadTasks(true);paintTasksView();});
+  await p.waitForFunction(()=>/^On·Last run .+ · Done·~\/ops$/.test(document.querySelector('[data-job-task-key="jk-disk0001"] .session-status').textContent));
+  assert.equal(await p.$('[data-job-task-key="jk-disk0001"] .job-task-chat'),null,'Open only while a run needs you');
+  // a key's row opens its own sheet; a request's row opens its card in Settings → Automation
+  await p.click('[data-job-task-open="jk-night001"]');await p.waitForSelector('.job-key-sheet [data-job-toggle]');
+  assert.equal(await p.$eval('.job-key-sheet .job-key-title',e=>e.textContent),'nightly-report');
+  await close();
+  await p.click('[data-job-task-answer="jp-fixture01"]');await p.waitForSelector('[data-auto-group="jobs"]');
+  await close();
+  // the setting hides the group; with nothing to show there is no group
+  f.inTasks=false;await p.evaluate(async()=>{await loadTasks(true);paintTasksView();});
+  await p.waitForFunction(()=>!document.querySelector('.job-task-group'));
+  f.inTasks=true;f.requests=[];f.keys=[];await p.evaluate(async()=>{await loadTasks(true);paintTasksView();});
+  assert.equal(await p.$('.job-task-group'),null,'no keys and no requests: no group');
+  f.reset();settings.tasks=tasksBefore;
+  await p.goto(base+'/#/all');await p.waitForSelector('.session-home');
+ }
 
  console.log('Job keys (fixture): switched off again, only the group');
  await automation();await p.click('[data-auto-key="jobs"]');

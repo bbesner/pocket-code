@@ -3,6 +3,25 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.124.0] — 2026-11-23 · build 222
+
+Asked for by the owner: one place to see and manage the work that runs without them. Check-backs already had a read-only
+group in Tasks (1.119); job keys were only in **Settings → Automation → Job keys**.
+
+- **Tasks has a read-only Jobs group**, after Check-backs, while **Job keys** and the new setting **Show job keys in the
+  Tasks list** (On by default, under Settings → Automation → Job keys) are on. Requests a conversation made for a key
+  lead, marked *Waiting for you*; then each key with its state (**On**, **Off**, **Running**, or **Needs you** while its
+  newest run waits on an approval or a question), its last run and how that run ended, and its folder. A key's row opens
+  its own sheet (the Settings one); a request's row opens its card in Settings; **Open** on a key that needs you opens
+  that run's conversation. Nothing in the group changes a key.
+- **Server**: `GET /api/tasks` carries `jobs: { keys, requests }` for the app only (the CLI token's answer has none, as
+  agents can't list keys), never the key, its hash, its key file or its instruction. A key's newest run reads
+  `needs_you` as Recent runs does. New setting `jobsInTasks` in the `jobs` group (`POCKET_AUTOMATION_JOBS_IN_TASKS`).
+- Manual: Tasks › Jobs in the list; Automation › Job keys and Job settings.
+- Tested: `test/job-routes.test.mjs` (`1.124:`, on the real server: off, no keys, a run that needs you, a finished run, a
+  key turned off, nothing secret in the answer, the CLI token, the setting) and `test/jobkeys-browser.mjs` (the group's
+  rows, order after Check-backs, Open, the key sheet and request card it opens, the setting, axe).
+
 ## [1.123.1] — 2026-11-22 · build 221
 
 Seen on the owner's install with Antigravity (agy 1.5.14, Gemini 4 Neon). A reply rendered videos with a command that

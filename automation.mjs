@@ -99,6 +99,8 @@ export const GROUPS = [
     key: 'jobs', title: 'Job keys', settings: [
       { key: 'jobs', label: 'Job keys', type: 'bool', default: false,
         help: 'A program on this server starts a conversation with a key you created: your fixed instruction, folder and model, plus the data it sends. Off: every job call is refused; keys are kept.' },
+      { key: 'jobsInTasks', label: 'Show job keys in the Tasks list', type: 'bool', default: true,
+        help: 'A Jobs group in Tasks: each key, whether it is on, its last run, and the requests waiting for you. Changes stay here.' },
       { key: 'jobAccess', label: 'Access for new keys', advanced: true, type: 'choice', default: 'ask',
         choices: [{ value: 'ask', label: 'Ask me for every action' }, { value: 'full', label: 'Full access (only where this server allows it)' }],
         help: 'Where Full access is turned off for this server, a job runs under Ask me for every action whatever its key says.' },

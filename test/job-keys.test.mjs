@@ -172,12 +172,12 @@ test('A key file: 0600 in a 0700 folder, only inside home, never through a link 
 test('Every Job keys setting saves, refuses out of range naming the range, takes an env preset, and resets to the spec table', () => {
   const g = auto.GROUPS.find(x => x.key === 'jobs');
   assert.ok(g, 'a jobs group');
-  const want = { jobs: false, jobAccess: 'ask', jobAddInstructions: false, jobPerHour: 6, jobPerDay: 24, jobAtOnce: 1, jobDataMax: 20000, jobWaitMax: 300, jobRepeatDays: 7, jobPush: true, jobPushRespectsMute: true, jobKeyFolder: '~/.config/pocket/jobs/' };
+  const want = { jobs: false, jobsInTasks: true, jobAccess: 'ask', jobAddInstructions: false, jobPerHour: 6, jobPerDay: 24, jobAtOnce: 1, jobDataMax: 20000, jobWaitMax: 300, jobRepeatDays: 7, jobPush: true, jobPushRespectsMute: true, jobKeyFolder: '~/.config/pocket/jobs/' };
   assert.deepEqual(auto.groupValues({}, 'jobs', {}), want, 'the defaults are the spec table');
   const all = auto.GROUPS.flatMap(x => x.settings.map(s => s.key));
   assert.equal(new Set(all).size, all.length, 'setting keys are unique across groups (env preset names)');
-  const good = { jobs: true, jobAccess: 'full', jobAddInstructions: true, jobPerHour: 120, jobPerDay: 1000, jobAtOnce: 5, jobDataMax: 1000, jobWaitMax: 900, jobRepeatDays: 30, jobPush: false, jobPushRespectsMute: false, jobKeyFolder: '~/keys' };
-  const bad = { jobs: 'yes', jobAccess: 'everything', jobAddInstructions: 1, jobPerHour: 121, jobPerDay: 0, jobAtOnce: 6, jobDataMax: 999, jobWaitMax: 29, jobRepeatDays: 31, jobPush: 'on', jobPushRespectsMute: null, jobKeyFolder: '/etc' };
+  const good = { jobs: true, jobsInTasks: false, jobAccess: 'full', jobAddInstructions: true, jobPerHour: 120, jobPerDay: 1000, jobAtOnce: 5, jobDataMax: 1000, jobWaitMax: 900, jobRepeatDays: 30, jobPush: false, jobPushRespectsMute: false, jobKeyFolder: '~/keys' };
+  const bad = { jobs: 'yes', jobsInTasks: 0, jobAccess: 'everything', jobAddInstructions: 1, jobPerHour: 121, jobPerDay: 0, jobAtOnce: 6, jobDataMax: 999, jobWaitMax: 29, jobRepeatDays: 31, jobPush: 'on', jobPushRespectsMute: null, jobKeyFolder: '/etc' };
   const range = { jobPerHour: '1 to 120, or No limit', jobPerDay: '1 to 1,000, or No limit', jobAtOnce: '1 to 5', jobDataMax: '1,000 characters to 100,000 characters', jobWaitMax: '30 s to 900 s', jobRepeatDays: '1 d to 30 d', jobKeyFolder: 'a folder in your home folder' };
   let saved = {};
   for (const s of g.settings) {

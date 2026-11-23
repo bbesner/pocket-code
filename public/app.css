@@ -2354,6 +2354,14 @@ html.pocket-paused .frame header.bar { padding-top: 10px; } /* the banner takes 
 .checkback-item .session-status { display: block; line-height: 1.5; } /* time · conversation · what holds it wraps as one line of text, not one fact per line */
 .checkback-item .session-status > [aria-hidden] { margin-inline: 6px; }
 .checkback-item .checkback-cancel { flex: none; margin-right: 10px; min-height: 44px; padding-inline: 16px; font-size: 14px; }
+/* 1.124: Tasks' read-only Jobs group, the check-back rows' shape: the key mark in the 44px slot, Open for a run that needs you. */
+.job-task-item { align-items: center; }
+.job-task-item .job-task-slot { flex: none; align-self: stretch; width: 44px; display: grid; place-items: center; color: var(--dim); }
+.job-task-item .job-task-slot .i { width: 18px; height: 18px; }
+.job-task-item .session-status { display: block; line-height: 1.5; }
+.job-task-item .session-status > [aria-hidden] { margin-inline: 6px; }
+.job-task-item .job-task-chat { flex: none; margin-right: 10px; min-height: 44px; padding-inline: 16px; font-size: 14px; text-decoration: none; }
+@media (pointer: fine) { .job-task-item .job-task-chat { min-height: 36px; } }
 /* Settings → Automation: a feature's group leads with its switch; while it is off the rest reads --dim (still editable).
    Under Check-backs, how many wait and Cancel all. */
 .automation-group-off .automation-dependent :is(.automation-label, .voice-field, .opt.automation-bool) { color: var(--dim); }
