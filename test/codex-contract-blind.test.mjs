@@ -885,11 +885,17 @@ const r = await startTurn(); await sleep(300); done({ ok: r.ok, err: r.err, code
     try {
       const A = need(await runChild(w, String.raw`
 failFs('renameSync', '.session.json', 1);
-const r = await startTurn(); await sleep(300); done({ ok: r.ok, err: r.err, active: C.codexTurnActive(r.ok ? r.t.threadId : '') });`), 'A');
+const r = await startTurn(); await sleep(300); done({ ok: r.ok, err: r.err, code: r.code, active: C.codexTurnActive(r.ok ? r.t.threadId : ''), state: state(), sent: r.h.finished });`), 'A');
       const B = need(await runChild(w, ADOPT), 'B');
       const mk = markerFor(w, T);
       assert.ok(!A.ok || (mk && mk.m.turn && mk.m.turn.turnId === 'turn-L'), 'turn accepted but marker says turn=' + JSON.stringify(mk && mk.m.turn));
       assert.ok(!A.ok || B.turns.some(x => x.threadId === T), 'restart treats live turn as idle (adopted turns: ' + JSON.stringify(B.turns) + ')');
+      // 1.124.4: refused as not started before turn/start was sent; the process stays, idle, and no reply hook ran
+      assert.equal(A.ok, false); assert.equal(A.code, 500);
+      assert.match(A.err, /^Pocket Code could not record this reply on disk, so it did not send it to Codex \(EIO\)\./);
+      assert.deepEqual(A.state, { sessions: [T], turns: [] }, 'the session stays open, with no turn');
+      assert.equal(A.sent, 0, 'onFinish not called for a turn that never started');
+      assert.ok(!frames(w).some(f => f.method === 'turn/start'), 'turn/start never sent');
     } finally { reap(w); }
   });
 

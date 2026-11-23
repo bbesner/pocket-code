@@ -1052,7 +1052,7 @@ function makeTurn(s, { text, model, effort, executionMode = 'work', hooks, auton
   s.turn = turn;
   s.lastActivityAt = Date.now();
   codexTurns.set(turn.threadId, turn);
-  writeSessionMeta(s);
+  turn.recorded = writeSessionMeta(s); // 1.124.4: startCodexTurn sends nothing for a turn the marker does not hold
   return turn;
 }
 
@@ -1209,6 +1209,16 @@ export async function startCodexTurn({ threadId, forkFrom, cwd, text, model, eff
   if (codexTurns.get(s.threadId)) throw Object.assign(new Error('busy'), { code: 409 });
   if (mayStart) { try { mayStart(); } catch (e) { if (!s.turn) scheduleIdle(s); throw e; } }
   const turn = makeTurn(s, { text, model, effort, executionMode, hooks, origin, originRef, rootOrigin }); // 1.117: origin
+  // 1.124.4: a turn the marker does not record is not sent. A restart adopted the session as idle, its idle close ended the
+  // process mid-reply, and meanwhile a new message was accepted for a thread that was mid-turn. Nothing has started: the
+  // turn ends without its reply hooks (no outcome, push or count) and the process stays, idle.
+  if (!turn.recorded) {
+    const why = s.metaFailed?.code || s.metaFailed?.message || 'unknown error';
+    turn.onFinish = null;
+    finish(turn, { type: 'result', ok: false, error: 'not started' });
+    log(`turn refused thread=${s.threadId} pid=${s.conn.pid}: its marker could not be written (${why})`);
+    throw Object.assign(new Error(`Pocket Code could not record this reply on disk, so it did not send it to Codex (${why}). Check the server's free disk space, then send again.`), { code: 500, notStarted: true });
+  }
   turn.emit({ type: 'user', msg: { role: 'user', text, ts: new Date().toISOString() } });
 
   const input = [{ type: 'text', text: promptWithAttachments(text, attachments) }];
