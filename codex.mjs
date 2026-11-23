@@ -1051,7 +1051,8 @@ function makeTurn(s, { text, model, effort, executionMode = 'work', hooks, auton
   turn.approvals=new ApprovalInbox({sessionId:()=>CX+turn.threadId,turnId:()=>turn.turnId,audit:auditApproval,write:(id,result)=>new Promise((resolve,reject)=>{
     if(!conn.writable())return reject(new Error('Approval connection closed'));
     try{conn._write({jsonrpc:'2.0',id,result},e=>e?reject(e):resolve());}catch(e){reject(e);}
-  }),onChange:()=>{writeSessionMeta(s);turn.emit({type:'approvals'});if(turn.approvals?.list().length)onApproval?.(turn);}});
+  }),onChange:()=>{writeSessionMeta(s);turn.emit({type:'approvals'});if(turn.approvals?.list().length)onApproval?.(turn);},
+  onAutoError:(e,{tool})=>log(`trusted action reply not delivered session=${CX+turn.threadId} tool=${tool}: ${e.message}`)}); // 1.124.4: as Claude's
   clearTimeout(s.idleTimer);
   s.turn = turn;
   s.lastActivityAt = Date.now();

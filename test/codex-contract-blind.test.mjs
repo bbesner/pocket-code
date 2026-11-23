@@ -922,6 +922,25 @@ done({ ok: true, ret, stopped, gone: !!gone, results: r.t.events.filter(e => e.t
 
   // DIV-7 (the retry marker in server.mjs's scheduleRetry) is tested in claude-limit.test.mjs, against the running server.
 
+  // 1.124.4 (bug review, extra item): an Allow a trusted rule gave that could not be written was dropped without a word.
+  test('a trusted rule\'s Allow that cannot be delivered is logged, as on the Claude side', async () => {
+    const w = newWorld(); const T = uid();
+    setCtl(w, { threadId: T, turnId: 'turn-A', on: { 'turn/start': [STARTED, { delay: 600, frame: { id: 8301, method: 'item/commandExecution/requestApproval', params: { threadId: '$T', turnId: '$TURN', itemId: 'c1', command: 'ls -la', cwd: '/tmp' } } }] } });
+    try {
+      const r = await runChild(w, String.raw`
+C.setTrustedMatcher(cmd => cmd === 'ls -la' ? 'read-only listing' : null);
+const r = await startTurn(); if (!r.ok) done({ ok: false, err: r.err });
+C.codexSessions.get(r.t.threadId).conn.writable = () => false;
+await until(() => C.codexTurns.get(r.t.threadId)?.approvals?.autoAnswered?.size, 4000);
+await sleep(300);
+done({ ok: true, cards: size(C.codexTurns.get(r.t.threadId)?.approvals) });`);
+      const R = need(r, 'child');
+      assert.equal(R.ok, true, R.err);
+      assert.equal(R.cards, 0, 'precondition: the trusted rule answered it, no card');
+      assert.match(r.out, new RegExp(`trusted action reply not delivered session=cx:${T} tool=Bash: Approval connection closed`), 'the dropped Allow is logged');
+    } finally { reap(w); }
+  });
+
   test('DIV-8: adopted autonomous turn keeps its autonomous mark and the origin its hook gave it after restart', async () => {
     const w = newWorld(); const T = uid();
     setCtl(w, { threadId: T, turnId: 'turn-1', on: { 'turn/start': [...COMPLETE(), { delay: 300, frame: { method: 'turn/started', params: { threadId: '$T', turn: { id: 'turn-auto', status: 'inProgress', items: [] } } } }] } });
