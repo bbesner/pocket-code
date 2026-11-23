@@ -54,7 +54,7 @@ import {ModelRouter, capEffort, tierChoice, TIERS} from './router.mjs';
 import {AccessVerifier} from './access.mjs';
 import {createMailer, looksLikeEmail, dueMessage} from './mail.mjs';
 import {syncSkills, googleInstructions, manualInstructions} from './skills.mjs';
-import {DocumentStore, documentInstructions, mimeOf, LIMITS as DOC_LIMITS, REQUEST_LIMITS as DOC_REQUEST_LIMITS} from './documents.mjs';
+import {DocumentStore, linkKeyFrom, documentInstructions, mimeOf, LIMITS as DOC_LIMITS, REQUEST_LIMITS as DOC_REQUEST_LIMITS} from './documents.mjs';
 import {TaskStore, taskInstructions} from './tasks.mjs';
 import {InboxStore, inboxInstructions} from './inbox.mjs';
 import { InboxRunner } from './inbox-runner.mjs';
@@ -471,7 +471,7 @@ const BOARD_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-board.mjs');
 // Settings → Features turns it on; while off nothing is served, not even public files. The same loopback token as
 // the board serves pocket-docs on /api/documents* only.
 const DOCS_DIR = process.env.POCKET_DOCUMENTS_DIR || path.join(DATA_DIR, 'documents');
-const docs = new DocumentStore(DOCS_DIR, path.join(DATA_DIR, 'documents.json'), { log });
+const docs = new DocumentStore(DOCS_DIR, path.join(DATA_DIR, 'documents.json'), { log, linkKey: linkKeyFrom(SECRET) }); // Copy link: an open link's address can be read again by the owner
 if (docs.migrated) log(docs.migrateError ? `documents: ${docs.migrated} share address(es) could not be removed from documents.json yet: ${docs.migrateError}` : `documents: removed ${docs.migrated} stored share address(es) from documents.json; their links keep working`); // 1.118 (PC-05)
 const thumbs = new Thumbnailer(docs, { log }); // 1.32: pictures for the library's grid, cached in <documents dir>/.thumbs
 // 1.61: pictures for file cards in a conversation (PDF pages and images only), cached under the data directory.
@@ -5906,6 +5906,12 @@ app.post('/api/documents/bulk', requireAuth, sameOrigin, docsOn, (req, res) => {
 app.post('/api/documents/trash/empty', requireAuth, sameOrigin, docsOn, (_req, res) => {
   const r = docs.emptyTrash();
   log(`documents trash emptied: ${r.done.length} deleted${r.failed.length ? `, ${r.failed.length} failed` : ''}`); res.json(r);
+});
+// Copy link: the address of a link that is already open, for the signed-in owner from Pocket's own page. Never the CLI
+// token (requireAuth takes the cookie only), so an agent still gets a link's address only in the answer that made it.
+app.post('/api/documents/:id/link', requireAuth, sameOrigin, docsOn, (req, res) => {
+  try { const r = docs.shareLink(req.params.id); log(`document link read ${req.params.id} by ui`); res.set('Cache-Control', 'private, no-store').json(r); }
+  catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message, ...(e.code ? { code: e.code } : {}) }); }
 });
 app.post('/api/documents/:id', requireBoardAuth, docsOn, async (req, res) => {
   const action = req.body?.action, body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
