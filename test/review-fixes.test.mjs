@@ -236,3 +236,32 @@ test('a reconnect carrying the other kind of stream id is not read as its own',a
  const into=(await f.streamFor(q,'?offset=0',500,{'last-event-id':'w:5000'})).filter(d=>!d.includes('"attach"'));
  assert.ok(into.some(d=>d.includes('"questions"')),'the turn\'s events are replayed');
 });
+
+// 1.124.3: a stream kept open while the test writes (one decoder, so a character split across chunks is not the test's own
+// doing), and a transcript line as the CLI writes it.
+function openStream(f,id,query,extra={}){
+ const ac=new AbortController(),dec=new TextDecoder();let seen='';
+ const done=fetch(`http://127.0.0.1:${f.port}/api/session/${id}/events${query}`,{headers:{...f.headers,...extra},signal:ac.signal}).then(async r=>{
+  const reader=r.body.getReader();for(;;){const {value,done}=await reader.read();if(done)break;seen+=dec.decode(value,{stream:true});}}).catch(()=>{});
+ return {data:()=>seen.split('\n').filter(l=>l.startsWith('data: ')).map(l=>l.slice(6)),close:async()=>{ac.abort();await done;}};
+}
+const line=(id,role,text)=>JSON.stringify({type:role,sessionId:id,timestamp:new Date().toISOString(),message:{role,content:[{type:'text',text}]}})+'\n';
+
+// 1.124.3 (turns-06): the mirror of a conversation driven elsewhere skipped a transcript write that landed while it was still
+// reading the one before; nothing read again until the next write, so a reply's last message could stay missing.
+test('watch mode: a write that lands while the mirror reads the one before it still reaches the viewer',async t=>{
+ const f=await fixture(t,18488);
+ const id=randomUUID(),file=path.join(f.dir,'sessions','test-workspace',id+'.jsonl');
+ fs.writeFileSync(file,line(id,'user','a question from a terminal'));
+ const at=fs.statSync(file).size,views=[openStream(f,id,`?offset=${at}`),openStream(f,id,`?offset=${at}`)]; // two devices watching
+ assert.ok(await f.until(()=>views.every(v=>v.data().some(d=>d.includes('"watch"')))));
+ await sleep(200); // the connects' own catch-up reads are over
+ // a long burst the mirror takes a while to read and send, and the reply's last line written while it does
+ const burst=Array.from({length:20000},(_,i)=>line(id,'assistant','step '+i)).join('');
+ fs.appendFileSync(file,burst);await sleep(40);
+ fs.appendFileSync(file,line(id,'assistant','the last word of the reply'));
+ const ok=await f.until(()=>views.every(v=>v.data().some(d=>d.includes('the last word of the reply'))),5000);
+ for(const v of views)await v.close();
+ assert.ok(ok,'the reply\'s last message reached both viewers');
+});
+

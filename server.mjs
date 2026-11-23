@@ -1636,8 +1636,11 @@ if (CODEX_ON) {
 }
 
 const pumping = new Set();
+// 1.124.3: a write that lands while a read is on its way is read once that read ends. It used to be skipped, and nothing
+// read again until the next write: a reply's last message could stay missing from the mirror.
+const pumpAgain = new Set();
 async function pumpTail(id, file) {
-  if (pumping.has(id)) return;
+  if (pumping.has(id)) { pumpAgain.add(id); return; }
   pumping.add(id);
   try {
     const set = tailers.get(id);
@@ -1666,6 +1669,7 @@ async function pumpTail(id, file) {
     }
   } catch { } finally {
     pumping.delete(id);
+    if (pumpAgain.delete(id)) pumpTail(id, file);
   }
 }
 
