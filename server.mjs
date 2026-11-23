@@ -693,10 +693,33 @@ function noteStart(id, o) { // null: the agent started it, or the owner did
   // 1.124.2: the record is best-effort (a full disk). Thrown into startTurn it left a registered reply whose prompt was
   // never sent; thrown into the log reader it dropped the rest of the CLI's lines, the reply's result among them.
   const note = patch => { try { setSmeta(id, patch); } catch (e) { log(`conversation record not saved session=${id}: ${e.message}`); } };
-  if (!o || o.origin === 'owner' || !o.origin) { if (smeta[id]?.lastOrigin) note({ lastOrigin: null, lastOriginRef: null }); return; }
-  note({ lastOrigin: o.origin, lastOriginRef: shownOriginRef(o) || null, ...(auto.normRoot(o.rootOrigin) === 'job' ? { jobRan: true } : {}) }); // jobRan: kept for good (jobRanIn)
+  // 1.124.2: lastRoot, what the work the agent carries on by itself here belongs to (carriedRoot): set by a job's or a
+  // check-back's start (its queue drains, retries and wakes included), cleared by any other start, the owner's own first.
+  // A reply the agent starts by itself (o null) leaves it as it is.
+  if (!o || o.origin === 'owner' || !o.origin) { if (smeta[id]?.lastOrigin || (o && smeta[id]?.lastRoot)) note({ lastOrigin: null, lastOriginRef: null, ...(o ? { lastRoot: null } : {}) }); return; }
+  const root = auto.normRoot(o.rootOrigin);
+  note({ lastOrigin: o.origin, lastOriginRef: shownOriginRef(o) || null, ...(root === 'job' ? { jobRan: true } : {}), // jobRan: kept for good (jobRanIn)
+    lastRoot: root === 'owner' ? null : { rootOrigin: root, ...(o.originRef ? { originRef: String(o.originRef) } : {}) } });
   autoState.recordStart({ rootOrigin: o.rootOrigin });
   if (o.originRef) startsPending.delete(o.originRef); // counted now (gateUnattended's hold)
+}
+const carriedRoot = id => { const r = smeta[id]?.lastRoot; return r && auto.normRoot(r.rootOrigin) !== 'owner' ? r : null; };
+// 1.124.2: a reply the agent starts by itself (Claude after a background job or agent, Codex after a background terminal).
+// In a conversation whose work is a job's or a check-back's (carriedRoot) it is that work carried on: it carries the root,
+// counts toward the day, has the longest-reply limit, and is stopped at once when the gate would not have started it (a
+// plan ceiling, the daily limit, the feature off); it used to run outside all of them. Otherwise it is nobody's queue or
+// retry, as before. While paused, either is stopped at once, with no push. `stop(why)` stops it on its engine.
+function agentReplyStarted(id, turn, engine, stop) {
+  const root = pausedNow() ? null : carriedRoot(id);
+  if (!root) { noteStart(id, null); if (pausedNow()) stop('paused'); return; }
+  Object.assign(turn, { origin: root.rootOrigin, rootOrigin: root.rootOrigin, ...(root.originRef ? { originRef: root.originRef } : {}) });
+  stampReplyLimit(turn);
+  if (turn.runner) writeRunnerMeta(turn.runner); // a restart keeps its root
+  gateUnattended({ origin: turn.origin, originRef: turn.originRef, rootOrigin: turn.rootOrigin, engine, sessionId: id }).then(g => {
+    if (g.ok || turn.finalized || turn.done || turn.stopped) return noteStart(id, turn); // one that has already ended ran: it counts
+    for (const k of ['origin', 'originRef', 'rootOrigin', 'autoLimit']) delete turn[k]; // stopped unstarted, as a paused one is
+    noteStart(id, null); stop(g.reason);
+  }).catch(e => log(`agent-started reply not checked session=${id}: ${e.message}`));
 }
 // A job's turns carry their run id as originRef (how the run's end is found, a retry's included); what the app and the
 // pushes show is the job's name ("Started by job disk-check").
@@ -712,10 +735,12 @@ function noteFinish(id, turn, { cost, tokens, durationMs, outcome }) {
   autoAudit({ action: 'reply', origin: turn.origin, ...(turn.originRef ? { originRef: turn.originRef } : {}), rootOrigin, engine, sessionId: id,
     model: turn.effectiveModel || turn.model || null, durationMs: Number.isFinite(durationMs) ? durationMs : Date.now() - (turn.startedAt || Date.now()),
     ...(Number.isFinite(cost) ? { cost } : {}), ...(Number.isFinite(tokens) ? { tokens } : {}), outcome });
-  if (turn.origin === 'checkback' && turn.originRef) { // 1.119: its card, its own push (turn.checkbackHandled). Never throws into the reply's end: a
+  // 1.124.2: a reply the agent started by itself carries its work's root (agentReplyStarted), but the check-back's card and
+  // the job's run are settled by their own replies, not by what follows them.
+  if (turn.origin === 'checkback' && turn.originRef && !turn.autonomous) { // 1.119: its card, its own push (turn.checkbackHandled). Never throws into the reply's end: a
     try { checkbackFinished(id, turn, outcome); } catch (e) { log(`check-back not recorded id=${turn.originRef} session=${id}: ${e.message}`); } // failed write is settled by the next pass
   }
-  if (rootOrigin === 'job' && turn.originRef) { // a job's run, its retry's included: the run's status and its own push (turn.jobHandled)
+  if (rootOrigin === 'job' && turn.originRef && !turn.autonomous) { // a job's run, its retry's included: the run's status and its own push (turn.jobHandled)
     try { jobFinished(id, turn, { outcome, cost, tokens }); } catch (e) { log(`job run not recorded run=${turn.originRef} session=${id}: ${e.message}`); }
   }
   return auto.originLabel(turn.origin, shownOriginRef(turn));
@@ -1939,7 +1964,7 @@ function handleTurnLine(turn, line) {
   // 1.89 (F-19): a background subagent's own output (parent_tool_use_id set) is not the agent replying; the stand-in stays one.
   if (turn.controlOnly && ['assistant', 'stream_event', 'result'].includes(o.type) && !o.parent_tool_use_id) { // the agent is replying: a real turn now
     turn.controlOnly = false;
-    if (turn.autonomous && pausedNow()) { noteStart(turn.sessionId, null); stopPausedAgentReply(turn); } // 1.117: paused, as in handleRunnerLine
+    if (turn.autonomous) agentReplyStarted(turn.sessionId, turn, 'claude', why => stopPausedAgentReply(turn, why)); // 1.117: paused, as in handleRunnerLine; 1.124.2: and its work's root
   }
   if(o.type==='control_request'){
     // 1.82: the asking subagent's name, and the request itself so a reply that ends while it waits can carry it over.
@@ -2184,10 +2209,7 @@ function handleRunnerLine(r, line, lineOffset) {
     // 1.117: a reply the agent started is nobody's queue or retry (the list stops naming one), and while Pocket is paused it
     // is unattended work like any other: stopped at once, with no push. A permission request keeps its stand-in turn until
     // the agent starts replying in it; then it is stopped the same way (handleTurnLine).
-    if (!control) {
-      noteStart(r.sessionId, null);
-      if (pausedNow()) stopPausedAgentReply(turn);
-    }
+    if (!control) agentReplyStarted(r.sessionId, turn, 'claude', why => stopPausedAgentReply(turn, why)); // 1.124.2: a job's or a check-back's work carried on keeps its root and limits
     // Viewers in transcript-mirror mode resync on `done` and attach to this live turn.
     for (const t of tailers.get(r.sessionId) || []) { try { t.res.write('data: {"type":"done"}\n\n'); t.res.end(); } catch { } }
   }
@@ -2196,9 +2218,10 @@ function handleRunnerLine(r, line, lineOffset) {
 }
 // 1.117: a reply the agent started while Pocket is paused, stopped as Pause all stops a reply (finalizeTurn pushes nothing
 // for a stopped reply). Stopping it ends the conversation's process, with any background jobs still in it.
-function stopPausedAgentReply(turn) {
+function stopPausedAgentReply(turn, why = 'paused') { // 1.124.2: or held by the gate (`why`, its reason)
+  if (turn.finalized || turn.stopped) return;
   turn.stopped = true; signalTurn(turn);
-  log(`stop requested (paused; the agent started a reply) session=${turn.sessionId}`);
+  log(`stop requested (${why}; the agent started a reply) session=${turn.sessionId}`);
 }
 // A control-only turn with nothing waiting any more is over: the conversation goes back to Working in background.
 function maybeEndControlTurn(turn) {
@@ -3774,10 +3797,9 @@ function codexHooks(id) {
     onQuestion:turn=>{const sid=id||(codex.CX+turn.threadId);const qid=turn.questions.list().at(-1)?.id;if(!mutes.has(sid)&&turn.questionNotified!==qid){turn.questionNotified=qid;pushNotify(sid,'Codex has a question','Open Pocket Code to answer it.').catch(()=>{});}},
     onFinish: (ev, turn) => codexTurnFinished(id || (codex.CX + turn.threadId), turn, ev),
     // 1.117: a turn Codex started by itself: nobody's queue or retry, and stopped at once while paused (no push for it)
-    onAutonomous: turn => {
+    onAutonomous: turn => { // 1.124.2: a job's or a check-back's work carried on keeps its root and limits (agentReplyStarted)
       const sid = id || (codex.CX + turn.threadId);
-      noteStart(sid, null);
-      if (pausedNow()) { codex.stopCodexTurn(turn.threadId); log(`stop requested (paused; the agent started a reply) thread=${turn.threadId}`); }
+      agentReplyStarted(sid, turn, 'codex', why => { if (turn.done || turn.stopped) return; codex.stopCodexTurn(turn.threadId); log(`stop requested (${why}; the agent started a reply) thread=${turn.threadId}`); });
     },
   };
 }
@@ -5247,7 +5269,11 @@ app.post('/api/coordination/wait', requireBoardAuth, coordOn, (req, res) => {
   const b = req.body || {}, turn = waiter.session ? ownedTurn(waiter.session) : null;
   // A wait that would wake the conversation later is a start nobody sent. A blocking wait stays inside the running reply.
   if (waiter.session && b.block !== true && !takesUnattended(engineForSessionId(waiter.session))) return res.status(409).json({ error: `${ENGINES[engineForSessionId(waiter.session)].label} conversations are not woken: a person sends each message. Tell the user what is held and by whom, and stop there.`, code: 'attended_only' });
-  const run = turn ? { approvalMode: turn.approvalMode, executionMode: turn.executionMode, model: turn.model, effort: turn.effort, rootOrigin: auto.normRoot(turn.rootOrigin), ...(turn.originRef && turn.rootOrigin !== 'owner' ? { originRef: turn.originRef } : {}) } : {}; // 1.117: the wake carries the root of the turn that set the wait
+  // 1.124.2: with no reply running (a program a job's reply left running), the root of the conversation's work and the mode
+  // its process runs in; the wake used to start as the owner's, in the install's default mode.
+  const carried = !turn && waiter.session ? carriedRoot(waiter.session) : null, proc = carried ? (isCx(waiter.session) ? codex.codexSessions.get(codex.bareId(waiter.session)) : runners.get(waiter.session)) : null;
+  const run = turn ? { approvalMode: turn.approvalMode, executionMode: turn.executionMode, model: turn.model, effort: turn.effort, rootOrigin: auto.normRoot(turn.rootOrigin), ...(turn.originRef && turn.rootOrigin !== 'owner' ? { originRef: turn.originRef } : {}) } // 1.117: the wake carries the root of the turn that set the wait
+    : carried ? { ...(proc ? { approvalMode: proc.approvalMode, model: proc.model, effort: proc.effort } : {}), rootOrigin: carried.rootOrigin, ...(carried.originRef ? { originRef: carried.originRef } : {}) } : {};
   try { const out = coord.wait(b.name, { waiter, block: b.block === true, id: typeof b.id === 'string' ? b.id : '', run }); res.json({ ...out, ...(out.hold ? { hold: coordShown(out.hold) } : {}), now: Date.now() }); }
   catch (e) { coordError(res, e); }
 });

@@ -100,7 +100,7 @@ The label shows under the agent on the conversation's row, and under the convers
 
 ## Limits on unattended work
 
-**Settings → Automation → Limits on unattended work** sets how much work Pocket will start for you without you there. A limit never cuts off a reply that is running. Only the longest-reply limit stops one, and only a check-back's reply.
+**Settings → Automation → Limits on unattended work** sets how much work Pocket will start for you without you there. A limit never cuts off a reply that is running. Only the longest-reply limit stops one, and only a check-back's or a job's reply. A reply the agent starts by itself in a check-back's or a job's conversation is stopped as it begins when a limit would not have started it ([below](#what-a-limit-applies-to)).
 
 ### What a limit applies to
 
@@ -113,6 +113,8 @@ Antigravity needs no limit here: nothing starts one of its replies but a message
 ([Antigravity](sessions.md#antigravity-google-models-on-your-google-plan)).
 
 Both are off by default. So with nothing switched on, the limits hold only check-backs. The first also decides whether that work counts toward **OpenRouter spend per day**.
+
+**What the agent carries on by itself belongs to the work it carries on.** In a conversation whose last reply started for a check-back or a job (that reply, or its queued message, retry or coordination wake), a reply the agent then starts by itself (Claude after a background job, Codex after a background terminal) is that check-back's or job's. It counts toward **Unattended replies per day**, the longest-reply limit applies to it, and Pause all counts it as a job reply. A plan ceiling, the daily limit, or the feature switched off stops it as soon as it begins, the way Pause all does. A coordination wait the agent sets while no reply is running (a program it left running) wakes the conversation as that work too. This ends when you send your own message in the conversation: the agent's own replies after yours are no one's work and no limit holds them (1.124.2).
 
 ### The settings
 
@@ -131,7 +133,7 @@ Both are off by default. So with nothing switched on, the limits hold only check
 
 - **Plan ceilings** hold work on an engine whose weekly or 5-hour window is at or over the ceiling. Held work goes ahead after the reset: a retry is tried again then, or at the next minute, whichever is later, and the conversation shows that time.
 - **The daily count** is in your time zone. **OpenRouter spend** is real money; unattended OpenRouter replies stop starting at the limit. With **Count queue drains, retries and coordination wakes toward the daily limit** off, the work you asked for yourself neither counts toward nor is held by the spend limit.
-- **The longest-reply limit** stops a running reply, and applies only to check-back replies and job replies. A stopped check-back reply shows *Checked back … · stopped* on its card, with no *Checked back* push. The ordinary notice that the reply was stopped goes out instead. A stopped job reply ends its run as failed (stopped) and sends no job push. Time spent waiting on an approval or question doesn't count unless you switch that on.
+- **The longest-reply limit** stops a running reply, and applies only to check-back replies and job replies (a reply the agent starts by itself after one included). A stopped check-back reply shows *Checked back … · stopped* on its card, with no *Checked back* push. The ordinary notice that the reply was stopped goes out instead. A stopped job reply ends its run as failed (stopped) and sends no job push. Time spent waiting on an approval or question doesn't count unless you switch that on.
 - A value you enter outside its range is refused with a message that names the range, and the old value stays. A change applies to the next start, never to a reply already running.
 - **Reset to defaults** in the group puts every value back. Your saved values are kept when a feature is off.
 
@@ -571,6 +573,8 @@ By default each run starts a new conversation. To add to one, pass its id: `--co
 | **Pause all** | the install | | `paused`, and stops running job replies |
 
 The install-wide limits always hold job work, and a job reply always counts toward **Unattended replies per day**. The per-key limits are on top. A run counts at once, before Pocket asks the gate, so two calls at the same moment can't both take the last slot. The day's **Unattended replies per day** holds the same way: calls that arrive together past the limit get `daily_limit`, one start for each slot left. A refusal is never queued: the job decides whether to try again.
+
+A reply the agent starts by itself after a job reply (Claude after a background job, Codex after a background terminal) is the job's work too, until you send your own message in the conversation: it counts toward **Unattended replies per day**, the longest-reply limit applies, and it is stopped as it begins when the daily limit or a plan ceiling is reached ([What a limit applies to](#what-a-limit-applies-to)). It is shown as *Started by job …*. The run itself ended with the job's reply and is not changed by what follows it (1.124.2).
 
 ### What a job reply can do
 
