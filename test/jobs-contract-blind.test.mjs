@@ -1017,7 +1017,8 @@ test('DIV-3: rotate — cut off right after rotate() commit: fileHash still name
   assert.ok(!('fileHash' in J.keyView(k)), 'never shown');
 });
 
-test('DIV-4: delete — a failed deleteKey commit leaves the key and its record intact (module part; unlink-before-delete order is in the route)', () => {
+// Not a fault (verdict DIV-4): the route removes the file first, and a retry of the delete finishes what the owner asked.
+test('deleteKey: a failed save leaves the key and its keyFile record intact', () => {
   const env = jobEnv(); const s = env.mk();
   const { key } = s.addKey(KEYF('alpha', { keyFile: '/x/alpha.key' }));
   const r = failFsFor('renameSync', env.file + '.tmp');
@@ -1049,7 +1050,8 @@ test('DIV-7: check-back add — a failed title update leaves the committed entry
   assert.equal(got.status, 'pending'); assert.ok(!('title' in got));
 });
 
-test('DIV-8: check-back start — running without startedAt survives restart unchanged (module part; adoption needs the server)', () => {
+// Not a fault (verdict DIV-8): a reply's end settles a running check-back without startedAt; only a restart's wording differs.
+test('CheckbackStore: a running check-back whose startedAt save failed survives a restart as running, without startedAt', () => {
   const env = cbEnv(); const s = env.mk();
   const c = s.add(ADD(env.clock)); s.update(c.id, { status: 'running', markedAt: isoS(T0) });
   const r = failFsFor('renameSync', env.file + '.tmp');
@@ -1058,7 +1060,8 @@ test('DIV-8: check-back start — running without startedAt survives restart unc
   assert.equal(got.status, 'running'); assert.ok(!('startedAt' in got));
 });
 
-test('DIV-9: audit — store mutations write no audit file of their own (module part; appendAudit lives in automation.mjs)', () => {
+// The audit is the server's (appendAudit in automation.mjs, best effort by design); the stores write none of their own.
+test('the job and check-back stores write no audit file of their own', () => {
   const je = jobEnv(); const js = je.mk(); const { key } = js.addKey(KEYF()); js.rotate(key.id); js.deleteKey(key.id);
   const ce = cbEnv(); const cs = ce.mk(); const c = cs.add(ADD(ce.clock)); cs.finish(c.id, 'cancelled', 'owner');
   assert.deepEqual(fs.readdirSync(path.dirname(je.file)), ['job-keys.json']);
