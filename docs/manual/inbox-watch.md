@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.118.0
+checked: 1.124.5
 sources: inbox.mjs, inbox-runner.mjs, public/inbox.js, scripts/pocket-inbox.mjs, skills/pocket-inbox/SKILL.md, inbox-watch/
 -->
 # Inbox Watch
@@ -141,7 +141,7 @@ it:
 - If a reply is running in it, the new mail goes straight in, the way a message you type mid-reply does, and the agent
   takes it into account at its next step.
 - If it is idle, a **news card** sits under the latest reply: *New mail on this story*, when it came, and the mail's
-  first sentence. It takes the place of the [Complete card](conversation.md#close-a-finished-conversation-the-complete-card),
+  first sentence. It shows as soon as you open the conversation, also when you came straight from another one (1.124.5). It takes the place of the [Complete card](conversation.md#close-a-finished-conversation-the-complete-card),
   so a conversation with unread mail never offers **Close conversation**. The card has three controls:
   - **Bring it in** sends the new mail (each update's title, summary, Gmail link and time) as your next message and
     asks the agent what it changes.
@@ -233,7 +233,8 @@ The entry's sheet shows the whole text, with each citation a link to that email 
   the evidence and the Gmail links. Nothing starts until you press Start. The briefing link lasts 7 days.
 - **Open in Files**: a digest's full text.
 - **Open in Gmail**: the thread.
-- **Resolved**, **Not useful**, **Dismiss**, or **Restore** on a finished entry (see below).
+- **Resolved**, **Not useful**, **Dismiss**, or **Restore** on a finished entry (see below). After one of these the
+  keyboard focus is on the next entry (1.124.5).
 
 The **X** on a row dismisses it directly.
 
@@ -253,6 +254,7 @@ Each card has its title, its text (citations are Gmail links), its story and the
 - **Resolved** and **Not useful**: the same as on an alert, but for that story alone rather than the whole digest.
 - **Dismiss**: takes the line off your hands. The story is unchanged and the watcher learns nothing from it.
 - **Undo**: takes any of these back. An alert the watcher has already sent cannot be unsent, so that card has no Undo.
+  An Undo pressed within a second of the decision counts too (1.124.5).
 - **Gmail**: the thread.
 
 **Each story has one status, so nothing is worked twice.** A line whose story already has an open alert on your list is not
@@ -309,7 +311,8 @@ acknowledgement names the decision the watcher read, so one you change while a c
 **Check now** sits beside the search box in the Inbox and beside **All** in the sidebar list. It asks the watcher
 to check at once, whatever the schedule, paused included. The chip shows *Checking…* until the watcher reports back,
 then the list reloads and a note says how many new items it found. A check you ask for skips quiet hours: its alerts
-go out at once, together with every alert quiet hours were holding.
+go out at once, together with every alert quiet hours were holding. If Pocket restarts just as the check ends, the
+watcher reports it again within a minute (1.124.5), so the chip does not stay on *Checking…*.
 
 ### Change the schedule, rules and models
 
