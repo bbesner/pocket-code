@@ -750,3 +750,53 @@ test('1.115: a merged entry split back out is its own entry again, with its conv
   assert.notEqual(s.get(d.id).story,'pier','two entries on one story key would fold again, so it gets its own');
   assert.match(s.get(d.id).story,/^pier-storm-[0-9a-f]{4}$/);
 });
+
+test('1.124.3: an inbox.json that does not parse is kept aside and logged, and the next change does not replace it',()=>{
+  const dir=tmp(),file=path.join(dir,'inbox.json'),clock=()=>Date.parse('2026-11-23T10:15:30Z');
+  const a=new InboxStore(file,{now:clock});for(let i=0;i<3;i++)a.add({title:'Entry '+i,story:'s'+i});
+  const torn=fs.readFileSync(file,'utf8').slice(0,-5);fs.writeFileSync(file,torn);
+  const said=[],b=new InboxStore(file,{now:clock,log:m=>said.push(m)});
+  assert.equal(b.entries.length,0,'the Inbox starts empty');
+  const kept=path.join(dir,'inbox.json.corrupt-20261123-101530');
+  assert.equal(fs.existsSync(kept),true,'the file that did not parse is kept');assert.equal(fs.readFileSync(kept,'utf8'),torn);
+  assert.equal(said.length,1);assert.ok(said[0].includes(file)&&said[0].includes(kept),said[0]);assert.match(said[0],/not valid JSON/);
+  b.add({title:'New'});
+  assert.equal(fs.readFileSync(kept,'utf8'),torn,'the next change leaves the kept copy alone');
+  const said2=[];new InboxStore(path.join(dir,'none.json'),{log:m=>said2.push(m)});assert.deepEqual(said2,[],'a missing file is a new Inbox, logged nowhere');
+  fs.rmSync(dir,{recursive:true,force:true});
+});
+
+test('1.124.3: merge --session goes into the open entry the conversation is on, not a newer one that is closed',()=>{
+  const {s}=freshInbox(),S='sess-gate-1111';
+  const b=s.add({title:'Gate (older entry)',story:'gate-b',merge:false});
+  const a=s.add({title:'Gate (newer entry)',story:'gate-a',url:'/#/start/0123456789ab',merge:false});
+  s.linkStart('0123456789ab',S); // the conversation starts from a
+  s.merge({id:a.id,into:b.id}); // a goes into b, which takes the conversation with it
+  assert.ok(s.get(b.id).sessions.some(x=>x.id===S));assert.equal(s.get(a.id).state,'dismissed');
+  const c=s.add({title:'Gate (duplicate)',story:'gate-c',merge:false});
+  const r=s.merge({id:c.id,session:S});
+  assert.deepEqual([r.into.id,s.get(c.id).state,s.get(c.id).mergedInto],[b.id,'dismissed',b.id]);
+  // with no open entry on that conversation, the refusal still names the closed one
+  s.act({action:'resolve',id:b.id});const d=s.add({title:'Gate (another)',story:'gate-d',merge:false});
+  assert.throws(()=>s.merge({id:d.id,session:S}),e=>e.code==='bad_merge'&&/restore it first/.test(e.message));
+});
+
+test('1.124.3: an ack names the decision it applied (id@at), so a decision made after the watcher read feedback stays feedback',()=>{
+  const {s}=freshInbox();
+  const e=s.add({title:'Gate down',story:'gate'}),d=s.add({kind:'digest',title:'Digest',items:[{ref:'a1',title:'Fence',story:'fence'}]});
+  s.act({action:'resolve',id:e.id});s.act({action:'resolve',id:d.id,item:'a1'});
+  const read=s.feedback(),at=Object.fromEntries(read.map(f=>[f.id,f.at]));
+  // the owner changes their mind while the watcher applies what it read
+  s.act({action:'not_useful',id:e.id});s.act({action:'not_useful',id:d.id,item:'a1'});
+  assert.equal(s.ack(read.map(f=>`${f.id}@${f.at}`)),0,'the decisions it read are no longer the current ones');
+  assert.deepEqual(s.feedback().map(f=>f.id+' '+f.action).sort(),[d.id+'/a1 not_useful',e.id+' not_useful'].sort(),'the newer decisions are still to apply');
+  const now=s.feedback();
+  assert.equal(s.ack(now.map(f=>`${f.id}@${f.at}`)),2);assert.deepEqual(s.feedback(),[]);
+  assert.notEqual(at[e.id],now.find(f=>f.id===e.id).at);
+  // a split the same way; and a plain id (an older watcher) acks whatever is current, as before
+  const g=s.add({title:'Pier',story:'pier',url:'/#/start/0123456789ab'});s.linkStart('0123456789ab','sess-pier-1111');
+  s.add({title:'Pier storm',story:'pier'});s.split({id:g.id});
+  const sp=s.feedback().find(f=>f.action==='split');
+  assert.equal(s.ack([`${sp.id}@2026-01-01T00:00:00Z`]),0);assert.equal(s.ack([`${sp.id}@${sp.at}`]),1);
+  s.act({action:'dismiss',id:e.id});assert.equal(s.ack([e.id]),1);assert.deepEqual(s.feedback(),[]);
+});

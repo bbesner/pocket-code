@@ -204,6 +204,23 @@ def searches(b):
     return [c["input"] for call in calls for c in call if c["tool"].endswith("search_threads")]
 
 
+def test_a_check_after_more_than_three_days_says_what_it_skipped():
+    # Review 2026-11-23 (inbox-11): a check reads at most MAX_LOOKBACK_S back. After a longer gap (Pocket or the connector
+    # down for days) the older mail was skipped and nothing said so.
+    b = Box()
+    now = int(time.time())
+    b.data["threads"] = [{"id": "old", "messages": [msg("m1", "old", now - 6 * 86400)]}, {"id": "new", "messages": [msg("m2", "new", now - 60)]}]
+    b.save()
+    said = []
+    m = C.ConnectorMail({"provider": "connector", "bin": str(b.bin)}, "alex@example.com", "newer_than:2d", "", b.dir, log=said.append)
+    changed, _, _ = m.changed_threads(f"t:{now - 7 * 86400}")
+    assert "new" in changed and "old" not in changed, changed
+    assert len(said) == 1 and "7 days" in said[0] and "not checked" in said[0], said
+    said.clear()
+    m.changed_threads(f"t:{now - 300}")
+    assert said == [], "a check after a normal gap says nothing"
+
+
 def test_time_bounds_reach_the_connector_as_dates():
     """Since 2026-10-27 the claude.ai connector answers `after:<seconds>` with nothing and no error (reported by a colleague, 2026-10-28)."""
     import datetime as dt

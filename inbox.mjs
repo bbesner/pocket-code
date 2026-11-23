@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { shellArg } from './skills.mjs';
+import { readStore } from './store-file.mjs';
 
 // 1.95: a digest carries its items (one per story: title, text, story, Gmail thread, a `ref` the watcher knows), each with
 // its own decision: Add to Inbox (action 'alert'), Resolved, Not useful, and Restore to undo. A look-ahead's items work the same way
@@ -211,12 +212,11 @@ export function inboxInstructions(cli, sessionId) {
 const listedLast = e => e.kind === 'digest' ? [...e.items.filter(i => i.section !== 'listed'), ...e.items.filter(i => i.section === 'listed')] : e.items; // the watcher's order otherwise; a look-ahead stays in its order, most pressing first
 
 export class InboxStore {
-  constructor(file, { write, now } = {}) {
+  constructor(file, { write, now, log } = {}) {
     this.file = file;
     this.now = now || Date.now;
     this.write = write || ((f, data) => { fs.mkdirSync(path.dirname(f), { recursive: true }); const tmp = f + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(data, null, 1), { mode: 0o600 }); fs.renameSync(tmp, f); });
-    let d = {};
-    try { d = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { }
+    const d = readStore(file, { log, now: this.now }); // 1.124.3: one that does not parse is kept aside and logged, as the other stores are
     this.entries = Array.isArray(d.entries) ? d.entries.filter(e => e && typeof e.id === 'string' && typeof e.title === 'string' && !Number.isNaN(ms(e.at))).map(e => this.normalize(e)) : [];
     this.sources = {};
     if (d.sources && typeof d.sources === 'object') for (const [k, v] of Object.entries(d.sources)) if (v && !Number.isNaN(ms(v.lastReportAt))) this.sources[source(k)] = { lastReportAt: v.lastReportAt };
@@ -333,7 +333,9 @@ export class InboxStore {
     if (into) host = this.get(str(into, 40));
     else if (session) {
       const sid = str(session, 90);
-      host = this.entries.filter(x => x.kind === 'alert' && x.sessions.some(s => s.id === sid)).sort((a, b) => ms(b.at) - ms(a.at))[0] || null;
+      // 1.124.3: the open entry it is on, as split() finds it; a newer closed one (an entry merged away) only names the refusal
+      const on = this.entries.filter(x => x.kind === 'alert' && x.sessions.some(s => s.id === sid)).sort((a, b) => ms(b.at) - ms(a.at));
+      host = on.find(x => (x.state === 'new' || x.state === 'opened') && x.sessions.some(s => s.id === sid && !s.handed)) || on[0] || null;
       if (!host) throw fail('No Inbox entry was started from that conversation.', 404, { code: 'inbox_missing' });
     } else throw fail('merge needs the entry to merge into (into) or the conversation started from it (session).', 400, { code: 'bad_merge' });
     if (host === e) throw fail('An entry cannot be merged into itself.', 400, { code: 'bad_merge' });
@@ -663,14 +665,17 @@ export class InboxStore {
     return out.sort((a, b) => ms(b.at) - ms(a.at));
   }
   // The worker applied these; they leave feedback until the owner decides again. An item's id is '<entry>/<ref>'.
+  // 1.124.3: '<id>@<at>' acks that decision only (the `at` feedback() gave), so one the owner made after the watcher read it stays
+  // feedback; a plain id acks whatever decision is current, as before.
   ack(ids) {
     if (!Array.isArray(ids) || ids.length > LIMITS.entries * 4 || ids.some(x => typeof x !== 'string')) throw fail('ids: a list of Inbox entry ids.', 400, { code: 'bad_ids' });
-    const want = new Set(ids), at = iso(this.now());
+    const want = new Map(ids.map(x => { const i = x.indexOf('@'); return i < 0 ? [x, null] : [x.slice(0, i), x.slice(i + 1)]; })), at = iso(this.now());
+    const asked = (id, when) => want.has(id) && (want.get(id) == null || want.get(id) === when);
     let n = 0;
     for (const e of this.entries) {
-      if (want.has(e.id) && e.actedAt && e.ackedAt == null) { e.ackedAt = at; n++; }
-      if (want.has(`${e.id}:split`) && e.splitAt && e.splitAcked == null) { e.splitAcked = at; n++; }
-      for (const it of e.items) if (want.has(`${e.id}/${it.ref}`) && it.actedAt && it.ackedAt == null) { it.ackedAt = at; n++; }
+      if (asked(e.id, e.actedAt) && e.actedAt && e.ackedAt == null) { e.ackedAt = at; n++; }
+      if (asked(`${e.id}:split`, e.splitAt) && e.splitAt && e.splitAcked == null) { e.splitAcked = at; n++; }
+      for (const it of e.items) if (asked(`${e.id}/${it.ref}`, it.actedAt) && it.actedAt && it.ackedAt == null) { it.ackedAt = at; n++; }
     }
     if (n) this.save();
     return n;

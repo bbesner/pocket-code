@@ -613,6 +613,7 @@ class ConnectorMail:
         self.scope = scope_query(mail.get("scope"))  # 1.100: "", "in:inbox" or "{in:inbox label:…}"; every fetch for new mail stays inside it
         self.scope_new = scope_query(mail.get("scope"), sent=True)  # the window search: the owner's replies join it
         self.on_call = on_call
+        self.log = log or (lambda m: None)
         self.search_cap = int(mail.get("search_cap", 400))
         self._cache: dict[str, list[dict]] = {}  # thread id -> messages read this run
         self._seen: dict[str, tuple[str, int]] = {}  # 1.124.1: message id -> (thread id, when), seen this run, written by commit_seen()
@@ -672,7 +673,12 @@ class ConnectorMail:
         is still one call. A check that finds no threads at all while `newer_than:1d` does is a blind search, not a quiet
         mailbox: BLIND_RUNS of those in a row fail the check (1.83.1), so Pocket shows it instead of reporting healthy."""
         now = int(time.time())
-        since = max(int(str(cursor)[2:]) - OVERLAP_S, now - MAX_LOOKBACK_S)
+        last = int(str(cursor)[2:])
+        since = max(last - OVERLAP_S, now - MAX_LOOKBACK_S)
+        if since > last - OVERLAP_S:  # 1.124.3: said, not silent: after a long gap the oldest mail is never checked
+            day = lambda t: dt.datetime.fromtimestamp(t, dt.timezone.utc).strftime("%b %-d")
+            self.log(f"the last check was {(now - last) // 86400} days ago and a check reads at most {MAX_LOOKBACK_S // 86400} days back: "
+                     f"mail that arrived from {day(last)} to {day(since)} (UTC) was not checked; look in Gmail for anything from then")
         query = f"after:{since} -in:spam -in:trash -in:draft {self.scope_new}".strip()
         changed: set[str] = set()
         found, token = 0, None

@@ -180,7 +180,7 @@ pocket-inbox add --title "Acme HOA needs dispatch attention before 9 a.m." --fil
   --kind alert --priority high --story "Acme HOA service-call story" \
   --url "/#/start/<id>" --gmail "https://mail.google.com/mail/u/0/#all/<thread>" --dedupe "vendor:<thread>"
 pocket-inbox feedback          # the user's decisions the job has not applied yet
-pocket-inbox ack <id…>         # after applying them
+pocket-inbox ack <id@at…>      # after applying them: each id with the `at` feedback gave, so a newer decision stays
 pocket-inbox seen              # a heartbeat when a run posts nothing
 ```
 

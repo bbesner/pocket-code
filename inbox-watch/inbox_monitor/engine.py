@@ -318,7 +318,8 @@ create table if not exists lessons(id integer primary key autoincrement, ref tex
 JUDGE_CALL_COLUMNS = {"turns": "integer", "tool_calls": "integer", "tools": "text", "memory_items": "integer"}
 ISSUE_COLUMNS = {"title": "text", "unknowns": "text", "memory_at": "text", "not_useful_at": "text"}  # 1.109: Not useful keeps a story off the list
 ALERT_COLUMNS = {"memory_at": "text", "push_kind": "text", "why_now": "text", "pushed": "integer",  # 1.105: the push split
-                 "tries": "integer"}  # 1.124.2: failed deliveries, for deliver_left_queued's retries
+                 "tries": "integer",  # 1.124.2: failed deliveries, for deliver_left_queued's retries
+                 "missed": "text"}  # 1.124.3: 'pocket' when Pocket refused an alert another channel took, for the same retries
 
 ARCHIVE_SCHEMA = """
 create table if not exists mail(message_id text primary key, thread_id text, ts integer, date text, sender text, recipients text,
@@ -1560,9 +1561,11 @@ def briefing_for(store: Store, alert: sqlite3.Row, thread: dict | None) -> str:
     return "\n".join(lines)
 
 
-def deliver(store: Store, alert_id: int, thread: dict | None, dry_run: bool, held_note: bool = False, items: list[dict] | None = None) -> bool:
+def deliver(store: Store, alert_id: int, thread: dict | None, dry_run: bool, held_note: bool = False, items: list[dict] | None = None,
+            only: str | None = None) -> bool:
     """One alert to every configured delivery; the Pocket start link (when configured) is made once and shared.
-    `items` (1.95): a look-ahead's cards, for a channel that can offer a choice per item."""
+    `items` (1.95): a look-ahead's cards, for a channel that can offer a choice per item.
+    `only` (1.124.3): that channel alone, for an alert it missed while another took it."""
     alert = store.db.execute("select * from alerts where id=?", (alert_id,)).fetchone()
     a = dict(alert)
     title = f"Email: {a['subject']}" if a["kind"] != "checkin" else (a["subject"] or "Look-ahead")
@@ -1580,8 +1583,8 @@ def deliver(store: Store, alert_id: int, thread: dict | None, dry_run: bool, hel
     store.db.execute("update alerts set pushed=? where id=?", (1 if push else 0, alert_id))
     log(f"push {'yes' if push else 'no'} for {a['subject']!r}: {why or '-'}")
     shown = ((a.get("why_now") or why) if push else (why if why.startswith("Not pushed") else None)) or None
-    refs = []
-    for d in DELIVERIES:
+    refs, missed = [], []
+    for d in [d for d in DELIVERIES if not only or d.kind == only]:
         try:
             fn = d.send_lookahead if a["kind"] == "checkin" else d.send_alert
             extra = {k: v for k, v in (("push", push), ("why", shown)) if takes(fn, k)}  # a channel written before 1.105 gets neither
@@ -1589,11 +1592,17 @@ def deliver(store: Store, alert_id: int, thread: dict | None, dry_run: bool, hel
             refs.append(f"{d.kind}:{ref}")
         except Exception as e:  # noqa: BLE001
             log(f"deliver {d.kind} failed for alert {alert_id}: {e}")
+            missed.append(d.kind)
+    if only:  # the other channels already have it: only whether this one took it now changes
+        store.db.execute("update alerts set missed=?, tries=coalesce(tries,0)+? where id=?", (None if refs else only, 0 if refs else 1, alert_id))
+        return bool(refs)
     if not DELIVERIES:
         log(f"no delivery configured; alert {alert_id} recorded only")
     store.mark_sent(alert_id, ",".join(refs) or None, pocket, "sent" if refs or not DELIVERIES else "failed")
     if DELIVERIES and not refs:  # 1.124.2: counted, so deliver_left_queued tries it again a few times and then leaves it
         store.db.execute("update alerts set tries=coalesce(tries,0)+1 where id=?", (alert_id,))
+    elif refs and "pocket" in missed:  # 1.124.3: Pocket alone is tried again (it knows the alert by its key); Telegram and email have no key, so are not
+        store.db.execute("update alerts set missed='pocket', tries=coalesce(tries,0)+1 where id=?", (alert_id,))
     return bool(refs) or not DELIVERIES
 
 
@@ -1677,23 +1686,31 @@ def deliver_left_queued(store: Store, dry_run: bool, awake: bool = False) -> int
     a run, FAILED_TRIES times in all and only within FAILED_RETRY_HOURS of its making, while Pocket still answers its key as
     a duplicate, so one that did reach the Inbox is not listed again. One that failed before 1.124.2 has no count and is left."""
     sent = 0
-    failed = [] if dry_run else store.db.execute(  # a dry run would mark it 'dry-run', as if it had been told
-        "select * from alerts where kind='notify' and status='failed' and tries<? and created_at>=? order by created_at",
+    if dry_run:  # 1.124.3: says what it would send and changes nothing; deliver() would mark each 'dry-run', and no real check sent it
+        for a in store.pending(("notify", "checkin"), ("queued",)):
+            log(f"[dry-run] alert {a['id']} left unsent by an earlier run; a real check sends it: {a['subject']!r}")
+        return 0
+    failed = store.db.execute(  # 1.124.3: and one Pocket missed while another channel took it
+        "select * from alerts where kind in ('notify','checkin') and (status='failed' or (status='sent' and missed='pocket')) and tries<? and created_at>=? order by created_at",
         (FAILED_TRIES, iso(now_utc() - dt.timedelta(hours=FAILED_RETRY_HOURS)))).fetchall()
-    for a in [*store.pending(("notify",), ("queued",)), *failed]:
-        again = a["status"] == "failed"
-        what = "not delivered by an earlier run" if again else "left unsent by an earlier run"
+    for a in [*store.pending(("notify", "checkin"), ("queued",)), *failed]:  # 1.124.3: a look-ahead too (its key is Pocket's as well)
+        again, only = a["status"] in ("failed", "sent"), "pocket" if a["status"] == "sent" else None
+        what = "not delivered to Pocket by an earlier run" if only else "not delivered by an earlier run" if again else "left unsent by an earlier run"
         s = store.story(a["issue_key"]) if a["issue_key"] else None
         if s and s["status"] == "resolved" and (s["updated_at"] or "") > (a["created_at"] or ""):
             log(f"alert {a['id']} {what}: its story was resolved since; not sent: {a['subject']!r}")
-            store.mark_sent(a["id"], None, None, "superseded")
+            if only:  # it reached the owner on another channel: it stays sent
+                store.db.execute("update alerts set missed=null where id=?", (a["id"],))
+            else:
+                store.mark_sent(a["id"], None, None, "superseded")
         elif in_quiet_hours() and a["priority"] != "critical" and "|added|" not in (a["dedupe_key"] or "") and not awake:
             log(f"alert {a['id']} {what}: held for morning: {a['subject']!r}")
-            store.db.execute("update alerts set status='held' where id=?", (a["id"],))
+            if not only and a["kind"] == "notify":  # a look-ahead, or an alert another channel took, waits here: the morning release sends held alerts only, and everywhere
+                store.db.execute("update alerts set status='held' where id=?", (a["id"],))
         else:
             n = f" (try {a['tries'] + 1} of {FAILED_TRIES})" if again else ""
             log(f"alert {a['id']} {what} ({iso_to_et(a['created_at'])}); sending it now{n}: {a['subject']!r}")
-            if deliver(store, a["id"], None, dry_run):
+            if deliver(store, a["id"], None, dry_run, only=only):
                 sent += 1
             elif (store.db.execute("select tries from alerts where id=?", (a["id"],)).fetchone()["tries"] or 0) >= FAILED_TRIES:
                 log(f"alert {a['id']} not delivered after {FAILED_TRIES} tries; not tried again (it is in monitor.sqlite): {a['subject']!r}")
