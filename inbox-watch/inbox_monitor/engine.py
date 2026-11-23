@@ -1662,6 +1662,31 @@ def release_held(store: Store, dry_run: bool, everything: bool = False) -> list[
     return for_digest
 
 
+def deliver_left_queued(store: Store, dry_run: bool, awake: bool = False) -> int:
+    """1.124.1: alerts an earlier run decided and never sent. An alert waits as 'queued' from its batch to the end of the run,
+    so a run killed in between (Pocket stopping it at 30 minutes, the machine going down) left it there for good, and every
+    later alert on its story folded into it unsent. At the start of each run (under the lock, so none is this run's own)
+    they go out now, however late: late mail is judged rather than dropped, and the same goes for its alert. Pocket knows
+    each by its dedupe key, so one the killed run had already sent is not listed or pushed again. As for a held alert, one
+    whose story was resolved since is not sent, and quiet hours hold all but a critical one, one the owner labelled in
+    Gmail, or any during Check now. Returns how many went out."""
+    sent = 0
+    for a in store.pending(("notify",), ("queued",)):
+        s = store.story(a["issue_key"]) if a["issue_key"] else None
+        if s and s["status"] == "resolved" and (s["updated_at"] or "") > (a["created_at"] or ""):
+            log(f"alert {a['id']} left unsent by an earlier run: its story was resolved since; not sent: {a['subject']!r}")
+            store.mark_sent(a["id"], None, None, "superseded")
+        elif in_quiet_hours() and a["priority"] != "critical" and "|added|" not in (a["dedupe_key"] or "") and not awake:
+            log(f"alert {a['id']} left unsent by an earlier run: held for morning: {a['subject']!r}")
+            store.db.execute("update alerts set status='held' where id=?", (a["id"],))
+        else:
+            log(f"alert {a['id']} left unsent by an earlier run ({iso_to_et(a['created_at'])}); sending it now: {a['subject']!r}")
+            if deliver(store, a["id"], None, dry_run):
+                sent += 1
+        store.commit()
+    return sent
+
+
 def send_digest(store: Store, overflow: list[sqlite3.Row], dry_run: bool) -> None:
     today = now_et().date().isoformat()
     digest_items = store.pending(("digest",), ("queued",))
@@ -2406,6 +2431,7 @@ def process(store: Store, archive: Archive, gmail: Gmail, run_id: int, thread_id
         for aid, th in pending.items():
             if deliver(store, aid, th, dry_run):
                 notified += 1
+            store.commit()  # 1.124.1: each one recorded as it goes, so a run killed part-way does not send the earlier ones again
         store.commit()
     evaluated = store.db.execute("select count(*) c from decisions where run_id=?", (run_id,)).fetchone()["c"]
     return evaluated, notified, error
@@ -2476,6 +2502,8 @@ def _process_batch(store: Store, archive: Archive, gmail: Gmail, run_id: int, ba
                         mark_label(store, d["thread_id"], f"with:{waiting['id']}")
                     if waiting["status"] == "held" and not hold:  # a held alert that now qualifies to go out
                         store.db.execute("update alerts set status='queued' where id=?", (waiting["id"],))
+                        pending[waiting["id"]] = th
+                    elif waiting["status"] == "queued" and waiting["id"] not in pending:  # 1.124.1: one an earlier run never sent goes with this one
                         pending[waiting["id"]] = th
                 else:
                     log(f"already alerted on this fact: {title!r}")
@@ -3330,12 +3358,13 @@ def run(dry_run: bool, baseline_only: bool, why: str = "", request: str | None =
     g = globals()
     g["USAGE_DB"], g["CURRENT_RUN"] = store.db, run_id
     gmail = gmail_client()
-    changed_n = evaluated = notified = 0
+    changed_n = evaluated = notified = recovered = 0
     error = None
     try:
         apply_feedback(store, dry_run)
         if not dry_run:
             sync_worked(store)
+        recovered = deliver_left_queued(store, dry_run, awake=bool(request))
         learn_safely(store, dry_run)
         cursor = store.get("history_cursor")
         if cursor and not gmail.cursor_ok(cursor):
@@ -3377,6 +3406,7 @@ def run(dry_run: bool, baseline_only: bool, why: str = "", request: str | None =
             log(f"backlog: {remaining} more threads wait for the next runs")
         evaluated, notified, error = process(store, archive, gmail, run_id, todo, now_ts() + 60, dry_run, fetch_live=True, cursor_note=new_cursor,
                                              awake=bool(request))
+        notified += recovered
         if request:  # Check now: what quiet hours were holding goes out with this check, not at the digest hour
             release_held(store, dry_run, everything=True)
         scheduled(store, archive, gmail, dry_run)

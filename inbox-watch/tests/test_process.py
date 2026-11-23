@@ -408,6 +408,88 @@ def alerts_now():
         s.db.close()
 
 
+def test_an_alert_left_queued_by_a_killed_run_goes_out_at_the_next_run():
+    # Review 2026-11-23 (inbox-01): batch 1's alert is committed 'queued' and goes out only at the end of the run. A run killed
+    # in between (here while batch 2 is judged) left it queued for good, and every later alert on the story folded into it.
+    def check():
+        pocket, mailed = run_setup()
+        s = E.Store(E.DB_PATH)  # two threads an earlier check found, the gate first
+        s.db.executemany("insert into backlog(thread_id,added_at) values(?,?)", [(GATE, "2026-11-23T10:00:00Z"), (INVOICE, "2026-11-23T10:00:01Z")])
+        s.commit()
+        s.db.close()
+        judge = E.decide
+
+        def decide(store, archive, gmail, batch, until, related=None):
+            if batch[0]["thread_id"] == INVOICE:
+                die()
+            return judge(store, archive, gmail, batch, until, related)
+        E.decide = decide
+        how, err = in_child(lambda: E.run(False, False))
+        mailed.clear()  # the child reported it; a fork does not share the list back
+        assert how == "killed 9", (how, err)
+        assert alerts_now() == {"gate": "queued"} and pocket.entries() == [], (alerts_now(), pocket.entries())
+        E.decide = judge
+        assert E.run(False, False) == 0  # the next check, with no new mail of its own
+        assert [e["title"] for e in pocket.entries()] == ["Gate down", "Invoice 7"], pocket.entries()
+        assert alerts_now() == {"gate": "sent", "inv-7": "sent"}, alerts_now()
+        mailed.append(GATE2)  # later mail on the story is a new alert, not folded into one that never left
+        assert E.run(False, False) == 0
+        assert [e["title"] for e in pocket.entries()] == ["Gate down", "Invoice 7", "Gate still down"], pocket.entries()
+    with_run_fakes(check)
+
+
+def test_an_alert_sent_just_before_the_run_was_killed_is_not_sent_again():
+    # The kill lands after Pocket took the entry and before the watcher recorded it: the next run sends it again with the
+    # same dedupe key, and Pocket answers that it already has it.
+    def check():
+        pocket, mailed = run_setup(die_after_send=True)
+        mailed.append(GATE)
+        how, err = in_child(lambda: E.run(False, False))
+        mailed.clear()  # the child reported it; a fork does not share the list back
+        assert how == "killed 9", (how, err)
+        assert alerts_now() == {"gate": "queued"} and len(pocket.entries()) == 1, (alerts_now(), pocket.entries())
+        pocket.die_after_send = False
+        assert E.run(False, False) == 0
+        assert alerts_now() == {"gate": "sent"}, alerts_now()
+        assert [e["title"] for e in pocket.entries()] == ["Gate down"], pocket.entries()
+    with_run_fakes(check)
+
+
+def test_a_new_fact_folded_into_an_alert_that_never_left_takes_it_out():
+    # process() on its own (no start-of-run recovery): the stuck alert goes out with the new fact instead of absorbing it.
+    store, pocket = setup()
+    store.queue_alert("gate|old", issue_key="gate", thread_id=GATE, kind="notify", priority="high", text="The gate is down.", subject="Gate down",
+                      sender="site@example.com", status="queued")
+    store.commit()
+    saved = {k: getattr(E, k) for k in ("decide", "in_quiet_hours", "group_bundles")}
+    try:
+        E.decide = lambda store, archive, gmail, batch, until, related=None: [gate_decision(b["thread_id"]) for b in batch]
+        E.in_quiet_hours = lambda *a: False
+        _, notified, err = E.process(store, LedgerArchive(), None, 2, [GATE2], int(NOW) + 60, False, fetch_live=False)
+    finally:
+        for k, v in saved.items():
+            setattr(E, k, v)
+    assert (notified, err) == (1, None) and pocket.sent == ["Gate still down"], (notified, err, pocket.sent)
+    assert sorted(r["status"] for r in store.db.execute("select status from alerts")) == ["merged", "sent"]
+
+
+def test_a_late_alert_waits_out_quiet_hours_and_one_on_a_resolved_story_is_dropped():
+    store, pocket = setup()
+    for key, prio in (("gate", "high"), ("fire", "critical"), ("inv-7", "normal")):
+        store.queue_alert(f"{key}|f1", issue_key=key, thread_id=A, kind="notify", priority=prio, text=f"{key}.", subject=key, sender="x@example.com", status="queued")
+    store.upsert_story({"issue_key": "inv-7", "status": "resolved", "priority": "normal", "new_fact": "Paid."}, None)
+    store.db.execute("update issues set updated_at=? where issue_key='inv-7'", (E.iso(E.now_utc() + E.dt.timedelta(seconds=5)),))
+    store.commit()
+    saved = E.in_quiet_hours
+    E.in_quiet_hours = lambda *a: True
+    try:
+        assert E.deliver_left_queued(store, False) == 1
+    finally:
+        E.in_quiet_hours = saved
+    assert statuses(store) == {"gate": "held", "fire": "sent", "inv-7": "superseded"}, statuses(store)
+    assert pocket.sent == ["fire"], pocket.sent
+
+
 def test_a_closed_output_pipe_does_not_end_the_run():
     # Review 2026-11-23 (inbox-03): a Pocket restart during a check leaves the watcher running with nobody reading its
     # stdout and stderr. Its next log line raised BrokenPipeError and the run stopped wherever it was.
