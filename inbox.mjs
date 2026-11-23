@@ -333,7 +333,9 @@ export class InboxStore {
     if (into) host = this.get(str(into, 40));
     else if (session) {
       const sid = str(session, 90);
-      host = this.entries.filter(x => x.kind === 'alert' && x.sessions.some(s => s.id === sid)).sort((a, b) => ms(b.at) - ms(a.at))[0] || null;
+      // 1.124.3: the open entry it is on, as split() finds it; a newer closed one (an entry merged away) only names the refusal
+      const on = this.entries.filter(x => x.kind === 'alert' && x.sessions.some(s => s.id === sid)).sort((a, b) => ms(b.at) - ms(a.at));
+      host = on.find(x => (x.state === 'new' || x.state === 'opened') && x.sessions.some(s => s.id === sid && !s.handed)) || on[0] || null;
       if (!host) throw fail('No Inbox entry was started from that conversation.', 404, { code: 'inbox_missing' });
     } else throw fail('merge needs the entry to merge into (into) or the conversation started from it (session).', 400, { code: 'bad_merge' });
     if (host === e) throw fail('An entry cannot be merged into itself.', 400, { code: 'bad_merge' });

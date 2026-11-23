@@ -765,3 +765,18 @@ test('1.124.3: an inbox.json that does not parse is kept aside and logged, and t
   const said2=[];new InboxStore(path.join(dir,'none.json'),{log:m=>said2.push(m)});assert.deepEqual(said2,[],'a missing file is a new Inbox, logged nowhere');
   fs.rmSync(dir,{recursive:true,force:true});
 });
+
+test('1.124.3: merge --session goes into the open entry the conversation is on, not a newer one that is closed',()=>{
+  const {s}=freshInbox(),S='sess-gate-1111';
+  const b=s.add({title:'Gate (older entry)',story:'gate-b',merge:false});
+  const a=s.add({title:'Gate (newer entry)',story:'gate-a',url:'/#/start/0123456789ab',merge:false});
+  s.linkStart('0123456789ab',S); // the conversation starts from a
+  s.merge({id:a.id,into:b.id}); // a goes into b, which takes the conversation with it
+  assert.ok(s.get(b.id).sessions.some(x=>x.id===S));assert.equal(s.get(a.id).state,'dismissed');
+  const c=s.add({title:'Gate (duplicate)',story:'gate-c',merge:false});
+  const r=s.merge({id:c.id,session:S});
+  assert.deepEqual([r.into.id,s.get(c.id).state,s.get(c.id).mergedInto],[b.id,'dismissed',b.id]);
+  // with no open entry on that conversation, the refusal still names the closed one
+  s.act({action:'resolve',id:b.id});const d=s.add({title:'Gate (another)',story:'gate-d',merge:false});
+  assert.throws(()=>s.merge({id:d.id,session:S}),e=>e.code==='bad_merge'&&/restore it first/.test(e.message));
+});
