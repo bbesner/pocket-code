@@ -6863,8 +6863,7 @@ app.post('/api/checkbacks/agent/add', requireBoardAuth, checkbacksGate, async (r
   const filled = overLimit(); if (filled) return cbRefuse(res, filled);
   const c = checkbacks.add({ sessionId: who.sessionId, engine: who.engine, note, dueAt, chainDepth: set.depth, run,
     createdByTurn: { startedAt: cbIso(turn.startedAt || now), origin: turn.origin, ...(turn.originRef ? { originRef: turn.originRef } : {}) },
-    ...(paused ? { status: 'held', held: { reason: 'paused', since: cbIso(now) } } : {}) });
-  if (title) checkbacks.update(c.id, { title: String(title).slice(0, 160) });
+    ...(paused ? { status: 'held', held: { reason: 'paused', since: cbIso(now) } } : {}), ...(title ? { title: String(title).slice(0, 160) } : {}) }); // 1.124.4: one save; a failed second save for the title answered 503 for a check-back that was set
   cbAudit('set', c, { dueAt: c.dueAt, ...(paused ? { held: 'paused' } : {}) });
   log(`check-back set id=${c.id} session=${who.sessionId} due=${c.dueAt} depth=${c.chainDepth}`);
   res.status(201).json({ ok: true, checkback: checkbackView(checkbacks.get(c.id)), dueText: fmtCheckbackTime(Date.parse(c.dueAt)), chainLimit: v.chainLimit, ...(paused ? { paused: true } : {}) });
