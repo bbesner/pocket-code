@@ -373,11 +373,16 @@ restarted too. If the previous packages cannot be installed again either, the jo
 daemon carries on, but run `npm ci` in the checkout before it next restarts. When the new version did not start and the previous one cannot be put back, the job says so and does not restart (1.124.3): check out the commit in the backup's `prev-head.txt`, run `npm ci` and restart with PM2. The daemon refuses to start it while a reply or a CLI upgrade is running.
 
 Progress is in `pocket-self-update.json` in the data folder (the script touches `pocket-self-update.json.lock`
-every minute while it runs; a job with neither for 20 minutes died with its server and shows as interrupted, 1.124.3;
+every minute while it runs; a job with neither for 20 minutes died with its server and shows as interrupted, 1.124.3,
+and one that had reached installing, restarting or going back says the checkout may have moved and to run `npm ci` in it
+before Pocket restarts, 1.124.5;
 a job still queued two minutes after the press, with no lock file newer than the press, never started and shows as failed,
 1.124.4) and the script's output in `pocket-self-update.log`; both are git-ignored. Requirements: PM2
 (the daemon must run under it), a git checkout, `git`, `npm`, `pm2`, GNU `tar` and `flock` on the daemon's
-PATH (on macOS, Homebrew's `gnu-tar`, used as `gtar`, and `flock`; the job names what is missing). Running an operator update on such an install works as before; an operator script that expects a
+PATH (on macOS, Homebrew's `gnu-tar`, used as `gtar`, and `flock`; the job names what is missing, and since 1.124.5
+the Update button is not offered without `flock` and GNU tar: the row says what to install). From the moment the script
+says `restarting`, the version being replaced refuses the owner's new messages, branches and side chats with
+`409 restarting` for up to 90 seconds, so the restart does not cut a reply short (1.124.5). Running an operator update on such an install works as before; an operator script that expects a
 particular `HEAD` will find the owner may already have moved it.
 
 ## Restarted questions and approvals
@@ -723,7 +728,9 @@ Once a value has been typed, image, audio and blob content from the server is re
 relay's life, since a screenshot of a page showing the value cannot be scrubbed; text snapshots still work. Calls that
 make a picture (`browser_take_screenshot`, `browser_pdf_save`, `screenshot`, and any tool in the comma-separated
 `POCKET_VAULT_PICTURE_TOOLS`) are refused from then on and never reach the server (1.124.2), because Playwright MCP saves
-each picture to a file and names it in its reply. A picture or `filename` call sent while a fill waits is held until
+each picture to a file and names it in its reply. So are the tools that capture the page another way (1.124.5):
+`browser_run_code_unsafe`, `browser_start_video`, `browser_stop_video`, `browser_start_tracing`, `browser_stop_tracing`
+and `browser_annotate`. `browser_evaluate` and text snapshots still run. A picture or `filename` call sent while a fill waits is held until
 the fill settles, and a fill waits up to `POCKET_VAULT_PICTURE_WAIT` seconds (default 30) for one sent before it to
 answer, then is refused with nothing typed (1.124.4). A server that closes its input is stopped (SIGTERM, then SIGKILL
 after five seconds) and the relay exits non-zero (1.124.4).
