@@ -223,3 +223,22 @@ test('a-x-1: a Claude reply\'s push is titled as the list titles the conversatio
   assert.equal((await s.call(`/session/${s.e(id)}/rename`, { name: 'Disk report' })).status, 200);
   assert.equal((await reply('and since?', 'the push after the rename')).title, 'Disk report');
 });
+
+// a-x-2: project folders are watched from boot and then once a minute. A conversation driven from a terminal in a folder
+// made after that missed every write of its first minute in Pocket's mirror; opening it did not watch the folder.
+test('a-x-2: the mirror of a conversation in a folder made after boot shows a new line at once', { timeout: 60_000 }, async t => {
+  const s = await boot(t, 21187);
+  const id = randomUUID(), folder = path.join(s.dir, 'sessions', '-home-terminal-new-project'), file = path.join(folder, id + '.jsonl');
+  fs.mkdirSync(folder, { recursive: true });
+  const line = (type, content) => JSON.stringify({ type, message: { role: type, content }, cwd: s.cwd, sessionId: id, uuid: randomUUID(), timestamp: new Date().toISOString() }) + '\n';
+  fs.writeFileSync(file, line('user', 'Run the tests'));
+  const ac = new AbortController(); t.after(() => ac.abort());
+  const r = await fetch(`http://127.0.0.1:${s.port}/api/session/${id}/events?offset=${fs.statSync(file).size}`, { headers: { cookie: s.cookie }, signal: ac.signal });
+  assert.equal(r.status, 200);
+  let text = ''; const dec = new TextDecoder();
+  (async () => { try { for await (const c of r.body) text += dec.decode(c, { stream: true }); } catch { } })();
+  await s.until(() => text.includes('"type":"watch"'), 5000, 'the watch stream');
+  await sleep(300);
+  fs.appendFileSync(file, line('assistant', [{ type: 'text', text: 'Running the tests.' }]));
+  await s.until(() => text.includes('Running the tests.'), 5000, 'the new line in the mirror');
+});

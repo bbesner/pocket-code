@@ -1629,6 +1629,8 @@ function watchDirs() {
       });
       w.on('error', () => { try { w.close(); } catch { } dirWatchers.delete(dir); });
       dirWatchers.set(dir, w);
+      // 1.124.5: a write before this watcher existed had no event: a mirror open on this folder reads what it missed
+      for (const id of tailers.keys()) { const f = path.join(dir, id + '.jsonl'); if (fs.existsSync(f)) pumpTail(id, f); }
     } catch { }
   }
 }
@@ -5012,6 +5014,7 @@ app.get('/api/session/:id/events', requireAuth, async (req, res) => {
   if (!tailers.has(id)) tailers.set(id, new Set());
   tailers.get(id).add(t);
   req.on('close', () => { clearInterval(ka); tailers.get(id)?.delete(t); if (!tailers.get(id)?.size) tailers.delete(id); });
+  if (!dirWatchers.has(path.dirname(file))) watchDirs(); // 1.124.5: a folder made since the last minute's look is watched now
   pumpTail(id, file); // catch anything written between transcript fetch and connect
 });
 
