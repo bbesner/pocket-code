@@ -11,6 +11,7 @@ import path from 'node:path';
 
 process.env.POCKET_ACP_SETTLE_QUIET_MS = '700'; // read when acp.mjs loads
 process.env.POCKET_ACP_SETTLE_MAX_MS = '900';
+process.env.POCKET_ACP_SETTLE_STEP_MS = '300';
 const acp = await import('../acp.mjs');
 const { ENGINES, engineForSessionId, takesUnattended, validateModelForEngine } = await import('../engines.mjs');
 const { unattendedGate } = await import('../automation.mjs');
@@ -261,6 +262,30 @@ test('a background command: the reply stays open until the command ends and the 
   assert.match(said(ev), /Started it in the background\.[\s\S]*The background command finished: BG_DONE\./);
   assert.equal(results(ev).length, 1); assert.equal(results(ev)[0].stopReason, 'end_turn');
   assert.ok(!acp.acpTurns.has(turn.sessionId));
+});
+
+test('1.123.1: a step after the background command reports itself before its next command; the reply waits for it', async () => {
+  const store = mkStore(), { emit, ev } = collect();
+  const turn = await acp.startAcpTurn(opts(store, { text: 'render then copy __BGMORE__ __NOASK__', approvalMode: 'full', hooks: { emit } }));
+  await turn.promptDone;
+  assert.equal(turn.done, false);
+  assert.ok(await waitFor(() => turn.done, 5000));
+  const s = sessOf(store, turn.sessionId);
+  assert.equal(s.permission2, 'allow', 'the next command was asked about while the reply was still open, and allowed');
+  assert.match(said(ev), /Started it in the background\.[\s\S]*Copied it: FOLLOWUP_OK\./);
+  assert.equal(results(ev).length, 1); assert.equal(results(ev)[0].stopReason, 'end_turn');
+});
+
+test('1.123.1: the last step ends the reply after the short grace, not the two-minute wait', async () => {
+  const store = mkStore(), { emit, ev } = collect();
+  const turn = await acp.startAcpTurn(opts(store, { text: 'long job __BG__ __NOASK__', hooks: { emit } }));
+  await turn.promptDone;
+  assert.ok(await waitFor(() => /BG_DONE\./.test(said(ev)) || ev.some(e => e.type === 'delta' && /BG_DONE\./.test(e.text)), 3000));
+  const t0 = Date.now();
+  assert.equal(turn.done, false, 'not at the usage_update itself');
+  assert.ok(await waitFor(() => turn.done, 3000));
+  const waited = Date.now() - t0;
+  assert.ok(waited >= 150 && waited < 700, `ended after the step grace (300 ms), not the quiet wait (700 ms): ${waited} ms`);
 });
 
 test('a background command that never ends: the reply ends by itself after the wait, stopping nothing', async () => {

@@ -3,6 +3,30 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.123.1] — 2026-11-22 · build 221
+
+Seen on the owner's install with Antigravity (agy 1.5.14, Gemini 4 Neon). A reply rendered videos with a command that
+ran about four minutes, so agy moved it to the background and Pocket kept the reply open, as 1.120.0 intended. When the
+render ended, the model's next step was to copy the results into a claim folder and add them to Files. Pocket marked the
+reply **Response ready** nine seconds into that step; the step's command then asked for approval on a finished reply,
+Pocket refused it (nobody is there to ask once a reply is over), and agy stopped. The conversation showed a reply that
+said it was still working, with nothing running.
+
+- **Why** (`acp.mjs` `armSettle`, the `usage_update` branch). After a background command, the reply ended at the first
+  `usage_update` with no tool running, on the reading that it closes every model step. agy sends a step's
+  `usage_update` when the model's answer is in and **before** that step's tool calls: measured live with a throwaway
+  conversation on 1.5.14, `usage_update` came 2 ms before each step's `tool_call` (and after the last step's text). So a
+  step that went on to run a command looked finished.
+- **Now** a `usage_update` in that state starts a short grace (`POCKET_ACP_SETTLE_STEP_MS`, 5 seconds) instead of ending
+  the reply. Anything else the agent sends in the grace (a tool call, text, thinking, an approval or a question) cancels
+  it, and the waits from 1.120.0 apply again: two minutes of quiet with every tool finished, ten minutes of silence while
+  one runs. A step with nothing after it ends the reply when the grace runs out, so a reply that waited for a background
+  command shows **Response ready** about five seconds after its last words instead of at once. Replies that never ran a
+  background command are unchanged, and so is OpenRouter (OpenCode does not move commands to the background).
+- Tested: `test/antigravity.test.mjs`, the two `1.123.1:` cases, against a new stand-in scenario (`test/fake-agy.mjs`
+  `__BGMORE__`: after the background command, the step's `usage_update`, then 30 ms later a command that asks for
+  approval). Both fail on 1.123.0: the follow-up approval was refused and the last step ended at once.
+
 ## [1.123.0] — 2026-11-22 · build 220
 
 Asked for by the owner of an install that runs its own server: the Updates sheet announced a new Pocket Code release and, when opened, offered no way to install it ("Whoever manages this server installs its updates"), while its **Upgrade selected** button, which only covers Claude Code and Codex, sat greyed out below. **An install's owner can now let Pocket install its own releases: with `POCKET_SELF_UPDATE=1` the Pocket Code row has an Update button.** Off by default, so a managed install is unchanged and only its operator updates it.
