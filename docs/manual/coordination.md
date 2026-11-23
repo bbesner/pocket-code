@@ -74,7 +74,7 @@ The `pocket-coord` skill tells agents all of this. See [For agents](for-agents.m
 
 ## Reference
 
-- **Identity.** Pocket proves a conversation from its own runner token, never from what an agent says. This works on Claude Code, Codex and OpenRouter. For OpenRouter the proof applies to Coordination only: the Vault still treats those conversations as terminal sessions.
+- **Identity.** Pocket proves a conversation from its own runner token, never from what an agent says. This works on Claude Code, Codex and OpenRouter. The Vault proves them the same way.
 - **Data.** Holds live in `coordination.json` in `POCKET_DATA_DIR`. Pocket writes it atomically and keeps it in memory, so edit it only with Pocket stopped. Older versions ignore the file.
 - **One writer.** The view and `pocket-coord` both go through the server.
 - **Sweep.** Every 30 seconds Pocket renews the holds of running conversations, expires the rest and wakes whoever is next.

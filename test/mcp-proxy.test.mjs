@@ -58,10 +58,12 @@ test('MCP proxy: placeholders are filled from the Vault on the way in, scrubbed 
   const init=await rpc('initialize',{protocolVersion:'2025-06-18'});
   assert.equal(init.result.serverInfo.name,'fake','initialize passes through');
   assert.deepEqual(init.result.env,['POCKET_DATA_DIR','POCKET_ENV_FILE','POCKET_RUNNER_TOKEN','POCKET_VAULT_FILL_WAIT'],'the vault keys, login, cookie, push, mail and router secrets are stripped; the runner token stays');
-  assert.deepEqual((await rpc('tools/list',{})).result.tools.map(x=>x.name),['type','peek','shot','evaluate']);
+  assert.deepEqual((await rpc('tools/list',{})).result.tools.map(x=>x.name),['type','peek','shot','evaluate','browser_take_screenshot']);
   // An ordinary call is untouched, and before any fill a screenshot comes back as it is.
   let r=await rpc('tools/call',{name:'type',arguments:{text:'hello'}});assert.equal(r.result.content[0].text,"await page.getByLabel('Password').fill('hello');");
   r=await rpc('tools/call',{name:'shot',arguments:{}});assert.equal(r.result.content[0].type,'image');assert.equal(typeof r.result.content[1].resource.blob,'string');
+  r=await rpc('tools/call',{name:'browser_take_screenshot',arguments:{}});assert.match(r.result.content[0].text,/Screenshot of viewport\]\(\.\/\.playwright-mcp\/page-/);assert.equal(r.result.content[1].type,'image');
+  const saved=()=>fs.readdirSync(path.join(dir,'.playwright-mcp')).length,savedBefore=saved();
   // A placeholder: the tool gets the real value, the answer and later results carry only the placeholder.
   r=await rpc('tools/call',{name:'type',arguments:{text:'{{vault:portal.password}}'}});
   assert.equal(r.result.isError,undefined,JSON.stringify(r.result));
@@ -75,6 +77,13 @@ test('MCP proxy: placeholders are filled from the Vault on the way in, scrubbed 
   r=await rpc('tools/call',{name:'shot',arguments:{}});
   assert.deepEqual(r.result.content.map(c=>c.type),['text','resource','text']);assert.match(r.result.content[0].text,/Removed by Pocket/);
   assert.equal(r.result.content[1].resource.blob,undefined);assert.match(r.result.content[1].resource.text,/Removed by Pocket/);assert.equal(r.result.content[2].text,'Took a screenshot');
+  // 1.124.2: and a tool that makes a picture is refused before it reaches the server. The browser tool saves every screenshot
+  // to a file and names it, so withholding the inline image alone left the picture where the agent could open it.
+  r=await rpc('tools/call',{name:'browser_take_screenshot',arguments:{}});
+  assert.doesNotMatch(JSON.stringify(r.result),/\.playwright-mcp\/page-/,'no saved picture is named');
+  assert.equal(r.result.isError,true);assert.match(r.result.content[0].text,/not taken: a Vault value was typed into this browser session/);
+  r=await rpc('tools/call',{name:'browser_take_screenshot',arguments:{filename:'check.png'}});assert.equal(r.result.isError,true);
+  assert.equal(saved(),savedBefore,'no picture was saved');assert.equal(fs.existsSync(path.join(dir,'check.png')),false);
   // 1.73.5: a number spelling the value is scrubbed.
   r=await rpc('tools/call',{name:'type',arguments:{text:'{{vault:pin}}'}});assert.equal(lastTyped().text,'48213907');
   r=await rpc('tools/call',{name:'peek',arguments:{}});assert.equal(r.result.structuredContent.asNumber,'{{vault:pin}}');assert.equal(r.result.structuredContent.value,'{{vault:pin}}');
@@ -114,9 +123,12 @@ test('MCP proxy: placeholders are filled from the Vault on the way in, scrubbed 
   for(const v of [PASS,'bank-secret-123','sam@example.test','Second-P@ss-value','48213907'])assert.equal(audit.includes(v),false);
   assert.match(state.logs,/vault fill tool=type items=portal by terminal/);assert.equal(state.logs.includes(PASS),false);
   // 1.73.5: POCKET_VAULT_FILL_TOOLS names the fill tools for another server.
-  const other=open({POCKET_VAULT_FILL_TOOLS:'evaluate, fill'});
+  const other=open({POCKET_VAULT_FILL_TOOLS:'evaluate, fill',POCKET_VAULT_PICTURE_TOOLS:'shot'});
   r=await other.rpc('tools/call',{name:'evaluate',arguments:{expression:'{{vault:pin}}'}});assert.equal(r.result.content[0].text,'evaluated {{vault:pin}}');assert.equal(lastTyped().expression,'48213907');
   r=await other.rpc('tools/call',{name:'type',arguments:{text:'{{vault:pin}}'}});assert.equal(r.result.isError,true);assert.match(r.result.content[0].text,/into evaluate, fill only, not type/);
+  // 1.124.2: POCKET_VAULT_PICTURE_TOOLS adds a server's own picture tools to the ones refused after a fill.
+  r=await other.rpc('tools/call',{name:'shot',arguments:{}});assert.equal(r.result.isError,true);assert.match(r.result.content[0].text,/shot was not taken/);
+  r=await other.rpc('tools/call',{name:'browser_take_screenshot',arguments:{}});assert.equal(r.result.isError,true,'the defaults stay refused');
   // With the Vault off, placeholder calls fail clearly and ordinary calls still work.
   assert.equal((await call('/settings',{vault:false})).body.vault,false);
   r=await rpc('tools/call',{name:'type',arguments:{text:'{{vault:portal.password}}'}});assert.equal(r.result.isError,true);assert.match(r.result.content[0].text,/The Vault is off/);

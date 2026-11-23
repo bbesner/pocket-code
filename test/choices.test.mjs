@@ -15,6 +15,19 @@ test('only the very end of a reply counts; examples shown mid-reply stay text', 
   assert.deepEqual(splitChoices('No block here?'), { text: 'No block here?', options: null, recommended: null });
 });
 
+test('an example mid-reply stays text when the reply ends with another fenced block (1.124.2)', () => {
+  // the reply's last fence used to close the example, so everything after it became buttons
+  const code = 'Like this:\n```choices\nMerge and deploy\n```\n\nThen I changed the parser:\n```js\nexport function f(){}\n```';
+  assert.deepEqual(splitChoices(code), { text: code, options: null, recommended: null });
+  assert.deepEqual(textBlocks(code), [{ t: 'text', text: code }]);
+  // a real block at the end still counts, and the example above it stays in the text
+  const real = 'Like this:\n```choices\nA\n```\n\nWhich one?\n```choices\nYes\nNo\n```';
+  assert.deepEqual(splitChoices(real), { text: 'Like this:\n```choices\nA\n```\n\nWhich one?', options: ['Yes', 'No'], recommended: null });
+  const both = 'Like this:\n```choices\nA\n```\nCode:\n```js\nf()\n```\nWhich one?\n```choices\nYes\nNo\n```';
+  assert.deepEqual(splitChoices(both).options, ['Yes', 'No']);
+  assert.equal(splitChoices(both).text, 'Like this:\n```choices\nA\n```\nCode:\n```js\nf()\n```\nWhich one?');
+});
+
 test('a sources list after the block still gives buttons and stays in the text above them', () => {
   // the shape of a real reply that showed the block as code: a web search asked for Sources at the end
   const t = 'What would you like to do?\n\n```choices\nWait for Northwind (Recommended)\nAdd a custom SSH port\n```\n\nSources:\n- [Northwind Hosting Status](https://status.northwind-hosting.example/)\n- [StatusGator – Northwind Hosting](https://statusgator.com/services/northwind-hosting)\n';

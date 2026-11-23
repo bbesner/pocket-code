@@ -711,7 +711,10 @@ notifications and stderr for the rest of its life. Values go into fill tools onl
 `browser_fill_form`, `type` and `fill` by default, or the comma-separated list in `POCKET_VAULT_FILL_TOOLS` for another
 server; a `browser_evaluate` or `browser_navigate` that names a placeholder is refused and never reaches the server.
 Once a value has been typed, image, audio and blob content from the server is replaced by a note for the rest of the
-relay's life, since a screenshot of a page showing the value cannot be scrubbed; text snapshots still work.
+relay's life, since a screenshot of a page showing the value cannot be scrubbed; text snapshots still work. Calls that
+make a picture (`browser_take_screenshot`, `browser_pdf_save`, `screenshot`, and any tool in the comma-separated
+`POCKET_VAULT_PICTURE_TOOLS`) are refused from then on and never reach the server (1.124.2), because Playwright MCP saves
+each picture to a file and names it in its reply.
 `POCKET_VAULT_FILL_WAIT` (seconds, default 90) is how long a fill waits for an approval before telling the agent to
 call again; the relay gives the daemon that long plus 15 seconds to answer (1.73.3), refuses an answer that is not one
 string per placeholder, and starts the server without any of the daemon's own secrets (the same list `agentEnv` keeps
