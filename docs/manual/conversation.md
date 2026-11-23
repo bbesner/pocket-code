@@ -20,6 +20,10 @@ Type in the message box at the bottom and press the send button.
   Enter adds a line and only the send button sends.
 - Your draft is saved on this browser as you type, per conversation, so it survives a reload, a closed tab or a phone that
   killed the app in the background. Drafts are not shared with your other devices.
+- A conversation open in two windows of the same browser (the main window and a pane, or two tabs) has one draft: what
+  you type in one shows in the other. While one window is sending, the other says **Sending from another window…**.
+- A reply started somewhere else (another device, a job key, a check-back) shows on a page that already has the
+  conversation open, with **Working** and **Stop**, within a few seconds.
 - The chips above the box set the next reply: model, reasoning effort, permissions (**Review actions** or **Full access**,
   see [Questions and approvals](approvals.md#choose-review-actions-or-full-access)) and, on Codex, OpenRouter and Antigravity, **Work normally**
   or **Plan first**. These choices are remembered per conversation on this browser.
