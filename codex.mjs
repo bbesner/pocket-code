@@ -42,7 +42,16 @@ const plainObject = o => Boolean(o) && typeof o === 'object' && !Array.isArray(o
 function loadCodexUsage() { try { const o = JSON.parse(fs.readFileSync(USAGE_FILE, 'utf8')); if (plainObject(o)) return o; } catch { } return { context: {}, rateLimits: null }; }
 const codexUsage = loadCodexUsage();
 if (!plainObject(codexUsage.context)) codexUsage.context = {};
+// 1.124.4: a thread's record goes 30 days after its last update, the rule usage.mjs has had since 1.124.3 (a record with no
+// time is kept); nothing deleted one before, and the file is written whole. A reply's token updates are written together:
+// the first arms a 2 s write, and the reply's end writes at once (finish). They were written once per model call.
+const KEEP_CONTEXT_MS = 30 * 86400_000, USAGE_DELAY_MS = 2000;
+let usageTimer = null;
+function saveCodexUsageSoon() { if (!usageTimer) { usageTimer = setTimeout(saveCodexUsage, USAGE_DELAY_MS); usageTimer.unref?.(); } }
 function saveCodexUsage() {
+  clearTimeout(usageTimer); usageTimer = null;
+  const cut = Date.now() - KEEP_CONTEXT_MS;
+  for (const [id, r] of Object.entries(codexUsage.context)) if (Number.isFinite(r?.lastAt) && r.lastAt < cut) delete codexUsage.context[id];
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
     const tmp = USAGE_FILE + '.tmp';
@@ -738,6 +747,9 @@ function msSetting(name, dflt) { // same rule as server.mjs: milliseconds, 0 dis
 }
 const IDLE_CLOSE_MS = msSetting('POCKET_IDLE_CLOSE_MS', 60 * 60_000);
 const STALL_MS = msSetting('POCKET_STALL_MS', 30 * 60_000);
+// 1.124.4: how long a stopped reply whose interrupt was answered may take to end before its process is closed; the same
+// 20 s as an unanswered interrupt here and ACP's STOP_GRACE_MS.
+const STOP_GRACE_MS = msSetting('POCKET_CODEX_STOP_GRACE_MS', 20_000);
 export const codexTurns = new Map(); // threadId -> active turn
 export const codexSessions = new Map(); // threadId -> {conn, approvalMode, cwd, model, effort, turn, hooks}
 
@@ -762,7 +774,7 @@ const DRAIN_MAX = 1 << 20;
 export function makeTransport({ pid, keeperPid, key, files, writer, offset, skipBefore = 0 }) { // exported for tests
   const stale = new Map(); // requests logged before a restart, minus those the log shows resolved
   const t = {
-    pid, keeperPid, key, files, writer, offset, rem: '', onData: null, onExit: null, exited: false,
+    pid, keeperPid, key, files, writer, offset, rem: Buffer.alloc(0), onData: null, onExit: null, exited: false,
     write: (line, cb) => writer.write(line, cb),
     writable: () => !writer.destroyed && !writer.writableEnded,
     close() { try { process.kill(-keeperPid, 'SIGTERM'); } catch { } try { writer.end(); } catch { } },
@@ -771,18 +783,21 @@ export function makeTransport({ pid, keeperPid, key, files, writer, offset, skip
       if (size <= t.offset) return;
       const fh = fs.openSync(files.out, 'r');
       try {
-        // 1.73.7: at most DRAIN_MAX per pass, cut on a character boundary; the next 150 ms pass reads on. A long log read on
-        // adoption no longer stalls the daemon in one synchronous read.
-        let n = Math.min(size - t.offset, DRAIN_MAX);
+        // 1.73.7: at most DRAIN_MAX per pass; the next 150 ms pass reads on. A long log read on adoption no longer stalls the
+        // daemon in one synchronous read.
+        const n = Math.min(size - t.offset, DRAIN_MAX);
         const buf = Buffer.alloc(n);
         fs.readSync(fh, buf, 0, n, t.offset);
-        if (n < size - t.offset) { let k = n; while (k > 0 && (buf[k - 1] & 0xC0) === 0x80) k--; if (k > 0 && buf[k - 1] >= 0xC0) k--; if (k > 0) n = k; }
-        let at = t.offset - Buffer.byteLength(t.rem);
+        // 1.124.4: lines are cut on the newline byte before they are decoded, and the partial last line is kept as bytes (as
+        // drainRunnerLog does): a read that ended inside a character (a long line caught mid-write, not only the DRAIN_MAX
+        // cut) turned it into U+FFFD, and the byte positions after it drifted.
+        const data = Buffer.concat([t.rem, buf]), lines = [];
+        let at = t.offset - t.rem.length, from = 0;
         t.offset += n;
-        const lines = (t.rem + buf.toString('utf8', 0, n)).split('\n');
-        t.rem = lines.pop() ?? '';
-        for (const l of lines) {
-          const lineAt = at; at += Buffer.byteLength(l) + 1;
+        for (let nl; (nl = data.indexOf(10, from)) >= 0; from = nl + 1) lines.push(data.subarray(from, nl));
+        t.rem = Buffer.from(data.subarray(from));
+        for (const b of lines) {
+          const lineAt = at, l = b.toString('utf8'); at += b.length + 1;
           // requests the app-server sent the previous server can't be relayed from here;
           // the ones it never saw resolved are declined below so the turn carries on
           if (lineAt < skipBefore) {
@@ -820,17 +835,33 @@ function spawnTransport(extraEnv = {}) {
   fs.mkdirSync(CX_LOG_DIR, { recursive: true, mode: 0o700 });
   const key = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const files = cxFiles(key);
-  for (const f of [files.out, files.err]) fs.writeFileSync(f, '', { mode: 0o600 });
-  ensurePipeDir(CX_PIPE_DIR, CX_PIPES.top);
-  execFileSync('mkfifo', ['-m', '600', files.fifo]);
-  const hold = fs.openSync(files.fifo, fs.constants.O_RDWR); // never blocks; lets the read end open
-  const inFd = fs.openSync(files.fifo, 'r');
-  const outFd = fs.openSync(files.out, 'a'), errFd = fs.openSync(files.err, 'a');
-  const proc = spawn(CODEX_BIN, ['app-server', '--listen', 'stdio://'], { stdio: [inFd, outFd, errFd], detached: true, env: { ...agentEnv(process.env), ...extraEnv } });
-  fs.closeSync(inFd); fs.closeSync(outFd); fs.closeSync(errFd);
-  proc.unref();
-  const keeper = spawn('sh', ['-c', 'while kill -0 "$1" 2>/dev/null; do sleep 5; done', 'pocket-keeper', String(proc.pid)], { detached: true, stdio: ['ignore', hold, 'ignore'], env: agentEnv(process.env) }); // 1.73.7: not the daemon's secrets
-  keeper.unref();
+  // 1.124.4: a step that throws on the way (a full disk, a file or process limit) undoes the ones before it: the app-server
+  // already spawned is killed, the descriptors opened are closed and the files made are removed. It used to leave the
+  // app-server running unrecorded and the pipe held open by the daemon.
+  let hold = null, proc = null, keeper = null;
+  const fds = [];
+  try {
+    for (const f of [files.out, files.err]) fs.writeFileSync(f, '', { mode: 0o600 });
+    ensurePipeDir(CX_PIPE_DIR, CX_PIPES.top);
+    execFileSync('mkfifo', ['-m', '600', files.fifo]);
+    hold = fs.openSync(files.fifo, fs.constants.O_RDWR); // never blocks; lets the read end open
+    fds.push(fs.openSync(files.fifo, 'r')); fds.push(fs.openSync(files.out, 'a')); fds.push(fs.openSync(files.err, 'a'));
+    proc = spawn(CODEX_BIN, ['app-server', '--listen', 'stdio://'], { stdio: fds, detached: true, env: { ...agentEnv(process.env), ...extraEnv } });
+    while (fds.length) fs.closeSync(fds.pop());
+    proc.unref();
+    keeper = spawn('sh', ['-c', 'while kill -0 "$1" 2>/dev/null; do sleep 5; done', 'pocket-keeper', String(proc.pid)], { detached: true, stdio: ['ignore', hold, 'ignore'], env: agentEnv(process.env) }); // 1.73.7: not the daemon's secrets
+    // 1.124.4: a keeper that cannot start (the process limit, no `sh`) says so with an 'error' event a tick later; with no
+    // listener that took the whole daemon down. The app-server is killed instead, and the session ends through its exit.
+    const app = proc;
+    keeper.on('error', e => { log(`codex session keeper failed pid=${app.pid}: ${e.message}; closing the session`); signalGroup(app.pid, 'SIGKILL'); });
+    keeper.unref();
+  } catch (e) {
+    if (proc) { proc.on('error', () => { }); if (proc.pid) signalGroup(proc.pid, 'SIGKILL'); }
+    for (const fd of [...fds, hold]) if (fd != null) { try { fs.closeSync(fd); } catch { } }
+    for (const f of [files.fifo, files.out, files.err]) { try { fs.unlinkSync(f); } catch { } }
+    log(`codex session process not started: ${e.message}`);
+    throw e;
+  }
   const writer = fs.createWriteStream(null, { fd: hold });
   writer.on('error', () => { });
   const t = makeTransport({ pid: proc.pid, keeperPid: keeper.pid, key, files, writer, offset: 0 });
@@ -840,17 +871,25 @@ function spawnTransport(extraEnv = {}) {
   return t;
 }
 
-function writeSessionMeta(s) {
+// 1.124.4: returns whether the marker is on disk. `strict` rethrows a failed write (the first one: a process Pocket could not
+// record is not started, as on the Claude side, 1.89 F-11); otherwise a failure is logged once per session, as there.
+function writeSessionMeta(s, { strict = false } = {}) {
   const t = s.conn?.transport, turn = s.turn;
-  if (!t || !s.threadId || s.exited) return;
+  if (!t || !s.threadId || s.exited) return true;
   const meta = {
     threadId: s.threadId, cliBin:s.cliBin||null, pid: t.pid, keeperPid: t.keeperPid, key: t.key, bootId: BOOT_ID, pidStart: t.pidStart ?? null, keeperStart: t.keeperStart ?? null, approvalMode: s.approvalMode, cwd: s.cwd, model: s.model, effort: s.effort, runnerToken: s.runnerToken || null,
-    turn: turn ? { turnId: turn.turnId, startedAt: turn.startedAt, userText: turn.userText, offset: turn.offset, executionMode: turn.executionMode, ...originOf(turn) } : null, // 1.117: origin
+    turn: turn ? { turnId: turn.turnId, startedAt: turn.startedAt, userText: turn.userText, offset: turn.offset, executionMode: turn.executionMode, ...(turn.autonomous ? { autonomous: true } : {}), ...originOf(turn) } : null, // 1.117: origin; 1.124.4: started by the agent
     waitingForInput: Boolean(turn && (turn.questions?.list().length || turn.approvals?.list().length || turn.inputUnavailable || turn.approvalUnavailable)),
     waitingForApproval: Boolean(turn?.approvals?.list().length || turn?.approvalUnavailable),
   };
   // 1.73.7: written whole and renamed into place; a torn file could not be adopted and its app-server kept the writer lock.
-  try { fs.writeFileSync(t.files.meta + '.tmp', JSON.stringify(meta), { mode: 0o600 }); fs.renameSync(t.files.meta + '.tmp', t.files.meta); } catch { }
+  try { fs.writeFileSync(t.files.meta + '.tmp', JSON.stringify(meta), { mode: 0o600 }); fs.renameSync(t.files.meta + '.tmp', t.files.meta); s.metaFailed = null; return true; }
+  catch (e) {
+    if (strict) throw e;
+    if (!s.metaFailed) log(`codex session marker not written thread=${s.threadId} pid=${t.pid}: ${e.message}`);
+    s.metaFailed = e;
+    return false;
+  }
 }
 // 1.73.7: a recorded pid is signalled or adopted only when it is provably the process Pocket started: same boot (boot id, or
 // for a pre-1.73.7 file, written after this boot began) and, when recorded, the same start time. After a reboot the kernel
@@ -899,7 +938,7 @@ export function adoptCodexSessions(hooksFor) {
     codexSessions.set(s.threadId, s);
     live.add(m.key);
     if (m.turn) {
-      const turn = makeTurn(s, { text: m.turn.userText, executionMode: m.turn.executionMode, hooks: s.hooks, offset, ...originOf(m.turn) }); // 1.117: origin
+      const turn = makeTurn(s, { text: m.turn.userText, executionMode: m.turn.executionMode, hooks: s.hooks, offset, autonomous: m.turn.autonomous === true, ...originOf(m.turn) }); // 1.117: origin; 1.124.4: and who started it
       // A request the app-server sent before the restart was skipped above; the turn is
       // blocked on it until the user stops it. Say so instead of showing "Running".
       Object.assign(turn, { turnId: m.turn.turnId, startedAt: m.turn.startedAt || turn.startedAt, adopted: true,
@@ -921,6 +960,8 @@ export function adoptCodexSessions(hooksFor) {
 function finish(turn, ev) {
   if (turn.done) return;
   turn.done = true;
+  clearTimeout(turn.stopTimer); // 1.124.4
+  if (usageTimer) saveCodexUsage(); // 1.124.4: the reply's token updates, written together
   ownedFinishedAt.set(turn.threadId,Date.now());
   if(ownedFinishedAt.size>1000)ownedFinishedAt.delete(ownedFinishedAt.keys().next().value);
   const priorActivity=extSeen.get(turn.threadId);if(priorActivity)priorActivity.at=0;
@@ -1010,12 +1051,13 @@ function makeTurn(s, { text, model, effort, executionMode = 'work', hooks, auton
   turn.approvals=new ApprovalInbox({sessionId:()=>CX+turn.threadId,turnId:()=>turn.turnId,audit:auditApproval,write:(id,result)=>new Promise((resolve,reject)=>{
     if(!conn.writable())return reject(new Error('Approval connection closed'));
     try{conn._write({jsonrpc:'2.0',id,result},e=>e?reject(e):resolve());}catch(e){reject(e);}
-  }),onChange:()=>{writeSessionMeta(s);turn.emit({type:'approvals'});if(turn.approvals?.list().length)onApproval?.(turn);}});
+  }),onChange:()=>{writeSessionMeta(s);turn.emit({type:'approvals'});if(turn.approvals?.list().length)onApproval?.(turn);},
+  onAutoError:(e,{tool})=>log(`trusted action reply not delivered session=${CX+turn.threadId} tool=${tool}: ${e.message}`)}); // 1.124.4: as Claude's
   clearTimeout(s.idleTimer);
   s.turn = turn;
   s.lastActivityAt = Date.now();
   codexTurns.set(turn.threadId, turn);
-  writeSessionMeta(s);
+  turn.recorded = writeSessionMeta(s); // 1.124.4: startCodexTurn sends nothing for a turn the marker does not hold
   return turn;
 }
 
@@ -1029,8 +1071,8 @@ function onSessionNotify(s, method, params) {
     makeTurn(s, { text: '', hooks: s.hooks, autonomous: true });
     log(`codex turn start (started by the agent) thread=${s.threadId}`);
     onTurnNotify(s.turn, method, params); // its turn id first, so the daemon's hook can stop it (1.117: paused)
-    writeSessionMeta(s);
     try { s.hooks?.onAutonomous?.(s.turn); } catch (e) { log(`onAutonomous threw thread=${s.threadId}: ${e.message}`); }
+    writeSessionMeta(s); // 1.124.4: after the hook, so the origin it sets is in the marker and survives a restart
     return;
   }
   if (s.turn) {
@@ -1134,9 +1176,20 @@ async function openCodexSession({ threadId, forkFrom, cwd, model, approvalMode, 
     }
     throw e;
   }
+  // 1.124.4: the marker is written before the session is registered. A process Pocket could not record outlived a restart
+  // unmanaged, holding the thread's writer lock, so every later message was refused as open in another surface until
+  // someone killed it by hand. When the write fails the app-server and its keeper are killed and the start is refused.
+  try { writeSessionMeta(s, { strict: true }); }
+  catch (e) {
+    const t = conn.transport;
+    signalGroup(t.keeperPid, 'SIGKILL'); signalGroup(conn.pid, 'SIGKILL');
+    conn.close();
+    for (const f of [t.files.meta + '.tmp', t.files.out, t.files.err]) { try { fs.unlinkSync(f); } catch { } }
+    log(`codex session refused thread=${s.threadId} pid=${conn.pid}: its marker could not be written (${e.message})`);
+    throw Object.assign(new Error(`Pocket Code could not record the Codex process on disk, so it did not start it (${e.code || e.message}). Check the server's free disk space, then send again.`), { code: 500, notStarted: true });
+  }
   wireSession(s, conn);
   codexSessions.set(s.threadId, s);
-  writeSessionMeta(s);
   log(`codex session start thread=${s.threadId} pid=${conn.pid} resume=${Boolean(threadId)}`);
   return s;
 }
@@ -1161,6 +1214,16 @@ export async function startCodexTurn({ threadId, forkFrom, cwd, text, model, eff
   if (codexTurns.get(s.threadId)) throw Object.assign(new Error('busy'), { code: 409 });
   if (mayStart) { try { mayStart(); } catch (e) { if (!s.turn) scheduleIdle(s); throw e; } }
   const turn = makeTurn(s, { text, model, effort, executionMode, hooks, origin, originRef, rootOrigin }); // 1.117: origin
+  // 1.124.4: a turn the marker does not record is not sent. A restart adopted the session as idle, its idle close ended the
+  // process mid-reply, and meanwhile a new message was accepted for a thread that was mid-turn. Nothing has started: the
+  // turn ends without its reply hooks (no outcome, push or count) and the process stays, idle.
+  if (!turn.recorded) {
+    const why = s.metaFailed?.code || s.metaFailed?.message || 'unknown error';
+    turn.onFinish = null;
+    finish(turn, { type: 'result', ok: false, error: 'not started' });
+    log(`turn refused thread=${s.threadId} pid=${s.conn.pid}: its marker could not be written (${why})`);
+    throw Object.assign(new Error(`Pocket Code could not record this reply on disk, so it did not send it to Codex (${why}). Check the server's free disk space, then send again.`), { code: 500, notStarted: true });
+  }
   turn.emit({ type: 'user', msg: { role: 'user', text, ts: new Date().toISOString() } });
 
   const input = [{ type: 'text', text: promptWithAttachments(text, attachments) }];
@@ -1276,7 +1339,7 @@ function onTurnNotify(turn, method, params) {
         };
         // the turn's first call shows whether it resumed warm or cold (the Claude side's cacheFirst)
         if (turn.cacheFirst === undefined && used > 0) turn.cacheFirst = { hit: cached / used, read: cached, written: used - cached };
-        saveCodexUsage();
+        saveCodexUsageSoon(); // 1.124.4: written with the reply's other updates, at the latest when it ends
       }
       break;
     }
@@ -1331,7 +1394,12 @@ export function stopCodexTurn(threadId) {
   turn.questions?.clear(); turn.approvals?.clear(); // 1.73.8: no card stays answerable after Stop, even if the interrupt is ignored
   if (turn.turnId) {
     turn.conn.request('turn/interrupt', { threadId, turnId: turn.turnId }, 20_000)
-      .catch(e => { log(`interrupt failed thread=${threadId}: ${e.message}`); closeCodexSession(turn.session, 'interrupt failed'); });
+      .then(() => { // 1.124.4: answered, but a wedged app-server may never end the turn; it stayed busy until the 30-minute stall check
+        if (turn.done || !turn.session || !(STOP_GRACE_MS > 0)) return;
+        clearTimeout(turn.stopTimer);
+        turn.stopTimer = setTimeout(() => { if (!turn.done) { log(`stopped turn did not end ${Math.round(STOP_GRACE_MS / 1000)} s after its interrupt; closing thread=${threadId}`); closeCodexSession(turn.session, 'stop not completed'); } }, STOP_GRACE_MS);
+        turn.stopTimer.unref?.();
+      }, e => { log(`interrupt failed thread=${threadId}: ${e.message}`); closeCodexSession(turn.session, 'interrupt failed'); });
   } else if (turn.session) closeCodexSession(turn.session, 'stopped before the turn began');
   else turn.conn.close();
   return true;

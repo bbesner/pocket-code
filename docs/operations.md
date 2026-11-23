@@ -35,6 +35,9 @@ idle closure. A separate default 30-minute stall watchdog (`POCKET_STALL_MS`; `0
 two-hour wall-clock cap. It considers stream activity, pending questions/approvals and CPU
 activity from programs started by the turn; reported Claude background jobs are exempt.
 Codex is interrupted first and its process is closed if the interruption is unanswered.
+**Stop** on a Codex reply closes its process too when the reply has not ended 20 seconds after the interrupt, whether or
+not the interrupt was answered (1.124.4; before, an answered interrupt with no end left the reply running until the stall
+watchdog); the reply ends as stopped by you.
 Closing a Codex session sends SIGTERM to the app-server's process group and, since 1.73.7,
 SIGKILL five seconds later if it is still running, so a hung app-server no longer keeps the
 thread's writer lock. Since 1.89 the close completes only when the process has really exited: if it
