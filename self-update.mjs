@@ -17,6 +17,14 @@ const STALE_MS = 20 * 60 * 1000; // a job that has said nothing for this long di
 const START_MS = 2 * 60 * 1000; // a queued job whose script has not taken its lock by then did not start (1.124.4)
 const version = v => typeof v === 'string' && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(v) ? v : null;
 const fail = (message, status = 409) => Object.assign(new Error(message), { status });
+// 1.124.5: what an update that stopped without finishing left behind. From installing on, the checkout may have moved and
+// npm ci (the install's, or putting the old packages back) may have removed node_modules, so the next restart would not start.
+const MOVED = { installing: j => `installing ${j.to}`, restarting: j => `restarting on ${j.to}`, 'rolling-back': j => `going back to ${j.from}` };
+function interrupted(j, checkout) {
+  if (!MOVED[j.phase]) return 'The update stopped without finishing, probably because the server restarted. Check the version shown here before you try again.';
+  const files = j.phase === 'rolling-back' ? `may be on ${j.to} or ${j.from}` : `may have moved to ${j.to}`;
+  return `The update stopped while ${MOVED[j.phase](j)}, probably because the server restarted. Pocket's files ${files} and its packages may not be installed, so Pocket may not start after its next restart. On the server, run npm ci in ${checkout} before Pocket restarts, then check the version shown here.`;
+}
 
 export class SelfUpdate {
   constructor({ checkout, dataDir, env = process.env, port, repo = 'bbesner/pocket-code', now = () => Date.now(), spawner = spawn, node = process.execPath, script, setsid }) {
@@ -47,7 +55,7 @@ export class SelfUpdate {
     // queued two minutes after the press, with no lock file newer than the press, never started (bash could not read the
     // script, node was gone): say so then, instead of showing it preparing and refusing every press for 20 minutes.
     if (out.phase === 'queued' && beat < (j.startedAt || 0) && this.now() - (j.startedAt || 0) > START_MS) Object.assign(out, { running: false, phase: 'failed', error: `The update did not start. Nothing was changed. The log is ${SELF_UPDATE_LOG} in Pocket's data folder.` });
-    else if (out.running && this.now() - Math.max(j.updatedAt || j.startedAt || 0, beat) > STALE_MS) Object.assign(out, { running: false, phase: 'interrupted', error: 'The update stopped without finishing, probably because the server restarted. Check the version shown here before you try again.' });
+    else if (out.running && this.now() - Math.max(j.updatedAt || j.startedAt || 0, beat) > STALE_MS) Object.assign(out, { running: false, phase: 'interrupted', error: interrupted(out, this.checkout) });
     return out;
   }
   // The checked-out commit, read from .git without running git (a route must not start a process per request).
