@@ -1002,15 +1002,19 @@ test('DIV-2: create — after updateKey(keyFile) fails, the renamed key file sti
   assert.equal(fresh.bySecret(fs.readFileSync(t, 'utf8').trim())?.id, key.id, 'file credential has no matching key');
 });
 
-test('DIV-3: rotate — crash right after rotate() commit: old key file must still open the key or the recorded keyFile must hold the live secret', () => {
+// Rewritten (1.124.4): the blind test asked for a file that still opens the key right after the cut, which no order of the
+// two saves can give (the file first strands it the other way). The requirement is that the next Rotate repairs the file:
+// the store keeps which key Pocket last wrote there (fileHash). The route half is in test/job-routes.test.mjs.
+test('DIV-3: rotate — cut off right after rotate() commit: fileHash still names the key in the recorded file, so the next Rotate can rewrite it', () => {
   const env = jobEnv(); const s = env.mk(); const { home } = keyHome();
   const { key, secret } = s.addKey(KEYF('alpha'));
   const t = J.writeKeyFile('~/k', 'alpha', secret, { home });
-  s.updateKey(key.id, { keyFile: t });
+  s.updateKey(key.id, { keyFile: t, fileHash: key.keyHash });
   s.rotate(key.id); // the returned secret is lost: the process "dies" before the file rewrite or the response
-  const fresh = env.mk();
-  const recorded = fresh.key(key.id).keyFile;
-  assert.ok(fresh.bySecret(fs.readFileSync(recorded, 'utf8').trim()), 'after an interrupted rotate no durable credential opens the key');
+  const fresh = env.mk(), k = fresh.key(key.id);
+  assert.equal(fresh.bySecret(fs.readFileSync(k.keyFile, 'utf8').trim()), null, 'the file holds a key that no longer works');
+  assert.equal(J.hashSecret(fs.readFileSync(k.keyFile, 'utf8').trim()), k.fileHash, 'the store still knows the key Pocket wrote there');
+  assert.ok(!('fileHash' in J.keyView(k)), 'never shown');
 });
 
 test('DIV-4: delete — a failed deleteKey commit leaves the key and its record intact (module part; unlink-before-delete order is in the route)', () => {

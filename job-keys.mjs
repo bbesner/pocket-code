@@ -5,9 +5,10 @@
 // the gate and the start are the server's (server.mjs, "job keys").
 //
 // A key: { id, name, workspace, engine, model, effort, access ('ask' | 'full'), instruction, mayAddInstructions,
-//   limits: { perHour, perDay, atOnce }, pushWhenDone, enabled, keyHash (SHA-256 hex of the key), keyFile?, createdAt,
+//   limits: { perHour, perDay, atOnce }, pushWhenDone, enabled, keyHash (SHA-256 hex of the key), keyFile?, fileHash? (1.124.4:
+//   the hash of the key Pocket last wrote to keyFile, so a Rotate cut off before the file was rewritten can repair it), createdAt,
 //   rotatedAt, lastRunAt, conversations (the newest ids this key started, so `conversation` can be checked) }.
-// The key itself is never stored; keyHash never leaves this file's callers (keyView leaves it out).
+// The key itself is never stored; keyHash and fileHash never leave this file's callers (keyView leaves them out).
 // A run: { run, keyId, keyName, conversation, engine, status, startedAt, endedAt?, outcome?, idempotencyKey?, reply?
 //   (the reply's first line only), cost?, tokens?, limited? (its last reply stopped at a usage limit), error? (why a run
 //   no reply ended was ended: the server's fixed words, never text from the reply) }. status: starting (reserved before the gate, so two calls can't both

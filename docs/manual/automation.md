@@ -603,7 +603,7 @@ No push goes when the run was stopped, when the key's **Push when a job finishes
 
 ### Rotate, turn off or delete a key
 
-- **Rotate key** makes a new key. The sheet asks first: *The old key stops working at once.* Pocket shows the new key once. If the key was saved to a file and the file still holds the old key, Pocket writes the new key there. If it can't, the sheet says so in plain words and the new key is still shown once.
+- **Rotate key** makes a new key. The sheet asks first: *The old key stops working at once.* Pocket shows the new key once. If the key was saved to a file and the file still holds the old key, Pocket writes the new key there. It does the same when the file holds the key Pocket wrote there before a rotation that was cut off (Pocket stopped after saving the new key, before rewriting the file), so rotating again repairs the file. If it can't, the sheet says so in plain words and the new key is still shown once.
 - **Turn off** keeps the key but refuses every call with it. The answer is the same *Unknown or disabled job key.* as for a wrong key. **Turn on** undoes it.
 - **Delete** removes the key and its recent runs. The sheet asks first, and says that a run already working isn't stopped. Pocket removes the key file only while it still holds this key. A script that still uses the key gets *Unknown or disabled job key.*
 - **Turning the feature off** refuses every call and keeps every key. A run already working finishes. If it was waiting out a usage limit, its retry is dropped when it comes due and the run ends `jobs_off`.

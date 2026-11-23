@@ -707,3 +707,33 @@ test('1.124.4: a key file whose path could not be recorded is removed with the k
   assert.ok(left && !left.keyFile, 'listed as the answer says, with no key file');
   assert.equal((await s.call(`/jobs/keys/${left.id}/delete`, {})).status, 200);
 });
+
+// The blind contract asked for a file that still opens the key right after the cut; no order of the two saves meets that
+// (the file first strands it the other way). What is required: the next Rotate, as the app sends it, repairs the file.
+test('1.124.4: a rotation cut off after the new key was saved: after the restart, Rotate rewrites the recorded key file, which then opens the key', { timeout: 90_000 }, async t => {
+  const dir = tmpDir();
+  let s = await boot(t, 19074, { dir, env: storeFault(dir) });
+  await s.turnOn();
+  const { key, file } = await s.makeKey({ save: true });
+  const before = fs.readFileSync(file, 'utf8');
+  fault(dir, { store: 'job-keys.json', nth: 1, times: 1, action: 'kill' }); // the rotation's save lands, then Pocket is gone
+  await assert.rejects(s.call(`/jobs/keys/${key.id}/rotate`, {}));
+  noFault(dir);
+  await s.stop();
+  assert.equal(fs.readFileSync(file, 'utf8'), before, 'the file still holds the key Pocket wrote, which no longer works');
+  s = await boot(t, 19074, { dir, env: storeFault(dir) });
+  assert.equal((await s.job(before.trim(), { data: 'x' })).body.code, 'bad_key');
+  const again = await s.call(`/jobs/keys/${key.id}/rotate`, {}); // what the app sends
+  assert.equal(again.status, 200, again.text);
+  assert.ok(!again.body.fileError, JSON.stringify(again.body.fileError));
+  assert.equal(again.body.file, file);
+  const inFile = fs.readFileSync(file, 'utf8').trim();
+  assert.equal(inFile, again.body.secret);
+  const ran = await s.job(inFile, { data: 'disk at 91%', wait: 20 });
+  assert.equal(ran.body.status, 'done', JSON.stringify(ran.body));
+  // a file that holds some other key is still left alone
+  fs.writeFileSync(file, 'pjk_' + 'Z'.repeat(43) + '\n');
+  const third = await s.call(`/jobs/keys/${key.id}/rotate`, {});
+  assert.equal(third.status, 200); assert.ok(!third.body.file);
+  assert.equal(fs.readFileSync(file, 'utf8'), 'pjk_' + 'Z'.repeat(43) + '\n');
+});

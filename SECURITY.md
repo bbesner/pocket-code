@@ -240,7 +240,8 @@ Job keys (1.122.0) let a script on the server start a reply, in a conversation t
   through one that leads out of it. A folder Pocket creates is `0700`. It never replaces a file that isn't a one-line job key
   file (a link included), and never one that another key records as its own (409 `file_taken`): a renamed key keeps its
   old key file name, and a new key of the old name can't take the file over. It rotates a file only while it still holds
-  the old key, and deletes it only while it still holds that key. If the file can't be written, no key is made.
+  the old key or the key Pocket last wrote there for this key (a rotation cut off before the file was rewritten leaves
+  that one; 1.124.4), and deletes it only while it still holds the key being deleted. If the file can't be written, no key is made.
 - **The audit file.** `automation-audit.jsonl` records `job` lines (created, updated, enabled, disabled, rotated, deleted,
   refused and finished) and `job_auth` lines (a wrong or disabled key, the rate limit). A change names the fields it changed,
   never their values; none holds a key, a hash, an instruction or any data. The reply's own line carries origin `job` and the

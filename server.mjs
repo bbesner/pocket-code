@@ -7323,7 +7323,7 @@ app.post('/api/jobs/keys', requireAuth, ownerControl, jobsGate, (req, res) => {
   let made; try { made = jobStore.addKey(fields); } catch (e) { return jobErr(res, e); }
   let file = null;
   if (wantsKeyFile(b)) {
-    try { file = writeKeyFile(keyFileFolder(b), made.key.name, made.secret, { home: HOME, taken: keyFileTaken(made.key.id) }); jobStore.updateKey(made.key.id, { keyFile: file }); }
+    try { file = writeKeyFile(keyFileFolder(b), made.key.name, made.secret, { home: HOME, taken: keyFileTaken(made.key.id) }); jobStore.updateKey(made.key.id, { keyFile: file, fileHash: made.key.keyHash }); }
     catch (e) {
       // 1.124.4: when the file was written but its path could not be saved, the file goes too (only while it holds this key),
       // and a rollback that cannot be saved either still gets this answer, saying what is left; the file used to stay with a
@@ -7355,15 +7355,17 @@ for (const [action, enabled] of [['enable', true], ['disable', false]]) app.post
   res.json({ key: jobKeyOut(k) });
 });
 // A new key, shown once; the old one stops at once. The key file Pocket wrote for it, still holding the old key, gets the new one.
+// 1.124.4: or still holding the key Pocket last wrote there (fileHash), which a rotation cut off between its save and the file
+// leaves behind: the next Rotate repairs that file, where it used to be left alone for good.
 app.post('/api/jobs/keys/:id/rotate', requireAuth, ownerControl, jobsGate, (req, res) => {
   const cur = jobStore.key(req.params.id); if (!cur) return res.status(404).json({ error: 'There is no job key with that id.', code: 'not_found' });
   const b = req.body || {}, oldHash = cur.keyHash;
   const { key, secret } = jobStore.rotate(cur.id);
   let file = null, fileError = null;
   const target = wantsKeyFile(b) ? [keyFileFolder(b), key.name]
-    : cur.keyFile && isKeyFile(cur.keyFile) && hashJobKey(fs.readFileSync(cur.keyFile, 'utf8').trim()) === oldHash ? [path.dirname(cur.keyFile), path.basename(cur.keyFile, '.key')] : null;
+    : cur.keyFile && isKeyFile(cur.keyFile) && [oldHash, cur.fileHash].includes(hashJobKey(fs.readFileSync(cur.keyFile, 'utf8').trim())) ? [path.dirname(cur.keyFile), path.basename(cur.keyFile, '.key')] : null;
   if (target) {
-    try { file = writeKeyFile(target[0], target[1], secret, { home: HOME, taken: keyFileTaken(key.id) }); if (file !== cur.keyFile) removeKeyFile(cur.keyFile, oldHash); jobStore.updateKey(key.id, { keyFile: file }); }
+    try { file = writeKeyFile(target[0], target[1], secret, { home: HOME, taken: keyFileTaken(key.id) }); if (file !== cur.keyFile) removeKeyFile(cur.keyFile, oldHash); jobStore.updateKey(key.id, { keyFile: file, fileHash: key.keyHash }); }
     catch (e) { fileError = { error: e.status ? e.message : `The key file could not be written: ${e.code || e.message}.`, code: e.status && e.code ? e.code : 'file_error' }; }
   }
   jobAudit('rotated', key, { fields: ['key'], ...(file ? { keyFile: true } : {}) });
@@ -7562,7 +7564,7 @@ app.post('/api/jobs/requests/:id/answer', requireAuth, ownerControl, jobsGate, (
     log(`job key request=${p.id} allow failed, the key file was not written (${error.code})`);
     return res.status(e.status || 500).json({ ...error, request: jobRequestView(kept) });
   }
-  const key = jobStore.updateKey(made.key.id, { keyFile: file });
+  const key = jobStore.updateKey(made.key.id, { keyFile: file, fileHash: made.key.keyHash });
   const done = jobStore.updateProposal(p.id, { status: 'allowed', answeredAt: at, keyId: key.id, keyName: key.name, keyFile: file, ...(changed.length ? { edited: changed } : {}), error: undefined });
   jobAudit('created', key, { fields: Object.keys(fields), keyFile: true, request: p.id });
   jobReqAudit('proposal_allowed', done, { keyId: key.id, ...(changed.length ? { edited: changed } : {}) });
