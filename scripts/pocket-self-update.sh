@@ -12,17 +12,24 @@ tag="v$target"
 tries=${POCKET_SELF_UPDATE_TRIES:-45} settle=${POCKET_SELF_UPDATE_SETTLE:-10} beat=${POCKET_SELF_UPDATE_BEAT:-60} idle=${POCKET_SELF_UPDATE_IDLE_TRIES:-300}
 branch='' prev='' moved=0
 
-# say <phase> [error] [backup dir]: rewrite the progress file atomically.
+# say <phase> [error] [backup dir]: rewrite the progress file atomically. 1.124.4: it returns the writer's status (it returned
+# echo's, so a progress write that failed went unnoticed and the job sat at its last phase); each call says what a failure does.
 say() {
+  local rc
   "$node" -e '
 const fs=require("fs");const [f,phase,error,backup]=process.argv.slice(1);
 let j={};try{j=JSON.parse(fs.readFileSync(f,"utf8"));}catch{}
 Object.assign(j,{phase,updatedAt:Date.now()});if(error)j.error=error;if(backup)j.backup=backup;
 if(phase==="complete"||phase==="failed")j.finishedAt=Date.now();
-const t=f+".tmp";fs.writeFileSync(t,JSON.stringify(j,null,2),{mode:0o600});fs.renameSync(t,f);' "$status" "$1" "${2:-}" "${3:-}"
+const t=f+".tmp";fs.writeFileSync(t,JSON.stringify(j,null,2),{mode:0o600});fs.renameSync(t,f);' "$status" "$1" "${2:-}" "${3:-}"; rc=$?
   echo "$(date -u +%H:%M:%S) $1${2:+: $2}"
+  [ "$rc" = 0 ] || echo "$(date -u +%H:%M:%S) could not write $1 to $(basename "$status")"
+  return "$rc"
 }
+# A failed `say failed` is not checked: the script exits 1 either way, and the log has the reason.
 fail() { say failed "$1"; exit 1; }
+# 1.124.4: a progress write that failed before the checkout moves stops the update; fail tries once more to record why.
+unwritten() { fail "Pocket could not write the update's progress to its data folder, so it stopped. Nothing was changed."; }
 served() { # the version Pocket serves on its port, or nothing
   "$node" -e 'fetch(`http://127.0.0.1:${process.argv[1]}/release.json`,{signal:AbortSignal.timeout(5000)}).then(r=>r.json()).then(j=>process.stdout.write(String(j.version||""))).catch(()=>{})' "$port"
 }
@@ -69,7 +76,7 @@ flock -n 9 || fail 'Another Pocket Code update is running.'
 ( while sleep "$beat" && kill -0 $$ 2>/dev/null; do touch "$status.lock"; done ) 9>&- >/dev/null 2>&1 &
 beater=$!
 trap 'kill "$beater" 2>/dev/null' EXIT
-say checking
+say checking || unwritten
 origin=$(git config --get remote.origin.url)
 case "$origin" in
   "https://github.com/$repo"|"https://github.com/$repo.git"|"git@github.com:$repo.git") ;;
@@ -86,7 +93,7 @@ commit=$(git rev-parse "$tag^{commit}") || fail "Release $tag was not found. Not
 git merge-base --is-ancestor "$commit" origin/main || fail "Release $tag is not on main. Nothing was changed."
 if [ "$branch" = main ]; then git merge-base --is-ancestor "$prev" "$commit" || fail 'The checkout has commits that are not in the release. Update it from the server.'; fi
 
-say backing-up
+say backing-up || unwritten
 free_kb=$(df -Pk "$HOME" | awk 'NR==2{print $4}')
 [ "${free_kb:-0}" -ge 5242880 ] || fail 'The server has less than 5 GB free, and Pocket needs room for its backup. Free some space, then try again. Nothing was changed.'
 backup="$HOME/backups/pocket-code-$target-update-$(date -u +%Y%m%d-%H%M%S)"
@@ -102,9 +109,10 @@ if [ "$rc" -gt 1 ] || ! [ -s "$backup/private-state.tar.gz" ] || ! "$gnutar" -tz
 fi
 echo "$prev" > "$backup/prev-head.txt"; echo "${branch:-detached}" > "$backup/prev-branch.txt"
 chmod 600 "$backup"/*
-say backing-up '' "$backup"
+# Its path could not be recorded, so nothing would point to it: it goes, as a backup that failed does.
+say backing-up '' "$backup" || { rm -rf -- "$backup"; unwritten; }
 
-say installing
+say installing || unwritten
 if [ "$branch" = main ]; then git merge --ff-only -q "$commit"; else git checkout -q --detach "$commit"; fi || fail "Could not move to $tag. Nothing was changed."
 moved=1
 npm ci --silent --no-audit --no-fund || { put_back || not_back "Installing $tag's packages failed"; fail "Installing $tag's packages failed. Pocket stays on $from."; }
@@ -116,14 +124,19 @@ npm run -s check:release -- --released || { put_back || not_back "$tag did not p
 n=0
 for _ in $(seq 1 "$idle"); do n=$(busy); [ "$n" = 0 ] && break; echo "$(date -u +%H:%M:%S) waiting for $n replies to finish"; sleep 2; done
 if [ "$n" != 0 ]; then put_back || not_back 'Replies kept running while Pocket waited to restart'; fail "Replies kept running while Pocket waited to restart, so it did not restart and stays on $from. Update again when they finish."; fi
-say restarting
+# 1.124.4: the checkout has moved, so a failed write here puts the running version back, as the other failures before the
+# restart do.
+say restarting || { put_back || not_back "Pocket could not write the update's progress"; fail "Pocket could not write the update's progress to its data folder, so it did not restart and stays on $from."; }
 old_pid=$(app_pid)
 pm2 restart "$pmid" 9>&- >/dev/null
 if wait_for "$target" "$old_pid"; then
   pm2 save 9>&- >/dev/null 2>&1
-  say complete
+  # 1.124.4: tried twice. If it still fails the install is updated but the job would read restarting, then interrupted: say
+  # so in the log and exit non-zero, not 0.
+  say complete || { sleep 1; say complete; } || { echo "$(date -u +%H:%M:%S) $target is installed and running, but the result could not be recorded in $(basename "$status"). The job will show as interrupted; the version Pocket shows is the one running."; exit 2; }
   exit 0
 fi
+# A failed write here is not checked: putting the running version back matters more, and the fail below records the result.
 say rolling-back
 # 1.124.3: a put-back that failed is said, not restarted into "Pocket went back": the new version is not running, and the old
 # one cannot start without its checkout and packages.

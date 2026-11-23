@@ -709,7 +709,7 @@ function startApp(file) {
   return new Promise(r => server.listen(0, '127.0.0.1', () => r(server)));
 }
 
-async function shellEnv({ origin = 'good', faults = [], sayfail = [], app = {}, drop = [], prep, writeStatus = true, home: sharedHome } = {}) {
+async function shellEnv({ origin = 'good', faults = [], sayfail = [], sayonce = [], saysecond = [], app = {}, drop = [], prep, writeStatus = true, home: sharedHome } = {}) {
   const dir = tmpDir('su-sh-');
   const home = sharedHome || path.join(dir, 'home'); const S = path.join(home, '.standin');
   fs.mkdirSync(S, { recursive: true });
@@ -724,10 +724,16 @@ async function shellEnv({ origin = 'good', faults = [], sayfail = [], app = {}, 
   fs.writeFileSync(path.join(bin, 'pm2'), PM2, { mode: 0o755 });
   fs.writeFileSync(path.join(bin, 'npm'), NPM, { mode: 0o755 });
   const nodeWrapper = path.join(bin, 'node');
-  fs.writeFileSync(nodeWrapper, sh(['for a in "$@"; do if [ -e "$HOME/.standin/sayfail.$a" ]; then echo "sayfail.$a" >> "$HOME/.standin/hits"; exit 1; fi; done', `exec ${process.execPath} "$@"`]), { mode: 0o755 });
+  fs.writeFileSync(nodeWrapper, sh(['Z="$HOME/.standin"; for a in "$@"; do',
+    '  if [ -e "$Z/sayfail.$a" ]; then echo "sayfail.$a" >> "$Z/hits"; exit 1; fi',
+    '  if [ -e "$Z/sayonce.$a" ]; then /usr/bin/rm -f "$Z/sayonce.$a"; echo "sayonce.$a" >> "$Z/hits"; exit 1; fi',
+    '  if [ -e "$Z/saysecond.$a" ]; then /usr/bin/mv "$Z/saysecond.$a" "$Z/sayfail.$a"; fi',
+    'done', `exec ${process.execPath} "$@"`]), { mode: 0o755 });
   for (const n of drop) fs.rmSync(path.join(bin, n), { force: true });
   for (const f of faults) fs.writeFileSync(path.join(S, 'f.' + f), '');
   for (const p of sayfail) fs.writeFileSync(path.join(S, 'sayfail.' + p), '');
+  for (const p of sayonce) fs.writeFileSync(path.join(S, 'sayonce.' + p), '');
+  for (const p of saysecond) fs.writeFileSync(path.join(S, 'saysecond.' + p), '');
   const appFile = path.join(S, 'app.json');
   fs.writeFileSync(appFile, JSON.stringify({ pid: 4100, version: '1.0.0', ok: true, busy: 0, health: 'ok', ...app }));
   fs.writeFileSync(path.join(S, 'checkout'), co);
@@ -806,6 +812,8 @@ const SM = {
   tool: t => `${t} is not on Pocket's PATH, so it cannot update itself. Update it from the server.`,
   notGnu: /^Pocket's backup needs GNU tar, and \S+ is not GNU tar\. Install it \(on macOS: brew install gnu-tar\), or update Pocket from the server\. Nothing was changed\.$/,
   flock: 'Another Pocket Code update is running.',
+  unwritten: "Pocket could not write the update's progress to its data folder, so it stopped. Nothing was changed.",
+  unwrittenMoved: `Pocket could not write the update's progress to its data folder, so it did not restart and stays on ${F}.`,
   mkdir: 'Could not make the backup folder. Nothing was changed.',
 };
 const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -995,6 +1003,34 @@ describe('shell (stand-in repository)', { concurrency: 6 }, () => {
     assert.match(hits(E), /sayfail\.complete/, 'harness: say complete fault hit');
     const st = readStatus(E);
     assert.ok(!(r.code === 0 && st.phase !== 'complete'), `exit 0 while status says ${st.phase}`);
+    // 1.124.4: tried twice, then a non-zero exit and a line in the log; the install itself is updated.
+    assert.equal((hits(E).match(/sayfail\.complete/g) || []).length, 2, 'say complete is retried once');
+    assert.equal(r.code, 2, tail(r.out)); assert.equal(st.phase, 'restarting');
+    assert.match(r.out, /1\.1\.0 is installed and running, but the result could not be recorded in pocket-self-update\.json/);
+    assert.equal(headOf(E), TPL.sha11); assert.equal(restarts(E).length, 1);
+  }));
+  test('say complete that fails once is retried and recorded: complete, exit 0', () => withShell({ sayonce: ['complete'] }, async E => {
+    const r = await runShell(E);
+    assert.match(hits(E), /sayonce\.complete/, 'harness: the first say complete failed');
+    assert.equal(r.code, 0, tail(r.out)); assert.equal(readStatus(E).phase, 'complete');
+  }));
+  test('say backing-up fails: stops before the backup, nothing changed', () => withShell({ sayfail: ['backing-up'] }, async E => {
+    await expectFailure(E, await runShell(E), SM.unwritten, { hit: 'sayfail\\.backing-up' });
+    assert.deepEqual(backups(E), []);
+  }));
+  test('say backing-up with the backup path fails: the unrecorded backup is removed, nothing changed', () => withShell({ saysecond: ['backing-up'] }, async E => {
+    const r = await runShell(E);
+    assert.equal((r.out.match(/^\d\d:\d\d:\d\d backing-up$/gm) || []).length, 2, `harness: the backup was made before its path was recorded\n${tail(r.out)}`);
+    await expectFailure(E, r, SM.unwritten, { hit: 'sayfail\\.backing-up' });
+    assert.deepEqual(backups(E), []);
+  }));
+  test('say installing fails: stops before the checkout moves', () => withShell({ sayfail: ['installing'] }, async E => {
+    await expectFailure(E, await runShell(E), SM.unwritten, { hit: 'sayfail\\.installing' });
+    assert.ok(!callLines(E).some(l => l.startsWith('npm ci')), 'no package install');
+  }));
+  test('say restarting fails: the running version is put back and PM2 is not restarted', () => withShell({ sayfail: ['restarting'] }, async E => {
+    await expectFailure(E, await runShell(E), SM.unwrittenMoved, { hit: 'sayfail\\.restarting' });
+    assert.equal(callLines(E).filter(l => l.startsWith('npm ci')).length, 2, 'packages installed, then put back');
   }));
 
   // ------------------------------------------------------------- divergences (shell)
@@ -1004,6 +1040,8 @@ describe('shell (stand-in repository)', { concurrency: 6 }, () => {
     assert.equal(headOf(E), E.head, `checkout moved after the checking progress write failed (exit ${r.code})`);
     assert.equal(restarts(E).length, 0, 'PM2 restarted after a failed progress write');
     assert.notEqual(r.code, 0);
+    await expectFailure(E, r, SM.unwritten);
+    assert.ok(!callLines(E).some(l => l.startsWith('npm ')), 'nothing installed');
   }));
   test('DIV-9: a failed backup file listing must fail before the checkout moves', () => withShell({ faults: ['lsfiles'] }, async E => {
     const r = await runShell(E);
