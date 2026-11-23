@@ -258,7 +258,9 @@ on `main`, and that no reply is running; backs up its private data to `~/backups
 and its packages; and restarts. The sheet shows each step. While Pocket restarts the page loses
 contact for a moment and reconnects by itself; open conversations reconnect too. If the new version
 does not start, Pocket goes back to the one it was running and says so in the row, and you can try
-again. The button is not offered while a reply is running, while a Claude Code or Codex upgrade runs,
+again. If the backup cannot be written (the server ran out of room, say), Pocket removes it and
+changes nothing. If the new packages fail to install and the old ones cannot be put back either, the row
+says so: Pocket keeps running, but run `npm ci` in its folder on the server before it next restarts. The button is not offered while a reply is running, while a Claude Code or Codex upgrade runs,
 or when Pocket cannot restart itself (it is not running under PM2, or the folder is not a git
 checkout); the row then says why. It needs at least 5 GB free on the server for the backup.
 
