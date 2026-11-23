@@ -4180,7 +4180,10 @@ app.post('/api/session/:id/message', requireAuth, ownerSendGate, validateApprova
   if (!file && !running) return res.status(404).json({ error: 'not found' });
   const meta = file ? await sessionMeta(file, id) : { cwd: running.cwd };
   const cwd = meta.cwd && fs.existsSync(meta.cwd) ? meta.cwd : HOME;
-  if (running?.runner && !running.finalized) drainRunnerLog(running.runner); // 1.124.3: a result written but not read yet ends the turn here
+  // 1.124.3: a result written but not read yet ends the turn here, so the message is not steered into a CLI whose turn is
+  // over. Not for After this reply: that row is started by the reply's own end, with any request the reply left carried
+  // into it; ending the reply first would leave the row behind the stand-in turn that keeps such a request answerable.
+  if (mode !== 'queue' && running?.runner && !running.finalized) drainRunnerLog(running.runner);
   if (running?.finalized) { await running.finalizeDone; running = turns.get(id); } // a turn that is just ending: send as the next turn, not a steer
   if (!running && busyElsewhere(id)) return res.status(409).json({ error: 'This conversation is being used in another app right now (code-server or a terminal). Send again once that reply has finished.' });
   if (running) {

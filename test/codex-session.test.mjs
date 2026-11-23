@@ -110,11 +110,12 @@ test('idle Codex sessions close; the next message reopens the thread',async t=>{
 test('1.81: a Codex finished-reply push follows the Claude rules: none while the conversation is open or after Stop',async t=>{
  const vapid=webpush.generateVAPIDKeys();
  const f=await fixture(t,18433,{VAPID_PUBLIC:vapid.publicKey,VAPID_PRIVATE:vapid.privateKey});
- // One device whose push service never answers: the send fails, and a failure other than 404/410 still counts in "push sent".
+ // One device whose push service never answers: the send fails. 1.124.3: a failed send is no longer counted as a device
+ // reached, so the line reads 0 devices; it still marks one push tried for the conversation, which is what is counted here.
  const device=createECDH('prime256v1');device.generateKeys();
  fs.mkdirSync(path.join(f.dir,'data'),{recursive:true});
  fs.writeFileSync(path.join(f.dir,'data','push-subs.json'),JSON.stringify([{endpoint:'https://127.0.0.1:9/push',keys:{p256dh:device.getPublicKey('base64url'),auth:randomBytes(16).toString('base64url')}}]));
- const pushes=id=>f.logs().split('\n').filter(l=>l.includes(`push sent (1 devices) session=${id}`)).length;
+ const pushes=id=>f.logs().split('\n').filter(l=>l.includes(`push sent (0 devices) session=${id}`)).length;
  const id=(await f.call('/new',{cwd:repo,provider:'codex',...msg('first')})).body.id;
  assert.ok(await f.until(async()=>f.calls().length===1&&await f.idle(id)));
  assert.ok(await f.until(()=>pushes(id)===1),'a reply nobody is watching pushes');
