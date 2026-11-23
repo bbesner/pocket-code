@@ -108,3 +108,5 @@ The `pocket-coord` skill tells agents all of this. See [For agents](for-agents.m
 **A waiting conversation didn't wake.** It is woken only if it asked with `pocket-coord wait`, and a paused queue stays paused. Check **Held now** for who is first in line.
 
 **`pocket-coord` says Coordination is off.** Turn it on in **Settings → Projects, files, tasks & vault**. In Assistant mode it stays off.
+
+**Holds and waiting lines vanished after a restart, and the server log says `coordination.json could not be read`.** The file did not hold valid JSON when Pocket started (a hand edit, or a file damaged by a power cut). Since 1.124.2 Pocket keeps it beside the original as `coordination.json.corrupt-<time>` and starts with no holds. Holds are short-lived, so taking them again is usually enough; to get the old ones back, stop Pocket, fix the kept copy and move it back to `coordination.json`.
