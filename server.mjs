@@ -5683,7 +5683,7 @@ app.post('/api/vault/intake', requireBoardAuth, vaultOn, vaultOpen, sameOrigin, 
       const name = String(b.name || '').toLowerCase();
       const id = b.id ? String(b.id) : vault.pendingIntake(name)?.id;
       if (!id) return res.status(404).json({ error: `No intake link for ${name || 'that name'} is waiting.`, code: 'intake_none' });
-      out = action === 'relink' ? vault.relinkIntake(id, { actor: c.actor }) : { intake: vault.cancelIntake(id, { actor: c.actor }) };
+      out = action === 'relink' ? vault.relinkIntake(id, { actor: c.actor, session: c.session }) : { intake: vault.cancelIntake(id, { actor: c.actor, session: c.session }) };
     } else return res.status(400).json({ error: 'Unknown action.' });
     log(`vault intake ${action} name=${out.intake.name} request=${out.intake.id} by ${c.actor}${c.session ? ' session=' + c.session : ''}`);
     const base = publicBase();
@@ -6068,10 +6068,13 @@ app.get('/api/file', requireAuth, (req, res) => {
 // 1.118 (PC-10): the counts (what is running, for how long) go to the signed-in owner and to a request made on this box
 // straight to the port (pocket-init, deploy scripts: curl localhost:3610/api/health). Anyone else, a caller through the
 // tunnel included, learns only that Pocket answers.
+// 1.124.3: busy is every reply a restart would cut short, OpenRouter's and Antigravity's included: the self-update script asks
+// for it just before its PM2 restart, since replies can start in the minutes after the Update press was checked.
+const repliesRunning = () => turns.size + codex.codexTurns.size + [...acp.acpTurns.values()].filter(t => !t.stopped && !t.done).length;
 app.get('/api/health', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   if (!directLoopback(req) && !checkCookie(getCookie(req, 'pc_auth'))) return res.json({ ok: true });
-  res.json({ ok: true, active: turns.size + codex.codexTurns.size, codexActive: codex.codexTurns.size, processes: runners.size, codexProcesses: codex.codexSessions.size, uptime: process.uptime() });
+  res.json({ ok: true, active: turns.size + codex.codexTurns.size, busy: repliesRunning(), codexActive: codex.codexTurns.size, processes: runners.size, codexProcesses: codex.codexSessions.size, uptime: process.uptime() });
 });
 
 // model picker options — Claude's from CLAUDE_MODELS, Codex's straight from its app-server
@@ -6208,7 +6211,7 @@ app.get('/api/cli-updates',requireAuth,async(_req,res)=>{
 app.post('/api/cli-updates/pocket',requireAuth,cliUpdateAction,(req,res)=>{
   const pk=cliUpdates.pocketSnapshot();
   if(!pk.available||req.body?.version!==pk.latest)return res.status(409).json({error:'No newer Pocket Code release was found. Check again.'});
-  const busy=turns.size+codex.codexTurns.size+[...acp.acpTurns.values()].filter(t=>!t.stopped&&!t.done).length;
+  const busy=repliesRunning();
   try{selfUpdate.begin({from:pk.installed,to:pk.latest,busy,otherJob:cliUpdates.busy||cliUpdates.checking});const s=cliUpdates.snapshot();s.pocket.self=selfUpdate.snapshot();res.status(202).json(s);}
   catch(e){res.status(e.status||503).json({error:e.status?e.message:'Could not start the update. Try again.'});}
 });
