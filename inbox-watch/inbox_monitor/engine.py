@@ -3346,6 +3346,7 @@ def heartbeat(store: Store) -> None:
                 d.seen(profile(store))
                 store.set("last_seen_at", iso())
                 store.set("last_seen_revision", json.dumps(SETTINGS_REVISION))
+                store.set("last_seen_request", json.dumps(store.get("check_request_done")))  # 1.124.5: see tick()
                 store.commit()
             except Exception as ex:  # noqa: BLE001
                 log(f"{d.kind} heartbeat failed: {ex}")
@@ -3372,7 +3373,9 @@ def tick(dry_run: bool) -> int:
         return run(dry_run, False, why=why)
     seen = store.get("last_seen_at")
     stale = not seen or (now_utc() - dt.datetime.fromisoformat(seen)).total_seconds() >= HEARTBEAT_IDLE_S
-    if stale or store.get("last_seen_revision") != json.dumps(SETTINGS_REVISION):
+    # 1.124.5: and a finished Check now whose report failed (Pocket was restarting) within a minute, not after half an hour
+    unreported = store.get("last_seen_request") != json.dumps(store.get("check_request_done"))
+    if stale or unreported or store.get("last_seen_revision") != json.dumps(SETTINGS_REVISION):
         heartbeat(store)  # a changed setting shows as applied in Pocket within a minute, not at the next check
     return 0
 
