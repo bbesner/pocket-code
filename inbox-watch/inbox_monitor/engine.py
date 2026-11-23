@@ -317,7 +317,8 @@ create table if not exists lessons(id integer primary key autoincrement, ref tex
 """
 JUDGE_CALL_COLUMNS = {"turns": "integer", "tool_calls": "integer", "tools": "text", "memory_items": "integer"}
 ISSUE_COLUMNS = {"title": "text", "unknowns": "text", "memory_at": "text", "not_useful_at": "text"}  # 1.109: Not useful keeps a story off the list
-ALERT_COLUMNS = {"memory_at": "text", "push_kind": "text", "why_now": "text", "pushed": "integer"}  # 1.105: the push split
+ALERT_COLUMNS = {"memory_at": "text", "push_kind": "text", "why_now": "text", "pushed": "integer",  # 1.105: the push split
+                 "tries": "integer"}  # 1.124.2: failed deliveries, for deliver_left_queued's retries
 
 ARCHIVE_SCHEMA = """
 create table if not exists mail(message_id text primary key, thread_id text, ts integer, date text, sender text, recipients text,
@@ -1591,6 +1592,8 @@ def deliver(store: Store, alert_id: int, thread: dict | None, dry_run: bool, hel
     if not DELIVERIES:
         log(f"no delivery configured; alert {alert_id} recorded only")
     store.mark_sent(alert_id, ",".join(refs) or None, pocket, "sent" if refs or not DELIVERIES else "failed")
+    if DELIVERIES and not refs:  # 1.124.2: counted, so deliver_left_queued tries it again a few times and then leaves it
+        store.db.execute("update alerts set tries=coalesce(tries,0)+1 where id=?", (alert_id,))
     return bool(refs) or not DELIVERIES
 
 
@@ -1669,22 +1672,37 @@ def deliver_left_queued(store: Store, dry_run: bool, awake: bool = False) -> int
     they go out now, however late: late mail is judged rather than dropped, and the same goes for its alert. Pocket knows
     each by its dedupe key, so one the killed run had already sent is not listed or pushed again. As for a held alert, one
     whose story was resolved since is not sent, and quiet hours hold all but a critical one, one the owner labelled in
-    Gmail, or any during Check now. Returns how many went out."""
+    Gmail, or any during Check now. Returns how many went out.
+    1.124.2: an alert whose delivery failed (Pocket not answering, or answering too late) is tried again the same way, once
+    a run, FAILED_TRIES times in all and only within FAILED_RETRY_HOURS of its making, while Pocket still answers its key as
+    a duplicate, so one that did reach the Inbox is not listed again. One that failed before 1.124.2 has no count and is left."""
     sent = 0
-    for a in store.pending(("notify",), ("queued",)):
+    failed = [] if dry_run else store.db.execute(  # a dry run would mark it 'dry-run', as if it had been told
+        "select * from alerts where kind='notify' and status='failed' and tries<? and created_at>=? order by created_at",
+        (FAILED_TRIES, iso(now_utc() - dt.timedelta(hours=FAILED_RETRY_HOURS)))).fetchall()
+    for a in [*store.pending(("notify",), ("queued",)), *failed]:
+        again = a["status"] == "failed"
+        what = "not delivered by an earlier run" if again else "left unsent by an earlier run"
         s = store.story(a["issue_key"]) if a["issue_key"] else None
         if s and s["status"] == "resolved" and (s["updated_at"] or "") > (a["created_at"] or ""):
-            log(f"alert {a['id']} left unsent by an earlier run: its story was resolved since; not sent: {a['subject']!r}")
+            log(f"alert {a['id']} {what}: its story was resolved since; not sent: {a['subject']!r}")
             store.mark_sent(a["id"], None, None, "superseded")
         elif in_quiet_hours() and a["priority"] != "critical" and "|added|" not in (a["dedupe_key"] or "") and not awake:
-            log(f"alert {a['id']} left unsent by an earlier run: held for morning: {a['subject']!r}")
+            log(f"alert {a['id']} {what}: held for morning: {a['subject']!r}")
             store.db.execute("update alerts set status='held' where id=?", (a["id"],))
         else:
-            log(f"alert {a['id']} left unsent by an earlier run ({iso_to_et(a['created_at'])}); sending it now: {a['subject']!r}")
+            n = f" (try {a['tries'] + 1} of {FAILED_TRIES})" if again else ""
+            log(f"alert {a['id']} {what} ({iso_to_et(a['created_at'])}); sending it now{n}: {a['subject']!r}")
             if deliver(store, a["id"], None, dry_run):
                 sent += 1
+            elif (store.db.execute("select tries from alerts where id=?", (a["id"],)).fetchone()["tries"] or 0) >= FAILED_TRIES:
+                log(f"alert {a['id']} not delivered after {FAILED_TRIES} tries; not tried again (it is in monitor.sqlite): {a['subject']!r}")
         store.commit()
     return sent
+
+
+FAILED_TRIES = 5          # 1.124.2: deliveries of one alert in all, a run apart
+FAILED_RETRY_HOURS = 20   # inside Pocket's 24 hours of duplicate keys (inbox.mjs add)
 
 
 def send_digest(store: Store, overflow: list[sqlite3.Row], dry_run: bool) -> None:

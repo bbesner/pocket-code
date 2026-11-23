@@ -461,7 +461,9 @@ an earlier Not useful on its story: your own hand wins.
 5. Alerts go out together once every batch is judged, so a later batch can fold a new fact into an alert that has not
    left yet. The same fact is never alerted twice. An alert a stopped check never sent goes out at the start of the
    next one (held until morning in quiet hours, dropped if its story was resolved since); Pocket knows it by its key,
-   so one that had already reached the Inbox is not listed or pushed again.
+   so one that had already reached the Inbox is not listed or pushed again. An alert that could not be delivered
+   (Pocket not answering, as while it restarts, or answering too late) is tried again the same way at the next checks,
+   up to five times in all and within the day; after that it is only in `monitor.sqlite` and `monitor.log` says so.
 6. Due items run: the digest, a look-ahead, the tidy pass. Then the watcher reports to Pocket with its settings, status
    and costs (the heartbeat).
 
