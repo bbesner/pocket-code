@@ -4510,7 +4510,10 @@ app.post('/api/settings', requireAuth, (req, res) => {
       log('vault key created and saved to .env');
     } catch (e) { log(`vault key creation failed: ${e.message}`); return res.status(e.status || 500).json({ error: e.message, code: e.code || 'vault_key_failed' }); }
   }
-  if (routerKey !== undefined) { if (routerKey) { const tmp = ROUTER_KEY_FILE + '.tmp'; fs.writeFileSync(tmp, routerKey, { mode: 0o600 }); fs.chmodSync(tmp, 0o600); fs.renameSync(tmp, ROUTER_KEY_FILE); } else try { fs.rmSync(ROUTER_KEY_FILE, { force: true }); } catch { } }
+  // 1.124.3: a new key is written beside the key file here, and takes its place (or a reset removes it) only once the
+  // settings are saved; a save that failed left the new key in place (or the old one gone) behind "nothing changed".
+  const keyTmp = ROUTER_KEY_FILE + '.tmp';
+  if (routerKey) { fs.writeFileSync(keyTmp, routerKey, { mode: 0o600 }); fs.chmodSync(keyTmp, 0o600); }
   if (next.vaultAccess !== undefined && settings.vaultAccess !== next.vaultAccess) log(`vault agent access: ${settings.vaultAccess} -> ${next.vaultAccess}`);
   const prevContextPolicy = settings.contextPolicy; // 1.92
   // 1.124.2: saved before anything is rebuilt; a save that fails (a full disk) puts every key back, so the change is not
@@ -4520,9 +4523,11 @@ app.post('/api/settings', requireAuth, (req, res) => {
   Object.assign(settings, next);
   try { saveSettings(); } catch (e) {
     for (const [k, p] of prev) { if (p) settings[k] = p.v; else delete settings[k]; }
+    if (routerKey) try { fs.rmSync(keyTmp, { force: true }); } catch { }
     log(`settings not saved: ${e.message}`);
     return res.status(503).json({ error: 'Pocket could not save the change, so nothing changed. Check that its data folder has space and can be written, then try again.' });
   }
+  if (routerKey) fs.renameSync(keyTmp, ROUTER_KEY_FILE); else if (routerKey === '') try { fs.rmSync(ROUTER_KEY_FILE, { force: true }); } catch { }
   if (routerTouched) buildRouter();
   if (accessTouched) buildAccess();
   if ('offeredClaudeModels' in next) log(`claude models offered: ${claudeOffer().offered.join(',') || '(none)'} (${claudeOffer().source})`);
