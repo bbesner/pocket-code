@@ -2074,6 +2074,34 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await page.keyboard.press('Escape');
    }finally{page.off('request',onReq);vaultFixture.extraRequests=[];await page.evaluate(()=>fetch('/api/vault/reset',{method:'POST'})).catch(()=>{});await page.setViewport({width:1440,height:900});settings.vault=false;}
   });
+  // 1.124.2: the refresh repaints the list when a request arrives or leaves. Keyboard focus stays on the control it was on,
+  // and never moves onto a request's Deny, Always allow or Allow once, where Enter would answer a command the owner never read.
+  await check('Vault focus (1.124.2): a request arriving or leaving above the focused secret leaves focus on that secret, never on an answer',async()=>{
+   await page.setViewport({width:1440,height:900});const settings=settingsState();settings.vault=true;settings.vaultReady=true;
+   const focusNow=()=>page.evaluate(()=>{const a=document.activeElement;return {open:a?.dataset?.vaultOpen||null,answer:a?.dataset?.answer||null};});
+   const refresh=()=>page.evaluate(()=>loadVault(true).then(()=>repaintVault()));
+   const request=id=>({id,items:['fixture'],itemNames:['payroll-api'],argv:['node','run-payroll.mjs'],cwd:'/srv/payroll',session:rows[0].id,sessionTitle:rows[0].title,created:new Date().toISOString(),expiresAt:new Date(Date.now()+15*60000).toISOString(),answer:null});
+   try{
+    vaultFixture.extraRequests=[];await page.evaluate(()=>fetch('/api/vault/reset',{method:'POST'}));
+    await page.goto(base+'/?vault-focus=1#/vault');await page.waitForSelector('#vault-main .vault-item [data-vault-open]');
+    // The first secret in the list: a new request card goes in above the search box, and the old index landed on its Allow once.
+    const first=await page.$eval('#vault-main .vault-secrets [data-vault-open]',e=>e.dataset.vaultOpen);
+    await page.focus(`#vault-main [data-vault-open="${first}"]`);
+    vaultFixture.extraRequests=[request('fixture-focus')];await refresh();await page.waitForSelector('[data-request="fixture-focus"]');
+    assert.deepEqual(await focusNow(),{open:first,answer:null},'a request arriving above leaves focus on the secret');
+    vaultFixture.extraRequests=[];await refresh();await page.waitForFunction(()=>!document.querySelector('[data-request="fixture-focus"]'));
+    assert.deepEqual(await focusNow(),{open:first,answer:null},'a request leaving above leaves focus on the secret');
+    // Focus on a request's Deny: when a request above it (one with no Always allow) is answered on another device, focus
+    // stays on that Deny and does not slide onto its Allow once.
+    vaultFixture.extraRequests=[{...request('fixture-above'),allowAlways:false},request('fixture-focus')];await refresh();await page.waitForSelector('[data-request="fixture-focus"]');
+    await page.focus('[data-request="fixture-focus"] [data-answer="deny"]');
+    vaultFixture.extraRequests=[request('fixture-focus')];await refresh();await page.waitForFunction(()=>!document.querySelector('[data-request="fixture-above"]'));
+    assert.deepEqual(await page.evaluate(()=>[document.activeElement?.closest('[data-request]')?.dataset.request,document.activeElement?.dataset?.answer]),['fixture-focus','deny'],'focus stays on the same Deny');
+    // When the focused request itself leaves, focus does not land on another request's answer.
+    vaultFixture.extraRequests=[];await refresh();await page.waitForFunction(()=>!document.querySelector('[data-request="fixture-focus"]'));
+    assert.equal((await focusNow()).answer,null,'focus is not moved onto an answer');
+   }finally{vaultFixture.extraRequests=[];await page.evaluate(()=>fetch('/api/vault/reset',{method:'POST'})).catch(()=>{});settings.vault=false;}
+  });
   await check('Vault key (1.44): switching on with no key shows the recovery key (Copy, Download, gone after Done, never stored), Download recovery key, Rotate saves and shows the new key, a missing key is restored from the key or its file and a wrong key errors inline, and the phone',async()=>{
    await page.setViewport({width:1440,height:900});const settings=settingsState();
    settings.vault=true;await page.goto(base+'/#/vault');await page.evaluate(()=>fetch('/api/vault/reset',{method:'POST'}));
