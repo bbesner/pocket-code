@@ -975,6 +975,7 @@ async function pushNotify(sessionId, title, body) {
   const devices = await pushRaw(title, body, { tag: sessionId, url: '/#/chat/' + sessionId, kind: 'turns' });
   if (devices != null) log(`push sent (${devices} devices) session=${sessionId}`);
 }
+const PUSH_TEXT_MAX = 3900; // 1.124.3: bytes of text in one push (pushRaw)
 // One notification to every subscribed device that wants this kind (1.50: turns, reminders or vault; a device's
 // choice in Settings → Notifications); returns how many received it, or null when push is off or no device wants it.
 // `badge` is the count of due items for the app icon, sent only to devices that show it.
@@ -986,15 +987,31 @@ async function pushRaw(title, body, { tag, url, kind = 'turns', badge, ...extra 
   const subs = loadSubs().filter(s => pushPrefsOf(s).kinds[kind] !== false);
   if (!subs.length) return null;
   const base = { title: title.slice(0, 70), body, tag, url, ...extra };
+  // 1.124.3: a push service refuses a message over 4,096 bytes once encrypted (about 100 more than the text), and the
+  // callers cap the body in characters: 2,000 CJK characters or emoji is 6 KB, and the phone got nothing. The body is cut
+  // by bytes, at a character, leaving room for the badge.
+  const over = Buffer.byteLength(JSON.stringify(base)) + 32 - PUSH_TEXT_MAX;
+  if (over > 0 && typeof body === 'string') base.body = cutBytes(body, Buffer.byteLength(body) - over);
   const options = kind === 'turns' || kind === 'automation' ? {} : { urgency: 'high' }; // 1.119: automation goes at normal priority
   const dead = [];
+  let sent = 0;
   await Promise.all(subs.map(async s => {
     const payload = JSON.stringify(typeof badge === 'number' && pushPrefsOf(s).badge ? { ...base, badge } : base);
-    try { await webpush.sendNotification(s, payload, options); }
-    catch (e) { if (e.statusCode === 404 || e.statusCode === 410) dead.push(s.endpoint); }
+    try { await webpush.sendNotification(s, payload, options); sent++; }
+    catch (e) {
+      if (e.statusCode === 404 || e.statusCode === 410) dead.push(s.endpoint);
+      // 1.124.3: any other failure (the push service down, a network error) was counted as delivered, with no word
+      else log(`push not delivered to a device (${e.statusCode ? `the push service answered ${e.statusCode}` : e.code || e.message}) kind=${kind}`);
+    }
   }));
   if (dead.length) saveSubs(loadSubs().filter(s => !dead.includes(s.endpoint)));
-  return subs.length - dead.length;
+  return sent;
+}
+// The longest start of s that is at most max bytes in UTF-8, cut at a character, with … in the last 3 bytes.
+function cutBytes(s, max) {
+  let out = '', n = 0;
+  for (const ch of s) { n += Buffer.byteLength(ch); if (n > max - 3) break; out += ch; }
+  return out + '…';
 }
 
 // ---------- auth ----------
