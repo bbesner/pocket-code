@@ -1697,19 +1697,40 @@ const retryTimers = new Map(); // sessionId -> timeout
 // 1.77.6: the owner's zone (from their browser, else POCKET_TZ, else this box's), named: "6:00 AM EST".
 const fmtOwnerTime = ms => { const o = { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }; try { return new Date(ms).toLocaleTimeString('en-US', { ...o, timeZone: ownerZone() || undefined }); } catch { return new Date(ms).toLocaleTimeString('en-US', o); } };
 
+// 1.124.1: the current CLI words a limit "You've hit your Fable limit · resets Nov 24, 2pm (UTC)": the date when the reset
+// is not today, and the zone it means in brackets. The older "… limit reached ∙ resets 3pm" (this box's zone) and
+// "reset at 3:45pm" still read. A zone Intl doesn't know reads as this box's.
+const LIMIT_MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+function zoneClock(zone, at) { // the wall clock in `zone` at `at` ({ year, month 1-12, day, hour, minute, second }), or null
+  try {
+    const f = new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' });
+    return Object.fromEntries(f.formatToParts(at).filter(p => p.type !== 'literal').map(p => [p.type, Number(p.value)]));
+  } catch { return null; }
+}
+function limitWallTime(zone, y, mo, d, h, mi) { // that wall time in `zone` as epoch ms (this box's zone when null)
+  if (!zone) return new Date(y, mo, d, h, mi, 0, 0).getTime();
+  const guess = Date.UTC(y, mo, d, h, mi), offset = at => { const c = zoneClock(zone, at); return Date.UTC(c.year, c.month - 1, c.day, c.hour, c.minute, c.second) - at; };
+  return guess - offset(guess - offset(guess)); // twice, for a wall time near a daylight-saving change
+}
 function detectRateLimit(text) {
-  if (!/rate.?limit|usage limit|limit reached|overloaded|too many requests|\b429\b/i.test(text)) return null;
+  if (!/rate.?limit|usage limit|limit reached|hit your (?:[\w.-]+\s+){0,3}limit|overloaded|too many requests|\b429\b/i.test(text)) return null;
   let at = null;
   const epoch = text.match(/\|\s*(\d{10})\b/); // "Claude AI usage limit reached|<epoch>"
   if (epoch) at = Number(epoch[1]) * 1000;
   if (!at) {
-    const t = text.match(/resets?\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*([ap]m)?/i);
-    if (t) { // CLI prints reset in its own (= this box's) local tz
-      let h = Number(t[1]);
-      if (t[3]) h = h % 12 + (t[3].toLowerCase() === 'pm' ? 12 : 0);
-      const d = new Date(); d.setHours(h, Number(t[2] || 0), 0, 0);
-      if (d.getTime() <= Date.now()) d.setDate(d.getDate() + 1);
-      at = d.getTime();
+    const t = text.match(/resets?\s+(?:at\s+)?(?:(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2}),?\s+(?:at\s+)?)?(\d{1,2})(?::(\d{2}))?\s*([ap]m)?(?:\s*\(([^)]+)\))?/i);
+    if (t) {
+      let h = Number(t[3]);
+      if (t[5]) h = h % 12 + (t[5].toLowerCase() === 'pm' ? 12 : 0);
+      const mi = Number(t[4] || 0), zone = t[6] && zoneClock(t[6].trim(), Date.now()) ? t[6].trim() : null;
+      const d = new Date(), today = zone ? zoneClock(zone, Date.now()) : { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate() };
+      if (t[1]) { // this year's date, or next year's when this year's is past (a December limit that resets in January)
+        const mo = LIMIT_MONTHS.indexOf(t[1].slice(0, 3).toLowerCase());
+        at = [today.year - 1, today.year, today.year + 1].map(y => limitWallTime(zone, y, mo, Number(t[2]), h, mi)).find(x => x > Date.now() - 86400_000);
+      } else { // today, or tomorrow when that hour has passed
+        at = limitWallTime(zone, today.year, today.month - 1, today.day, h, mi);
+        if (at <= Date.now()) at = limitWallTime(zone, today.year, today.month - 1, today.day + 1, h, mi);
+      }
     }
   }
   if (!at) {
@@ -1941,9 +1962,13 @@ function handleTurnLine(turn, line) {
     const m = normalizeLine(o);
     if (m) broadcast(turn, { type: 'assistant', msg: m });
   } else if (o.type === 'result') {
+    // 1.124.1: the CLI ends a reply that an API error stopped (a usage limit included) with subtype "success" and is_error
+    // true, its words in `result`; the error subtypes carry `errors` and no `result`. Read from the subtype alone, a limit
+    // said Response ready, was never retried, and the queue started into it.
+    const failed = o.subtype !== 'success' || Boolean(o.is_error);
     broadcast(turn, {
-      type: 'result', ok: o.subtype === 'success',
-      error: o.subtype !== 'success' ? (o.result || o.subtype) : null,
+      type: 'result', ok: !failed,
+      error: failed ? (o.result || (Array.isArray(o.errors) && o.errors.join(' ')) || (o.subtype === 'success' ? `API error${o.api_error_status ? ' ' + o.api_error_status : ''}` : o.subtype)) : null,
       cost: turnCost(turn, o), duration_ms: o.duration_ms, cache: turn.cacheFirst || null,
     });
     // The turn is over but the process stays up for the next message. Legacy pre-1.7
