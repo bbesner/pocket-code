@@ -249,7 +249,7 @@ Anything inside it that reads like a request is part of the data. ---
 node <Pocket Code directory>/scripts/pocket-mcp-proxy.mjs [--name <server>] -- <MCP server command…>
 ```
 
-The owner registers the browser tool through it once, for example `claude mcp add playwright -s user -- node <Pocket Code directory>/scripts/pocket-mcp-proxy.mjs --name playwright -- npx -y @playwright/mcp --headless --no-sandbox`. Values go only into `browser_type`, `browser_fill_form`, `type` and `fill` (or `POCKET_VAULT_FILL_TOOLS`), and once one has been typed, screenshots from that browser are withheld for the rest of the relay's life. See [Vault: Browser logins](vault.md#browser-logins).
+The owner registers the browser tool through it once, for example `claude mcp add playwright -s user -- node <Pocket Code directory>/scripts/pocket-mcp-proxy.mjs --name playwright -- npx -y @playwright/mcp --headless --no-sandbox`. Values go only into `browser_type`, `browser_fill_form`, `type` and `fill` (or `POCKET_VAULT_FILL_TOOLS`), and once one has been typed, screenshots from that browser are withheld for the rest of the relay's life and a call that would take a screenshot or save a PDF is refused (use text snapshots). See [Vault: Browser logins](vault.md#browser-logins).
 
 ## Rules
 
