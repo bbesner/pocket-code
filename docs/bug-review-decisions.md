@@ -10,11 +10,14 @@ The files bug reviews target here: they hold secrets, write state, start or stop
 
 - `cli-updates.mjs` and `cli-update-worker.mjs` (reviewed 2026-10-28)
 - `vault.mjs` (reviewed 2026-10-27, 1.82.0)
-- `approvals.mjs`
-- `access.mjs`
-- `trusted.mjs`
-- `codex.mjs` (session close and reader lifecycle)
-- `scripts/pocket-mcp-proxy.mjs`
+- `approvals.mjs`, `access.mjs`, `trusted.mjs` (reviewed 2026-11-23, 1.124.3)
+- `codex.mjs` (session lifecycle: start, adoption after a restart, stop, close, the log reader; reviewed 2026-11-23, 1.124.3)
+- `scripts/pocket-mcp-proxy.mjs` (reviewed 2026-11-23, 1.124.3)
+- `vault-pin.mjs` (reviewed 2026-11-23, 1.124.3)
+- `job-keys.mjs` and `checkbacks.mjs`, with their routes in `server.mjs` (reviewed 2026-11-23, 1.124.3)
+- `automation.mjs` (reviewed 2026-11-23, 1.124.3)
+- `self-update.mjs` and `scripts/pocket-self-update.sh` (reviewed 2026-11-23, 1.124.3)
+- Not yet reviewed this way: `acp.mjs`, the Claude runner and keeper in `server.mjs`, `store-file.mjs`, `inbox-watch`.
 
 ## Settled findings
 
@@ -98,19 +101,91 @@ Open: the second reviewer could not establish the trigger, and no test made them
 - http-03: `POST /api/upload`, `/api/session/<id>/stop` and `/api/notify/test-email` take a cookie-only request with no
   body or a non-JSON one, so the CSRF defence there rests on SameSite alone.
 
-Noticed while fixing and left, for the next bug review of the file named:
+Noticed while fixing and left, for the next bug review of the file named (list as of 1.124.4):
 
-- `codex.mjs`: its log reader decodes before it splits lines (the fault fixed for Claude in 1.124.3), and
-  `codex-usage-state.json` grows without limit as `usage-state.json` did; a Codex job's "autonomous" mark is not kept
-  across a restart.
-- `server.mjs`: `mutes.json` and `push-subs.json` (arrays) still load as empty when they do not parse; the Codex and
-  OpenRouter start routes do not answer `not_started`; "overloaded" is read as a usage limit; store writes are not
-  fsynced.
-- `scripts/pocket-self-update.sh`: the script runs from the checkout it moves.
+- `server.mjs`: `mutes.json` and `push-subs.json` (arrays) still load as empty when they do not parse; the OpenRouter
+  start routes do not answer `not_started` (Codex does since 1.124.4); "overloaded" is read as a usage limit; store
+  writes are not fsynced; `holdRetry`, `rearmRetry` and the retry's re-write still swallow a failed marker write.
+- Job keys (`server.mjs`): a job run left `starting` after its `working` save failed is settled only by its reply's end
+  or a restart; a crash between the engine's start and that save leaves a reply running while its run reads
+  `not_started` after boot (Codex and OpenRouter, for as long as their start call takes); a key file still holding the
+  stale key of an interrupted rotation stays when Rotate moves the key to another folder, or on Delete.
+- `scripts/pocket-self-update.sh` and `self-update.mjs`: the lock follows the progress file's path, not the checkout;
+  nothing puts the checkout back if the script is killed, or the server reboots, after the checkout moved; when the
+  progress file cannot be written at all the job reads *preparing* until the 20-minute rule; a `complete` that could
+  not be recorded reads as interrupted; the Settings row prefixes *The update did not finish.* to *The update did not
+  start.*
+- `vault-pin.mjs`: an option's value written as one word with the option (`ssh -Fcfg`, `scp -Fcfg`) is not pinned, the
+  same class as `~/.ssh/config`; every `#!/usr/bin/env -S …` script now loses *Always allow*, also the common
+  `-S node --flag` ones (accepted: Pocket cannot tell what `env -S` starts).
+- `scripts/pocket-mcp-proxy.mjs`: a picture call sent before the first fill that the server never answers makes every
+  later fill in that relay refuse after its wait, until the browser tool restarts; the refusals after a fill are proven
+  against a stand-in server and, for stop and end-of-input, against the real Playwright MCP offline, not against each
+  agent CLI.
+- `store-file.mjs`: the kept copy's name has one-second resolution, so two damaged files of one name set aside in the
+  same second share a copy.
 - `inbox-watch`: `release_held` on a dry run marks held alerts `dry-run`; a dry run killed mid-way leaves `queued`
   alerts a real check would send; a burst past four pages of 50 threads is dropped without a word; Telegram and email
   have no duplicate check, so their failures are not retried; `InboxRunner.stop()` signals python alone.
-- `acp.mjs` and `scripts/pocket-mcp-proxy.mjs`: the Stop grace and the relay's refusals after a fill are proven
-  against stand-in agents only; whether Antigravity passes the runner token through to Vault calls is not established.
+- `acp.mjs`: the Stop grace is proven against stand-in agents only; whether Antigravity passes the runner token
+  through to Vault calls is not established.
 - Tests: the server test files use fixed ports and do not check that the port is free, so two full runs on one
   machine fail each other; a killed run leaves its stand-in CLIs running.
+
+
+## The risky-files bug review at 1.124.3 — 2026-11-23
+
+Seven blind runs after the whole-code review's fixes: `vault-pin.mjs`; `approvals.mjs`, `access.mjs` and `trusted.mjs`;
+`automation.mjs`; `job-keys.mjs` and `checkbacks.mjs` with their routes; `scripts/pocket-mcp-proxy.mjs`;
+`self-update.mjs` and `scripts/pocket-self-update.sh`; `codex.mjs` (session lifecycle). Blind specs: Codex GPT-6 Sol;
+blind contract tests and independent verification: Claude Opus; mutation checks: Codex GPT-6 Sol, and Claude Opus for
+`codex.mjs`. 654 tests written from the specs alone, 69 failed, 30 real faults (5 medium, 25 low, none high), fixed in
+1.124.4 with the passing contract tests kept as `test/*-contract-blind.test.mjs`. The rows below changed no code, or
+only the hardening named.
+
+| Finding | Ruling | Reason |
+|---|---|---|
+| pin DIV-3: a recipe saved under an older pin version that agrees still matches | Deliberate | The comparison is by content: anything a newer pin version adds is a `new` row and fails the match, and `unpinnable` is checked against the current pin (`vault.mjs` `recipeFor`; `test/vault-pin.test.mjs` "a matching earlier pin runs"). |
+| pin DIV-5: `close()` does not wait for its file handles | Not a fault | The handles are read-only and close-on-exec; the child is given only `plan.fds` and is spawned before `close()`. |
+| pin: `python -m amb` with both `amb.py` and `amb/` is not refused as ambiguous | Test bug | The package wins, as in Python; the pin holds `amb/__main__.py` and `amb/__init__.py`, the files that run. |
+| gate DIV-1: the same pending request handed in again at the 20-card cap is refused, not ignored | Not a fault | No caller hands one inbox the same pending id twice (each log line is read once; request ids are unique per connection; a restart starts an empty inbox). |
+| gate DIV-2: an automatic Allow that could not be delivered is not retried or turned into a card | Deliberate | Every production write fails only when the pipe is gone, where a card's answer would go too; an Allow is never retried after a failed delivery. It is logged on all three engines since 1.124.4. |
+| auto D4: the audit drops text keys at the top level only | Guarded | Every caller passes fixed metadata (counts, ids, field names); none nests text or passes `at` (`SECURITY.md`, the audit file). |
+| auto: `noticeOnce` answers true when its save failed | Not a fault | A restart can send the same limit notice once more that day: an extra push, not a hidden one. |
+| auto: a failed save at the day's rollover | Not a fault | A restart loads the old day and runs the same rollover again; nothing is lost. |
+| jobs DIV-4: Delete removes the key file before the key, and a failed save leaves the key listed without its file | Not a fault | The owner asked for the removal, is told it failed, and a second Delete finishes it. |
+| jobs DIV-8: a check-back whose `startedAt` could not be saved | Not a fault | The reply's end settles it; only after a second fault (a restart that also cuts the reply) does the wording differ, and nothing reruns. |
+| jobs DIV-9: a job or check-back audit line that cannot be written stops nothing | Deliberate | The audit is best effort and must never stop a turn. Since 1.124.4 a lost line is logged, at most once a minute. |
+| jobs DIV-10: `writeKeyFile` read any `lstat` error as "no file there" | Not a fault | Unreachable on POSIX (the write in the same folder fails first). Hardened anyway: only a missing file counts as not there. |
+| jobs: an error thrown in an `async` route is never answered | Not a fault | Every route is wrapped right after `express()`; a rejection reaches the error handler and answers 503 (shown by the check-back route test). |
+| relay DIV-2: a stop signal leaves a grandchild that has no link to its parent | Not a fault | The real browser tree exits on TERM, INT and HUP (checked against Playwright MCP offline); the relay forwards the signal as an unwrapped server would get it. |
+| relay DIV-3: a server that ignores end-of-input is not stopped | Not a fault | The real server exits on end-of-input; the client follows with SIGTERM, which the relay forwards with its 5 s SIGKILL. |
+| relay DIV-4: `server.stdin.write` throwing synchronously | Test bug | Node reports a child pipe's failure asynchronously. The real condition (a server that closes its input) was a fault and is fixed in 1.124.4. |
+| relay DIV-5: a value with a newline in raw, non-JSON stdout split over two lines | Not a fault | An MCP stdio server writes only JSON messages to stdout, where the newline is escaped; stderr goes through the streaming scrubber. |
+| update DIV-4: the failure write of a start that failed also fails | Not a fault | A double fault; the two-minute start rule (1.124.4) now reads it as not started. |
+| update DIV-5: `on()` or `unref()` throwing after the spawn | Guarded | `server.mjs` passes no spawner, and a real `ChildProcess` does not throw from either. |
+| update DIV-6: closing the log descriptor fails after the spawn | Not a fault | Not a credible failure for a local file; the close is guarded since 1.124.4. |
+| update DIV-10: `chmod` on the backup's files fails | Not a fault | The folder is made `0700`, so the files' modes widen nothing. |
+| update DIV-13: the script runs from the checkout it moves | Not a fault | git replaces a file by unlink and create, and bash keeps reading the old inode; pinned by the contract for `merge --ff-only`, `reset --hard` and `checkout --detach`. |
+| update DIV-14: a second press replacing the progress of a live updater | Not a fault | Every writer writes whole and renames, and the second script stops at the lock before it touches the checkout. |
+| update DIV-15: SIGTERM to the script leaves `npm ci` running | Not a fault | Nothing in the flow signals the script alone, and killing `npm ci` half-way would leave the packages worse off. |
+| update DIV-16: a secret printed by a subprocess reaches the update log | Not a fault | The script gets only `PATH`, `HOME`, `LANG` and `PM2_HOME`; the log is `0600` beside `.env`, and no route serves it. |
+| update DIV-17: two runs in one second share a backup folder | Not a fault | The lock serialises runs on one install, and each spends seconds in `git fetch` before the time is read. |
+| codex: log lines from before the adoption point are replayed, not skipped | Test bug | The spec was wrong; the replay is how requests left over from before a restart are found and declined once. |
+| codex DIV-7: a usage-limit retry is armed when its marker could not be written | Not a fault | A continuation that may not survive a restart is better than none; the failed write is logged since 1.124.4. |
+
+Changed by ruling in 1.124.4, where the blind test asked for something no fix should meet:
+
+- auto D1: a failed save of the day's counts keeps them in memory (rolling back would loosen the limits, a throw would
+  break a reply that has started); it is flagged on the Automation page and logged, not thrown.
+- jobs DIV-3: a rotation cut off before the key file was rewritten is repaired by the next Rotate (`fileHash`); the
+  rotation itself is not made two-phase.
+- update DIV-7: a job whose script never took its lock reads as not started after two minutes, not at once.
+
+Open, for the owner to decide (not settled):
+
+- Should unattended starts be held while the day's counts cannot be saved? Today they run, with the warning.
+- Should a restart go ahead when `/api/health` does not answer during an update? Today: three tries, then yes, logged.
+- Should the usage-limit push say when the automatic continuation will not survive a restart?
+- Should a picture taken in a browser session before any Vault value was typed be allowed to delay a fill at all, or
+  should the fill be refused at once? Today the fill waits up to 30 seconds.
