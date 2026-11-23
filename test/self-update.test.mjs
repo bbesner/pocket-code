@@ -118,8 +118,11 @@ async function setup(t,{port}){
     return {...r,job:JSON.parse(fs.readFileSync(status,'utf8'))};
   };
   const served=async()=>(await(await fetch(`http://127.0.0.1:${port}/release.json`)).json()).version;
-  return {d,dir,st,run,served};
+  return {d,dir,st,bin,run,served};
 }
+// A stand-in for a real tool (tar, npm) that misbehaves the way the body says and otherwise is the real one.
+const which=tool=>execFileSync('sh',['-c','command -v '+tool],{encoding:'utf8'}).trim();
+const wrap=(bin,tool,body)=>fs.writeFileSync(path.join(bin,tool),`#!/bin/sh\n${body}\nexec '${which(tool)}' "$@"\n`,{mode:0o755});
 const freePort=()=>20000+Math.floor(Math.random()*20000);
 
 test('1.123: the script installs a release, backs up private state, restarts and confirms the new version',{timeout:120000},async t=>{
@@ -164,4 +167,18 @@ test('1.123: a hand-edited checkout, a moved HEAD or an unknown origin is refuse
   assert.equal(other.job.phase,'failed');assert.match(other.job.error,/does not come from github\.com\/test\/pocket/);
   assert.equal(sh(dir,'rev-parse','HEAD'),head);
   assert.ok(!fs.existsSync(path.join(st,'calls'))||!/save/.test(fs.readFileSync(path.join(st,'calls'),'utf8')),'never restarted for good');
+});
+
+test('1.124.2: a backup tar gives up on (exit 2, a full disk) is removed and nothing is installed',{timeout:60000},async t=>{
+  const {d,dir,bin,run}=await setup(t,{port:freePort()});
+  const head=sh(dir,'rev-parse','HEAD');
+  // GNU tar on a disk that fills: part of an archive written, "Cannot write", "Error is not recoverable", status 2.
+  wrap(bin,'tar',`case " $* " in *" -czf "*) prev=''; for a in "$@"; do [ "$prev" = -czf ] && out=$a; prev=$a; done
+  head -c 65536 /dev/urandom > "$out"; echo "tar: $out: Cannot write: No space left on device" >&2; echo 'tar: Error is not recoverable: exiting now' >&2; exit 2 ;; esac`);
+  const r=run('1.1.0','1.0.0');
+  assert.equal(r.status,1,r.stdout+r.stderr);
+  assert.equal(r.job.phase,'failed');assert.match(r.job.error,/backup could not be written/);assert.match(r.job.error,/Nothing was changed/);
+  assert.equal(r.job.backup,undefined,'no backup is recorded');
+  assert.deepEqual(fs.existsSync(path.join(d,'backups'))?fs.readdirSync(path.join(d,'backups')):[],[],'the partial archive does not stay on the disk');
+  assert.equal(sh(dir,'rev-parse','HEAD'),head,'the checkout did not move');
 });

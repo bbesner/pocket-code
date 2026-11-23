@@ -76,9 +76,14 @@ free_kb=$(df -Pk "$HOME" | awk 'NR==2{print $4}')
 backup="$HOME/backups/pocket-code-$target-update-$(date -u +%Y%m%d-%H%M%S)"
 mkdir -m 700 -p "$backup" || fail 'Could not make the backup folder. Nothing was changed.'
 git ls-files --others --ignored --exclude-standard -z | grep -zv '^node_modules/' | grep -zv '^\.impeccable/' > "$backup/files.nul"
-# 1 = a file changed while it was read (a live log); 2 with --ignore-failed-read = a turn file that vanished; both fine.
+# 1 = a file changed while it was read (a live log): fine. 1.124.2: 2 is GNU tar's fatal error (a disk that filled, say); a
+# turn file that vanished is only a warning under --ignore-failed-read, status 0. The archive must also list back, and a
+# backup that failed is removed, so it neither stays on a full disk nor passes for a backup.
 tar --warning=no-file-changed --ignore-failed-read --null -czf "$backup/private-state.tar.gz" -T "$backup/files.nul"; rc=$?
-[ "$rc" -le 2 ] && [ -s "$backup/private-state.tar.gz" ] || fail 'The backup could not be written. Nothing was changed.'
+if [ "$rc" -gt 1 ] || ! [ -s "$backup/private-state.tar.gz" ] || ! tar -tzf "$backup/private-state.tar.gz" >/dev/null 2>&1; then
+  rm -rf -- "$backup"
+  fail 'The backup could not be written, so Pocket removed it. Nothing was changed. Check that the server has room for the backup, then try again.'
+fi
 echo "$prev" > "$backup/prev-head.txt"; echo "${branch:-detached}" > "$backup/prev-branch.txt"
 chmod 600 "$backup"/*
 say backing-up '' "$backup"

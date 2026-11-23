@@ -356,7 +356,8 @@ It follows the steps above: the origin must be `github.com/<POCKET_RELEASES_REPO
 the checkout on `main` (fast-forwarded) or on a detached release, tracked files unchanged and `HEAD` what it
 was when the button was pressed; the tag `v<version>` must be on `origin/main`; at least 5 GB must be free.
 It backs up the git-ignored private files to `~/backups/pocket-code-<version>-update-<time>/`
-(`private-state.tar.gz`, `prev-head.txt`, `prev-branch.txt`), runs `npm ci` and `check:release --released`,
+(`private-state.tar.gz`, `prev-head.txt`, `prev-branch.txt`); a backup `tar` could not finish, or one that does
+not list back, is removed and the update stops with nothing changed (1.124.2). It then runs `npm ci` and `check:release --released`,
 then `pm2 restart <its pm_id>` (the stored PM2 environment is kept; Pocket reads `.env` itself) and waits up
 to 90 seconds for a new process that serves the release and answers `/api/health`, and is still the same
 process 10 seconds later. Then `pm2 save`. If any step after the checkout moves fails, the checkout and
