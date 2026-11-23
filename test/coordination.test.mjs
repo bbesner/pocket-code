@@ -240,3 +240,22 @@ test('the instructions name the command and the skill, quoted when the path has 
   assert.match(line,/\/srv\/my pocket\/skills\/pocket-coord\/SKILL\.md/);
   assert.match(line,/stops nothing/);
 });
+
+test('1.124.5: a free name with a line or an offer shows in the snapshot; a held wake gives up its window to the next',t=>{
+  const {s,clock}=store(t);
+  s.hold('shop-staging',{reason:'x',holder:A});
+  s.wait('shop-staging',{waiter:B});s.wait('shop-staging',{waiter:C});
+  assert.deepEqual(s.snapshot().free,[],'a held name is listed under holds only');
+  s.release('shop-staging',{by:A});clock.t+=2*min;
+  assert.deepEqual(s.snapshot().free,[{name:'shop-staging',waiters:[{id:s.state.waits['shop-staging'][0].id,...C,at:1_000_000,block:false}],offer:{session:'b',at:1_000_000,held:false}}]);
+  assert.equal(s.offerHeld('shop-staging','c'),false,'only the one offered it');
+  assert.equal(s.offerHeld('shop-staging','b'),true);
+  assert.equal(s.snapshot().free[0].offer.held,true);
+  assert.deepEqual(s.sweep().map(w=>w.session),['c'],'the next sweep offers it to c, not after ten minutes');
+  assert.deepEqual(s.snapshot().free,[{name:'shop-staging',waiters:[],offer:{session:'c',at:clock.t,held:false}}]);
+  clock.t+=LIMITS.offerMs;s.sweep();
+  assert.deepEqual(s.snapshot().free,[],'an offer older than the window, with nobody waiting, goes');assert.deepEqual(s.state.offeredTo,{});
+  s.hold('shop-staging',{reason:'y',holder:C});s.wait('shop-staging',{waiter:B});s.release('shop-staging',{by:C});
+  s.hold('shop-staging',{reason:'z',holder:B});
+  assert.deepEqual(s.snapshot().free,[],'claiming ends it');assert.deepEqual(s.state.offeredTo,{});
+});

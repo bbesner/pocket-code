@@ -5333,7 +5333,11 @@ async function coordWake(offer, note = '') {
         origin: 'coordination', rootOrigin: auto.normRoot(next.run?.rootOrigin) }); // 1.117: owner when the wait did not say
     } catch (e) { log(`coordination wake skipped name=${next.name} session=${id}: ${e.message}`); continue; }
     log(`coordination woke session=${id} for ${next.name}`);
-    if (followups.list(id)[0]?.id === row.id && !ownedTurn(id)) await runNextFollowup(id, await engineOf(id).cwd(id), { by: 'coordination' }).catch(e => log(`coordination wake start failed session=${id}: ${e.message}`));
+    let started = false;
+    if (followups.list(id)[0]?.id === row.id && !ownedTurn(id)) started = Boolean(await runNextFollowup(id, await engineOf(id).cwd(id), { by: 'coordination' }).catch(e => { log(`coordination wake start failed session=${id}: ${e.message}`); return null; }));
+    // 1.124.5: a wake that did not start and will not start when a running reply ends (paused, its queue stopped, a limit)
+    // gives up the 10-minute window, so the next sweep offers the name to the next in line.
+    if (!started && !(ownedTurn(id) && !pausedNow()) && coord.offerHeld(next.name, id)) log(`coordination wake held session=${id} for ${next.name}; the next in line may have it`);
     return coordHolderTitle(next);
   }
   return null;
@@ -5352,7 +5356,9 @@ async function coordSweep() {
 setInterval(() => coordSweep().catch(e => log('coordination sweep: ' + e.message)), Math.max(100, Number(process.env.POCKET_COORD_SWEEP_MS) || 30_000)).unref();
 app.get('/api/coordination', requireBoardAuth, coordOn, (_req, res) => {
   const view = coord.snapshot();
-  res.set('Cache-Control', 'no-store').json({ ...view, holds: view.holds.map(h => ({ ...coordShown(h), waiters: h.waiters.map(w => ({ ...w, title: coordHolderTitle(w) })) })), recent: view.recent.map(coordShown) });
+  const titled = w => ({ ...w, title: coordHolderTitle(w) });
+  res.set('Cache-Control', 'no-store').json({ ...view, holds: view.holds.map(h => ({ ...coordShown(h), waiters: h.waiters.map(titled) })), recent: view.recent.map(coordShown),
+    free: view.free.map(f => ({ ...f, waiters: f.waiters.map(titled), offer: f.offer && titled(f.offer) })) }); // 1.124.5: free names with a line or a recent offer
 });
 app.post('/api/coordination/hold', requireBoardAuth, coordOn, (req, res) => {
   const holder = coordCaller(req, res); if (!holder) return;

@@ -30,6 +30,8 @@ Assistant mode has no Coordination: the switch, the view and the line above the 
 
 **Held now** has one row per hold: the name, the conversation holding it (a link), the reason, how long it has been held, and who is waiting, in the order they asked. A holder Pocket can't prove reads `Terminal session`.
 
+A free name that still has someone waiting, or was offered to a conversation in the last 10 minutes, has a row under them too (1.124.5): **Free**, who it was offered to and how long ago, whether that conversation's start is held, and who is waiting. `pocket-coord list` prints the same line.
+
 **Recent** lists holds that ended in the last 7 days, up to 30: **Released** with the holder's note, **Expired**, or **Released by you**.
 
 ### Release a hold
@@ -43,6 +45,8 @@ Release a hold you know is stale. If an agent is still working on the thing, tel
 The second agent gets an error that names the holder, the reason and how long it has been held. It stops and either tells you or asks to wait.
 
 A conversation that asked to wait is woken once, with a labeled message, when the name is free, in the approval mode it asked with. The message goes through the conversation's own queue, so paused messages stay paused and first. Being woken doesn't claim the name: the agent claims it again before it carries on. A conversation is woken only if it asked.
+
+The one woken has 10 minutes to claim the name before the next in line is woken. When its wake can't start (Pocket is paused, its queue is stopped, or a limit holds unattended starts), it keeps the message but not those 10 minutes: the next in line is woken at the next check, within 30 seconds (1.124.5).
 
 ### Expiry
 
@@ -105,7 +109,7 @@ The `pocket-coord` skill tells agents all of this. See [For agents](for-agents.m
 
 **A conversation shows as `Terminal session`.** Pocket couldn't prove who was asking. That is normal for a session started outside Pocket. The hold still counts.
 
-**A waiting conversation didn't wake.** It is woken only if it asked with `pocket-coord wait`, and a paused queue stays paused. Check **Held now** for who is first in line.
+**A waiting conversation didn't wake.** It is woken only if it asked with `pocket-coord wait`, and a paused queue stays paused. Check **Held now** for who is first in line, and, for a free name, who it was offered to and whether that start is held.
 
 **`pocket-coord` says Coordination is off.** Turn it on in **Settings → Projects, files, tasks & vault**. In Assistant mode it stays off.
 

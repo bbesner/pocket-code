@@ -810,7 +810,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .coord-name { font-weight:600;overflow-wrap:anywhere; }
 .coord-who,.coord-why,.coord-wait { grid-column:1 / -1;min-width:0;overflow-wrap:anywhere; }
 .coord-who { color:var(--dim); }
-.coord-who a { color:inherit;text-underline-offset:3px; }
+.coord-who a,.coord-why a { color:inherit;text-underline-offset:3px; }
 .coord-why { color:var(--text); }
 .coord-wait { color:var(--dim); }
 .coord-time { grid-row:1;grid-column:2;color:var(--dim);font-family:ui-monospace,"Cascadia Mono",Menlo,monospace;font-size:13px;white-space:nowrap; }
@@ -2526,4 +2526,4 @@ a.job-run:hover { background: var(--raised); }
 .session-group > .project-empty { padding-inline: 18px; } /* Coordination's empty line touched the screen edge: the inset rule reached only a direct child of the view */
 .task-meta.due-label { color: var(--warn); } /* a due step on the card: .task-meta's dim came later and won */
 .session-group.settings-details { border-top: 0; margin-top: 0; } /* the group above already draws the rule: two lines 20px apart before Done, Removed and Trash */
-.coord-who a, .task-facts a { display: inline-block; padding-block: 14px; margin-block: -14px; } /* a one-line link gets a 44px tap area without moving the line */
+.coord-who a, .coord-why a, .task-facts a { display: inline-block; padding-block: 14px; margin-block: -14px; } /* a one-line link gets a 44px tap area without moving the line */
