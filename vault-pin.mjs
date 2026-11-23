@@ -469,14 +469,21 @@ export async function prepareRun({ argv, cwd }, { PATH, forRun = false, tmpDir =
     if (!program) throw fail(`${argv[0]} was not found${argv[0].includes('/') ? '' : ' on the Vault\'s PATH'}, or is not executable.`, 400, { code: 'not_found' });
     const top = await add('program', program);
     // The program's #! line: the interpreter, and for `#!/usr/bin/env x` the x that PATH finds.
-    const bang = async (rec, dir) => {
+    // 1.124.4: Linux hands the interpreter the rest of the line as one word, and env -S (a short cluster with S, or
+    // --split-string or a prefix of it) splits that word and applies it, PATH= and all: like env -S given as the command,
+    // Pocket cannot tell what it starts. An interpreter that is itself a script runs its own #! line first (Linux follows
+    // a few levels): that line is read the same way.
+    const bang = async (rec, dir, depth = 0) => {
       const line = shebangOf(rec?.head); if (!line) return null;
       const t = line.split(/\s+/).filter(Boolean); if (!t[0] || !path.isAbsolute(t[0])) return null;
-      await add('interpreter', t[0]);
+      const irec = await add('interpreter', t[0]);
+      if (irec?.head && !isElf(irec.head) && shebangOf(irec.head) !== null) { if (depth >= PIN_LIMITS.depth) unknown = unknown || 'launchers inside launchers'; else await bang(irec, dir, depth + 1); }
       let name = path.basename(t[0]);
-      if (name === 'env') { name = t.slice(1).find(x => !x.startsWith('-') && !x.includes('=')) || ''; const found = name && findProgram(name, dir, PATH); if (found) await add('interpreter', found); }
-      const sp = line.search(/\s/);
-      return { interp: t[0], arg: sp < 0 ? null : line.slice(sp).trim() || null, name };
+      const sp = line.search(/\s/), arg = sp < 0 ? null : line.slice(sp).trim() || null;
+      const long = /^--([^=]+)/.exec(arg || '')?.[1];
+      if (name === 'env' && (/^-[^-\s]*S/.test(arg || '') || (long && 'split-string'.startsWith(long)))) { unknown = unknown || 'env -S'; name = ''; }
+      else if (name === 'env') { name = t.slice(1).find(x => !x.startsWith('-') && !x.includes('=')) || ''; const found = name && findProgram(name, dir, PATH); if (found) await add('interpreter', found); }
+      return { interp: t[0], arg, name };
     };
     // Launchers, outermost first: each step finds the program it starts and pins it.
     let at = 0, dir = cwd, cur = program, rec = top;

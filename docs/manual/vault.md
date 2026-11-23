@@ -145,7 +145,7 @@ A folder, pipe or device given as an ordinary argument is not checked at all, an
 
 - an interpreter with no script Pocket can find, such as `xargs -a list.txt sh` (the script names come from a file) or `node` alone;
 - a program that runs what it finds: `find … -exec`, `node --test`;
-- a program that starts another command Pocket cannot follow, such as `parallel`, `watch`, `nodemon`, `pm2`, `strace`, `su`, `tmux`, `cross-env`, or a launcher option Pocket does not know (`env -S`, `sudo -i`);
+- a program that starts another command Pocket cannot follow, such as `parallel`, `watch`, `nodemon`, `pm2`, `strace`, `su`, `tmux`, `cross-env`, or a launcher option Pocket does not know (`env -S`, also in a script's `#!` line, or `sudo -i`);
 - a command on another computer: `ssh` with a command, `rsync -e`, `scp -S`;
 - scripts the project defines: `npm run`, `npm test`, `npm install` and other npm, pnpm and yarn commands that can run them (`npm whoami` and `npm view` stay allowed), `node --run`, `bun run`, `deno task`;
 - packages fetched and run: `npx`, `npm exec`, `bunx`;

@@ -187,6 +187,35 @@ test('D-4 launchers: env, timeout, nice, nohup, xargs, sudo, stdbuf, ionice, set
   fs.rmSync(dir,{recursive:true,force:true});
 });
 
+// 1.124.4 (bug review DIV-1): a #! line is read the way Linux and env read it.
+test('#! lines: env -S in a #! line is not offered Always; an interpreter that is itself a script has its own #! line pinned',async t=>{
+  const dir=tmp(),bin=path.join(dir,'bin');fs.mkdirSync(bin);t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+  const exe=(name,text)=>{const p=path.join(dir,name);fs.writeFileSync(p,text,{mode:0o755});return p;};
+  const tool=exe('bin/zz-tool','#!/bin/sh\necho tool\n'),PATH=['/usr/bin','/bin'].join(':');
+  // The kernel hands env the rest of the line as one word; -S splits it and applies what it says (a PATH of its own here),
+  // so the program that runs is not the one the Vault's PATH finds. Reached directly or through a launcher.
+  for(const [i,arg] of [`-S PATH=${bin} zz-tool`,'-S zz-tool','-vS zz-tool','-iS PATH=/elsewhere zz-tool','--split-string=zz-tool','--s=zz-tool'].entries()){
+    const job=exe('job'+i,`#!/usr/bin/env ${arg}\necho body\n`);
+    for(const argv of [[job],['timeout','5',job],['env',job]]){
+      const pin=await V.pinCommand({argv,cwd:dir},{PATH:[bin,PATH].join(':')});
+      assert.equal(pin.unknown,'env -S',`${argv.join(' ')} with #!/usr/bin/env ${arg}`);
+      assert.equal(V.VaultStore.unpinnable(pin),true);
+    }
+  }
+  // Without -S, env looks its one word up on the Vault's PATH: that program is pinned and Always is offered.
+  const plain=await V.pinCommand({argv:[exe('plain','#!/usr/bin/env sh\necho body\n')],cwd:dir},{PATH});
+  assert.ok(plain.files.some(f=>f.role==='interpreter'&&f.path===V.findProgram('sh',dir,PATH)),JSON.stringify(plain.files));
+  assert.equal(V.VaultStore.unpinnable(plain),false);
+  // An interpreter that is itself a script: Linux runs that script's #! line too, so it is followed and pinned.
+  const wrap=exe('wrap',`#!/usr/bin/env -S PATH=${bin} zz-tool\n`);
+  assert.equal((await V.pinCommand({argv:[exe('nested',`#!${wrap}\necho body\n`)],cwd:dir},{PATH})).unknown,'env -S');
+  const nested2=await V.pinCommand({argv:[exe('nested2',`#!${tool}\necho body\n`)],cwd:dir},{PATH});
+  assert.deepEqual(nested2.files.filter(f=>f.role==='interpreter').map(f=>f.path),[tool,'/bin/sh']);assert.equal(V.VaultStore.unpinnable(nested2),false);
+  // A #! line that names its own file (Linux gives up after a few levels) ends, and is not offered Always.
+  const loop=path.join(dir,'loop');exe('loop',`#!${loop}\n`);
+  assert.ok((await V.pinCommand({argv:[loop],cwd:dir},{PATH})).unknown);
+});
+
 test('D-4 launchers over HTTP: a shim for the program `env` starts asks again and does not run',async t=>{
   const s=await vaultServer(t,{port:20231});
   s.file('job.sh','echo "job with $T"\n');
