@@ -654,6 +654,7 @@ Variables go in the Pocket Code directory's `.env`; restart Pocket after changin
 | Remove: "This worktree changed…" | Something changed after the sheet opened. | Look at the list again, and remove it from there if it's still ready. |
 | Side chat: "Send a message in the conversation first…" | The conversation has no transcript yet. | Send a first message, then ask again. |
 | Side chat: "This side chat reached its spending cap." | One Claude side chat spent `POCKET_SIDE_CHAT_BUDGET_USD`. | **New side chat**. |
+| Side chat: "Claude AI usage limit reached" or "API Error: …" in red | Claude Code stopped the answer at a usage limit or on an error from Anthropic's API. These are its own words (1.124.2; before, the answer ended with no message). | After the limit resets, or for an API error a minute later, ask again. |
 | Side chat: "Too many side chats are answering right now." | `POCKET_SIDE_CHAT_MAX` side chats are all mid-answer. | Wait for one to finish. |
 | Side chat: "Side chat is switched off on this Pocket." | `POCKET_SIDE_CHAT=0`. | Remove it from `.env` and restart. |
 | Side chat or Branch: "Claude account sign-in is in progress." | A Claude sign-in is open in **Accounts & instance**. | Finish or cancel the sign-in. |

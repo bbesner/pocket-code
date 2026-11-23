@@ -305,8 +305,10 @@ test('a background subagent asking permission after the reply ended shows as a n
  const d=await f.call(`/session/${id}/approvals/${requests[0].id}/decision`,{decision:'allow'});assert.equal(d.status,200);
  assert.ok(await f.until(()=>responses().includes('"request_id":"bg-ask","behavior":"allow"')),'the allow reached the CLI');
  assert.ok(await f.until(async()=>['background','finished'].includes(await f.state(id))),'no stand-in turn is left running');
- assert.match(f.logs(),/turn done \(background job's request answered\)/);
  assert.ok(await f.until(async()=>await f.state(id)==='finished',6000),'the agent finishes and the CLI reports it');
+ // 1.124.2 (turns-04): the message typed meanwhile turned the stand-in into the owner's reply, so answering the request
+ // no longer closes it under that reply (which then ran as one the agent started); only the agent's report is its own.
+ assert.equal((f.logs().match(/turn start \(started by the agent\)/g)||[]).length,1);
  assert.ok(f.transcript(id).includes('The background agent finished.'));
  assert.equal(f.pids().size,1);
 });
@@ -323,6 +325,41 @@ test('a request still waiting when the reply ends is carried to a stand-in turn 
  assert.ok(await f.until(()=>responses().includes('"request_id":"bg-ask","behavior":"deny"')));
  assert.ok(await f.until(async()=>await f.state(id)==='finished',6000));
  assert.equal((f.logs().match(/turn done session=/g)||[]).length,2,'the stand-in turn records no outcome of its own');
+});
+
+// 1.124.2 (turns-05): a start notes who started it in the conversation's record (session-meta.json). When that file can't
+// be written (a full disk; here its .tmp is a directory), the note is lost, not the reply: the owner's message reaches the
+// CLI, and a reply the CLI starts by itself is read to its end. The conversation's last reply was a queued one, so each
+// start has a record to change.
+test('1.124.2: when the conversation record cannot be saved, a sent message still reaches the CLI and a reply the agent starts still ends',async t=>{
+ const f=await fixture(t,18436,{POCKET_TEST_BG_MS:'1500'});
+ const smetaFails=()=>fs.mkdirSync(path.join(f.dir,'data','session-meta.json.tmp')),smetaWorks=()=>fs.rmdirSync(path.join(f.dir,'data','session-meta.json.tmp'));
+ const smeta=()=>JSON.parse(fs.readFileSync(path.join(f.dir,'data','session-meta.json'),'utf8'));
+ const done=n=>f.until(()=>(f.logs().match(/turn done session=/g)||[]).length>=n,8000);
+ // the owner's message (startTurn)
+ const id=(await f.call('/new',{cwd:repo,...msg('first __SLOW__')})).body.id;
+ await sleep(300);
+ assert.equal((await f.call(`/session/${id}/message`,{...msg('queued one'),mode:'queue'})).status,202);
+ assert.ok(await done(2),'the queued message ran');await sleep(300);
+ assert.equal(smeta()[id].lastOrigin,'queue');
+ smetaFails();
+ const sent=await f.call(`/session/${id}/message`,msg('owner after queue'));
+ assert.equal(sent.status,202,JSON.stringify(sent.body));
+ assert.ok(await f.until(()=>f.calls().some(c=>c.text==='owner after queue')),'the prompt reached the CLI');
+ assert.ok(await done(3),'and its reply ended');
+ assert.equal(await f.state(id),'finished');
+ assert.match(f.logs(),new RegExp(`conversation record not saved session=${id}`));
+ // a reply the CLI starts by itself (handleRunnerLine), after a queued message that left a background job
+ smetaWorks();
+ assert.equal((await f.call(`/session/${id}/message`,{...msg('bg queued __BG__'),mode:'queue'})).status,202);
+ assert.equal((await f.call(`/session/${id}/message`,msg('host __SLOW__'))).status,202);
+ assert.ok(await f.until(()=>f.calls().some(c=>c.text==='bg queued __BG__'),8000),'the queued job message started');
+ assert.ok(await f.until(async()=>await f.state(id)==='background',8000));
+ assert.equal(smeta()[id].lastOrigin,'queue');
+ smetaFails();
+ assert.ok(await f.until(()=>/turn start \(started by the agent\)/.test(f.logs()),8000),'the agent started a reply');
+ assert.ok(await f.until(async()=>await f.state(id)==='finished',5000),'its result was read, so it ended (it used to run on until the stall stop)');
+ smetaWorks();
 });
 
 // 1.83: the / picker offers the built-ins the CLI reports on its init line and its plugin skills; a slash command and its

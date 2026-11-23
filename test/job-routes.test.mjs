@@ -393,6 +393,67 @@ test('The gate: refused while paused, over the daily count and over a plan ceili
   assert.deepEqual(s.audit().filter(a => a.action === 'job' && a.event === 'refused').map(a => a.reason), ['paused', 'daily_limit', 'plan_ceiling']);
 });
 
+// 1.124.2 (unattended-02, -03): what the agent carries on by itself after a job's reply is the job's work. The reply the CLI
+// starts after a background job, and a wait set while no reply runs, used to carry no root, so they ran outside the day's
+// count, the plan ceilings and the longest-reply limit, and Pause all did not count them as a job's.
+test('1.124.2: a reply the CLI starts by itself after a job\'s reply is the job\'s: counted, stopped over the daily count, until the owner writes; a wait with no reply running wakes as the job', { timeout: 120_000 }, async t => {
+  const s = await boot(t, 19098, { env: { POCKET_TEST_BG_MS: '1500', POCKET_COORD_SWEEP_MS: '200' } });
+  await s.turnOn();
+  const { secret } = await s.makeKey({ access: 'full' });
+  const started = async () => { try { return JSON.parse(fs.readFileSync(path.join(s.data, 'automation-state.json'), 'utf8')).today.startedRoot || 0; } catch { return 0; } };
+  const lastRoot = id => JSON.parse(fs.readFileSync(path.join(s.data, 'session-meta.json'), 'utf8'))[id]?.lastRoot ?? null;
+  const agentStarted = id => s.until(() => s.logs().includes(`turn start (started by the agent) session=${id}`), 15000, `the reply the agent started in ${id}`);
+  // the job's reply leaves a background job; the reply the CLI starts when it ends is the job's, counted and limited
+  const one = await s.job(secret, { data: 'go __BG__ __BG_KEEP__', wait: 20 });
+  assert.equal(one.body.status, 'done', JSON.stringify(one.body));
+  const id = one.body.conversation;
+  assert.deepEqual(lastRoot(id), { rootOrigin: 'job', originRef: one.body.run });
+  const before = await started();
+  await agentStarted(id);
+  await s.until(async () => (await s.call('/pause')).body.would.jobs === 1, 5000, 'Pause all to count it as a job\'s reply');
+  assert.equal(await started(), before + 1, 'counted toward the day');
+  const list = (await s.call('/sessions')).body, row = (Array.isArray(list) ? list : list.sessions).find(x => x.id === id);
+  assert.deepEqual([row?.state?.origin, row?.state?.originRef], ['job', 'disk-check'], 'shown as Started by job disk-check');
+  await s.stopTurn(id);
+  await s.until(() => s.audit().some(a => a.action === 'reply' && a.sessionId === id && a.outcome !== 'ok'), 5000, 'its audit line');
+  assert.deepEqual(s.audit().filter(a => a.action === 'reply' && a.sessionId === id).map(a => [a.origin, a.rootOrigin, a.originRef]), [['job', 'job', one.body.run], ['job', 'job', one.body.run]]);
+  assert.equal((await s.poll(secret, one.body.run)).body.status, 'done', 'the run is the job reply\'s, not changed by what followed it');
+  // over the day's count: the job's own reply is the last one allowed, so what the CLI starts after it is stopped at once
+  await s.limits({ dailyReplies: (await started()) + 1 });
+  const two = await s.job(secret, { data: 'again __BG__ __BG_KEEP__', wait: 20 });
+  assert.equal(two.body.status, 'done', JSON.stringify(two.body));
+  const id2 = two.body.conversation;
+  const counted = await started();
+  await agentStarted(id2);
+  await s.until(() => s.logs().includes(`stop requested (daily_limit; the agent started a reply) session=${id2}`), 10000, 'the reply over the daily count to be stopped');
+  await s.idle(id2);
+  assert.equal(await started(), counted, 'a reply stopped unstarted is not counted');
+  // the owner's own message ends it: the reply the CLI starts after the owner's is nobody's job, and the daily count is not the owner's
+  assert.equal((await s.call(`/session/${s.e(id2)}/message`, { text: 'and now? __BG__ __BG_KEEP__' })).status, 202);
+  await s.until(() => lastRoot(id2) === null, 10000, 'the owner\'s message to clear the job\'s root');
+  await s.until(() => (s.logs().match(new RegExp(`turn start \\(started by the agent\\) session=${id2}`, 'g')) || []).length === 2, 15000, 'the second reply the agent started');
+  await sleep(500);
+  assert.doesNotMatch(s.logs(), new RegExp(`stop requested \\(daily_limit; the agent started a reply\\) session=${id2}[^]*stop requested \\(daily_limit; the agent started a reply\\) session=${id2}`));
+  assert.equal((await s.call('/pause')).body.would.jobs, 0);
+  assert.equal(await started(), counted);
+  await s.stopTurn(id2);
+  await s.limits({ dailyReplies: 'off' });
+  // a wait from a program the job's reply left running, with no reply running: it wakes the conversation as the job, in the job's mode
+  assert.equal((await s.call('/settings', { coordination: true })).status, 200);
+  const three = await s.job(secret, { data: 'deploy __BG__ __BG_LONG__', wait: 20 });
+  assert.equal(three.body.status, 'done', JSON.stringify(three.body));
+  const id3 = three.body.conversation, token = s.claudeCalls().filter(c => c.id === id3).at(-1).runnerToken;
+  const cli = { authorization: 'Bearer ' + s.cliToken() };
+  assert.equal((await s.call('/coordination/hold', { name: 'site-deploy', reason: 'deploying' }, cli)).status, 200);
+  const w = await s.call('/coordination/wait', { name: 'site-deploy' }, { ...cli, 'x-pocket-runner': token });
+  assert.equal(w.status, 200, JSON.stringify(w.body));
+  const stored = JSON.parse(fs.readFileSync(path.join(s.data, 'coordination.json'), 'utf8')).waits['site-deploy'].find(x => x.session === id3);
+  assert.deepEqual([stored.run.rootOrigin, stored.run.originRef, stored.run.approvalMode], ['job', three.body.run, 'full'], JSON.stringify(stored.run));
+  assert.equal((await s.call('/coordination/release', { name: 'site-deploy' }, cli)).status, 200);
+  await s.until(() => s.audit().some(a => a.action === 'reply' && a.sessionId === id3 && a.origin === 'coordination'), 15000, 'the wake to run');
+  assert.deepEqual(s.audit().filter(a => a.action === 'reply' && a.origin === 'coordination').map(a => [a.rootOrigin, a.originRef]), [['job', three.body.run]]);
+});
+
 test('The finished push: kind automation, the job\'s name and the reply\'s first line; no second push; the mute respected unless turned off; none when the key says so', { timeout: 120_000 }, async t => {
   const push = await pushService(t);
   const dir = tmpDir();

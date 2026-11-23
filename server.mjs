@@ -690,10 +690,36 @@ function autoNotice(r) {
 // A start that went ahead: the conversation's lastOrigin (cleared again by the owner's next start) and the day's count.
 function noteStart(id, o) { // null: the agent started it, or the owner did
   if (!id) return;
-  if (!o || o.origin === 'owner' || !o.origin) { if (smeta[id]?.lastOrigin) setSmeta(id, { lastOrigin: null, lastOriginRef: null }); return; }
-  setSmeta(id, { lastOrigin: o.origin, lastOriginRef: shownOriginRef(o) || null, ...(auto.normRoot(o.rootOrigin) === 'job' ? { jobRan: true } : {}) }); // jobRan: kept for good (jobRanIn)
+  // 1.124.2: the record is best-effort (a full disk). Thrown into startTurn it left a registered reply whose prompt was
+  // never sent; thrown into the log reader it dropped the rest of the CLI's lines, the reply's result among them.
+  const note = patch => { try { setSmeta(id, patch); } catch (e) { log(`conversation record not saved session=${id}: ${e.message}`); } };
+  // 1.124.2: lastRoot, what the work the agent carries on by itself here belongs to (carriedRoot): set by a job's or a
+  // check-back's start (its queue drains, retries and wakes included), cleared by any other start, the owner's own first.
+  // A reply the agent starts by itself (o null) leaves it as it is.
+  if (!o || o.origin === 'owner' || !o.origin) { if (smeta[id]?.lastOrigin || (o && smeta[id]?.lastRoot)) note({ lastOrigin: null, lastOriginRef: null, ...(o ? { lastRoot: null } : {}) }); return; }
+  const root = auto.normRoot(o.rootOrigin);
+  note({ lastOrigin: o.origin, lastOriginRef: shownOriginRef(o) || null, ...(root === 'job' ? { jobRan: true } : {}), // jobRan: kept for good (jobRanIn)
+    lastRoot: root === 'owner' ? null : { rootOrigin: root, ...(o.originRef ? { originRef: String(o.originRef) } : {}) } });
   autoState.recordStart({ rootOrigin: o.rootOrigin });
   if (o.originRef) startsPending.delete(o.originRef); // counted now (gateUnattended's hold)
+}
+const carriedRoot = id => { const r = smeta[id]?.lastRoot; return r && auto.normRoot(r.rootOrigin) !== 'owner' ? r : null; };
+// 1.124.2: a reply the agent starts by itself (Claude after a background job or agent, Codex after a background terminal).
+// In a conversation whose work is a job's or a check-back's (carriedRoot) it is that work carried on: it carries the root,
+// counts toward the day, has the longest-reply limit, and is stopped at once when the gate would not have started it (a
+// plan ceiling, the daily limit, the feature off); it used to run outside all of them. Otherwise it is nobody's queue or
+// retry, as before. While paused, either is stopped at once, with no push. `stop(why)` stops it on its engine.
+function agentReplyStarted(id, turn, engine, stop) {
+  const root = pausedNow() ? null : carriedRoot(id);
+  if (!root) { noteStart(id, null); if (pausedNow()) stop('paused'); return; }
+  Object.assign(turn, { origin: root.rootOrigin, rootOrigin: root.rootOrigin, ...(root.originRef ? { originRef: root.originRef } : {}) });
+  stampReplyLimit(turn);
+  if (turn.runner) writeRunnerMeta(turn.runner); // a restart keeps its root
+  gateUnattended({ origin: turn.origin, originRef: turn.originRef, rootOrigin: turn.rootOrigin, engine, sessionId: id }).then(g => {
+    if (g.ok || turn.finalized || turn.done || turn.stopped) return noteStart(id, turn); // one that has already ended ran: it counts
+    for (const k of ['origin', 'originRef', 'rootOrigin', 'autoLimit']) delete turn[k]; // stopped unstarted, as a paused one is
+    noteStart(id, null); stop(g.reason);
+  }).catch(e => log(`agent-started reply not checked session=${id}: ${e.message}`));
 }
 // A job's turns carry their run id as originRef (how the run's end is found, a retry's included); what the app and the
 // pushes show is the job's name ("Started by job disk-check").
@@ -709,10 +735,12 @@ function noteFinish(id, turn, { cost, tokens, durationMs, outcome }) {
   autoAudit({ action: 'reply', origin: turn.origin, ...(turn.originRef ? { originRef: turn.originRef } : {}), rootOrigin, engine, sessionId: id,
     model: turn.effectiveModel || turn.model || null, durationMs: Number.isFinite(durationMs) ? durationMs : Date.now() - (turn.startedAt || Date.now()),
     ...(Number.isFinite(cost) ? { cost } : {}), ...(Number.isFinite(tokens) ? { tokens } : {}), outcome });
-  if (turn.origin === 'checkback' && turn.originRef) { // 1.119: its card, its own push (turn.checkbackHandled). Never throws into the reply's end: a
+  // 1.124.2: a reply the agent started by itself carries its work's root (agentReplyStarted), but the check-back's card and
+  // the job's run are settled by their own replies, not by what follows them.
+  if (turn.origin === 'checkback' && turn.originRef && !turn.autonomous) { // 1.119: its card, its own push (turn.checkbackHandled). Never throws into the reply's end: a
     try { checkbackFinished(id, turn, outcome); } catch (e) { log(`check-back not recorded id=${turn.originRef} session=${id}: ${e.message}`); } // failed write is settled by the next pass
   }
-  if (rootOrigin === 'job' && turn.originRef) { // a job's run, its retry's included: the run's status and its own push (turn.jobHandled)
+  if (rootOrigin === 'job' && turn.originRef && !turn.autonomous) { // a job's run, its retry's included: the run's status and its own push (turn.jobHandled)
     try { jobFinished(id, turn, { outcome, cost, tokens }); } catch (e) { log(`job run not recorded run=${turn.originRef} session=${id}: ${e.message}`); }
   }
   return auto.originLabel(turn.origin, shownOriginRef(turn));
@@ -730,7 +758,12 @@ function learnPublicUrl(req) { // the owner's own address, from a signed-in requ
   if (!host || LOOPBACK_HOSTS.test(host)) return;
   const proto = (req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0].trim();
   const url = `${proto}://${host.split(',')[0].trim()}`;
-  if (url !== settings.publicUrl) { settings.publicUrl = url; saveSettings(); }
+  if (url === settings.publicUrl) return;
+  // 1.124.2: a save that fails (a full disk) is not kept in memory, and /api/me still answers: it used to answer 503 and
+  // keep the address unsaved, so the next request matched it and a restart lost it.
+  const prev = settings.publicUrl;
+  settings.publicUrl = url;
+  try { saveSettings(); } catch (e) { if (prev === undefined) delete settings.publicUrl; else settings.publicUrl = prev; log(`public address not saved: ${e.message}`); }
 }
 const emailSettings = () => ({ configured: mailer.configured, from: mailer.from || '', to: settings.notifyEmail || '', on: emailOn(), hook: Boolean(REMINDER_HOOK), error: mailer.error || null, base: publicBase() });
 async function mailDue(item, { ahead = false } = {}) {
@@ -1937,7 +1970,7 @@ function handleTurnLine(turn, line) {
   // 1.89 (F-19): a background subagent's own output (parent_tool_use_id set) is not the agent replying; the stand-in stays one.
   if (turn.controlOnly && ['assistant', 'stream_event', 'result'].includes(o.type) && !o.parent_tool_use_id) { // the agent is replying: a real turn now
     turn.controlOnly = false;
-    if (turn.autonomous && pausedNow()) { noteStart(turn.sessionId, null); stopPausedAgentReply(turn); } // 1.117: paused, as in handleRunnerLine
+    if (turn.autonomous) agentReplyStarted(turn.sessionId, turn, 'claude', why => stopPausedAgentReply(turn, why)); // 1.117: paused, as in handleRunnerLine; 1.124.2: and its work's root
   }
   if(o.type==='control_request'){
     // 1.82: the asking subagent's name, and the request itself so a reply that ends while it waits can carry it over.
@@ -2182,10 +2215,7 @@ function handleRunnerLine(r, line, lineOffset) {
     // 1.117: a reply the agent started is nobody's queue or retry (the list stops naming one), and while Pocket is paused it
     // is unattended work like any other: stopped at once, with no push. A permission request keeps its stand-in turn until
     // the agent starts replying in it; then it is stopped the same way (handleTurnLine).
-    if (!control) {
-      noteStart(r.sessionId, null);
-      if (pausedNow()) stopPausedAgentReply(turn);
-    }
+    if (!control) agentReplyStarted(r.sessionId, turn, 'claude', why => stopPausedAgentReply(turn, why)); // 1.124.2: a job's or a check-back's work carried on keeps its root and limits
     // Viewers in transcript-mirror mode resync on `done` and attach to this live turn.
     for (const t of tailers.get(r.sessionId) || []) { try { t.res.write('data: {"type":"done"}\n\n'); t.res.end(); } catch { } }
   }
@@ -2194,9 +2224,10 @@ function handleRunnerLine(r, line, lineOffset) {
 }
 // 1.117: a reply the agent started while Pocket is paused, stopped as Pause all stops a reply (finalizeTurn pushes nothing
 // for a stopped reply). Stopping it ends the conversation's process, with any background jobs still in it.
-function stopPausedAgentReply(turn) {
+function stopPausedAgentReply(turn, why = 'paused') { // 1.124.2: or held by the gate (`why`, its reason)
+  if (turn.finalized || turn.stopped) return;
   turn.stopped = true; signalTurn(turn);
-  log(`stop requested (paused; the agent started a reply) session=${turn.sessionId}`);
+  log(`stop requested (${why}; the agent started a reply) session=${turn.sessionId}`);
 }
 // A control-only turn with nothing waiting any more is over: the conversation goes back to Working in background.
 function maybeEndControlTurn(turn) {
@@ -2232,7 +2263,8 @@ function drainRunnerLog(r) {
       for (const l of lines) {
         const lineOffset = at; at += Buffer.byteLength(l) + 1;
         r.doneOffset = at; // 1.89 (F-9): a marker written while this line is handled counts it as handled
-        if (l.trim()) handleRunnerLine(r, l, lineOffset);
+        // 1.124.2: one line that throws costs that line only; the offset is already past the batch, so the rest would be lost
+        if (l.trim()) { try { handleRunnerLine(r, l, lineOffset); } catch (e) { log(`session output line not handled session=${r.sessionId}: ${e.message}`); } }
       }
     } finally { fs.closeSync(fh); }
   } catch { /* log file briefly absent — next tick */ }
@@ -3771,10 +3803,9 @@ function codexHooks(id) {
     onQuestion:turn=>{const sid=id||(codex.CX+turn.threadId);const qid=turn.questions.list().at(-1)?.id;if(!mutes.has(sid)&&turn.questionNotified!==qid){turn.questionNotified=qid;pushNotify(sid,'Codex has a question','Open Pocket Code to answer it.').catch(()=>{});}},
     onFinish: (ev, turn) => codexTurnFinished(id || (codex.CX + turn.threadId), turn, ev),
     // 1.117: a turn Codex started by itself: nobody's queue or retry, and stopped at once while paused (no push for it)
-    onAutonomous: turn => {
+    onAutonomous: turn => { // 1.124.2: a job's or a check-back's work carried on keeps its root and limits (agentReplyStarted)
       const sid = id || (codex.CX + turn.threadId);
-      noteStart(sid, null);
-      if (pausedNow()) { codex.stopCodexTurn(turn.threadId); log(`stop requested (paused; the agent started a reply) thread=${turn.threadId}`); }
+      agentReplyStarted(sid, turn, 'codex', why => { if (turn.done || turn.stopped) return; codex.stopCodexTurn(turn.threadId); log(`stop requested (${why}; the agent started a reply) thread=${turn.threadId}`); });
     },
   };
 }
@@ -4113,9 +4144,18 @@ app.post('/api/session/:id/message', requireAuth, ownerSendGate, validateApprova
     const opts = turnOpts(req.body);
     // steer first: inject into the running turn (model sees it at the next boundary);
     // fall back to the queue when the pipe is gone (adopted without its pipe) or closing
+    const standIn = running.controlOnly;
     if (mode !== 'queue' && steerTurn(running, promptText(text, opts.attachments))) {
+      // 1.124.2: a stand-in for a background agent's request becomes the owner's reply (the CLI answers this message in
+      // it): not stopped as one the agent started while paused, not closed when the request is answered, and recorded
+      // as the owner's. Done before the CLI's answer can be read (the log is read on a timer, after this returns).
+      if (standIn) {
+        Object.assign(running, { controlOnly: false, autonomous: false, userText: text, ...OWNER_START });
+        delete running.originRef; delete running.autoLimit;
+        noteStart(id, OWNER_START); writeRunnerMeta(running.runner);
+      }
       broadcast(running, { type: 'user', msg: { role: 'user', text, ts: new Date().toISOString() } });
-      const skipped = running.controlOnly ? 0 : skipQuestions(running.questions); // the message is in first, so Claude reads it with the skip (1.82: a background subagent's question is not skipped)
+      const skipped = standIn ? 0 : skipQuestions(running.questions); // the message is in first, so Claude reads it with the skip (1.82: a background subagent's question is not skipped)
       log(`steered message into running turn session=${id}${skipped ? ` skipped=${skipped} question request(s)` : ''}`);
       return res.status(202).json({ ok: true, steered: true, ...(skipped && { skippedQuestions: skipped }) });
     }
@@ -4454,13 +4494,20 @@ app.post('/api/settings', requireAuth, (req, res) => {
   if (routerKey !== undefined) { if (routerKey) { const tmp = ROUTER_KEY_FILE + '.tmp'; fs.writeFileSync(tmp, routerKey, { mode: 0o600 }); fs.chmodSync(tmp, 0o600); fs.renameSync(tmp, ROUTER_KEY_FILE); } else try { fs.rmSync(ROUTER_KEY_FILE, { force: true }); } catch { } }
   if (next.vaultAccess !== undefined && settings.vaultAccess !== next.vaultAccess) log(`vault agent access: ${settings.vaultAccess} -> ${next.vaultAccess}`);
   const prevContextPolicy = settings.contextPolicy; // 1.92
+  // 1.124.2: saved before anything is rebuilt; a save that fails (a full disk) puts every key back, so the change is not
+  // live in memory behind an error and then lost at the next restart.
+  const prev = new Map([...unset, ...Object.keys(next)].map(k => [k, Object.hasOwn(settings, k) ? { v: settings[k] } : null]));
   for (const k of unset) delete settings[k];
   Object.assign(settings, next);
+  try { saveSettings(); } catch (e) {
+    for (const [k, p] of prev) { if (p) settings[k] = p.v; else delete settings[k]; }
+    log(`settings not saved: ${e.message}`);
+    return res.status(503).json({ error: 'Pocket could not save the change, so nothing changed. Check that its data folder has space and can be written, then try again.' });
+  }
   if (routerTouched) buildRouter();
   if (accessTouched) buildAccess();
   if ('offeredClaudeModels' in next) log(`claude models offered: ${claudeOffer().offered.join(',') || '(none)'} (${claudeOffer().source})`);
   if ('trustedActions' in next) log(`trusted actions: ${trustedRules().length} rule(s) (${trustedSettings().source})`);
-  saveSettings();
   if (['projects', 'documents', 'tasks', 'inbox', 'coordination', 'assistantMode'].some(k => k in next) || vaultToggled) syncAgentSkills();
   if (vaultToggled) restartIdleRunners('vault setting changed');
   if (vaultToggled && settings.vault) warnVaultPath();
@@ -4987,14 +5034,21 @@ app.post('/api/tasks/summary', requireAuth, tasksOn, async (req, res) => {
 });
 
 // 1.74: the owner's time zone, from the browser they sign in with (Inbox Watch's digest, quiet hours and look-ahead follow it).
-function learnTimezone(tz) {
-  if (typeof tz !== 'string' || !tz || tz.length > 64 || tz === settings.ownerTimezone) return;
-  try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); } catch { return; }
-  settings.ownerTimezone = tz; saveSettings(); log(`owner time zone: ${tz}`);
+function learnTimezone(tz) { // false: it could not be saved (1.124.2)
+  if (typeof tz !== 'string' || !tz || tz.length > 64 || tz === settings.ownerTimezone) return true;
+  try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); } catch { return true; }
+  // 1.124.2: a save that fails is not kept in memory: kept, the page's next report matched it and it was never saved
+  const prev = settings.ownerTimezone;
+  settings.ownerTimezone = tz;
+  try { saveSettings(); } catch (e) { if (prev === undefined) delete settings.ownerTimezone; else settings.ownerTimezone = prev; log(`owner time zone not saved: ${e.message}`); return false; }
+  log(`owner time zone: ${tz}`); return true;
 }
 // 1.118 (PC-12): the browser reports its zone with a POST from Pocket's own page; GET /api/me?tz= used to store it, and a
 // link on another site could set it, since the cookie rides along on a top-level GET.
-app.post('/api/timezone', ownPageJson, requireAuth, (req, res) => { learnTimezone(req.body?.tz); res.json({ ok: true }); });
+app.post('/api/timezone', ownPageJson, requireAuth, (req, res) => {
+  if (!learnTimezone(req.body?.tz)) return res.status(503).json({ error: 'Pocket could not save the time zone. Check that its data folder has space and can be written; the page sends it again when it next loads.' });
+  res.json({ ok: true });
+});
 // ---------- 1.69: inbox routes ----------
 // Inbox Watch: the owner's cookie or the loopback token (a direct loopback request only, as for Tasks and start links).
 // POST /api/inbox is the worker's one call: the entry, the push (kind alerts, urgent) and, when asked, the email.
@@ -5159,6 +5213,13 @@ app.post('/api/inbox/watch', requireBoardAuth, inboxOn, (req, res) => {
   const actor = req.boardActor || 'ui', b = req.body || {};
   try {
     const src = typeof b.source === 'string' && b.source ? b.source : inboxStore.watchSource();
+    // 1.124.2: while Pocket is paused, an agent or script (the CLI token, refused on Resume) can't set a paused Inbox Watch
+    // running again, or hand it back to a config file that may say running: that lifted Pause all's hold behind the
+    // banner's back. A change that keeps it paused goes through; the owner's own change is not refused.
+    if (actor === 'cli' && pausedNow() && inboxStore.paused(src) && b.settings?.paused !== true) {
+      log(`inbox watch settings refused (paused) by=cli`);
+      return res.status(409).json({ error: 'Pocket is paused, so Inbox Watch stays paused. The owner resumes it in Pocket Code.', code: 'paused' });
+    }
     const view = inboxStore.setWatch(src, b.settings ?? null, { actor });
     log(`inbox watch settings source=${view.source} revision=${view.revision} by=${actor}${view.settings ? '' : ' (config file)'}`);
     res.set('Cache-Control', 'private, no-store').json({ ok: true, ...view });
@@ -5234,7 +5295,11 @@ app.post('/api/coordination/wait', requireBoardAuth, coordOn, (req, res) => {
   const b = req.body || {}, turn = waiter.session ? ownedTurn(waiter.session) : null;
   // A wait that would wake the conversation later is a start nobody sent. A blocking wait stays inside the running reply.
   if (waiter.session && b.block !== true && !takesUnattended(engineForSessionId(waiter.session))) return res.status(409).json({ error: `${ENGINES[engineForSessionId(waiter.session)].label} conversations are not woken: a person sends each message. Tell the user what is held and by whom, and stop there.`, code: 'attended_only' });
-  const run = turn ? { approvalMode: turn.approvalMode, executionMode: turn.executionMode, model: turn.model, effort: turn.effort, rootOrigin: auto.normRoot(turn.rootOrigin), ...(turn.originRef && turn.rootOrigin !== 'owner' ? { originRef: turn.originRef } : {}) } : {}; // 1.117: the wake carries the root of the turn that set the wait
+  // 1.124.2: with no reply running (a program a job's reply left running), the root of the conversation's work and the mode
+  // its process runs in; the wake used to start as the owner's, in the install's default mode.
+  const carried = !turn && waiter.session ? carriedRoot(waiter.session) : null, proc = carried ? (isCx(waiter.session) ? codex.codexSessions.get(codex.bareId(waiter.session)) : runners.get(waiter.session)) : null;
+  const run = turn ? { approvalMode: turn.approvalMode, executionMode: turn.executionMode, model: turn.model, effort: turn.effort, rootOrigin: auto.normRoot(turn.rootOrigin), ...(turn.originRef && turn.rootOrigin !== 'owner' ? { originRef: turn.originRef } : {}) } // 1.117: the wake carries the root of the turn that set the wait
+    : carried ? { ...(proc ? { approvalMode: proc.approvalMode, model: proc.model, effort: proc.effort } : {}), rootOrigin: carried.rootOrigin, ...(carried.originRef ? { originRef: carried.originRef } : {}) } : {};
   try { const out = coord.wait(b.name, { waiter, block: b.block === true, id: typeof b.id === 'string' ? b.id : '', run }); res.json({ ...out, ...(out.hold ? { hold: coordShown(out.hold) } : {}), now: Date.now() }); }
   catch (e) { coordError(res, e); }
 });
