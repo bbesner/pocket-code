@@ -690,8 +690,11 @@ function autoNotice(r) {
 // A start that went ahead: the conversation's lastOrigin (cleared again by the owner's next start) and the day's count.
 function noteStart(id, o) { // null: the agent started it, or the owner did
   if (!id) return;
-  if (!o || o.origin === 'owner' || !o.origin) { if (smeta[id]?.lastOrigin) setSmeta(id, { lastOrigin: null, lastOriginRef: null }); return; }
-  setSmeta(id, { lastOrigin: o.origin, lastOriginRef: shownOriginRef(o) || null, ...(auto.normRoot(o.rootOrigin) === 'job' ? { jobRan: true } : {}) }); // jobRan: kept for good (jobRanIn)
+  // 1.124.2: the record is best-effort (a full disk). Thrown into startTurn it left a registered reply whose prompt was
+  // never sent; thrown into the log reader it dropped the rest of the CLI's lines, the reply's result among them.
+  const note = patch => { try { setSmeta(id, patch); } catch (e) { log(`conversation record not saved session=${id}: ${e.message}`); } };
+  if (!o || o.origin === 'owner' || !o.origin) { if (smeta[id]?.lastOrigin) note({ lastOrigin: null, lastOriginRef: null }); return; }
+  note({ lastOrigin: o.origin, lastOriginRef: shownOriginRef(o) || null, ...(auto.normRoot(o.rootOrigin) === 'job' ? { jobRan: true } : {}) }); // jobRan: kept for good (jobRanIn)
   autoState.recordStart({ rootOrigin: o.rootOrigin });
   if (o.originRef) startsPending.delete(o.originRef); // counted now (gateUnattended's hold)
 }
@@ -2231,7 +2234,8 @@ function drainRunnerLog(r) {
       for (const l of lines) {
         const lineOffset = at; at += Buffer.byteLength(l) + 1;
         r.doneOffset = at; // 1.89 (F-9): a marker written while this line is handled counts it as handled
-        if (l.trim()) handleRunnerLine(r, l, lineOffset);
+        // 1.124.2: one line that throws costs that line only; the offset is already past the batch, so the rest would be lost
+        if (l.trim()) { try { handleRunnerLine(r, l, lineOffset); } catch (e) { log(`session output line not handled session=${r.sessionId}: ${e.message}`); } }
       }
     } finally { fs.closeSync(fh); }
   } catch { /* log file briefly absent — next tick */ }
