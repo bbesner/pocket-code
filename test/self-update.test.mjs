@@ -70,6 +70,24 @@ test('1.123: a job that went quiet for 20 minutes shows as interrupted, not runn
   assert.equal(su.job().running,false);assert.equal(su.job().phase,'interrupted');
 });
 
+test('1.124.5: without flock or GNU tar on its PATH (a stock Mac) the Update button is not offered, and the row says what to install',t=>{
+  const d=tmp(t),bin=path.join(d,'bin');fs.mkdirSync(path.join(d,'.git'));fs.mkdirSync(bin);
+  const tool=(name,out)=>{fs.writeFileSync(path.join(bin,name),`#!/bin/sh\necho '${out}'\n`);fs.chmodSync(path.join(bin,name),0o755);};
+  const make=()=>new SelfUpdate({checkout:d,dataDir:d,env:{POCKET_SELF_UPDATE:'1',pm_id:'1',PATH:bin,HOME:d},port:1,spawner:()=>{throw new Error('must not start');}});
+  const tail=", so it cannot update itself.";
+  assert.equal(make().reason(),`flock and GNU tar are not on Pocket's PATH${tail} Install them (on macOS: brew install flock gnu-tar), or update Pocket from the server.`);
+  tool('tar','bsdtar 3.5.3 - libarchive 3.5.3');
+  assert.equal(make().reason(),`flock and GNU tar are not on Pocket's PATH${tail} Install them (on macOS: brew install flock gnu-tar), or update Pocket from the server.`,'bsdtar is not GNU tar');
+  tool('flock','flock from util-linux 2.39');
+  const su=make();
+  assert.equal(su.reason(),`GNU tar is not on Pocket's PATH${tail} Install it (on macOS: brew install gnu-tar), or update Pocket from the server.`);
+  assert.equal(su.snapshot().available,false);assert.throws(()=>su.begin({from:'1.0.0',to:'1.1.0',head:HEAD}),/GNU tar is not on Pocket's PATH/);
+  tool('gtar','tar (GNU tar) 1.35');
+  assert.equal(make().reason(),null,'gtar is used before tar, as the script does');
+  fs.rmSync(path.join(bin,'flock'));
+  assert.equal(make().reason(),`flock is not on Pocket's PATH${tail} Install it (on macOS: brew install flock), or update Pocket from the server.`);
+});
+
 test('1.124.5: an update that stopped from installing on says the files may have moved, the packages may be gone, and to run npm ci',t=>{
   const d=tmp(t);let now=1_700_000_000_000;
   const su=new SelfUpdate({checkout:d,dataDir:d,env:{POCKET_SELF_UPDATE:'1',pm_id:'1'},port:1,now:()=>now});
