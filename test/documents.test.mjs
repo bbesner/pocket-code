@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {spawn,execFile} from 'node:child_process';
 import {createHmac,randomUUID} from 'node:crypto';
-import {DocumentStore,safeName,titleFor,kindOf,LIMITS} from '../documents.mjs';
+import {linkKeyFrom,DocumentStore,safeName,titleFor,kindOf,LIMITS} from '../documents.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
 const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|CODEX)_/.test(k)));
@@ -58,6 +58,26 @@ test('DocumentStore: adopt, add, share, revoke, trash, restore, purge and import
   fs.rmSync(dir,{recursive:true,force:true});
 });
 
+test('DocumentStore Copy link: a store with a link key keeps a link sealed and hands it to shareLink; without one, or for an older link, it does not',()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pc-doclink-')),docsDir=path.join(dir,'documents'),meta=path.join(dir,'documents.json'),key=linkKeyFrom('secret-one');
+  try{
+    const plain=new DocumentStore(docsDir,meta);const old=plain.addFromBuffer('old.md',Buffer.from('# Old'),{visibility:'link'});
+    assert.deepEqual(old.share,{expiresAt:null});assert.throws(()=>plain.shareLink(old.id),e=>e.status===404&&e.code==='link_not_kept');
+    const s=new DocumentStore(docsDir,meta,{linkKey:key});
+    assert.deepEqual(s.list().find(d=>d.id===old.id).share,{expiresAt:null},'a link made before links were kept is not kept');assert.throws(()=>s.shareLink(old.id),e=>e.code==='link_not_kept');assert.equal(s.resolveShare(old.token).id,old.id,'and still works');
+    const a=s.addFromBuffer('a.md',Buffer.from('# A'));assert.throws(()=>s.shareLink(a.id),e=>e.status===409);assert.throws(()=>s.shareLink('nope'),e=>e.status===404);
+    const sh=s.update(a.id,{visibility:'link'});assert.deepEqual(sh.share,{expiresAt:null,kept:true});assert.equal('shareSealed' in sh,false);assert.equal(s.shareLink(a.id).token,sh.token);
+    const disk=()=>fs.readFileSync(meta,'utf8');assert.equal(disk().includes(sh.token),false,'the token is sealed on disk');assert.match(disk(),/shareSealed/);
+    assert.equal(new DocumentStore(docsDir,meta,{linkKey:key}).shareLink(a.id).token,sh.token,'kept across a restart');
+    const other=new DocumentStore(docsDir,meta,{linkKey:linkKeyFrom('secret-two')});assert.throws(()=>other.shareLink(a.id),e=>e.code==='link_not_kept','another secret does not open it');assert.deepEqual(other.list().find(d=>d.id===a.id).share,{expiresAt:null});assert.equal(other.resolveShare(sh.token).id,a.id);
+    // A seal moved to another record does not open there.
+    const b=s.addFromBuffer('b.md',Buffer.from('# B'),{visibility:'link'});s.documents.find(r=>r.id===b.id).shareSealed=s.documents.find(r=>r.id===a.id).shareSealed;assert.throws(()=>s.shareLink(b.id),e=>e.code==='link_not_kept');
+    const again=s.update(a.id,{action:'reshare'});assert.notEqual(again.token,sh.token);assert.equal(s.shareLink(a.id).token,again.token,'a new link replaces the kept one');
+    s.update(a.id,{expiresAt:'2020-01-01T00:00:00Z'});assert.equal(s.resolveShare(again.token),null);assert.equal(s.shareLink(a.id).token,again.token,'an expired link can still be read by the owner');
+    s.update(a.id,{visibility:'public'});assert.throws(()=>s.shareLink(a.id),e=>e.status===409);assert.equal(disk().includes('"id": "'+a.id+'"')&&'shareSealed' in s.documents.find(r=>r.id===a.id),false,'leaving link drops the sealed token');
+    s.update(a.id,{visibility:'link'});s.trash(a.id);assert.equal('shareSealed' in s.documents.find(r=>r.id===a.id),false,'so does the trash');s.restore(a.id);assert.throws(()=>s.shareLink(a.id),e=>e.status===409);
+  }finally{fs.rmSync(dir,{recursive:true,force:true});}
+});
 test('DocumentStore 1.45: bulk trash and restore, Delete forever, Empty trash, and thumbnails go with their files',()=>{
   const dir=tmp(),docsDir=path.join(dir,'documents'),thumbs=path.join(docsDir,'.thumbs');let clock=Date.parse('2026-10-13T12:00:00Z');
   const s=new DocumentStore(docsDir,path.join(dir,'documents.json'),{now:()=>clock});
@@ -152,7 +172,13 @@ test('HTTP: documents are off until Settings turns them on; raw is sandboxed; pu
   const viaLink=await raw('/files/dashboard.html');assert.equal(viaLink.status,404,'a public link does not follow a link out of the library');assert.doesNotMatch(viaLink.text,/import /);
   assert.equal((await raw('/api/documents/'+dash.id+'/raw',headers)).status,404,'nor does the signed-in viewer');
   fs.rmSync(stored);fs.writeFileSync(stored,storedBytes);assert.equal((await raw('/files/dashboard.html')).status,200,'the real file is served again');
-  const rev=await call('/api/documents/'+added.body.id,{visibility:'private'});assert.equal(rev.body.share,null);assert.equal((await raw('/share/'+added.body.token)).status,404,'revoked');
+  // Copy link: the owner reads an open link's address again; the CLI token never does; the token is not in a listing or on disk.
+  {const id=added.body.id,lp='/api/documents/'+id+'/link';assert.equal(added.body.share.kept,true);
+   const got=await call(lp,{});assert.equal(got.status,200);assert.equal(got.body.token,added.body.token);
+   assert.equal((await call(lp,{},bearer)).status,401,'the CLI token cannot read a link');assert.equal((await call(lp,{},{...headers,origin:'https://elsewhere.example'})).status,403,'nor another site');
+   const listed=JSON.stringify((await call('/api/documents')).body);assert.equal(listed.includes(added.body.token),false);assert.equal(listed.includes('shareSealed'),false);
+   assert.equal(fs.readFileSync(path.join(dir,'data','documents.json'),'utf8').includes(added.body.token),false,'sealed on disk');}
+  const rev=await call('/api/documents/'+added.body.id,{visibility:'private'});assert.equal(rev.body.share,null);assert.equal((await call('/api/documents/'+added.body.id+'/link',{})).status,409,'a revoked link has no address');assert.equal((await raw('/share/'+added.body.token)).status,404,'revoked');
   // Keep as document from a session's Results: only a file the session referenced.
   const sid=(await call('/api/new',{cwd:okDir,text:'Write a report',provider:'claude',clientMessageId:randomUUID()})).body.id;
   await sleep(1500);

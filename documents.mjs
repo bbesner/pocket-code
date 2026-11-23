@@ -6,14 +6,17 @@
 // Removing a document moves it to .trash for 30 days, then purges it; since 1.45 the owner can also delete a
 // trashed file at once (Delete forever, Empty trash), which takes its file, its thumbnails and its record. HTML is
 // served sandboxed, never under the app origin's authority.
-// 1.118 (PC-05): a share link's token is never stored, only its hash; the address is handed out once, when it is made.
+// 1.118 (PC-05): a share link's token is never stored in the clear, only its hash; the address is handed out when it is made.
+// Copy link: a store given a `linkKey` (the server derives one from POCKET_SECRET) also keeps the token sealed with it
+// (AES-256-GCM, bound to the record's id), so the owner can copy a link's address again later. The sealed token is never in
+// a record's view; shareLink() opens it, and the server answers that to the signed-in owner only, never to the CLI token.
 // 1.118 (PC-04): an agent (the CLI token) may keep and edit private files, and make a file less exposed, but a change that
 // exposes a file more (a link, a new or longer-lived link, a public address) waits for the owner's Allow, the way a Vault
 // request does: one request per document and change, answered once by the owner, and carried out only if the file's content
 // and its sharing are still what the owner was shown.
 import fs from 'node:fs';
 import path from 'node:path';
-import { randomBytes, createHash } from 'node:crypto';
+import { randomBytes, createHash, createHmac, createCipheriv, createDecipheriv } from 'node:crypto';
 import { shellArg } from './skills.mjs';
 import { LIMITS as VAULT_LIMITS } from './vault.mjs';
 import { openChecked } from './thumbnails.mjs';
@@ -29,6 +32,8 @@ const str = (v, max) => typeof v === 'string' ? v.trim().slice(0, max) : '';
 const iso = ms => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 const SESSION_RE = /^(cx:)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const hash = t => createHash('sha256').update(t).digest('hex');
+// The key a share link's token is sealed with, from the server's secret: a use of its own, so it is no other key.
+export const linkKeyFrom = secret => createHmac('sha256', String(secret)).update('pocket-share-link\0v1').digest();
 const SHARE_PATH_RE = /^\/share\/([A-Za-z0-9_-]{20,100})$/;
 // PC-04: a request waits for the Vault's request time (15 minutes) and a call waits on it for at most the Vault's wait.
 export const REQUEST_LIMITS = { ttlMs: VAULT_LIMITS.requestTtlMs, waitMax: VAULT_LIMITS.waitMax, waiting: 50 };
@@ -57,8 +62,9 @@ export function documentInstructions(cli, sessionId) {
 }
 
 export class DocumentStore {
-  constructor(dir, metaFile, { write, now } = {}) {
+  constructor(dir, metaFile, { write, now, linkKey = null } = {}) {
     this.dir = dir; this.file = metaFile; this.now = now || Date.now;
+    this.linkKey = Buffer.isBuffer(linkKey) && linkKey.length === 32 ? linkKey : null;
     this.write = write || ((f, data) => { fs.mkdirSync(path.dirname(f), { recursive: true }); const tmp = f + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(data, null, 1), { mode: 0o600 }); fs.renameSync(tmp, f); });
     fs.mkdirSync(dir, { recursive: true });
     let d = {}; try { d = JSON.parse(fs.readFileSync(metaFile, 'utf8')); } catch { }
@@ -90,8 +96,8 @@ export class DocumentStore {
   // The record as the UI and CLI see it: the public address for a public file; for a link only that it exists and when it
   // expires (PC-05: the address itself is in the answer that made it, and nowhere after). Never the token hash.
   view(r) {
-    const { shareHash, ...rest } = r;
-    return { ...rest, share: r.share ? { expiresAt: r.share.expiresAt || null } : null, url: r.visibility === 'public' ? '/files/' + encodeURIComponent(r.file) : null, inline: INLINE_KINDS.has(r.kind) && (r.kind !== 'html' || r.size <= LIMITS.inlineHtml) };
+    const { shareHash, shareSealed, ...rest } = r;
+    return { ...rest, share: r.share ? { expiresAt: r.share.expiresAt || null, ...(this.openLink(r) ? { kept: true } : {}) } : null, url: r.visibility === 'public' ? '/files/' + encodeURIComponent(r.file) : null, inline: INLINE_KINDS.has(r.kind) && (r.kind !== 'html' || r.size <= LIMITS.inlineHtml) };
   }
   uniqueFile(name, except = null) {
     let file = name, n = 2; const ext = path.extname(name), stem = name.slice(0, name.length - ext.length);
@@ -159,11 +165,35 @@ export class DocumentStore {
     fs.writeFileSync(dest, buffer, { mode: 0o600 });
     return this.keep(dest, this.record(file, { ...opts, size: buffer.length, at }));
   }
-  // PC-05: only the hash is kept; the caller hands the token out once.
+  // PC-05: the hash is kept, and with a link key the token sealed with it; the caller hands the token out.
   mintShare(r, expiresAt) {
     const token = randomBytes(32).toString('base64url');
     r.shareHash = hash(token); r.share = { expiresAt: expiresAt || null };
+    delete r.shareSealed;
+    if (this.linkKey) {
+      const iv = randomBytes(12), c = createCipheriv('aes-256-gcm', this.linkKey, iv); c.setAAD(Buffer.from(r.id));
+      r.shareSealed = Buffer.concat([iv, c.update(token, 'utf8'), c.final(), c.getAuthTag()]).toString('base64url');
+    }
     return token;
+  }
+  // The token of a record's open link, when this store kept it and can still open it (same key, same record, and it is the
+  // token the hash was made from); else null: a link made before links were kept, or sealed under another secret.
+  openLink(r) {
+    if (!this.linkKey || r.visibility !== 'link' || r.trashedAt || !r.shareHash || typeof r.shareSealed !== 'string') return null;
+    try {
+      const b = Buffer.from(r.shareSealed, 'base64url'); if (b.length < 29) return null;
+      const d = createDecipheriv('aes-256-gcm', this.linkKey, b.subarray(0, 12)); d.setAAD(Buffer.from(r.id)); d.setAuthTag(b.subarray(b.length - 16));
+      const token = Buffer.concat([d.update(b.subarray(12, b.length - 16)), d.final()]).toString('utf8');
+      return hash(token) === r.shareHash ? token : null;
+    } catch { return null; }
+  }
+  // Copy link: the owner asks for an open link's address again. An expired link is still the owner's to read.
+  shareLink(id) {
+    const r = this.get(id);
+    if (r.visibility !== 'link' || r.trashedAt) throw fail('This file has no share link.', 409);
+    const token = this.openLink(r);
+    if (!token) throw fail('Pocket did not keep this link’s address: it was made before links were kept. Use the address you copied, or make a new link (the old one stops working).', 404, { code: 'link_not_kept' });
+    return { id: r.id, token, expiresAt: r.share?.expiresAt || null };
   }
   update(id, input, { actor = 'ui' } = {}) {
     const live = this.get(id); if (live.trashedAt) throw fail('This file is in the trash. Restore it first.', 409);
@@ -177,7 +207,7 @@ export class DocumentStore {
       if (input.visibility !== r.visibility) {
         r.visibility = input.visibility;
         if (r.visibility === 'link') token = this.mintShare(r, input.expiresAt ? iso(Date.parse(input.expiresAt)) : null);
-        else { r.share = null; r.shareHash = null; } // leaving link revokes the old URL
+        else { r.share = null; r.shareHash = null; delete r.shareSealed; } // leaving link revokes the old URL
       }
     }
     if (input.action === 'reshare') { if (r.visibility !== 'link') throw fail('Only a file shared by link has a share link.'); token = this.mintShare(r, r.share?.expiresAt || null); }
@@ -307,7 +337,8 @@ export class DocumentStore {
     const live = this.get(id); if (live.trashedAt) return this.view(live);
     fs.mkdirSync(this.trashDir(), { recursive: true });
     const from = path.join(this.dir, live.file), at = iso(this.now());
-    const r = { ...live, trashedAt: at, updated: at, share: null, shareHash: null, visibility: 'private' }; // a trashed document is reachable by nobody
+    const { shareSealed: _sealed, ...kept } = live;
+    const r = { ...kept, trashedAt: at, updated: at, share: null, shareHash: null, visibility: 'private' }; // a trashed document is reachable by nobody
     try { fs.renameSync(from, this.filePath(r)); } catch (e) { if (e.code !== 'ENOENT') throw e; }
     const next = this.replace(live, r); if (save) this.commit(next); else this.documents = next;
     return this.view(r);

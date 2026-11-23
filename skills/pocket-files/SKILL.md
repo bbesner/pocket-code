@@ -89,11 +89,12 @@ and exits 6; the file stays private (or as it was) until they allow it.
   Nothing was shared. Say so, and don't ask again unless the user wants you to.
 - If you change the file after asking, the request fails when the user allows it; ask again.
 
-**A link's address is shown once.** Pocket keeps only a hash of it, so copy the address from
+**A link's address is shown to you once.** `pocket-docs` cannot read it again, so copy the address from
 the output of `share` or `wait` into your reply right away. Later, `show` says only that a link
 is open and when it expires. If the user asks for the link to a file already shared by link,
-tell them Pocket cannot show it again and ask for the one they were given; run `share` for a new
-one only if they want it, since the old address then stops working.
+tell them to use **Copy link** on the file in Files, which gives the same address (a link made
+before Pocket kept addresses has no Copy link); run `share` for a new one only if they want it,
+since the old address then stops working.
 
 ## Finding and tidying
 
