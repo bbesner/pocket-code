@@ -741,10 +741,11 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    delete done.seenAt;await page.evaluate(id=>{localStorage.removeItem('pc-seen-'+id);serverSeen.delete(id);seenPending.delete(id);},done.id);await page.evaluate(()=>refreshSessions());await pause(300);
    await clickControl(page,'[data-filter="attention"]');await pause(200);
    const listed=()=>page.evaluate(id=>filteredSessions().some(s=>s.id===id)&&[...document.querySelectorAll('.session-item .row')].some(b=>b.dataset.id===id),done.id);
-   assert.equal(await listed(),true,'an unopened reply is in Attention');
+   const listedIs=async want=>{for(let k=0;k<100;k++){if(await listed()===want)return want;await pause(50);}return !want;}; // the list repaints after a refresh or a click: wait for it, up to 5 s, instead of a fixed pause
+   assert.equal(await listedIs(true),true,'an unopened reply is in Attention');
    assert.match(await page.$eval('[data-filter="attention"]',e=>e.textContent),/Attention\s*\d+/,'counted');
    await page.evaluate(([id,at])=>{localStorage.setItem('pc-seen-'+id,String(at));},[done.id,at]);await page.evaluate(()=>refreshSessions());await pause(300);
-   assert.equal(await listed(),false,'leaves Attention once opened');
+   assert.equal(await listedIs(false),false,'leaves Attention once opened');
    await clickControl(page,'[data-filter="all"]');done.state=saved;
   });
   await check('Mark reviewed clears Response ready without opening it, singly or all at once with Undo',async()=>{
@@ -754,19 +755,20 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    delete done.seenAt;await page.evaluate(id=>{localStorage.removeItem('pc-seen-'+id);serverSeen.delete(id);seenPending.delete(id);},done.id);await page.evaluate(()=>refreshSessions());await pause(300);
    await clickControl(page,'[data-filter="attention"]');await pause(200);
    const listed=()=>page.evaluate(id=>filteredSessions().some(s=>s.id===id),done.id);
-   assert.equal(await listed(),true,'starts in Attention');
+   const listedIs=async want=>{for(let k=0;k<100;k++){if(await listed()===want)return want;await pause(50);}return !want;}; // the list repaints after a refresh or a click: wait for it, up to 5 s, instead of a fixed pause
+   assert.equal(await listedIs(true),true,'starts in Attention');
    await clickControl(page,`[data-more="${done.id}"]`);await page.waitForSelector('#so-reviewed');await page.screenshot({path:path.join(out,'review-option.png')});await clickControl(page,'#so-reviewed');await pause(200);
-   assert.equal(await listed(),false,'single mark leaves Attention');
+   assert.equal(await listedIs(false),false,'single mark leaves Attention');
    assert.equal(await page.evaluate(()=>location.hash),'#/','did not open the conversation');
    delete done.seenAt;await page.evaluate(id=>{localStorage.removeItem('pc-seen-'+id);serverSeen.delete(id);seenPending.delete(id);},done.id);await page.evaluate(()=>paintSessionPanels());
    await page.waitForSelector('[data-mark-all-reviewed]');await page.screenshot({path:path.join(out,'review-bar.png')});
    await clickControl(page,'[data-mark-all-reviewed]');await pause(200);await page.screenshot({path:path.join(out,'review-bar-undo.png')});
-   assert.equal(await listed(),false,'bulk mark leaves Attention');
+   assert.equal(await listedIs(false),false,'bulk mark leaves Attention');
    for(let attempt=0;attempt<100&&done.seenAt!==at;attempt++)await pause(50);
    assert.equal(done.seenAt,at,'saved on the server for other devices');
    await clickControl(page,'[data-undo-reviewed]');
    for(let attempt=0;attempt<100&&done.seenAt!==undefined;attempt++)await pause(50);
-   assert.equal(await listed(),true,'Undo brings it back');
+   assert.equal(await listedIs(true),true,'Undo brings it back');
    assert.equal(done.seenAt,undefined,'Undo also clears it on the server');
    // 1.116: Settings hides the bar; the row stays in Attention and its own Mark as reviewed still works
    await page.evaluate(()=>settingsSheet());await page.waitForSelector('[data-settings-category=conversation]');await clickControl(page,'[data-settings-category=conversation]');await page.waitForSelector('#s-review-all:not(:disabled)');await pause(250);
@@ -778,7 +780,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.equal(settingsState().markAllReviewed,false,'saved on the server');
    assert.match(await page.$eval('#s-review-all-state',e=>e.textContent),/^Hidden\./);
    await page.evaluate(()=>closeCurrentSheet?.());await pause(200);
-   assert.equal(await listed(),true,'still in Attention');
+   assert.equal(await listedIs(true),true,'still in Attention');
    assert.equal(await page.$('.review-bar'),null,'the bar is hidden');await page.screenshot({path:path.join(out,'review-bar-hidden.png')});
    await page.evaluate(()=>refreshSessions());await pause(300);assert.equal(await page.$('.review-bar'),null,'and stays hidden after a refresh');
    assert.ok(await page.$(`[data-more="${done.id}"]`),'Conversation options are still on the row');

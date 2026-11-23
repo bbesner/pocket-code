@@ -70,7 +70,7 @@ If something is missing, the reason shows above the box: **Choose a workspace ab
 path.** or **Write what you would like done first.** If the start request was sent but not confirmed
 (a dropped connection), the screen says **Start request not yet confirmed. Retry checks the same
 request.** **Retry start** sends the same request again without starting a second conversation;
-**Discard retry** drops it.
+**Discard start** drops it, along with what you wrote.
 
 A briefing a task's or project's **Start** puts in the box stays only for that visit. Leave without starting
 and the next **New conversation** opens empty, unless you edited the briefing. A draft you typed yourself
@@ -118,7 +118,7 @@ prompts, a name of up to 60 characters, a task of up to 8,000 characters.
 The conversation list is the home screen on a phone and the rail on a desktop. Ctrl/⌘ K opens it as a
 **Switch conversation** sheet from anywhere a conversation or the list is on screen.
 
-- **Search recent conversations** filters by title and workspace path as you type. A title that is the opening
+- **Search conversations** filters by title and workspace path as you type. A title that is the opening
   request holds only its first 300 characters, so text further into a long request is found by **In conversations**
   below.
 - With three or more characters, after a short pause, an **In conversations** section also searches
@@ -656,7 +656,7 @@ for a provisioned install, set `POCKET_CLAUDE_MODELS` and restart Pocket.
 | *Codex conversations are temporarily unavailable.* above the list | Pocket could not list Codex threads; Claude conversations still show. | Wait for the next check; if it persists, check the Codex CLI on the server. |
 | A reply says the model *is not offered in Settings* or *is blocked by this computer's Claude Code policy* | The chosen model is not offered. | Choose another model, or offer it in **Settings → Agents & instance**. |
 | *Choose a Claude model from the model menu, then send again.* | An old tab sent a Codex model to Claude (or the reverse). | Pick a model from the menu. |
-| **Start request not yet confirmed** | The start was sent but the answer was lost. | **Retry start** (it cannot start a duplicate) or **Discard retry**. |
+| **Start request not yet confirmed** | The start was sent but the answer was lost. | **Retry start** (it cannot start a duplicate) or **Discard start**. |
 | **Status unavailable** or **Status unconfirmed. Reconnecting…** | The list check failed or is older than 15 seconds. | Wait, or use **Refresh**; work on the server continues. |
 | *Could not search inside conversations.* | The search request failed or timed out. | **Try again**. |
 | No generated titles | Titles are off, or neither CLI is installed and signed in (Settings shows the reason). | Turn on **Generate short titles**, or sign the CLI in. |

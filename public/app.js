@@ -742,15 +742,22 @@ function renderLogin() {
     <div class="login">
       <h1>${appName()}</h1>
       <p class="sub">${assistantMode() ? 'Sign in to pick up where you left off.' : 'Your Claude Code and Codex conversations, from anywhere.'}</p>
-      <input type="password" id="pw" placeholder="Password" autocomplete="current-password" enterkeyhint="go">
-      <p class="err" id="lerr"></p>
+      <label class="login-field" for="pw"><span>Password</span>
+        <input type="password" id="pw" autocomplete="current-password" enterkeyhint="go" aria-describedby="lerr"></label>
+      <p class="err" id="lerr" role="alert"></p>
       <button class="primary" id="go">Unlock</button>
     </div>`;
   const go = async () => {
+    $('#pw').removeAttribute('aria-invalid'); $('#lerr').textContent = '';
     try {
       await api('/login', { method: 'POST', body: JSON.stringify({ password: $('#pw').value }) });
       route();
-    } catch (e) { $('#lerr').textContent = e.code === 'busy' ? 'Too many sign-in attempts right now. Try again in a minute.' : e.status === 429 ? 'Too many attempts — wait an hour.' : 'Wrong password.'; }
+    } catch (e) {
+      // 1.124.5: the field is marked and the reason is read out. A wrong password redraws this screen (api's 401), so
+      // the box is looked up again here; it keeps focus, and the next try is one keystroke away.
+      $('#lerr').textContent = e.code === 'busy' ? 'Too many sign-in attempts right now. Try again in a minute.' : e.status === 429 ? 'Too many attempts. Wait an hour.' : 'Wrong password.';
+      const pw = $('#pw'); pw.setAttribute('aria-invalid', 'true'); pw.focus(); pw.select();
+    }
   };
   $('#go').onclick = go;
   $('#pw').onkeydown = e => { if (e.key === 'Enter') go(); };
@@ -783,6 +790,11 @@ async function pushState() {
     return sub;
   } catch { return null; }
 }
+// 1.124.5: the bell says its state (pressed, and in its name), not only by which icon it draws.
+function paintBell(bell, on) {
+  bell.innerHTML = on ? IC.bell : IC.bellOff; bell.classList.toggle('on', on);
+  bell.setAttribute('aria-pressed', String(on)); bell.setAttribute('aria-label', on ? 'Notifications on for this device' : 'Notifications off for this device');
+}
 async function togglePush(btn) {
   if (btn) btn.disabled = true;
   try {
@@ -804,7 +816,7 @@ async function togglePush(btn) {
       toast('This device will get notifications');
     }
     const now = await pushState();
-    if (btn?.id === 'bell') { btn.innerHTML = now ? IC.bell : IC.bellOff; btn.classList.toggle('on', Boolean(now)); }
+    if (btn?.id === 'bell') paintBell(btn, Boolean(now));
   } catch (e) { toast('Notification setup failed: ' + e.message); }
   finally { if (btn) btn.disabled = false; }
 }
@@ -1862,6 +1874,7 @@ function bindSessionRows(container) {
   });
   container.querySelector('[data-undo-reviewed]')?.addEventListener('click', () => {
     clearTimeout(reviewUndoT); if (reviewUndo) restoreReviewed(reviewUndo); reviewUndo = null; paintSessionPanels();
+    document.querySelector('[data-mark-all-reviewed]')?.focus({preventScroll:true}); // 1.124.5: Undo removed itself, so focus fell to the page
   });
 }
 // Shown in Attention and New: clears every listed reply or failure at once, then offers Undo.
@@ -1971,7 +1984,8 @@ function paintSessionPanels() {
   paintRunConfirmation();
   paintDone();
   const quick = $('#session-switch');
-  if (quick) { const c = sessionCounts(); quick.textContent = sessionsStale ? 'Conversations · status unavailable' : `Conversations · ${c.running} running${c.background ? ` · ${c.background} in background` : ''}${c.observed ? ` · ${c.observed} elsewhere` : ''}`; }
+  // 1.124.5: two parts, so on a narrow header the word shortens before the counts it is there to show
+  if (quick) { const c = sessionCounts(); const counts = sessionsStale ? 'status unavailable' : `${c.running} running${c.background ? ` · ${c.background} in background` : ''}${c.observed ? ` · ${c.observed} elsewhere` : ''}`; quick.innerHTML = `<span class="ss-word">Conversations</span><span class="ss-sep"> · </span><span class="ss-counts">${counts}</span>`; quick.setAttribute('aria-label', 'Conversations · ' + counts); }
   if (typeof paintOpenSessions === 'function') paintOpenSessions(); // tabs show pins and follow the pinned order
   if (typeof CheckBacks !== 'undefined') CheckBacks.onList(); // 1.119: the open conversation's check-back cards follow
 }
@@ -2099,7 +2113,7 @@ function sessionPanelHTML(rail = false) {
   const filters = `<div data-workspace-filters></div><nav class="session-filters" data-session-filters aria-label="Filter conversations">${filterButtons()}</nav>`;
   return `<div class="session-panel ${rail ? 'compact' : ''}">
     ${rail ? '' : summary}${held}
-    <div class="session-search">${IC.search}<input type="search" data-session-search aria-label="Search recent conversations" placeholder="Search recent conversations" value="${esc(sessionQuery)}" autocomplete="off"></div>
+    <div class="session-search">${IC.search}<input type="search" data-session-search aria-label="Search recent conversations" placeholder="Search conversations" value="${esc(sessionQuery)}" autocomplete="off"></div>
     ${rail ? `<div id="rail-filter-summary" class="rail-filter-summary" hidden><span></span><button id="clear-rail-filters">Clear filters</button></div><div id="rail-filter-controls">${summary}${filters}</div>` : `<nav class="session-filters" data-session-filters data-filter-keys="all active attention" aria-label="Conversation shortcuts">${filterButtons(['all','active','attention'])}</nav><details class="session-more-filters" data-more-filters ${readLocal('pc-session-filters-open',false)?'open':''}><summary>Filters<span data-filter-summary></span></summary>${`<div data-workspace-filters></div><nav class="session-filters" data-session-filters data-filter-keys="new pinned hidden" aria-label="More conversation filters">${filterButtons(['new','pinned','hidden'])}</nav>`}</details><button class="chip clear-more-filters" data-clear-more-filters hidden>Clear filters</button>`}
     <p class="session-warning" data-session-warning hidden></p>
     <div class="session-results" data-session-results></div>
@@ -2185,7 +2199,7 @@ function bindSessionPanel(container) {
 async function renderList() {
   Voice.onLeave();
   app.innerHTML = `<header class="bar">${assistantMode() ? `<button class="icon" id="back" aria-label="Back">${IC.back}</button><h1>Conversations</h1>` : '<h1>Pocket Code</h1>'}
-    <button class="icon bell" id="bell" aria-label="Toggle notifications for this device">${IC.bellOff}</button>
+    <button class="icon bell" id="bell" aria-pressed="false" aria-label="Notifications off for this device">${IC.bellOff}</button>
     ${Automation.on() ? `<button class="icon bell" id="listmore" aria-label="More: Pause all and automation" aria-haspopup="dialog">${IC.more}</button>` : ''}<button class="icon bell" id="settings" aria-label="Settings and version">${IC.cog}</button></header>
     <main class="scroll session-home"><div class="session-home-head"><h2>Your conversations</h2><span class="project-head-actions">${projectsOn() ? '<a class="chip" href="#/projects" data-projects-home>Projects</a>' : ''}${documentsOn() ? '<a class="chip" href="#/documents">Files</a>' : ''}${tasksOn() ? '<a class="chip" href="#/tasks" data-tasks-home>Tasks</a>' : ''}${vaultOn() ? '<a class="chip" href="#/vault" data-vault-home>Vault</a>' : ''}${inboxOn() ? '<a class="chip" href="#/inbox" data-inbox-home>Inbox</a>' : ''}${coordOn() ? '<a class="chip" href="#/coordination" data-coord-home>Coordination</a>' : ''}<button class="chip" id="refresh-sessions">Refresh</button></span></div>
     <div id="resume-last"></div>${sessionPanelHTML()}</main><button class="fab" id="new" aria-label="New conversation">${IC.plus}</button>`;
@@ -2193,7 +2207,7 @@ async function renderList() {
   if (assistantMode()) $('#back').onclick = () => { location.hash = '#/'; };
   $('#settings').onclick = settingsSheet; $('#refresh-sessions').onclick = refreshSessions;
   if ($('#listmore')) $('#listmore').onclick = Automation.moreMenu; // 1.117
-  pushState().then(sub => { const bell = $('#bell'); if (bell && sub) { bell.innerHTML = IC.bell; bell.classList.add('on'); } });
+  pushState().then(sub => { const bell = $('#bell'); if (bell) paintBell(bell, Boolean(sub)); });
   $('#bell').onclick = () => togglePush($('#bell'));
   bindSessionPanel(app); if (projectsOn()) loadBoard().then(paintProjectBadges).catch(() => { }); if (tasksOn()) loadTasks().then(paintTaskBadges).catch(() => { }); if (vaultOn()) loadVault().then(paintVaultBadges).catch(() => { }); if (inboxOn()) loadInbox().then(paintInboxBadges).catch(() => { }); await refreshSessions();
   const last=openSessions.find(s=>s.id===readLocal('pc-last-session',''));if(last&&$('#resume-last'))$('#resume-last').innerHTML=`<a class="resume-last" href="#/chat/${esc(last.id)}">Resume: ${esc(last.title)}</a>`;
@@ -3768,7 +3782,7 @@ function setComposer(working) {
   modeButtons.forEach(b=>b.onclick=()=>{sendModes.set(chatId,b.dataset.mode);paintMode();const box=$('#box'),ph=b.dataset.mode==='queue'?'Run this after the current reply…':"Add to what it's doing…";box.dataset.basePh=ph;box.placeholder=b.dataset.mode!=='queue'&&$('#questions-open')&&!$('#questions-open').hidden?SKIP_PH:ph;});paintMode();
   const box = $('#box');
   const grow = () => sizeComposerBox();
-  const draft = loadOutbox(chatId)?.text || loadDraft(chatId);
+  const draft = sendsInFlight.has(chatId) ? laterDraft(chatId) : loadOutbox(chatId)?.text || loadDraft(chatId);
   if (draft) { box.value = draft; grow(); }
   const slash = bindSlash(box, () => ({ where: 'chat', provider: tb?.provider || 'claude', cwd: slashCwd, working, onRun: t => sendMsg(t) }));
   box.oninput = () => {
@@ -3788,6 +3802,16 @@ function setComposer(working) {
 }
 
 const sendsInFlight = new Set(), deliveryNotices = new Map();
+// 1.124.5: the box stays open while a message is being sent (it was read-only for the whole send, so keys typed then
+// were dropped). While an unsent message is in the outbox, the saved draft holds only what was typed after it; when the
+// send fails the box shows the unsent message again and those newer words wait in the draft until it is retried,
+// edited or discarded.
+function laterDraft(id) { const d = loadDraft(id) || '', out = loadOutbox(id); return out && d.trim() === String(out.text || '').trim() ? '' : d; }
+function showUnsent(id, text) { // put an unsent message back in the box, keeping what was typed since
+  const box = $('#box'); if (chatId !== id || !box) return;
+  if (box.value.trim() !== text.trim()) saveDraft(id, box.value);
+  box.value = text; sizeComposerBox();
+}
 function loadAttachments(id) { try { return JSON.parse(localStorage.getItem('pc-attachments-' + id) || '[]'); } catch { return []; } }
 function stashAttachments() { if (tb?.key) { try { localStorage.setItem('pc-attachments-' + tb.key, JSON.stringify(tb.attachments)); } catch { } } }
 function loadOutbox(id) { try { return JSON.parse(localStorage.getItem('pc-outbox-' + id) || 'null'); } catch { return null; } }
@@ -3807,11 +3831,11 @@ function paintDelivery(id = chatId) {
   el.classList.toggle('delivery-problem', Boolean(pending && !sending));
   if (pending) {
     const label = sending ? 'Sending…' : pending.error || 'Delivery was not confirmed. Retry checks the same message.';
-    el.innerHTML = `<p>${esc(label)}</p>${!sending ? `<div class="delivery-actions"><button class="chip" id="retry-message">Retry same message</button>${pending.rejected ? '<button class="chip" id="edit-message">Edit message</button>' : '<button class="chip" id="review-message">Review conversation</button>'}<button class="chip" id="discard-message">Discard retry</button></div>` : ''}`;
+    el.innerHTML = `<p>${esc(label)}</p>${!sending ? `<div class="delivery-actions"><button class="chip" id="retry-message">Retry same message</button>${pending.rejected ? '<button class="chip" id="edit-message">Edit message</button>' : '<button class="chip" id="review-message">Review conversation</button>'}<button class="chip" id="discard-message">Discard message</button></div>` : ''}`;
     const retry = $('#retry-message'); if (retry) retry.onclick = () => submitPending(id);
-    const edit = $('#edit-message'); if (edit) edit.onclick = () => { saveOutbox(id, null); deliveryNotices.delete(id); paintDelivery(id); $('#box')?.focus(); };
+    const edit = $('#edit-message'); if (edit) edit.onclick = () => { deliveryNotices.delete(id); const box = $('#box'), later = laterDraft(id); saveOutbox(id, null); if (box && later) box.value += '\n\n' + later; if (box) { saveDraft(id, box.value); sizeComposerBox(); } paintDelivery(id); box?.focus(); };
     const review = $('#review-message'); if (review) review.onclick = () => renderChat(id);
-    const discard = $('#discard-message'); if (discard) discard.onclick = () => { saveOutbox(id, null); clearDraft(id); deliveryNotices.delete(id); const box = $('#box'); if (box) box.value = ''; paintDelivery(id); };
+    const discard = $('#discard-message'); if (discard) discard.onclick = () => { const later = laterDraft(id), box = $('#box'); saveOutbox(id, null); saveDraft(id, later); deliveryNotices.delete(id); if (box) { box.value = later; sizeComposerBox(); } paintDelivery(id); };
   } else if (notice?.itemId) {
     el.innerHTML = `<p>${esc(notice.text)}</p><div class="delivery-actions"><button class="chip" id="stop-jobs-now">Stop background jobs and send now</button></div>`;
     const stop = $('#stop-jobs-now'); stop.onclick = async () => {
@@ -3821,7 +3845,7 @@ function paintDelivery(id = chatId) {
     };
   } else el.textContent = notice || '';
   const box = $('#box'), send = $('#send');
-  if (box) box.readOnly = Boolean(pending);
+  if (box) box.readOnly = Boolean(pending && !sending); // 1.124.5: open while sending, closed only while an unsent message waits for Retry
   document.querySelectorAll('#c-att,#c-model,#c-eff,#attrow button,[data-mode]').forEach(b => { b.disabled = Boolean(pending); });
   if (send) { send.disabled = Boolean(pending); send.setAttribute('aria-label', pending ? 'Resolve pending delivery first' : 'Send'); }
 }
@@ -3868,13 +3892,15 @@ async function submitPending(id) {
       msgs.insertAdjacentHTML('beforeend', msgHTML({ role: 'user', text: pending.text, files: pending.files }));
       for (let n = mark ? mark.nextElementSibling : msgs.firstElementChild; n; n = n.nextElementSibling) { n.classList.add('pending'); ghost.push(n); }
       paintChoices();
-      const box = $('#box'); if (box) box.value = '';
       scrollBottom();
     }
   }
+  // The box is emptied as the send starts (it holds only what is typed from here on), also for a message steered into
+  // a running reply, which has no echo: the "Sending…" line stands in for it.
+  if (chatId === id) { const box = $('#box'); if (box) { box.value = laterDraft(id); saveDraft(id, box.value); sizeComposerBox(); } }
   try {
     const result = await api(`/session/${id}/message`, { method: 'POST', body: JSON.stringify({ text: pending.text, ...pending.opts, clientMessageId: pending.clientMessageId }) });
-    saveOutbox(id, null); clearDraft(id);
+    { const later = laterDraft(id); saveOutbox(id, null); saveDraft(id, chatId === id && $('#box') ? $('#box').value : later); } // the draft is now only the next message, if one was begun
     if (pending.files.length) localStorage.removeItem('pc-attachments-' + id);
     if (result.steered) steeredEchoes.set(id, [...(steeredEchoes.get(id) || []), { text: pending.text.trim(), at: Date.now() }]);
     // 1.89.2: held for background jobs on the earlier Claude login: it sends by itself when they finish, or now with Stop
@@ -3884,7 +3910,6 @@ async function submitPending(id) {
     if (result.modelFallback) modelFellBack(id, result.modelFallback);
     if (chatId === id) {
       if (tb?.key === id && pending.files.length) tb.attachments = [];
-      const box = $('#box'); if (box) box.value = '';
       // Show the canonical transcript after acknowledgment; no unsent ghost
       // bubble remains on failure, and a replayed receipt adds no duplicate.
       await resyncChat(id);
@@ -3893,7 +3918,7 @@ async function submitPending(id) {
   } catch (e) {
     if (e.code === 'secret_detected') { // 1.42: held by the server before any receipt: not delivered, never retried by itself
       saveOutbox(id, null); ghost.forEach(n => n.remove());
-      if (chatId === id && $('#box')) $('#box').value = pending.text;
+      showUnsent(id, pending.text);
       sendsInFlight.delete(id); holdSecretSend(id, pending.text, e.body?.matches || []);
       return;
     }
@@ -3905,7 +3930,7 @@ async function submitPending(id) {
     try { saveOutbox(id, pending); } catch { }
     if (e.body?.code === 'signin') loadAgyModels(true).then(() => { if (chatId === id) renderToolbar(); }); // Antigravity signed out: the model row says so too
     ghost.forEach(n => n.remove());
-    if (chatId === id && $('#box')) $('#box').value = pending.text;
+    showUnsent(id, pending.text);
   } finally { sendsInFlight.delete(id); paintDelivery(id); if (chatId === id) paintChoices(); }
 }
 
@@ -4338,7 +4363,7 @@ async function renderNew({ home = false, slot = '' } = {}) {
     if (!note) return;
     note.hidden = !pending;
     note.classList.toggle('delivery-problem', Boolean(pending));
-    note.innerHTML = pending ? '<p>Start request not yet confirmed. Retry checks the same request.</p><div class="delivery-actions"><button class="chip" id="retry-new">Retry start</button><button class="chip" id="discard-new">Discard retry</button></div>' : '';
+    note.innerHTML = pending ? '<p>Start request not yet confirmed. Retry checks the same request.</p><div class="delivery-actions"><button class="chip" id="retry-new">Retry start</button><button class="chip" id="discard-new">Discard start</button></div>' : '';
     const retry = $('#retry-new'); if (retry) retry.onclick = () => startSession();
     const discard = $('#discard-new'); if (discard) discard.onclick = () => { saveOutbox(NK, null); clearDraft(NK); localStorage.removeItem(SK); localStorage.removeItem(BK); renderNew({ slot }); };
     app.querySelectorAll('.pane input,.pane textarea,.pane button,#comp textarea,#comp button:not(#start):not(#composer-toggle)').forEach(el => { el.disabled = Boolean(pending); });

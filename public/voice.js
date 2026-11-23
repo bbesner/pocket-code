@@ -144,7 +144,7 @@ const Voice = (() => {
         : pend && state === 'idle' && !note ? '<span class="voice-confirm"><button class="chip voice-send" id="voice-send" type="button">Send</button><button class="chip" id="voice-edit" type="button">Edit</button><button class="chip" id="voice-discard" type="button">Cancel</button></span>'
         : conv && state === 'idle' ? '<button class="chip" id="voice-end" type="button">End hands-free</button>' : ''}` : '';
     if (pend && (live || state === 'speaking')) strip.querySelector('.voice-label')?.insertAdjacentHTML('beforeend', `<span class="voice-pending"> · Waiting to send: “${esc(pend.text)}”</span>`);
-    const c = document.getElementById('voice-cancel'); if (c) c.onclick = () => cancel();
+    const c = document.getElementById('voice-cancel'); if (c) c.onclick = () => { const back = handsFree ? 'hfb' : 'micb'; cancel(); document.getElementById(back)?.focus(); }; // 1.124.5: Cancel removes itself, so focus goes back to the button that started listening
     const s = document.getElementById('voice-stop'); if (s) s.onclick = () => { handsFree = null; stopSpeaking(); paint(); };
     const e = document.getElementById('voice-end'); if (e) e.onclick = () => endHandsFree('Hands-free is off.');
     const vs = document.getElementById('voice-send'); if (vs) vs.onclick = () => sendPending();

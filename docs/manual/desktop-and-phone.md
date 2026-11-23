@@ -137,7 +137,7 @@ vault). That window shows the one view, without the rail, tabs or panes.
 Below 900 px Pocket shows one thing at a time.
 
 - **Home** is the conversation list (in Assistant mode, the message box). Its header has the bell
-  (**Toggle notifications for this device**), **More** (**⋯**: **Pause all** and **Automation settings**, see
+  (**Notifications off for this device** or **on**), **More** (**⋯**: **Pause all** and **Automation settings**, see
   [Automation](automation.md#pause-all)) and Settings; **Your conversations** has chips to the
   Projects, Files, Tasks, Vault and Inbox libraries that are on, with their counts (**Tasks · 2 due**,
   **Vault · 1 waiting**, **Inbox · 3 new**), and **Refresh**. The round **+** starts

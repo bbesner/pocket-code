@@ -237,12 +237,12 @@ details.todo li.t-in_progress .tbox { border-color: var(--clay); background: var
 .findbar { display: flex; align-items: center; gap: 6px; flex: none;
   padding: 8px 12px; background: var(--surface); border-bottom: 1px solid var(--line); }
 .findbar[hidden] { display: none; }
-.findbar input { flex: 1; min-width: 0; font: inherit; font-size: 15px; color: var(--text);
+.findbar input { flex: 1; min-width: 0; min-height: 44px; font: inherit; font-size: 15px; color: var(--text);
   background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
 .findbar input::placeholder { color: var(--faint); }
 .findbar .fcount { flex: none; min-width: 46px; text-align: right; font-size: 12.5px; color: var(--faint);
   font-family: ui-monospace, "Cascadia Mono", Menlo, monospace; }
-.findbar button.icon { padding: 6px; color: var(--dim); }
+.findbar button.icon { padding: 6px; min-width: 44px; min-height: 44px; color: var(--dim); }
 mark.fmark { background: color-mix(in srgb, var(--clay) 28%, transparent); color: var(--text); border-radius: 3px; } /* 1.59: full text colour, so a match in dim snippet text still passes AA */
 mark.fmark.cur { background: var(--clay); color: var(--on-accent); }
 
@@ -297,6 +297,10 @@ mark.fmark.cur { background: var(--clay); color: var(--on-accent); }
 .login h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
 .login .sub { color: var(--dim); margin-top: -8px; }
 .login .err { color: var(--err); min-height: 26px; }
+/* 1.124.5: the sign-in box had no rule of its own (the field styles were scoped to .pane), so it drew as the browser's default */
+.login-field { display: grid; gap: 8px; color: var(--dim); font-size: 14px; }
+.login-field input { width: 100%; min-height: 48px; border: 1px solid var(--line); background: var(--surface); color: var(--text); border-radius: 14px; padding: 13px 14px; font: inherit; font-size: 17px; }
+.login-field input[aria-invalid=true] { border-color: var(--err); }
 
 #toast { position: fixed; left: 50%; bottom: calc(90px + var(--sab)); transform: translateX(-50%) translateY(20px);
   background: var(--raised); border: 1px solid var(--line); color: var(--text); font-size: 15px;
@@ -321,6 +325,7 @@ mark.fmark.cur { background: var(--clay); color: var(--on-accent); }
   .composer-entry textarea { flex: 0 0 auto; width: 100%; order: -1; min-height: 46px; }
   .composer-entry .composer-actions, .composer-entry .send-mode, .composer-entry .voice-mic, .composer-entry .send { order: 0; }
   .composer-entry .composer-actions { margin-right: auto; }
+  @media (max-width: 370px) { .composer-entry { column-gap: 4px; } .composer-entry .composer-actions { gap: 0; } }
   .composer-entry .send-mode { flex: 1 1 auto; min-width: 0; margin: 0; gap: 6px; }
   .composer-entry .send-mode button { flex: 0 1 auto; min-width: 0; padding: 8px 7px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
@@ -561,7 +566,7 @@ button:disabled { cursor: default; opacity: .55; }
 .sheet-find ~ .opt { scroll-margin-top: 84px; } /* a row brought into view lands below the box, not under it */
 .sheet .opt[hidden] { display: none; }
 .session-filters { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 14px 14px; }
-.session-filters button { display: inline-flex; gap: 6px; align-items: center; justify-content: center; min-height: 44px; padding: 8px 12px; border-radius: 10px; font-size: 14px; color: var(--dim); }
+.session-filters button { display: inline-flex; gap: 6px; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; padding: 8px 12px; border-radius: 10px; font-size: 14px; color: var(--dim); }
 .session-filters button[aria-pressed="true"] { color: var(--text); background: var(--clay-deep); }
 .session-filters button span { font-size: 12px; font-variant-numeric: tabular-nums; }
 .review-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 18px 4px; padding: 6px 6px 6px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--dim); font-size: 14px; }
@@ -634,7 +639,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .report-table { overflow-x: auto; max-width: 100%; margin: 16px 0; border: 1px solid var(--line); border-radius: 8px; overscroll-behavior-x: contain; }
 .report-table:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
 .report-table table { border-collapse: collapse; min-width: 100%; font-size: max(13px,.882353em); line-height: 1.5; }
-.report-table th,.report-table td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); min-width: 110px; max-width: 360px; overflow-wrap: anywhere; }
+.report-table th,.report-table td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); min-width: 110px; max-width: 360px; overflow-wrap: break-word; }
 .report-table th { background: var(--surface); font-weight: 650; vertical-align: bottom; }
 .report-table tr:last-child td { border-bottom: 0; }
 .report-table [align=right] { text-align: right; font-variant-numeric: tabular-nums; }
@@ -681,7 +686,11 @@ header.bar { gap: 2px; padding-inline: 8px; }
 
 /* Keep the mobile session controls on one readable row. */
 .chat-statebar { flex-wrap: nowrap; }
-#session-switch { flex-grow: 2; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#session-switch { flex-grow: 2; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; }
+#session-switch .ss-word { flex: 0 100 auto; min-width: 2.4em; overflow: hidden; text-overflow: ellipsis; }
+#session-switch .ss-sep { flex: none; white-space: pre; }
+#session-switch .ss-counts { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 400px) { #session-switch .ss-word, #session-switch .ss-sep { display: none; } } /* no room for both: the counts are the news, and the button keeps its full name */
 #results-open,#queue-open { flex: none; padding: 0 7px; }
 @media (max-width: 600px) { #chat-state { display: none; } }
 @media (prefers-reduced-motion: reduce) { .sheet,.scrim { animation: none !important; } }
@@ -752,7 +761,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
   .chatcol .chat-statebar { padding-inline:8px;gap:4px; }
   .chatcol #git-open { flex:none;padding-inline:7px; }
   .open-sessions { padding:2px 8px; }
-  .open-session a { display:flex;align-items:center;padding-block:4px; }
+  .open-session a { display:block;line-height:36px;padding-block:4px; }
   .compact-header #open-sessions,.compact-header #cproj { display:none; }
   .railhead { gap:4px;padding:4px 8px 4px 12px; }
   .railhead > span { flex:1; }
@@ -771,7 +780,8 @@ header.bar { gap: 2px; padding-inline: 8px; }
 }
 .workspace-dock { flex:0 0 350px;min-width:0;overflow:auto;background:var(--surface);border-left:1px solid var(--line);padding:16px; }
 .workspace-dock h2,.git-sheet h2 { font-size:17px;font-weight:650;line-height:1.4;margin:8px 0 12px; }
-.dock-tabs { display:flex;gap:6px;align-items:center;margin-bottom:20px; }
+.dock-tabs { display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-bottom:20px; }
+.dock-tabs .chip { white-space:nowrap;padding-inline:10px; } /* 1.124.5: four tabs and Close fit one row of the dock; a tab never breaks inside its pill */
 .dock-tabs [data-close-dock] { margin-left:auto; }
 .dock-tabs [aria-pressed=true],.git-scopes [aria-pressed=true] { color:var(--clay);background:var(--raised); }
 .workspace-dock .result-row { display:block; }
@@ -818,7 +828,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .git-tree-name,.git-tree-meta { display:block; }
 .git-tree-name { font-weight:600; }
 .git-tree-meta { color:var(--dim); }
-.git-tree a { color:var(--text); }
+.git-tree a { color:var(--text);display:inline-flex;align-items:center;min-height:44px; }
 .git-tree .chip { flex:none; }
 .git-remove h2 { overflow-wrap:anywhere;text-transform:none;letter-spacing:0;color:var(--text); }
 .git-remove .sheet-help { overflow-wrap:anywhere; }
@@ -849,7 +859,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .question-banner .wb-text { flex:1;min-width:0;display:flex;flex-direction:column;gap:2px; }
 .question-banner .wb-title { font:600 15px/1.35 system-ui; }
 .question-banner .wb-note { font-size:13.5px;line-height:1.4;color:var(--dim); }
-.question-banner .wb-cta { flex:none;display:inline-flex;align-items:center;gap:4px;min-height:36px;padding:0 10px 0 14px;border-radius:8px;background:var(--warn);color:var(--on-warn);font:650 14.5px/1 system-ui;white-space:nowrap; }
+.question-banner .wb-cta { flex:none;display:inline-flex;align-items:center;gap:4px;min-height:44px;padding:0 10px 0 14px;border-radius:8px;background:var(--warn);color:var(--on-warn);font:650 14.5px/1 system-ui;white-space:nowrap; }
 .question-banner .wb-cta .i { width:16px;height:16px;stroke-width:2.2; }
 .question-banner:hover .wb-cta { background:color-mix(in srgb,var(--warn) 88%,var(--text)); }
 @media (max-width: 420px) { .question-banner { gap:10px;padding-left:12px; } .question-banner .wb-mark { display:none; } .question-banner .wb-title { text-wrap:pretty; } }
@@ -863,7 +873,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .question-banner .wb-agent { font-size:13px;font-weight:600;color:var(--warn); }
 .question-banner .wb-note.mono { font:12.5px/1.5 ui-monospace,"Cascadia Mono",Menlo,monospace;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere; }
 .question-banner .wb-actions { flex:none;display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px;margin-left:auto;max-width:100%; }
-.question-banner .wb-act { min-height:36px;padding:0 14px;border:1px solid var(--warn);border-radius:8px;background:var(--surface);color:var(--text);font:600 14.5px/1.2 system-ui;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.question-banner .wb-act { min-height:44px;padding:0 14px;border:1px solid var(--warn);border-radius:8px;background:var(--surface);color:var(--text);font:600 14.5px/1.2 system-ui;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .question-banner .wb-act:hover { background:color-mix(in srgb,var(--warn) 18%,var(--surface)); }
 .question-banner .wb-act.wb-allow { background:var(--warn);color:var(--on-warn); }
 .question-banner .wb-act.wb-allow:hover, .question-banner .wb-cta:hover { background:color-mix(in srgb,var(--warn) 88%,var(--text)); }
@@ -925,7 +935,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .run-confirmation { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 12px; min-height: 28px; font-size: 12px; line-height: 1.5; color: var(--dim); border-bottom: 1px solid var(--line); }
 #run-confirmed-state { font-weight: 600; }
 #run-confirmed-at { white-space: nowrap; font-variant-numeric: tabular-nums; }
-.run-confirmation[data-state=running] #run-confirmed-state { color: var(--ok); }
+.run-confirmation[data-state=running] #run-confirmed-state { color: var(--clay); } /* 1.124.5: clay is work in progress, as in the list row and the ember; green is finished */
 .run-confirmation[data-state=waiting] #run-confirmed-state { color: var(--clay); }
 .run-confirmation[data-state=background] #run-confirmed-state { color: var(--text); }
 /* Amber means waiting on you (1.27.1): list label, tab mark and status bar; clay stays for work in progress. */
@@ -1046,7 +1056,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
   font-size: 13px; line-height: 1.4; color: var(--dim); }
 .voice-strip[hidden] { display: none; }
 .voice-strip .voice-label { min-width: 0; overflow-wrap: anywhere; }
-.voice-strip .chip { margin-left: auto; min-height: 36px; padding: 4px 14px; }
+.voice-strip .chip { margin-left: auto; min-height: 44px; padding: 4px 14px; }
 /* Hands-free send confirmation: the instruction read back with Send / Edit / Cancel (1.13). */
 .voice-strip:has(.voice-confirm) { flex-wrap: wrap; }
 .voice-strip .voice-confirm { margin-left: auto; display: flex; gap: 6px; }
@@ -1153,9 +1163,12 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .status-in-header #run-confirmed-state { font-weight: 400; }
 .status-in-header:not(.compact-header) header.bar h1 { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 6px; }
 .status-in-header:not(.compact-header) header.bar h1 .one { flex: 1 0 100%; }
-.status-in-header:not(.compact-header) header.bar h1 .tag { flex: 0 1 auto; min-width: 0; max-width: 55%; }
-.status-in-header:not(.compact-header) header.bar h1 .run-confirmation { display: block; flex: 1 1 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 1.124.5: the state is the part to keep. The workspace name gives way first, and below 400px it is left out. */
+.status-in-header:not(.compact-header) header.bar h1 .tag { flex: 0 100 auto; min-width: 0; max-width: 55%; }
+@media (max-width: 400px) { .status-in-header:not(.compact-header) header.bar h1 .tag { display: none; } }
+.status-in-header:not(.compact-header) header.bar h1 .run-confirmation { display: block; flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .status-in-header:not(.compact-header) header.bar h1 .tag:not(:empty) + .run-confirmation::before { content: '·'; margin-right: 6px; color: var(--faint); }
+@media (max-width: 400px) { .status-in-header:not(.compact-header) header.bar h1 .tag:not(:empty) + .run-confirmation::before { content: none; } }
 /* Scheduled runs: one collapsed group at the end of All. */
 .automated-group > summary { list-style: none; cursor: pointer; display: flex; align-items: baseline; gap: 10px; min-height: 44px; padding-right: 18px; }
 .automated-group > summary::-webkit-details-marker { display: none; }
@@ -1210,7 +1223,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .away-end { margin: 14px 0 2px; }
 .away-end .away-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; color: var(--clay); }
 .away-end .away-label + .away-body { margin-top: 8px; }
-.away-jump { flex: none; min-height: 36px; margin: -6px -8px -6px 0; padding: 6px 10px; border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--dim); }
+.away-jump { flex: none; min-height: 44px; margin: -10px -8px -10px 0; padding: 6px 10px; border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--dim); }
 .away-jump:hover { color: var(--text); background: var(--raised); }
 .away-jump:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
 .away-body { color: var(--text); }
@@ -2183,6 +2196,7 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 .branch-alt { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); color: var(--dim); font-size: 14px; }
 .branch-alt .chip { min-height: 44px; }
 .text-link { color: var(--clay); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; font: inherit; padding: 0; background: none; }
+.side-help .text-link { display: inline-flex; align-items: center; min-height: 44px; }
 
 
 /* CLI release discovery stays visible without covering work or opening a dialog on its own. */
@@ -2465,3 +2479,27 @@ a.job-run:hover { background: var(--raised); }
 .origin-line.job-request-line a { color: var(--warn); text-decoration: underline; text-underline-offset: 3px; }
 .origin-line.job-request-line a:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; border-radius: 2px; }
 @media (max-width: 420px) { .job-request-facts { grid-template-columns: 1fr; gap: 0; } .job-request-facts dd { margin-bottom: 6px; } }
+
+/* 1.124.5: with a mouse the waiting banner, voice strip, find bar and away card keep their denser 36px controls;
+   a touch screen gets the 44px the rest of the app uses. The folded steps line keeps its place and gains tap room. */
+@media (pointer: fine) {
+  .question-banner .wb-cta, .question-banner .wb-act, .voice-strip .chip { min-height: 36px; }
+  .away-jump { min-height: 36px; margin-block: -6px; }
+  .findbar button.icon { min-width: 0; min-height: 0; }
+  .git-tree a, .side-help .text-link { min-height: 0; }
+}
+@media (pointer: coarse) {
+  .ledgerwrap > summary { min-height: 44px; margin-block: -9px; }
+}
+
+/* 1.124.5: a narrow column on a wide screen (the main pane beside split panes, or beside a docked panel) gets the
+   phone's two-row composer too. The phone rule above is keyed to the screen, so the box there shrank to a few words. */
+@media (min-width: 900px) {
+  .chatcol > .composerwrap { container: composer / inline-size; }
+  @container composer (max-width: 560px) {
+    .composer-entry textarea { flex: 0 0 auto; width: 100%; order: -1; min-height: 46px; }
+    .composer-entry .composer-actions, .composer-entry .send-mode, .composer-entry .voice-mic, .composer-entry .send { order: 0; }
+    .composer-entry .composer-actions { margin-right: auto; }
+    .composer-entry .send-mode { flex: 1 1 auto; min-width: 0; margin: 0; gap: 6px; }
+  }
+}

@@ -24,7 +24,7 @@ Type in the message box at the bottom and press the send button.
   see [Questions and approvals](approvals.md#choose-review-actions-or-full-access)) and, on Codex, OpenRouter and Antigravity, **Work normally**
   or **Plan first**. These choices are remembered per conversation on this browser.
 - When delivery cannot be confirmed (the network dropped mid-send), the message stays on the device and the box shows
-  **Retry same message**, **Review conversation** and **Discard retry**. Retry resends with the same request id, so the
+  **Retry same message**, **Review conversation** and **Discard message** (which deletes the unsent message). Retry resends with the same request id, so the
   server does not start a second reply for a message it already received. A message the server refused shows **Edit
   message** instead of Review conversation.
 - When the last reply failed, the end of the conversation says so and offers **Send again** (the same text as a new reply)

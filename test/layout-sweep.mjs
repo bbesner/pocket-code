@@ -2,7 +2,7 @@
 // synthetic server (no real sessions, credentials or model calls).
 //
 //   POCKET_SWEEP=all|<area>[,<area>]   which test/sweep/<area>.mjs files to run
-//   POCKET_SWEEP_SURFACE=<part>        only surfaces whose name contains this
+//   POCKET_SWEEP_SURFACE=<part>[,…]    only surfaces whose name contains one of these (=name for an exact name)
 //   POCKET_SWEEP_LAYOUTS=phone,desktop only these layouts (default: all six)
 //   POCKET_SWEEP_THEMES=dark           only these themes (default: dark,light)
 //   POCKET_SWEEP_STRICT=1              exit non-zero when any cell has a problem (default: report only)
@@ -116,7 +116,7 @@ export async function runLayoutSweep(ctx){
   if(!want.includes('all')&&!want.includes(mod.area))continue;
   totals.areas++;const cells=[],shots=path.join(root,mod.area);fs.mkdirSync(shots,{recursive:true});
   for(const surface of mod.surfaces){
-   if(only&&!surface.name.includes(only))continue;
+   if(only&&!only.split(',').some(part=>part.startsWith('=')?surface.name===part.slice(1):surface.name.includes(part)))continue;
    totals.surfaces++;
    for(const layoutName of layouts){
     if(surface.layouts&&!surface.layouts.includes(layoutName))continue;
