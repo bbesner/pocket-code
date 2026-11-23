@@ -185,7 +185,7 @@ function bindDocRequests(root){
   catch(e){
    // 1.124.5: answered elsewhere (the notification's Allow, another device): say what was done, not an error.
    if(e.code==='request_answered'){await loadDocs(true).catch(()=>{});const a=(docsSnap?.answered||[]).find(x=>x.id===r.id);
-    toast(a?.decision==='allow'?`Already allowed on another device. ${r.change?.to==='public'?'Published':'Shared'} ${r.title}.`:a?.decision==='deny'?`Already denied on another device. ${r.title} was not shared.`:a?`Already answered on another device. ${r.title} was not shared.`:'Already being answered on another device.');}
+    toast(a?.decision==='allow'?`Already allowed. ${r.change?.to==='public'?'Published':'Shared'} ${r.title}.`:a?.decision==='deny'?`Already denied. ${r.title} was not shared.`:a?`Already answered. ${r.title} was not shared.`:'Already being answered.');}
    else toast(e.message||'Could not answer the request');
   }
   loadDocs(true).then(()=>{paintDocumentsView();paintRailDocuments();}).catch(()=>{if(card.isConnected)card.querySelectorAll('button').forEach(x=>x.disabled=false);});

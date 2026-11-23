@@ -87,6 +87,7 @@ function paintProjectsView(){
  else if(kind==='scheduled')main.innerHTML=scheduledHTML();
  else{const p=projectById(boardView.slice(9));if(!p)return;main.innerHTML=projectCardHTML(p);const t=$('#ptitle');if(t)t.textContent=p.name;const g=$('#ptag');if(g)g.textContent=statusWord[p.status]+(p.directory?' · '+projShort(p.directory):'');}
  bindProjectsView(main);
+ bindKeptAside(main,boardSnap,paintProjectsView); // 1.124.5: a list kept aside is named until dismissed
  if(refocus)main.querySelector(refocus)?.focus({preventScroll:true});
  paintProjectBadges();
  if(typeof paintOpenSessions==='function')paintOpenSessions();
@@ -109,7 +110,7 @@ function projectListHTML(){
  const body=groups.map(([k,label,rows])=>!rows.length?'':k==='done'
   ?`<details class="session-group project-group settings-details"><summary><h2>${label} <span>${rows.length}</span></h2></summary>${rows.map(projectRowHTML).join('')}</details>`
   :`<section class="session-group project-group"><h2>${label} <span>${rows.length}</span></h2>${rows.map(projectRowHTML).join('')}</section>`).join('');
- return `<div class="session-home-head"><h2>Projects</h2><span class="project-head-actions"><a class="chip ${due?'due':''}" href="${viewHref(dueListView())}" data-view-link>${dueListView()==='tasks'?'Reminders':'Scheduled'}${due?' · '+due+' due':''}</a><button class="chip" id="pj-track">Track a project</button></span></div>
+ return keptAsideHTML(boardSnap.keptAside)+`<div class="session-home-head"><h2>Projects</h2><span class="project-head-actions"><a class="chip ${due?'due':''}" href="${viewHref(dueListView())}" data-view-link>${dueListView()==='tasks'?'Reminders':'Scheduled'}${due?' · '+due+' due':''}</a><button class="chip" id="pj-track">Track a project</button></span></div>
   ${boardSnap.projects.length?body:`<p class="sheet-help project-empty">No tracked projects yet. Track one here, or from a conversation's options, when there is work you want to keep a card for. Agents can keep a card current with <code>pocket-board</code>.</p>`}`;
 }
 function scheduledHTML(){

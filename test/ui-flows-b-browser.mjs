@@ -105,14 +105,14 @@ export async function runFlowsBFixes({browser,base,rows,out,settingsState=()=>({
    const other=await post('/api/documents/requests/'+asked.body.id+'/answer',{decision:'allow'});assert.equal(other.status,200);
    await page.click('#doc-requests .vault-allow');
    await page.waitForFunction(()=>!document.querySelector('#doc-requests'));
-   assert.equal(await page.$eval('#toast',e=>e.textContent),`Already allowed on another device. Shared ${doc.title}.`);
+   assert.equal(await page.$eval('#toast',e=>e.textContent),`Already allowed. Shared ${doc.title}.`);
    assert.equal(await page.evaluate(id=>docsSnap.documents.find(d=>d.id===id).visibility,doc.id),'link','the list shows it shared');
    await shot('files-already-allowed');
   }finally{await post('/api/documents/reset');}
  }));
 
  // b-16: a list kept aside because it did not parse is named in its view, with what was reset, until Dismiss.
- for(const [label,route,api,settingKey,ready] of [['Files','#/documents','/api/documents','documents','.document-item'],['Coordination','#/coordination','/api/coordination','coordination','.project-empty']])
+ for(const [label,route,api,settingKey,ready] of [['Files','#/documents','/api/documents','documents','.document-item'],['Coordination','#/coordination','/api/coordination','coordination','.project-empty'],['Projects','#/projects','/api/board','projects','.project-head-actions'],['Tasks','#/tasks','/api/tasks','tasks','#tk-add']])
   await check(`${label}: a list that did not parse says it was kept aside and what was reset, until dismissed`,PHONE,(page,shot)=>withSettings({[settingKey]:true},async()=>{
    const store=settingKey,kept=`${store}.json.corrupt-20261123-171918`,file=`/srv/pocket/data/${store}.json`;let dismissed=null;
    await intercept(page,async(r,u)=>{
@@ -121,7 +121,7 @@ export async function runFlowsBFixes({browser,base,rows,out,settingsState=()=>({
    });
    await page.goto(base+route);await page.waitForSelector('[data-kept]');await page.waitForSelector(ready);
    const panel=await page.$eval('[data-kept]',e=>({text:e.querySelector('p').textContent,button:e.querySelector('button').textContent,h:Math.round(e.querySelector('button').getBoundingClientRect().height),fits:e.scrollWidth<=e.clientWidth,first:e===e.parentElement.firstElementChild}));
-   const reset=store==='documents'?'Files could not read its list, so it started a new one: titles, sharing and links were reset, and every file is private.':'Coordination could not read what was held and started empty.';
+   const reset={documents:'Files could not read its list, so it started a new one: titles, sharing and links were reset, and every file is private.',coordination:'Coordination could not read what was held and started empty.',projects:'Projects could not read its list and started empty.',tasks:'Tasks could not read its list and started empty.'}[store];
    assert.deepEqual(panel,{text:`${reset} The old one was kept as ${kept}. To get it back, stop Pocket, fix the kept copy and move it back to ${file}.`,button:'Dismiss',h:panel.h,fits:true,first:true});
    assert.ok(panel.h>=44,'Dismiss is a 44px target: '+panel.h);
    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'nothing runs off the side');

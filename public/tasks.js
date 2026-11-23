@@ -75,6 +75,7 @@ function paintTasksView(){
  if(tasksPainted.get(main)!==html||main.querySelector('button:disabled')){ // 1.119: a refresh that changes nothing leaves the rows alone
   main.innerHTML=html;tasksPainted.set(main,html);
   bindTaskRows(main);
+  bindKeptAside(main,tasksSnap,paintTasksView); // 1.124.5
   if(typeof CheckBacks!=='undefined')CheckBacks.bindTasks(main);
   if(typeof JobKeys!=='undefined')JobKeys.bindTasks(main);
   main.querySelector('#tk-add')?.addEventListener('click',()=>taskEditor(null));
@@ -107,7 +108,7 @@ function taskListHTML(){
  const open=tasksSnap.tasks.filter(t=>!t.done),done=tasksSnap.tasks.filter(t=>t.done),rems=dueReminders(),due=dueTotal(),count=open.length+rems.length;
  const withProjects=typeof projectsOn==='function'&&projectsOn();
  const checkbacks=(typeof CheckBacks!=='undefined'?CheckBacks.tasksHTML(tasksSnap):'')+(typeof JobKeys!=='undefined'?JobKeys.tasksHTML(tasksSnap):''); // 1.119: read-only, between the to-dos and Done (1.124: then the Jobs group)
- return `<div class="session-home-head"><h2>Tasks</h2><span class="project-head-actions"><button class="chip" id="tk-add">${IC.plus}Add task</button></span></div>
+ return keptAsideHTML(tasksSnap.keptAside)+`<div class="session-home-head"><h2>Tasks</h2><span class="project-head-actions"><button class="chip" id="tk-add">${IC.plus}Add task</button></span></div>
   ${count||done.length?`${count?`<section class="session-group project-group"><h2>To do <span>${count}${due?` · ${due} due`:''}</span></h2>${openRows().join('')}</section>`:'<p class="sheet-help project-empty">Nothing to do. Add a task here, or from a conversation with Add task.</p>'}
    ${checkbacks}${done.length?`<details class="session-group project-group settings-details"><summary><h2>Done <span>${done.length}</span></h2></summary>${done.map(taskRowHTML).join('')}</details>`:''}`
   :`<p class="sheet-help project-empty">No tasks yet. Add one here, from a conversation's Add task chip, or by telling an agent "create a task to …". A task can carry a date and the context of the conversation it came from, and Start opens a new conversation with it.${withProjects?' Project reminders appear here too, when a project has one.':''}</p>${checkbacks}`}`;

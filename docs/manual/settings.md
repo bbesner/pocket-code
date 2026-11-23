@@ -258,7 +258,7 @@ on `main`, and that no reply is running; backs up its private data to `~/backups
 and its packages; waits for any reply that started meanwhile to finish (up to 10 minutes; if replies keep
 running it goes back and changes nothing); and restarts. The sheet shows each step. From the moment it begins the
 restart until the new version runs, a message you send is not sent: it says *Pocket is restarting for its update; your
-message is kept* and stays in the box for you to send again (1.124.5), so the restart cannot cut its reply short. While Pocket restarts the page loses
+message is kept* and stays in the box for you to send again (1.124.5), so the restart cannot cut its reply short. If the restart has not happened within 90 seconds, messages send again. While Pocket restarts the page loses
 contact for a moment and reconnects by itself; open conversations reconnect too. If the new version
 does not start, Pocket goes back to the one it was running and says so in the row, and you can try
 again; if it cannot go back either, the row says so and what to run on the server. If the update could not start at all,

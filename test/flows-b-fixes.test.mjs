@@ -183,7 +183,7 @@ test('b-14a: while the update restarts this version, a new message is refused wi
   const s = await boot(t);
   const version = JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8')).version;
   const c = await s.start('First message'); await s.idle(c);
-  const job = (phase, from = version) => fs.writeFileSync(path.join(s.data, 'pocket-self-update.json'), JSON.stringify({ id: 'job-1', from, to: '99.0.0', phase, startedAt: Date.now() - 60_000, updatedAt: Date.now() }));
+  const job = (phase, from = version, said = 0) => fs.writeFileSync(path.join(s.data, 'pocket-self-update.json'), JSON.stringify({ id: 'job-1', from, to: '99.0.0', phase, startedAt: Date.now() - 300_000, updatedAt: Date.now() - said }));
   const refused = [409, { error: 'Pocket is restarting for its update; your message is kept.', code: 'restarting' }];
   job('restarting');
   const fresh = await s.call('/new', { provider: 'claude', cwd: s.cwd, text: 'restart new', approvalMode: 'full' });
@@ -197,6 +197,10 @@ test('b-14a: while the update restarts this version, a new message is refused wi
   // Installing (before the restart's own wait), and the new version (the job still reads restarting until it says complete): sent.
   job('installing');
   assert.equal((await s.call(`/session/${encodeURIComponent(c)}/message`, { text: 'while installing', approvalMode: 'full' })).status, 202);
+  await s.idle(c);
+  // A restart said two minutes ago that has not happened (the script went back to waiting for a reply, or died): sent.
+  job('restarting', version, 120_000);
+  assert.equal((await s.call(`/session/${encodeURIComponent(c)}/message`, { text: 'the restart did not come', approvalMode: 'full' })).status, 202);
   await s.idle(c);
   job('restarting', '0.0.1');
   assert.equal((await s.call(`/session/${encodeURIComponent(c)}/message`, { text: 'on the new version', approvalMode: 'full' })).status, 202);
