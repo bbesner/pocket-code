@@ -5,8 +5,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {spawn,execFile} from 'node:child_process';
-import {createHmac,randomUUID} from 'node:crypto';
+import https from 'node:https';
+import {spawn,execFile,execFileSync} from 'node:child_process';
+import {createHmac,randomUUID,createECDH,randomBytes} from 'node:crypto';
+import webpush from 'web-push';
+import ece from 'http_ece';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
 const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|CODEX)_/.test(k)));
@@ -55,4 +58,58 @@ test('HTTP: /api/notify takes the token and the cookie, refuses the tunnel, sign
   const j=await cli(['--title','JSON','--body','b','--json']);assert.equal(j.code,0,j.stderr);assert.equal(JSON.parse(j.stdout).ok,true);
   const bad=await cli(['--body','no title']);assert.equal(bad.code,1);assert.match(bad.stderr,/--title/);
   assert.match(logs,/notify "From the CLI" by cli push=off mail=false/);
+});
+
+// 1.124.3 (http-04): a push service refuses a message over 4,096 bytes (RFC 8030 allows a 413). /api/notify cuts the body
+// at 2,000 characters, which is 6 KB of CJK or emoji once encoded, and pushRaw counted every failure but 404/410 as
+// delivered: the caller and the log said push=1 while the phone got nothing. A push service on this machine keeps to the
+// limit, and can be told to fail.
+test('HTTP: a long CJK or emoji alert is cut to fit a push, and a push the service refuses is not counted as delivered',async t=>{
+  const dir=tmp();let port=19472;
+  const kdir=path.join(dir,'tls');fs.mkdirSync(kdir);const key=path.join(kdir,'key.pem'),cert=path.join(kdir,'cert.pem');
+  execFileSync('openssl',['req','-x509','-newkey','ec','-pkeyopt','ec_paramgen_curve:prime256v1','-nodes','-keyout',key,'-out',cert,'-days','1','-subj','/CN=127.0.0.1'],{stdio:'ignore'});
+  const device=createECDH('prime256v1');device.generateKeys();
+  const auth=randomBytes(16).toString('base64url'),got=[];let failWith=0;
+  const service=https.createServer({key:fs.readFileSync(key),cert:fs.readFileSync(cert)},(req,res)=>{
+    const chunks=[];req.on('data',c=>chunks.push(c));
+    req.on('end',()=>{
+      const body=Buffer.concat(chunks);
+      if(failWith){res.writeHead(failWith);return res.end();}
+      if(body.length>4096){res.writeHead(413);return res.end();} // what the push services do
+      got.push(JSON.parse(ece.decrypt(body,{version:'aes128gcm',privateKey:device,authSecret:auth}).toString('utf8')));
+      res.writeHead(201);res.end();
+    });
+  });
+  await new Promise(r=>service.listen(0,'127.0.0.1',r));
+  const vapid=webpush.generateVAPIDKeys();
+  fs.mkdirSync(path.join(dir,'sessions'),{recursive:true});fs.mkdirSync(path.join(dir,'data'),{recursive:true});
+  fs.writeFileSync(path.join(dir,'data','push-subs.json'),JSON.stringify([{endpoint:`https://127.0.0.1:${service.address().port}/push/device`,keys:{p256dh:device.getPublicKey('base64url'),auth}}]));
+  let child,logs='';
+  const start=async()=>{
+   child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...cleanEnv(),PORT:String(port),POCKET_ENV_FILE:'',POCKET_AUTO_TITLES:'0',POCKET_PASSWORD:'test-only',POCKET_SECRET:randomUUID(),POCKET_CODEX:'0',POCKET_VOICE:'off',POCKET_MEMSTEM:'0',POCKET_SKILLS:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs'),VAPID_PUBLIC:vapid.publicKey,VAPID_PRIVATE:vapid.privateKey,NODE_TLS_REJECT_UNAUTHORIZED:'0'},stdio:['ignore','pipe','pipe']});
+   child.stdout.on('data',b=>{logs+=b});child.stderr.on('data',b=>{logs+=b});
+   for(let i=0;i<100;i++){if(child.exitCode!==null)break;try{const r=await fetch(`http://127.0.0.1:${port}/api/health`);if(r.ok)return;}catch{} await sleep(30)}
+   if(child.exitCode!==null&&/EADDRINUSE/.test(logs)&&(start.tries=(start.tries||0)+1)<4){port+=41;logs='';return start();}
+   throw Error('Test server failed: '+logs);
+  };
+  t.after(async()=>{if(child&&child.exitCode===null){const exit=new Promise(r=>child.once('exit',r));child.kill();await exit;}await new Promise(r=>service.close(r));fs.rmSync(dir,{recursive:true,force:true,maxRetries:5});});
+  await start();
+  const bearer={'content-type':'application/json',authorization:'Bearer '+fs.readFileSync(path.join(dir,'data','cli-token'),'utf8').trim()};
+  const notify=async body=>{const r=await fetch(`http://127.0.0.1:${port}/api/notify`,{method:'POST',headers:bearer,body:JSON.stringify(body)});return {status:r.status,body:await r.json()};};
+  for(const [name,text] of [['CJK','漢'.repeat(2500)],['emoji','😀'.repeat(1500)]]){
+    const r=await notify({title:'Long '+name,body:text,tag:name});
+    assert.equal(r.status,200);assert.equal(r.body.push,1,name+': one device');
+    const m=got.find(x=>x.tag==='alert:'+name);
+    assert.ok(m,name+': the device got it');
+    assert.ok(m.body.length>500&&text.startsWith(m.body.slice(0,-1))&&m.body.endsWith('…'),name+': the body is cut at a character, and says so');
+  }
+  const short=await notify({title:'Short',body:'Disk at 91%.',tag:'short'});
+  assert.equal(short.body.push,1);assert.equal(got.find(x=>x.tag==='alert:short').body,'Disk at 91%.','a body that fits is sent as it is');
+  failWith=500;
+  const failed=await notify({title:'Refused',body:'x',tag:'refused'});
+  assert.equal(failed.status,200);assert.equal(failed.body.push,0,'a push the service refused is not counted');
+  assert.match(logs,/notify "Refused" by cli push=0 mail=false/);
+  assert.match(logs,/push not delivered to a device \(the push service answered 500\)/);
+  failWith=0;
+  assert.equal((await notify({title:'Back',body:'x',tag:'back'})).body.push,1,'the device is kept: only 404 and 410 remove it');
 });

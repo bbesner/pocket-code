@@ -178,8 +178,8 @@ When the user asks to hand off, or a conversation has grown long and the next st
 pocket-notify --title "…" (--body "…" | --file <path|->) [--url </#/start/<id> or another Pocket path>] [--tag <key>] [--email] [--json]
 ```
 
-- The title is cut to 70 characters and the body to 2,000. `--url` must be a Pocket path (`/#/…`) or start with Pocket's public address, and must stay on Pocket's own site: a link that leads to another site (such as `//host/…`) is refused. A notification with the same `--tag` replaces the earlier one on a device.
-- It prints `push=<devices|off> mail=<yes|no|off|failed>`. `mail=off` means email is not set up (`POCKET_SMTP_URL` and an address in Settings). Exit code 2 means Pocket is not running here or refused the token.
+- The title is cut to 70 characters and the body to 2,000. A push carries about 3,900 bytes of text, so a long body in Chinese, Japanese or Korean, or full of emoji, is cut shorter in the push and ends with …; the email has all of it. `--url` must be a Pocket path (`/#/…`) or start with Pocket's public address, and must stay on Pocket's own site: a link that leads to another site (such as `//host/…`) is refused. A notification with the same `--tag` replaces the earlier one on a device.
+- It prints `push=<devices|off> mail=<yes|no|off|failed>`. `push=` counts the devices the push service accepted it for, so `push=0` while devices are subscribed means it was refused (the server log says why) or their subscriptions have expired. `mail=off` means email is not set up (`POCKET_SMTP_URL` and an address in Settings). Exit code 2 means Pocket is not running here or refused the token.
 - Send one only when the user or the job you are running asks for it.
 
 ### Check back later

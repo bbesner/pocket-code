@@ -35,6 +35,7 @@ import {descendantCpu, commandLine, signalGroup, startTime, BOOT_ID} from './pro
 import {ApprovalInbox,approvalAudit,approvalMode,claudePermissionSettings} from './approvals.mjs';
 import {parseRuleList, validateRules, matchTrusted} from './trusted.mjs';
 import {UsageStore,getSessionContext,atomicWrite,sinceCost} from './usage.mjs';
+import { readStore } from './store-file.mjs'; // 1.124.3: the settings and the conversation records, as the other stores
 import {cacheFromTranscript,turnCacheSummary} from './cache.mjs';
 import {CHOICE_INSTRUCTIONS,textBlocks} from './choices.mjs';
 import {AgentActivity,ClaudeAgentFiles,SubagentIndex,subagentDir} from './subagents.mjs';
@@ -420,7 +421,7 @@ const saveMutes = () => atomicWrite(MUTES_FILE, [...mutes]);
 const SMETA_FILE = path.join(DATA_DIR, 'session-meta.json');
 // The overlay is migrated to the current schema on load (migrateSmeta stamps the version and
 // is a no-op for today's records); it persists on the next natural save. See session-schema.mjs.
-const loadSmeta = () => { let raw = null; try { raw = JSON.parse(fs.readFileSync(SMETA_FILE, 'utf8')); } catch { } return migrateSmeta(raw); };
+const loadSmeta = () => migrateSmeta(readStore(SMETA_FILE, { log })); // 1.124.3: one that does not parse is kept aside and logged (store-file.mjs)
 let smeta = loadSmeta();
 const saveSmeta = () => atomicWrite(SMETA_FILE, smeta);
 const isPinned = id => Boolean(smeta[id]?.pin);
@@ -434,7 +435,7 @@ const pinRank = id => Number.isFinite(smeta[id]?.pinOrder) ? smeta[id].pinOrder 
 // transcript and write renames back as custom-title lines (their own rename mechanism).
 const SETTINGS_FILE = path.join(DATA_DIR, 'pocket-settings.json');
 const SETTINGS_DEFAULTS = { contextPolicy: null, handoffOffer: null, titleSync: false, projects: false, documents: false, tasks: false, inbox: false, coordination: false, ownerTimezone: '', vault: false, vaultAutoLockMinutes: 0, vaultAccess: 'once', secretGuard: true, markAllReviewed: true, remindAhead: 0, notifyEmail: '', offeredClaudeModels: null, trustedActions: null }; // 1.116: markAllReviewed (false hides the bar in Attention and New); 1.50: remindAhead (hours, 0 or 24), notifyEmail; 1.52: offeredClaudeModels (null = the server default); 1.56: trustedActions (null = the server default)
-const loadSettings = () => { try { return { ...SETTINGS_DEFAULTS, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch { return { ...SETTINGS_DEFAULTS }; } };
+const loadSettings = () => ({ ...SETTINGS_DEFAULTS, ...readStore(SETTINGS_FILE, { log }) }); // 1.124.3: one that does not parse is kept aside and logged
 let settings = loadSettings();
 // 1.124.1: true while Pause all holds a pause in memory that the settings file does not have (its save failed). Any later
 // save that works writes the pause with everything else, so it clears here.
@@ -499,7 +500,7 @@ const coordOn = (_req, res, next) => coordLive() ? next() : res.status(404).json
 // test can make one due, or hours late, without waiting. Unset everywhere but the tests.
 const CHECKBACK_CLOCK = process.env.POCKET_TEST_CHECKBACK_CLOCK || '';
 const cbNow = () => { if (!CHECKBACK_CLOCK) return Date.now(); let off = 0; try { off = Number(fs.readFileSync(CHECKBACK_CLOCK, 'utf8')) || 0; } catch { } return Date.now() + off; };
-const checkbacks = new CheckbackStore(path.join(DATA_DIR, 'checkbacks.json'), { now: cbNow });
+const checkbacks = new CheckbackStore(path.join(DATA_DIR, 'checkbacks.json'), { now: cbNow, log });
 const CHECKBACK_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-checkback.mjs');
 const checkbackSettings = () => auto.groupValues(settings.automation, 'checkbacks');
 const checkbacksOn = () => checkbackSettings().checkbacks === true;
@@ -527,7 +528,7 @@ if (process.env.POCKET_INBOX_RUNNER !== '0') inboxRunner.start();
 // A briefing an agent or a job hands to Pocket (starts.mjs): <data dir>/starts.json. POST /api/start with the loopback token
 // (or the owner's cookie) stores it and answers with an id and a URL; opening #/start/<id> signed in puts the briefing in New
 // session with the workspace and agent it names. Entries expire (7 days by default). Nothing starts until the owner taps Start.
-const starts = new StartStore(path.join(DATA_DIR, 'starts.json'));
+const starts = new StartStore(path.join(DATA_DIR, 'starts.json'), { log });
 const START_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-start.mjs');
 const startsClaimed = new Set(); // 1.96: handoffs whose /api/new is running, so a second tap in that window never makes a second conversation
 const tasksOn = (_req, res, next) => settings.tasks ? next() : res.status(404).json({ error: 'Tasks is off. Turn it on in Settings → Projects, files, tasks & vault.', code: 'tasks_off' });
@@ -664,14 +665,15 @@ const fmtOwnerWhen = ms => { const o = { weekday: 'short', hour: 'numeric', minu
 const startOrigin = o => { const origin = auto.normOrigin(o?.origin); return origin === 'owner' ? { ...OWNER_START } : { origin, ...(o.originRef ? { originRef: String(o.originRef) } : {}), rootOrigin: auto.normRoot(o.rootOrigin) }; };
 // May this unattended start go ahead? Codex is read live only when a Codex ceiling applies, so an install with nothing
 // switched on makes no extra call; Claude's reading is the last one a reply reported (stale readings pass).
-// `hold` (a job's run id): a start that passes counts in the day's count at once, until noteStart records it or the start
-// fails, so calls that arrive together can't all pass while each one's start is awaited (Codex, OpenRouter).
+// `hold` (a job's run id; 1.124.3: or a check-back's id): a start that passes counts in the day's count at once, until
+// noteStart records it or the start fails, so calls that arrive together can't all pass while each one's start is awaited
+// (Codex, OpenRouter).
 const startsPending = new Set();
 async function gateUnattended(info) {
   const lim = autoValues('limits'), root = auto.normRoot(info.rootOrigin), apply = auto.limitsApply(root, lim), paused = Boolean(pausedNow());
   const codexReading = !paused && apply.ceilings && info.engine === 'codex' && CODEX_ON && (lim.codexWeekly !== 'off' || lim.codexFiveHour !== 'off')
     ? await codex.codexRateLimits().catch(() => null) : null;
-  const counts = autoState.counts(); counts.startedRoot = (counts.startedRoot || 0) + startsPending.size; // a pending start is a job's (root job)
+  const counts = autoState.counts(); counts.startedRoot = (counts.startedRoot || 0) + startsPending.size; // a pending start is a job's or (1.124.3) a check-back's: root job or checkback
   const r = auto.unattendedGate({ ...info, rootOrigin: root, attendedOnly: !takesUnattended(info.engine) }, {
     paused, ownBlocked: ownMessagesBlocked(), features: { checkback: checkbacksOn(), job: jobsOn() }, limits: lim, // 1.119: check-backs; job keys
     claude: apply.ceilings ? usage.accountSummary() : null, codex: codexReading, counts, nextDay: autoState.nextDay(), now: Date.now(),
@@ -975,6 +977,7 @@ async function pushNotify(sessionId, title, body) {
   const devices = await pushRaw(title, body, { tag: sessionId, url: '/#/chat/' + sessionId, kind: 'turns' });
   if (devices != null) log(`push sent (${devices} devices) session=${sessionId}`);
 }
+const PUSH_TEXT_MAX = 3900; // 1.124.3: bytes of text in one push (pushRaw)
 // One notification to every subscribed device that wants this kind (1.50: turns, reminders or vault; a device's
 // choice in Settings → Notifications); returns how many received it, or null when push is off or no device wants it.
 // `badge` is the count of due items for the app icon, sent only to devices that show it.
@@ -986,15 +989,31 @@ async function pushRaw(title, body, { tag, url, kind = 'turns', badge, ...extra 
   const subs = loadSubs().filter(s => pushPrefsOf(s).kinds[kind] !== false);
   if (!subs.length) return null;
   const base = { title: title.slice(0, 70), body, tag, url, ...extra };
+  // 1.124.3: a push service refuses a message over 4,096 bytes once encrypted (about 100 more than the text), and the
+  // callers cap the body in characters: 2,000 CJK characters or emoji is 6 KB, and the phone got nothing. The body is cut
+  // by bytes, at a character, leaving room for the badge.
+  const over = Buffer.byteLength(JSON.stringify(base)) + 32 - PUSH_TEXT_MAX;
+  if (over > 0 && typeof body === 'string') base.body = cutBytes(body, Buffer.byteLength(body) - over);
   const options = kind === 'turns' || kind === 'automation' ? {} : { urgency: 'high' }; // 1.119: automation goes at normal priority
   const dead = [];
+  let sent = 0;
   await Promise.all(subs.map(async s => {
     const payload = JSON.stringify(typeof badge === 'number' && pushPrefsOf(s).badge ? { ...base, badge } : base);
-    try { await webpush.sendNotification(s, payload, options); }
-    catch (e) { if (e.statusCode === 404 || e.statusCode === 410) dead.push(s.endpoint); }
+    try { await webpush.sendNotification(s, payload, options); sent++; }
+    catch (e) {
+      if (e.statusCode === 404 || e.statusCode === 410) dead.push(s.endpoint);
+      // 1.124.3: any other failure (the push service down, a network error) was counted as delivered, with no word
+      else log(`push not delivered to a device (${e.statusCode ? `the push service answered ${e.statusCode}` : e.code || e.message}) kind=${kind}`);
+    }
   }));
   if (dead.length) saveSubs(loadSubs().filter(s => !dead.includes(s.endpoint)));
-  return subs.length - dead.length;
+  return sent;
+}
+// The longest start of s that is at most max bytes in UTF-8, cut at a character, with … in the last 3 bytes.
+function cutBytes(s, max) {
+  let out = '', n = 0;
+  for (const ch of s) { n += Buffer.byteLength(ch); if (n > max - 3) break; out += ch; }
+  return out + '…';
 }
 
 // ---------- auth ----------
@@ -4516,7 +4535,10 @@ app.post('/api/settings', requireAuth, (req, res) => {
       log('vault key created and saved to .env');
     } catch (e) { log(`vault key creation failed: ${e.message}`); return res.status(e.status || 500).json({ error: e.message, code: e.code || 'vault_key_failed' }); }
   }
-  if (routerKey !== undefined) { if (routerKey) { const tmp = ROUTER_KEY_FILE + '.tmp'; fs.writeFileSync(tmp, routerKey, { mode: 0o600 }); fs.chmodSync(tmp, 0o600); fs.renameSync(tmp, ROUTER_KEY_FILE); } else try { fs.rmSync(ROUTER_KEY_FILE, { force: true }); } catch { } }
+  // 1.124.3: a new key is written beside the key file here, and takes its place (or a reset removes it) only once the
+  // settings are saved; a save that failed left the new key in place (or the old one gone) behind "nothing changed".
+  const keyTmp = ROUTER_KEY_FILE + '.tmp';
+  if (routerKey) { fs.writeFileSync(keyTmp, routerKey, { mode: 0o600 }); fs.chmodSync(keyTmp, 0o600); }
   if (next.vaultAccess !== undefined && settings.vaultAccess !== next.vaultAccess) log(`vault agent access: ${settings.vaultAccess} -> ${next.vaultAccess}`);
   const prevContextPolicy = settings.contextPolicy; // 1.92
   // 1.124.2: saved before anything is rebuilt; a save that fails (a full disk) puts every key back, so the change is not
@@ -4526,9 +4548,11 @@ app.post('/api/settings', requireAuth, (req, res) => {
   Object.assign(settings, next);
   try { saveSettings(); } catch (e) {
     for (const [k, p] of prev) { if (p) settings[k] = p.v; else delete settings[k]; }
+    if (routerKey) try { fs.rmSync(keyTmp, { force: true }); } catch { }
     log(`settings not saved: ${e.message}`);
     return res.status(503).json({ error: 'Pocket could not save the change, so nothing changed. Check that its data folder has space and can be written, then try again.' });
   }
+  if (routerKey) fs.renameSync(keyTmp, ROUTER_KEY_FILE); else if (routerKey === '') try { fs.rmSync(ROUTER_KEY_FILE, { force: true }); } catch { }
   if (routerTouched) buildRouter();
   if (accessTouched) buildAccess();
   if ('offeredClaudeModels' in next) log(`claude models offered: ${claudeOffer().offered.join(',') || '(none)'} (${claudeOffer().source})`);
@@ -4941,7 +4965,10 @@ app.get('/api/session/:id/events', requireAuth, async (req, res) => {
   // watch mode: mirror the transcript live (turns driven by code-server / terminal)
   const file = await findSessionFile(id);
   if (!file) { clearInterval(ka); res.write(`data: {"type":"idle"}\n\n`); return res.end(); }
-  const size = (await fsp.stat(file)).size;
+  let size; try { size = (await fsp.stat(file)).size; } catch (e) { clearInterval(ka); throw e; } // 1.124.3: moved away since the find
+  // 1.124.3: a client that left during the awaits above has closed already, and the 'close' listener below would never
+  // run: the keepalive and the tailer would stay until a restart.
+  if (req.destroyed || res.writableEnded) { clearInterval(ka); return; }
   const h = String(req.headers['last-event-id'] ?? '');
   // 1.124.2: a bare number is a turn's event number: the reply this browser was following ended (or a restart dropped
   // it) while the connection was down. It is not a transcript offset, and the URL's offset is from before that reply,
@@ -6675,11 +6702,16 @@ async function runDueCheckbacks() {
   if (missed.length) await pushMissed(missed);
 }
 // Start one due check-back. Marked running and saved before anything starts. Returns whether a reply started.
+// 1.124.3: a check-back that passes the gate holds its place in the day's count (gateUnattended's hold, as a job's does)
+// until noteStart records it or the start ends without it; a job call in between read the count without it and passed too.
 async function startCheckback(c0, late) {
+  try { return await startCheckbackHeld(c0, late); } finally { startsPending.delete(c0.id); }
+}
+async function startCheckbackHeld(c0, late) {
   const id = c0.sessionId;
   let c = checkbacks.update(c0.id, { status: 'running', held: undefined, markedAt: cbIso(cbNow()) });
   if (CHECKBACK_GAP) await testCheckbackGap(c.id);
-  const g = await gateUnattended({ origin: 'checkback', originRef: c.id, rootOrigin: 'checkback', engine: c.engine, sessionId: id });
+  const g = await gateUnattended({ origin: 'checkback', originRef: c.id, rootOrigin: 'checkback', engine: c.engine, sessionId: id, hold: c.id });
   c = checkbacks.get(c.id);
   if (!c || c.status !== 'running') return false; // the owner cancelled it while the gate read
   if (!g.ok) {

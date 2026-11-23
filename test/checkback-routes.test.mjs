@@ -847,3 +847,28 @@ test('The runner token of a conversation\'s earlier process (still closing) can\
   assert.deepEqual((await s.list()).checkbacks.map(c => c.note), ['from the new process']);
   await s.stopTurn(id);
 });
+
+// 1.124.3 (unattended-06): a check-back took no place in the day's count between its gate and the start being recorded,
+// so a job call arriving in that window read the count without it and also passed: one unattended reply over the limit.
+test('A check-back that is starting holds its place in the day\'s count: a job call meanwhile is refused at the daily limit', { timeout: 120_000 }, async t => {
+  const dir = tmpDir(), gap = path.join(dir, 'start-gap');
+  const s = await boot(t, 19024, { dir, env: { POCKET_TEST_START_GAP: gap } });
+  await s.turnOn();
+  assert.equal((await s.call('/automation/settings', { group: 'jobs', values: { jobs: true } })).status, 200);
+  const k = await s.call('/jobs/keys', { name: 'race-check', workspace: s.cwd, engine: 'claude', model: 'default', instruction: 'Say what changed.' });
+  assert.equal(k.status, 201, JSON.stringify(k.body));
+  const { id, cb } = await ownerSets(s, 'race owner');
+  const started = () => { try { return JSON.parse(fs.readFileSync(path.join(s.data, 'automation-state.json'), 'utf8')).today.startedRoot || 0; } catch { return 0; } };
+  const before = started();
+  assert.equal((await s.call('/automation/settings', { group: 'limits', values: { dailyReplies: before + 1 } })).status, 200);
+  // the check-back passes its gate and waits 1.5 s in its start, before the start is recorded
+  fs.writeFileSync(gap, '');
+  s.advance(61_000);
+  await s.until(() => s.logs().includes(`test start gap session=${id}`), 15000, 'the check-back to be starting');
+  const job = await s.call('/jobs/run', { data: 'go' }, { authorization: 'Bearer ' + k.body.secret });
+  fs.rmSync(gap);
+  assert.equal(job.status, 409, JSON.stringify(job.body)); assert.equal(job.body.reason, 'daily_limit');
+  await s.status(cb.id, 'done');
+  assert.equal(started(), before + 1, 'one unattended start: the check-back\'s');
+  assert.equal(s.cbPrompts().length, 1);
+});

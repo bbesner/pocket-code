@@ -240,3 +240,29 @@ test('without a reported window, the model Pocket launched decides the estimate'
   assert.equal((await getSessionContext(b, 'x', { transcriptFile: file, fsp })).window, 200_000, 'no hint: still the conservative guess');
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+// 1.124.3 (http-05): the store kept a record for every conversation ever run and rewrote the whole file, on the event loop,
+// for every assistant line that carried usage. A record with no reply for 30 days goes at the next save; the per-line
+// updates during a reply are written together a moment later; a result line is still written at once.
+test('records with no reply for 30 days are dropped at the next save, and the per-line updates of a reply are written together', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pocket-usage-'));
+  const file = path.join(dir, 'usage-state.json'), day = 86400_000, now = Date.now();
+  fs.writeFileSync(file, JSON.stringify({ account: null, sessions: {
+    old: { total: 10, window: 200_000, lastAt: now - 31 * day }, recent: { total: 20, window: 200_000, lastAt: now - 29 * day }, undated: { total: 30 } } }));
+  const store = new UsageStore(file, { partialDelayMs: 100 });
+  let saves = 0; const save = store.save; store.save = function () { saves++; return save.call(this); };
+  const disk = () => JSON.parse(fs.readFileSync(file, 'utf8')).sessions;
+  for (let i = 0; i < 50; i++) store.observe('live', { type: 'assistant', message: { model: 'claude-opus-5-5', usage: { input_tokens: 1000 + i } } });
+  assert.equal(saves, 0, 'no write for each line');
+  assert.equal(store.sessionSummary('live').used, 1049, 'the meter has the newest line at once');
+  await sleep(300);
+  assert.equal(saves, 1, 'one write for the lot');
+  assert.equal(disk().live.total, 1049);
+  assert.deepEqual(Object.keys(disk()).sort(), ['live', 'recent', 'undated'], 'the 31-day-old record is gone; a record with no time is kept');
+  store.observe('live', { type: 'result', modelUsage: { 'claude-opus-5-5[1m]': { inputTokens: 5, contextWindow: 1_000_000 } } });
+  assert.equal(saves, 2, 'a result line is written at once');
+  assert.equal(disk().live.window, 1_000_000);
+  await sleep(300);
+  assert.equal(saves, 2, 'and nothing is left waiting to be written');
+  fs.rmSync(dir, { recursive: true, force: true });
+});

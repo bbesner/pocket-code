@@ -343,3 +343,60 @@ test('a start that never reached the CLI keeps no delivery receipt, so Retry sam
  assert.equal(again.status,202,'Retry same message starts it: '+JSON.stringify(again.body));
  assert.ok(await f.until(()=>f.calls().some(c=>c.text==='send it once it can start')));
 });
+
+// 1.124.3 (http-02): watch mode awaits the transcript's path and size before it listens for the client leaving. A client
+// that left during those awaits (a quick switch of conversation, a phone suspending the page) had already closed, so the
+// late listener never ran and the stream's keepalive and tailer stayed for good; a stat that threw left the keepalive too.
+// test/sse-probe.mjs counts the live keepalives in the daemon and holds the awaits open.
+test('watch mode: a client that leaves while the stream is set up, or a transcript gone before its size is read, leaves no keepalive behind',async t=>{
+ const pdir=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-sse-probe-')),probe=path.join(pdir,'live');
+ t.after(()=>fs.rmSync(pdir,{recursive:true,force:true}));
+ const f=await fixture(t,18437,{NODE_OPTIONS:'--import '+path.join(repo,'test/sse-probe.mjs'),SSE_PROBE_FILE:probe});
+ const id=(await f.call('/new',{cwd:repo,...msg('first')})).body.id;
+ assert.ok(await f.until(async()=>await f.state(id)==='finished'));
+ const live=async()=>{await sleep(300);return Number(fs.readFileSync(probe,'utf8'));};
+ const url=`http://127.0.0.1:${f.port}/api/session/${id}/events?offset=0`;
+ // an ordinary watch stream holds one keepalive while it is open, and none once it closes
+ let ac=new AbortController();const open=fetch(url,{headers:f.headers,signal:ac.signal}).then(r=>r.body.getReader().read()).catch(()=>{});
+ assert.equal(await live(),1,'one keepalive while the stream is open');
+ ac.abort();await open;
+ assert.equal(await live(),0,'none after it closes');
+ // the client leaves while the stream is still finding the transcript
+ fs.writeFileSync(probe+'.slow','');
+ for(let i=0;i<3;i++){ac=new AbortController();const p=fetch(url,{headers:f.headers,signal:ac.signal}).catch(()=>{});await sleep(100);ac.abort();await p;}
+ await sleep(600);fs.rmSync(probe+'.slow');
+ assert.equal(await live(),0,'no keepalive left by a client that left during the awaits');
+ // the transcript is gone between finding it and reading its size: the request fails, the keepalive goes with it
+ fs.writeFileSync(probe+'.statfail','');
+ await f.streamFor(id,'?offset=0',300);
+ fs.rmSync(probe+'.statfail');
+ assert.match(f.logs(),/request failed GET \/api\/session\/[^/]+\/events: Error: ENOENT/);
+ assert.equal(await live(),0,'no keepalive left by a stat that threw');
+ assert.ok(f.alive());
+});
+
+// 1.124.3: the settings and the conversation records (names, pins, branches) were read as empty when their file did not
+// parse, and the next save replaced the only copy; now as the other stores (store-file.mjs).
+test('a pocket-settings.json or session-meta.json that does not parse is kept aside and logged, and the next save leaves it',async t=>{
+ const f=await fixture(t,18438);
+ await f.stop();
+ const data=path.join(f.dir,'data'),torn={'pocket-settings.json':'{"notifyEmail":"owner@exa','session-meta.json':'{"0b1c2d3e-0000-4000-8000-00000000'};
+ fs.mkdirSync(data,{recursive:true});
+ for(const [n,text] of Object.entries(torn))fs.writeFileSync(path.join(data,n),text);
+ await f.start();
+ for(const [n,text] of Object.entries(torn)){
+  const kept=fs.readdirSync(data).filter(x=>x.startsWith(n+'.corrupt-'));
+  assert.equal(kept.length,1,n+' kept aside: '+fs.readdirSync(data).join(' '));
+  assert.equal(fs.readFileSync(path.join(data,kept[0]),'utf8'),text,n+' kept as it was');
+  assert.ok(f.logs().includes(`${path.join(data,n)} could not be read (not valid JSON): kept it as ${path.join(data,kept[0])}`),n+' logged');
+ }
+ assert.equal((await f.call('/settings',{notifyEmail:'owner@example.test'})).status,200);
+ const id=(await f.call('/new',{cwd:repo,...msg('after the restart')})).body.id;
+ assert.ok(await f.until(async()=>await f.state(id)==='finished'));
+ assert.equal((await f.call(`/session/${id}/pin`,{pinned:true})).status,200);
+ for(const [n,text] of Object.entries(torn)){
+  const kept=fs.readdirSync(data).filter(x=>x.startsWith(n+'.corrupt-'));
+  assert.equal(fs.readFileSync(path.join(data,kept[0]),'utf8'),text,n+': the next save leaves the kept copy alone');
+  JSON.parse(fs.readFileSync(path.join(data,n),'utf8'));
+ }
+});

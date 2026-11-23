@@ -72,16 +72,32 @@ export function contextTotal(u) {
     + (u.cacheCreationInputTokens ?? u.cache_creation_input_tokens ?? 0);
 }
 
+// 1.124.3: how long a conversation's record is kept after its last reply, and how long the per-line updates of a reply
+// wait to be written together (the record in memory is current at once; a result line is written straight away).
+const KEEP_SESSION_MS = 30 * 86400_000;
+const PARTIAL_DELAY_MS = 2000;
+
 export class UsageStore {
-  constructor(file) {
+  constructor(file, { keepMs = KEEP_SESSION_MS, partialDelayMs = PARTIAL_DELAY_MS } = {}) {
     this.file = file;
+    this.keepMs = keepMs;
+    this.partialDelayMs = partialDelayMs;
+    this.timer = null;
     try { this.state = JSON.parse(fs.readFileSync(file, 'utf8')); }
     catch { this.state = { account: null, sessions: {} }; }
     this.state.account ??= null;
     this.state.sessions ??= {};
   }
 
-  save() { try { atomicWrite(this.file, this.state); } catch { /* best effort — usage is a convenience view */ } }
+  // 1.124.3: a record with no reply for keepMs goes at the next save. Nothing deleted one before, so the file, rewritten
+  // whole on every save, grew with every conversation ever run.
+  save() {
+    clearTimeout(this.timer); this.timer = null;
+    const cut = Date.now() - this.keepMs;
+    for (const [id, r] of Object.entries(this.state.sessions)) if (Number.isFinite(r?.lastAt) && r.lastAt < cut) delete this.state.sessions[id];
+    try { atomicWrite(this.file, this.state); } catch { /* best effort — usage is a convenience view */ }
+  }
+  saveSoon() { if (!this.timer) { this.timer = setTimeout(() => this.save(), this.partialDelayMs); this.timer.unref?.(); } }
 
   clearAccount() { this.state.account = null; this.save(); }
 
@@ -108,7 +124,7 @@ export class UsageStore {
       const total = contextTotal(o.message.usage);
       const prev = this.state.sessions[sessionId];
       this.state.sessions[sessionId] = { ...prev, total, model: o.message.model || prev?.model, lastAt: Date.now(), estimated: true };
-      this.save();
+      this.saveSoon(); // 1.124.3: one write for a reply's lines, not one per line
       return { kind: 'session-partial' };
     }
     if (o.type === 'result' && o.modelUsage && sessionId) {

@@ -128,3 +128,23 @@ test('1.124.2: a settings change that cannot be saved is not kept, and the answe
   assert.equal(r.status, 200); assert.equal(r.body.projects, !before.projects); assert.equal(r.body.notifyEmail, 'owner@example.test');
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'pocket-settings.json'), 'utf8')).notifyEmail, 'owner@example.test');
 });
+// 1.124.3: the automatic-model key is written to its own file before the settings are saved. When the save then failed,
+// the settings went back but the key file kept the new key (or stayed deleted), so Settings showed a key the 503 said
+// was not saved, and the next start used it.
+test('1.124.3: a key sent with a settings change that cannot be saved is not kept either', async t => {
+  const { dir, call } = await server(t, 18686, {});
+  const keyFile = path.join(dir, 'data', 'router-key'), tmp = path.join(dir, 'data', 'pocket-settings.json.tmp');
+  assert.equal((await call('/settings', { router: { key: 'sk-or-first-key' } })).status, 200);
+  fs.mkdirSync(tmp);
+  assert.equal((await call('/settings', { router: { key: 'sk-or-second-key', enabled: true } })).status, 503);
+  assert.equal(fs.readFileSync(keyFile, 'utf8'), 'sk-or-first-key', 'a new key that could not be saved: the one from before');
+  assert.equal(fs.statSync(keyFile).mode & 0o777, 0o600);
+  assert.equal((await call('/settings', { router: null })).status, 503);
+  assert.equal(fs.readFileSync(keyFile, 'utf8'), 'sk-or-first-key', 'a reset that could not be saved: the key stays');
+  fs.rmdirSync(tmp);
+  assert.equal((await call('/settings', { router: null })).status, 200); assert.ok(!fs.existsSync(keyFile));
+  fs.mkdirSync(tmp);
+  assert.equal((await call('/settings', { router: { key: 'sk-or-third-key' } })).status, 503);
+  assert.ok(!fs.existsSync(keyFile), 'no key before, none after');
+  assert.equal((await call('/settings')).body.router.keySource, 'none');
+});
