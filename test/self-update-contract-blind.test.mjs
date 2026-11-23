@@ -703,6 +703,7 @@ function startApp(file) {
       if (!st.ok) return json(503, { ok: false });
       json(200, { ok: true, busy: st.busy });
       if (st.flip && st.busy === 0) { st.busy = 1; st.flipped = true; fs.writeFileSync(file + '.w', JSON.stringify(st)); fs.renameSync(file + '.w', file); }
+      else if (st.flipped && st.busy === 1 && st.flipEnds !== undefined && --st.flipEnds <= 0) { st.busy = 0; st.flip = false; fs.writeFileSync(file + '.w', JSON.stringify(st)); fs.renameSync(file + '.w', file); }
       return;
     }
     res.writeHead(404); res.end();
@@ -1068,10 +1069,21 @@ describe('shell (stand-in repository)', { concurrency: 6 }, () => {
     const r = await runShell(E);
     assert.equal(restarts(E).length, 0, `PM2 restarted although /api/health failed, so busy was unknown (exit ${r.code})`);
   }));
+  // 1.124.4: the stand-in starts a reply right after its first zero answer. The script says restarting, reads the PID and asks
+  // once more right before the PM2 command, so it sees that reply and goes back to waiting. The window left is the PM2
+  // command itself (a reply that starts after the last answer and before PM2 stops the process); the daemon has no gate.
   test('DIV-12: no reply may start between the zero-busy probe and the PM2 restart', () => withShell({ app: { flip: true } }, async E => {
     const r = await runShell(E);
     const first = restarts(E)[0];
     assert.ok(!first || /busy=0$/.test(first), `PM2 restarted while a reply that began after the busy probe was running: "${first}" (exit ${r.code})`);
+    assert.ok(JSON.parse(fs.readFileSync(E.appFile, 'utf8')).flipped, 'harness: a reply started after the first zero answer');
+    await expectFailure(E, r, SM.busy);
+  }));
+  test('a reply that starts after the first zero answer and then ends is waited for, and the restart follows it', () => withShell({ app: { flip: true, flipEnds: 1 } }, async E => {
+    const r = await runShell(E, { extraEnv: { POCKET_SELF_UPDATE_IDLE_TRIES: '4' } });
+    assert.equal(r.code, 0, tail(r.out)); assert.equal(readStatus(E).phase, 'complete');
+    assert.match(r.out, /waiting for 1 replies to finish/);
+    assert.deepEqual(restarts(E).map(l => l.replace(/^.* busy=/, '')), ['0']);
   }));
   test('DIV-15: killing the updater must not leave its blocking subprocess alive', () => withShell({ faults: ['npmhang'] }, async E => {
     let shellPid;

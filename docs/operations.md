@@ -360,7 +360,8 @@ It backs up the git-ignored private files to `~/backups/pocket-code-<version>-up
 not list back, is removed and the update stops with nothing changed (1.124.2), as it does when the private files cannot be
 listed or the archive holds none of the files listed (1.124.4). It then runs `npm ci` and `check:release --released`,
 then waits until no reply is running (`busy` from `/api/health`; a reply can start after the button was pressed) for up to
-10 minutes, putting the previous version back if replies keep running (1.124.3), then `pm2 restart <its pm_id>` (the stored PM2 environment is kept; Pocket reads `.env` itself) and waits up
+10 minutes, putting the previous version back if replies keep running (1.124.3); it asks once more right before the
+restart and goes back to waiting if a reply started meanwhile (1.124.4), then `pm2 restart <its pm_id>` (the stored PM2 environment is kept; Pocket reads `.env` itself) and waits up
 to 90 seconds for a new process that serves the release and answers `/api/health`, and is still the same
 process 10 seconds later. Then `pm2 save`. If any step after the checkout moves fails, the checkout and
 packages go back to the previous commit; if the new version does not come up, the previous version is

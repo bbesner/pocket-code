@@ -130,13 +130,20 @@ npm run -s check:release -- --released || { put_back || not_back "$tag did not p
 # 1.124.3: the daemon checked for running replies when Update was pressed, and a reply can start in the minutes since (a
 # message, a check-back, a job). Wait for them, up to 10 minutes, so the restart does not cut one short; if they keep
 # running, put the version that is running back rather than restart under them.
-n=0
-for _ in $(seq 1 "$idle"); do n=$(busy); [ "$n" = 0 ] && break; echo "$(date -u +%H:%M:%S) waiting for $n replies to finish"; sleep 2; done
+# 1.124.4: once none is running, `restarting` is said and the PID read, then one last check right before the PM2 command; a
+# reply that started meanwhile sends it back to waiting, within the same limit. What is left is the time the PM2 command
+# itself takes. The checkout has moved, so a failed `restarting` write puts the running version back, as the other
+# failures before the restart do.
+n=0 said=0
+for _ in $(seq 1 "$idle"); do
+  n=$(busy)
+  if [ "$n" = 0 ]; then
+    [ "$said" = 1 ] || { say restarting || { put_back || not_back "Pocket could not write the update's progress"; fail "Pocket could not write the update's progress to its data folder, so it did not restart and stays on $from."; }; said=1; }
+    old_pid=$(app_pid); n=$(busy); [ "$n" = 0 ] && break
+  fi
+  echo "$(date -u +%H:%M:%S) waiting for $n replies to finish"; sleep 2
+done
 if [ "$n" != 0 ]; then put_back || not_back 'Replies kept running while Pocket waited to restart'; fail "Replies kept running while Pocket waited to restart, so it did not restart and stays on $from. Update again when they finish."; fi
-# 1.124.4: the checkout has moved, so a failed write here puts the running version back, as the other failures before the
-# restart do.
-say restarting || { put_back || not_back "Pocket could not write the update's progress"; fail "Pocket could not write the update's progress to its data folder, so it did not restart and stays on $from."; }
-old_pid=$(app_pid)
 pm2 restart "$pmid" 9>&- >/dev/null
 if wait_for "$target" "$old_pid"; then
   pm2 save 9>&- >/dev/null 2>&1
