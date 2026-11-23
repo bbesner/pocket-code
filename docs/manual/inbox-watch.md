@@ -651,6 +651,12 @@ minute and catches up the missed mail once a search works again.
 that `POCKET_INBOX_RUNNER` is not `0` and that there is no `STOP` file in `inbox-watch-data/`; `inbox-watch-data/status.json` and
 `state/monitor.log` say what happened last. For a hand-installed watcher, check its timer.
 
+**Every Inbox entry is gone after a restart, and the server log says `inbox.json could not be read`.** `inbox.json`
+did not hold valid JSON when Pocket started (a hand edit, or a file damaged by a power cut). Since 1.124.3 Pocket keeps
+it beside the original as `inbox.json.corrupt-<time>` and starts with an empty Inbox. To get the old one back, stop
+Pocket, fix the kept copy (or take `inbox.json` from your backup), move it back to `inbox.json`, then start Pocket.
+Entries added since then are replaced by the old file.
+
 **The Inbox says "A watcher installed separately is reporting here; Pocket is not running its own."** A hand-installed
 watcher reported its profile to this Pocket while Pocket had no config of its own, so Pocket leaves the mail to it. If
 that watcher is not meant to be there, stop its timer: once it has been silent for a week Pocket sets itself up. Two

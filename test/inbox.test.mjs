@@ -750,3 +750,18 @@ test('1.115: a merged entry split back out is its own entry again, with its conv
   assert.notEqual(s.get(d.id).story,'pier','two entries on one story key would fold again, so it gets its own');
   assert.match(s.get(d.id).story,/^pier-storm-[0-9a-f]{4}$/);
 });
+
+test('1.124.3: an inbox.json that does not parse is kept aside and logged, and the next change does not replace it',()=>{
+  const dir=tmp(),file=path.join(dir,'inbox.json'),clock=()=>Date.parse('2026-11-23T10:15:30Z');
+  const a=new InboxStore(file,{now:clock});for(let i=0;i<3;i++)a.add({title:'Entry '+i,story:'s'+i});
+  const torn=fs.readFileSync(file,'utf8').slice(0,-5);fs.writeFileSync(file,torn);
+  const said=[],b=new InboxStore(file,{now:clock,log:m=>said.push(m)});
+  assert.equal(b.entries.length,0,'the Inbox starts empty');
+  const kept=path.join(dir,'inbox.json.corrupt-20261123-101530');
+  assert.equal(fs.existsSync(kept),true,'the file that did not parse is kept');assert.equal(fs.readFileSync(kept,'utf8'),torn);
+  assert.equal(said.length,1);assert.ok(said[0].includes(file)&&said[0].includes(kept),said[0]);assert.match(said[0],/not valid JSON/);
+  b.add({title:'New'});
+  assert.equal(fs.readFileSync(kept,'utf8'),torn,'the next change leaves the kept copy alone');
+  const said2=[];new InboxStore(path.join(dir,'none.json'),{log:m=>said2.push(m)});assert.deepEqual(said2,[],'a missing file is a new Inbox, logged nowhere');
+  fs.rmSync(dir,{recursive:true,force:true});
+});

@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { shellArg } from './skills.mjs';
+import { readStore } from './store-file.mjs';
 
 // 1.95: a digest carries its items (one per story: title, text, story, Gmail thread, a `ref` the watcher knows), each with
 // its own decision: Add to Inbox (action 'alert'), Resolved, Not useful, and Restore to undo. A look-ahead's items work the same way
@@ -211,12 +212,11 @@ export function inboxInstructions(cli, sessionId) {
 const listedLast = e => e.kind === 'digest' ? [...e.items.filter(i => i.section !== 'listed'), ...e.items.filter(i => i.section === 'listed')] : e.items; // the watcher's order otherwise; a look-ahead stays in its order, most pressing first
 
 export class InboxStore {
-  constructor(file, { write, now } = {}) {
+  constructor(file, { write, now, log } = {}) {
     this.file = file;
     this.now = now || Date.now;
     this.write = write || ((f, data) => { fs.mkdirSync(path.dirname(f), { recursive: true }); const tmp = f + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(data, null, 1), { mode: 0o600 }); fs.renameSync(tmp, f); });
-    let d = {};
-    try { d = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { }
+    const d = readStore(file, { log, now: this.now }); // 1.124.3: one that does not parse is kept aside and logged, as the other stores are
     this.entries = Array.isArray(d.entries) ? d.entries.filter(e => e && typeof e.id === 'string' && typeof e.title === 'string' && !Number.isNaN(ms(e.at))).map(e => this.normalize(e)) : [];
     this.sources = {};
     if (d.sources && typeof d.sources === 'object') for (const [k, v] of Object.entries(d.sources)) if (v && !Number.isNaN(ms(v.lastReportAt))) this.sources[source(k)] = { lastReportAt: v.lastReportAt };
