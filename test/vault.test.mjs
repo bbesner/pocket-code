@@ -800,7 +800,8 @@ test('HTTP (PC-02): an Always recipe holds what the command runs; a changed scri
 test('pinCommand (PC-02): the program, a #! interpreter and the one env names, file arguments and --flag=file; an unreadable file compares by size and times',async()=>{
   const dir=tmp(),bin=path.join(dir,'bin');fs.mkdirSync(bin);
   fs.writeFileSync(path.join(bin,'node-ish'),'#!/bin/sh\n',{mode:0o755});
-  fs.writeFileSync(path.join(dir,'tool.sh'),'#!/usr/bin/env -S node-ish --flag\n',{mode:0o755});
+  // 1.124.4: no -S here. env -S in a #! line can set its own PATH, so it is not offered Always (test/vault-pin.test.mjs).
+  fs.writeFileSync(path.join(dir,'tool.sh'),'#!/usr/bin/env node-ish\n',{mode:0o755});
   fs.writeFileSync(path.join(dir,'conf.json'),'{}');fs.writeFileSync(path.join(dir,'data.txt'),'x');
   const PATH=[bin,'/usr/bin','/bin'].join(':');
   const p=await pinCommand({argv:['./tool.sh','--config=conf.json','data.txt','-v','missing.txt',dir],cwd:dir},{PATH});
