@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { atomicWrite } from './usage.mjs';
+import { readStore } from './store-file.mjs';
 
 // ---------- origin ----------
 // `origin` is what started this turn; `rootOrigin` is who asked for the work in the first place (a retry carries the
@@ -343,13 +344,27 @@ const shiftDay = (key, n) => { const d = new Date(key + 'T12:00:00Z'); d.setUTCD
 // ---------- automation-state.json: the day's counts and notices ----------
 const EMPTY_DAY = day => ({ day, startedRoot: 0, startedOwnerRoot: 0, openrouterRoot: 0, openrouterOwnerRoot: 0, replies: 0, cost: 0, tokens: 0, notices: [] });
 export class AutomationState {
-  constructor(file, { zone = () => '', now = () => Date.now(), write = atomicWrite } = {}) {
-    this.file = file; this.zone = zone; this.now = now; this.write = write;
-    let s = null;
-    try { s = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { }
-    this.state = s && typeof s === 'object' && typeof s.today?.day === 'string' ? { today: { ...EMPTY_DAY(s.today.day), ...s.today }, days: Array.isArray(s.days) ? s.days : [] } : { today: EMPTY_DAY(dayKey(this.now(), this.zone())), days: [] };
+  constructor(file, { zone = () => '', now = () => Date.now(), write = atomicWrite, log = (...a) => console.log(new Date().toISOString(), ...a) } = {}) {
+    this.file = file; this.zone = zone; this.now = now; this.write = write; this.log = log; this.saveError = null;
+    // 1.124.4: a file that is there but cannot be read or parsed is kept aside as <name>.corrupt-<UTC time> and logged
+    // (store-file.mjs, as the other stores), and the day starts empty; it was read as empty and the next save replaced it
+    const s = readStore(file, { log });
+    this.state = typeof s.today?.day === 'string' ? { today: { ...EMPTY_DAY(s.today.day), ...s.today }, days: Array.isArray(s.days) ? s.days : [] } : { today: EMPTY_DAY(dayKey(this.now(), this.zone())), days: [] };
   }
-  save() { try { this.write(this.file, this.state); } catch { /* counts are best effort */ } }
+  // 1.124.4: a failed write keeps the counts in memory (rolling them back would loosen the limits while Pocket runs,
+  // and a throw would break a reply that has already started), but no longer silently: save() returns false, saveError
+  // holds when and why (the Automation page warns from it), and the log has one line for a run of failures and one when
+  // a save works again. A restart before then reads the last good save, so the day's counts can come back lower.
+  save() {
+    try { this.write(this.file, this.state); } catch (e) {
+      const code = e.code || e.message;
+      if (!this.saveError) this.log(`${this.file} could not be saved (${code}): today's unattended counts are kept in memory, but a restart before a save works again would forget them and the daily limits could be passed. Check that the data folder has space and can be written.`);
+      this.saveError = { at: this.saveError?.at || new Date(this.now()).toISOString(), code };
+      return false;
+    }
+    if (this.saveError) { this.saveError = null; this.log(`${this.file} saved again: today's unattended counts are on disk.`); }
+    return true;
+  }
   // A new day starts fresh counts; yesterday's totals go into the 7-day history. Only forward: a time zone moved
   // west (or a clock stepped back) gives an earlier day key, and that must not reset today's count early.
   rollover() {
@@ -399,10 +414,34 @@ export class AutomationState {
 // One line per pause, resume, settings change and finished unattended reply. Never message text: callers pass counts,
 // ids, origins and outcomes only, and any key that could carry text is dropped here as well.
 const NO_TEXT = new Set(['text', 'userText', 'prompt', 'message', 'body', 'note', 'reply']);
+// 1.124.4: a line a full disk cut short ends without a newline. The next line then starts on a line of its own, so only
+// the torn line is lost and not the first good one after it. One byte is read per audit line; audit lines are rare.
+function endsMidLine(file) {
+  try {
+    const fd = fs.openSync(file, 'r');
+    try { const { size } = fs.fstatSync(fd), b = Buffer.alloc(1); return size > 0 && fs.readSync(fd, b, 0, 1, size - 1) === 1 && b[0] !== 10; } finally { fs.closeSync(fd); }
+  } catch { return false; } // no file yet, or it cannot be read: the append says whether it can be written
+}
 export function appendAudit(file, entry) {
   const clean = Object.fromEntries(Object.entries(entry || {}).filter(([k, v]) => !NO_TEXT.has(k) && v !== undefined));
   try {
+    const row = JSON.stringify({ at: new Date().toISOString(), ...clean }) + '\n';
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.appendFileSync(file, JSON.stringify({ at: new Date().toISOString(), ...clean }) + '\n', { mode: 0o600 });
-  } catch { /* the audit is best effort; it must never stop a turn */ }
+    fs.appendFileSync(file, endsMidLine(file) ? '\n' + row : row, { mode: 0o600 });
+    return true;
+  } catch { return false; } // the audit is best effort; it must never stop a turn. 1.124.4: false says the line is lost
+}
+// 1.124.4: the audit as the server writes it. A line that could not be written is logged, never with its contents, at
+// most once a minute with the number lost since the last note, so a full disk or a lost permission does not go unseen.
+export function auditWriter(file, { log = (...a) => console.log(new Date().toISOString(), ...a), now = Date.now } = {}) {
+  let noted = -Infinity, lost = 0;
+  return entry => {
+    if (appendAudit(file, entry)) return true;
+    lost++;
+    if (now() - noted >= 60_000) {
+      log(`${file} could not be written: ${lost} audit line${lost === 1 ? '' : 's'} lost since the last note. Check that the data folder has space and can be written.`);
+      noted = now(); lost = 0;
+    }
+    return false;
+  };
 }

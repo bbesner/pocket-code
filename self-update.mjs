@@ -14,6 +14,7 @@ export const SELF_UPDATE_FILE = 'pocket-self-update.json';
 export const SELF_UPDATE_LOG = 'pocket-self-update.log';
 const RUNNING = new Set(['queued', 'checking', 'backing-up', 'installing', 'restarting', 'rolling-back']);
 const STALE_MS = 20 * 60 * 1000; // a job that has said nothing for this long died with its server (reboot, OOM)
+const START_MS = 2 * 60 * 1000; // a queued job whose script has not taken its lock by then did not start (1.124.4)
 const version = v => typeof v === 'string' && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(v) ? v : null;
 const fail = (message, status = 409) => Object.assign(new Error(message), { status });
 
@@ -42,7 +43,11 @@ export class SelfUpdate {
     // 1.124.3: the script touches its lock file every minute while it runs, so a long quiet step (the backup of a large data
     // folder, npm ci) is not taken for a dead job, and a second press is not let through while the first still runs.
     let beat = 0; try { beat = fs.statSync(this.file + '.lock').mtimeMs; } catch {}
-    if (out.running && this.now() - Math.max(j.updatedAt || j.startedAt || 0, beat) > STALE_MS) Object.assign(out, { running: false, phase: 'interrupted', error: 'The update stopped without finishing, probably because the server restarted. Check the version shown here before you try again.' });
+    // 1.124.4: the script opens (truncates) its lock file within seconds of starting, which sets the file's time. A job still
+    // queued two minutes after the press, with no lock file newer than the press, never started (bash could not read the
+    // script, node was gone): say so then, instead of showing it preparing and refusing every press for 20 minutes.
+    if (out.phase === 'queued' && beat < (j.startedAt || 0) && this.now() - (j.startedAt || 0) > START_MS) Object.assign(out, { running: false, phase: 'failed', error: `The update did not start. Nothing was changed. The log is ${SELF_UPDATE_LOG} in Pocket's data folder.` });
+    else if (out.running && this.now() - Math.max(j.updatedAt || j.startedAt || 0, beat) > STALE_MS) Object.assign(out, { running: false, phase: 'interrupted', error: 'The update stopped without finishing, probably because the server restarted. Check the version shown here before you try again.' });
     return out;
   }
   // The checked-out commit, read from .git without running git (a route must not start a process per request).
@@ -74,17 +79,22 @@ export class SelfUpdate {
     // No Pocket secrets reach the script: the daemon's environment includes everything from .env.
     const env = { PATH: this.env.PATH || '/usr/local/bin:/usr/bin:/bin', HOME: this.env.HOME || os.homedir(), LANG: 'C.UTF-8' };
     if (this.env.PM2_HOME) env.PM2_HOME = this.env.PM2_HOME;
-    const out = fs.openSync(this.log, 'a', 0o600);
+    const failed = () => { try { write(this.file, { ...job, phase: 'failed', updatedAt: this.now(), finishedAt: this.now(), error: 'Could not start the update. Nothing was changed.' }); } catch {} };
+    // 1.124.4: the queued record is written first, so anything that throws after it (the log cannot be opened or written, the
+    // fork fails) records the job as failed. It was left queued: the route said the update could not start while Settings
+    // showed it preparing, and every further press was refused for 20 minutes. The log is closed on every path.
+    let out;
     try {
+      out = fs.openSync(this.log, 'a', 0o600);
       fs.writeSync(out, `\n=== ${new Date(this.now()).toISOString()} update ${from} -> ${to} (job ${job.id})\n`);
       // setsid -f forks once more, so the script is not the daemon's child: PM2 with treekill on would otherwise stop it
       // with the daemon it is restarting. (Pocket's ecosystem file turns treekill off; an install started another way may not.)
       const [bin, pre] = this.setsid ? ['setsid', ['-f', 'bash']] : ['bash', []];
       const child = this.spawner(bin, [...pre, this.script, this.checkout, to, head, String(this.env.pm_id), String(this.port), this.file, this.node, this.repo, from],
         { cwd: this.checkout, env, detached: true, stdio: ['ignore', out, out] });
-      child.on?.('error', () => { try { write(this.file, { ...job, phase: 'failed', updatedAt: this.now(), finishedAt: this.now(), error: 'Could not start the update. Nothing was changed.' }); } catch {} });
+      child.on?.('error', failed);
       child.unref?.();
-    } finally { fs.closeSync(out); }
+    } catch (e) { failed(); throw e; } finally { if (out !== undefined) try { fs.closeSync(out); } catch {} }
     return this.snapshot();
   }
 }

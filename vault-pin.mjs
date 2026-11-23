@@ -174,6 +174,7 @@ const PKG_RUNS = new Set(['exec', 'x', 'dlx']);
 const DOCKER_SAFE = new Set(['login', 'logout', 'pull', 'push', 'search', 'version', 'info', 'images', 'ps', 'inspect', 'tag']);
 const firstWord = (args, valued = []) => { for (let i = 0; i < args.length; i++) { const a = args[i]; if (a === '--') return args[i + 1] ?? null; if (a.startsWith('-')) { if (valued.includes(a)) i++; continue; } return a; } return null; };
 const SSH_FLAGS = '46AaCfGgKkMNnqsTtVvXxYy', SSH_VALUED = 'BbcDEeFIiJLlmOoPpQRSWw';
+const SSH_RUNS = /^\s*(ProxyCommand|LocalCommand|PermitLocalCommand|KnownHostsCommand)\b/i; // an -o that starts a local command
 function sshRefuse(args) {
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -181,7 +182,7 @@ function sshRefuse(args) {
     if (a.startsWith('-') && a.length > 1) {
       for (let j = 1; j < a.length; j++) {
         const ch = a[j];
-        if (SSH_VALUED.includes(ch)) { const v = a.slice(j + 1) || args[++i] || ''; if (ch === 'o' && /^\s*(ProxyCommand|LocalCommand|PermitLocalCommand|KnownHostsCommand)\b/i.test(v)) return { why: 'starts', how: 'ssh -o ' + v.trim().split(/[\s=]/)[0] }; break; }
+        if (SSH_VALUED.includes(ch)) { const v = a.slice(j + 1) || args[++i] || ''; if (ch === 'o' && SSH_RUNS.test(v)) return { why: 'starts', how: 'ssh -o ' + v.trim().split(/[\s=]/)[0] }; break; }
         if (!SSH_FLAGS.includes(ch)) return { why: 'starts', how: `ssh -${ch}` }; // an option Pocket does not know
       }
       continue;
@@ -190,12 +191,39 @@ function sshRefuse(args) {
   }
   return null;
 }
+// 1.124.4: scp and sftp start a program of this computer for -S (the ssh they run, also written -S./h or -qS./h), -D (a
+// local sftp server) and a ProxyCommand-style -o; sftp's -b batch file runs local commands (`!`). Their options end at the
+// first operand, but every word is read: a file name that looks like an option costs only Always allow.
+const COPY_OPTS = { scp: { flags: '12346ABCTdfOpqRrstv', valued: 'cDFiJlMoPSX', runs: 'SD' }, sftp: { flags: '1246AafhNpqrvC', valued: 'BbcDFiJloPRSsX', runs: 'SDb' } };
+function copyRefuse(name, args) {
+  const spec = COPY_OPTS[name];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--') break;
+    if (!a.startsWith('-') || a.length < 2) continue;
+    if (a.startsWith('--')) return { why: 'starts', how: `${name} ${a.split('=')[0]}` };
+    for (let j = 1; j < a.length; j++) {
+      const ch = a[j];
+      if (spec.valued.includes(ch)) {
+        const v = a.slice(j + 1) || args[++i] || '';
+        if (spec.runs.includes(ch)) return { why: 'starts', how: `${name} -${ch}` };
+        if (ch === 'o' && SSH_RUNS.test(v)) return { why: 'starts', how: `${name} -o ` + v.trim().split(/[\s=]/)[0] };
+        break;
+      }
+      if (!spec.flags.includes(ch)) return { why: 'starts', how: `${name} -${ch}` }; // an option Pocket does not know
+    }
+  }
+  return null;
+}
 // What a program that is not an interpreter will start, when Pocket cannot pin it: { why, how } or null.
 function startsOther(name, args) {
   if (STARTS.has(name)) return { why: 'starts', how: name };
   if (name === 'find' && args.some(a => /^-(exec|execdir|ok|okdir)$/.test(a))) return { why: 'finds', how: 'find -exec' };
   if (name === 'ssh') return sshRefuse(args);
-  if ((name === 'rsync' || name === 'scp') && args.some(a => /^(-e|--rsh(=.*)?|-S|--rsync-path(=.*)?)$/s.test(a) || /^-e./.test(a))) return { why: 'starts', how: `${name} ${name === 'scp' ? '-S' : '-e'}` };
+  if (name === 'scp' || name === 'sftp') return copyRefuse(name, args);
+  // rsync -e in any spelling: alone, attached (-e./h) or at the end of a short cluster (-ave./h, -avze ./h); in rsync's short
+  // options e means only --rsh (1.124.4). A cluster with e in another option's value is refused too.
+  if (name === 'rsync' && args.some(a => /^(--rsh(=.*)?|--rsync-path(=.*)?)$/s.test(a) || /^-[^-]*e/s.test(a))) return { why: 'starts', how: 'rsync -e' };
   if (['npx', 'pnpx', 'bunx'].includes(name)) return { why: 'package', how: name };
   if (['npm', 'pnpm', 'yarn'].includes(name)) {
     const sub = firstWord(args, ['--prefix', '-C', '-w', '--workspace', '--registry', '--userconfig', '--cwd']);
@@ -469,14 +497,21 @@ export async function prepareRun({ argv, cwd }, { PATH, forRun = false, tmpDir =
     if (!program) throw fail(`${argv[0]} was not found${argv[0].includes('/') ? '' : ' on the Vault\'s PATH'}, or is not executable.`, 400, { code: 'not_found' });
     const top = await add('program', program);
     // The program's #! line: the interpreter, and for `#!/usr/bin/env x` the x that PATH finds.
-    const bang = async (rec, dir) => {
+    // 1.124.4: Linux hands the interpreter the rest of the line as one word, and env -S (a short cluster with S, or
+    // --split-string or a prefix of it) splits that word and applies it, PATH= and all: like env -S given as the command,
+    // Pocket cannot tell what it starts. An interpreter that is itself a script runs its own #! line first (Linux follows
+    // a few levels): that line is read the same way.
+    const bang = async (rec, dir, depth = 0) => {
       const line = shebangOf(rec?.head); if (!line) return null;
       const t = line.split(/\s+/).filter(Boolean); if (!t[0] || !path.isAbsolute(t[0])) return null;
-      await add('interpreter', t[0]);
+      const irec = await add('interpreter', t[0]);
+      if (irec?.head && !isElf(irec.head) && shebangOf(irec.head) !== null) { if (depth >= PIN_LIMITS.depth) unknown = unknown || 'launchers inside launchers'; else await bang(irec, dir, depth + 1); }
       let name = path.basename(t[0]);
-      if (name === 'env') { name = t.slice(1).find(x => !x.startsWith('-') && !x.includes('=')) || ''; const found = name && findProgram(name, dir, PATH); if (found) await add('interpreter', found); }
-      const sp = line.search(/\s/);
-      return { interp: t[0], arg: sp < 0 ? null : line.slice(sp).trim() || null, name };
+      const sp = line.search(/\s/), arg = sp < 0 ? null : line.slice(sp).trim() || null;
+      const long = /^--([^=]+)/.exec(arg || '')?.[1];
+      if (name === 'env' && (/^-[^-\s]*S/.test(arg || '') || (long && 'split-string'.startsWith(long)))) { unknown = unknown || 'env -S'; name = ''; }
+      else if (name === 'env') { name = t.slice(1).find(x => !x.startsWith('-') && !x.includes('=')) || ''; const found = name && findProgram(name, dir, PATH); if (found) await add('interpreter', found); }
+      return { interp: t[0], arg, name };
     };
     // Launchers, outermost first: each step finds the program it starts and pins it.
     let at = 0, dir = cwd, cur = program, rec = top;
@@ -564,7 +599,9 @@ export async function prepareRun({ argv, cwd }, { PATH, forRun = false, tmpDir =
     const copyOf = bytes => {
       const d = fs.mkdtempSync(path.join(tmpDir, 'pocket-vault-')), f = path.join(d, 's');
       try { fs.writeFileSync(f, bytes, { mode: 0o400, flag: 'wx' }); const fd = { fd: fs.openSync(f, 'r'), copy: true }; fds.push(fd); return fdPath(fd); }
-      finally { fs.rmSync(f, { force: true }); fs.rmSync(d, { recursive: true, force: true }); }
+      // 1.124.4: the folder is removed even when removing the copy fails (that still stops the run: a copy that can be
+      // reached by its path is not run from); a failure on only the empty folder does not.
+      finally { try { fs.rmSync(f, { force: true }); } finally { try { fs.rmSync(d, { recursive: true, force: true }); } catch { } } }
     };
     if (copied) {
       if (scriptBang) {

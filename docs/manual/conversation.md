@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.122.2
+checked: 1.124.4
 sources: checkbacks.mjs, choices.mjs, project-mode.mjs, public/projects.js, starts.mjs, results.mjs, queue.mjs, sidechat.mjs, public/sidechat.js, subagents.mjs, workspace.mjs, worktrees.mjs, public/secret-detect.js
 -->
 # Working in a conversation

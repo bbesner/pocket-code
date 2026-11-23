@@ -673,3 +673,88 @@ test('1.124: the Tasks view\'s Jobs group: each key\'s state and newest run, for
   await s.settings({ jobs: false });
   assert.ok(!('jobs' in (await s.call('/tasks')).body), 'Job keys off: no group, keys kept');
 });
+
+// 1.124.4 (bug review of 2026-11-23): a store save that fails, or a kill, at the step a route reaches it. test/store-fault.mjs,
+// loaded into the server, fails the nth rename of <data>/<store>.tmp counted from when the rule was written.
+const storeFault = dir => ({ NODE_OPTIONS: '--import ' + path.join(repo, 'test/store-fault.mjs'), STORE_FAULT_FILE: path.join(dir, 'store-fault') });
+let faultRules = 0;
+const fault = (dir, rule) => fs.writeFileSync(path.join(dir, 'store-fault'), JSON.stringify({ ...rule, rule: ++faultRules }));
+const noFault = dir => fs.rmSync(path.join(dir, 'store-fault'), { force: true });
+
+test('1.124.4: a key file whose path could not be recorded is removed with the key; when that removal cannot be saved either, the answer still comes and says so', { timeout: 60_000 }, async t => {
+  const dir = tmpDir();
+  const s = await boot(t, 19073, { dir, env: storeFault(dir) });
+  await s.turnOn();
+  const make = name => s.call('/jobs/keys', { name, workspace: s.cwd, engine: 'claude', instruction: 'Look at the disk.', folder: '~/keys/' });
+  const keyFile = name => path.join(s.home, 'keys', name + '.key');
+  // saves: 1 the key, 2 its file's path (fails once), 3 the rollback's delete
+  fault(dir, { store: 'job-keys.json', nth: 2, times: 1 });
+  const r = await make('disk-check');
+  noFault(dir);
+  assert.equal(r.body?.code, 'file_error', r.text);
+  assert.equal(r.body.error, 'The key file could not be written: ENOSPC. Nothing was created.');
+  assert.ok(!fs.existsSync(keyFile('disk-check')), 'no key file is left holding a key the owner was told was not made');
+  assert.deepEqual((await s.call('/jobs/keys')).body.keys, []);
+  assert.equal((await make('disk-check')).status, 201, 'the same name can be made again');
+  // every save fails from the second on: the rollback's delete fails too
+  fault(dir, { store: 'job-keys.json', nth: 2, times: 0 });
+  const r2 = await make('nightly');
+  noFault(dir);
+  assert.equal(r2.body?.code, 'file_error', r2.text);
+  assert.equal(r2.body.error, 'The key file could not be written: ENOSPC. The key "nightly" was made but could not be removed; delete it in Job keys.');
+  assert.ok(!fs.existsSync(keyFile('nightly')), 'its file is removed all the same');
+  const left = (await s.call('/jobs/keys')).body.keys.find(k => k.name === 'nightly');
+  assert.ok(left && !left.keyFile, 'listed as the answer says, with no key file');
+  assert.equal((await s.call(`/jobs/keys/${left.id}/delete`, {})).status, 200);
+});
+
+// The blind contract asked for a file that still opens the key right after the cut; no order of the two saves meets that
+// (the file first strands it the other way). What is required: the next Rotate, as the app sends it, repairs the file.
+test('1.124.4: a rotation cut off after the new key was saved: after the restart, Rotate rewrites the recorded key file, which then opens the key', { timeout: 90_000 }, async t => {
+  const dir = tmpDir();
+  let s = await boot(t, 19074, { dir, env: storeFault(dir) });
+  await s.turnOn();
+  const { key, file } = await s.makeKey({ save: true });
+  const before = fs.readFileSync(file, 'utf8');
+  fault(dir, { store: 'job-keys.json', nth: 1, times: 1, action: 'kill' }); // the rotation's save lands, then Pocket is gone
+  await assert.rejects(s.call(`/jobs/keys/${key.id}/rotate`, {}));
+  noFault(dir);
+  await s.stop();
+  assert.equal(fs.readFileSync(file, 'utf8'), before, 'the file still holds the key Pocket wrote, which no longer works');
+  s = await boot(t, 19074, { dir, env: storeFault(dir) });
+  assert.equal((await s.job(before.trim(), { data: 'x' })).body.code, 'bad_key');
+  const again = await s.call(`/jobs/keys/${key.id}/rotate`, {}); // what the app sends
+  assert.equal(again.status, 200, again.text);
+  assert.ok(!again.body.fileError, JSON.stringify(again.body.fileError));
+  assert.equal(again.body.file, file);
+  const inFile = fs.readFileSync(file, 'utf8').trim();
+  assert.equal(inFile, again.body.secret);
+  const ran = await s.job(inFile, { data: 'disk at 91%', wait: 20 });
+  assert.equal(ran.body.status, 'done', JSON.stringify(ran.body));
+  // a file that holds some other key is still left alone
+  fs.writeFileSync(file, 'pjk_' + 'Z'.repeat(43) + '\n');
+  const third = await s.call(`/jobs/keys/${key.id}/rotate`, {});
+  assert.equal(third.status, 200); assert.ok(!third.body.file);
+  assert.equal(fs.readFileSync(file, 'utf8'), 'pjk_' + 'Z'.repeat(43) + '\n');
+});
+
+test('1.124.4: a run whose reply started is answered as started when saving it as working fails; a retry with the same idempotency key is a repeat', { timeout: 90_000 }, async t => {
+  const dir = tmpDir();
+  const s = await boot(t, 19075, { dir, env: storeFault(dir) });
+  await s.turnOn();
+  const { secret } = await s.makeKey();
+  // saves: 1 the reservation, 2 working (fails once), 3 the conversation, 4 the key's last run
+  fault(dir, { store: 'job-keys.json', nth: 2, times: 1 });
+  const first = await s.job(secret, { data: 'disk at 91%', idempotencyKey: 'nightly-2026-11-23', wait: 20 });
+  noFault(dir);
+  assert.equal(first.status, 200, first.text);
+  assert.equal(first.body.status, 'done', JSON.stringify(first.body));
+  assert.equal(s.claudeCalls().length, 1, 'one start');
+  assert.match(s.logs(), /job run started, its state not saved run=/);
+  const again = await s.job(secret, { data: 'disk at 91%', idempotencyKey: 'nightly-2026-11-23', wait: 5 });
+  assert.equal(again.body.repeat, true, JSON.stringify(again.body));
+  assert.equal(again.body.run, first.body.run);
+  assert.equal(s.claudeCalls().length, 1, 'the retry started nothing');
+  const more = await s.job(secret, { data: 'and now?', conversation: first.body.conversation, wait: 20 });
+  assert.equal(more.body.status, 'done', 'the conversation is the key\'s: ' + JSON.stringify(more.body));
+});

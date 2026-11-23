@@ -240,7 +240,8 @@ Job keys (1.122.0) let a script on the server start a reply, in a conversation t
   through one that leads out of it. A folder Pocket creates is `0700`. It never replaces a file that isn't a one-line job key
   file (a link included), and never one that another key records as its own (409 `file_taken`): a renamed key keeps its
   old key file name, and a new key of the old name can't take the file over. It rotates a file only while it still holds
-  the old key, and deletes it only while it still holds that key. If the file can't be written, no key is made.
+  the old key or the key Pocket last wrote there for this key (a rotation cut off before the file was rewritten leaves
+  that one; 1.124.4), and deletes it only while it still holds the key being deleted. If the file can't be written, no key is made.
 - **The audit file.** `automation-audit.jsonl` records `job` lines (created, updated, enabled, disabled, rotated, deleted,
   refused and finished) and `job_auth` lines (a wrong or disabled key, the rate limit). A change names the fields it changed,
   never their values; none holds a key, a hash, an instruction or any data. The reply's own line carries origin `job` and the
@@ -522,8 +523,9 @@ the same rules and are recorded as `terminal`.
 
 **What an Always allow trusts.** A recipe holds the command's text (program, arguments, folder), its variables and what
 it runs: the program found on the Vault's own `PATH` (`POCKET_VAULT_PATH`, or the daemon's `PATH` at start, absolute
-folders only; never the caller's); the interpreter named on its `#!` line (and the program `#!/usr/bin/env` finds); the
-program a known launcher starts (`env`, `timeout`, `nice`, `nohup`, `stdbuf`, `ionice`, `setsid`, `taskset`, `chrt`,
+folders only; never the caller's); the interpreter named on its `#!` line (and the program `#!/usr/bin/env` finds, and
+the `#!` line of an interpreter that is itself a script); the program a known launcher starts (`env`, `timeout`, `nice`,
+`nohup`, `stdbuf`, `ionice`, `setsid`, `taskset`, `chrt`,
 `time`, `xargs`, `sudo`, `doas`, `flock`, `sshpass`), found on that `PATH` and passed to the launcher by full path; the
 script a known interpreter runs, found the way the interpreter finds it (`node job` runs `job`, else `job.js`, `job.json`
 or `job.node`; `python3 -m tool` runs `tool.py`, or `tool/__main__.py` with the package's `__init__.py` files, from the
@@ -575,8 +577,9 @@ with no file, `xargs … sh` reading names from a file, a `-r` path that does no
 from a partial package); a program that runs what it finds (`find -exec`, `-execdir`, `-ok`, `node --test`, `bun test`,
 `deno test`); a program that starts another command Pocket cannot follow (`parallel`, `watch`, `entr`, `nodemon`, `pm2`,
 `strace`, `gdb`, `chroot`, `unshare`, `su`, `runuser`, `script`, `systemd-run`, `tmux`, `screen`, `expect`, `cross-env`,
-`concurrently` and similar, or a launcher option Pocket does not know, such as `env -S` or `sudo -i`); a command run on
-another computer (`ssh` with a command, a `ProxyCommand`-style option, `rsync -e`, `scp -S`); scripts a project defines
+`concurrently` and similar, or a launcher option Pocket does not know, such as `env -S` (on the command line or in a
+`#!` line) or `sudo -i`); a command run on another computer (`ssh` with a command, a `ProxyCommand`-style option,
+`rsync -e` written any way, `scp -S` or `-D`, `sftp -S`, `-D` or a batch file); scripts a project defines
 (`npm run`, `npm test`, `npm install`, `npm publish` and every other npm, pnpm or yarn command except a short list that
 runs nothing of the project's, such as `npm whoami` or `npm view`; `node --run`, `bun run`, `deno task`); packages
 fetched and run (`npx`, `pnpx`, `bunx`, `npm exec`, `deno x`); containers (`docker`, `podman` and `nerdctl` commands
@@ -629,7 +632,11 @@ the calls that make a picture (`browser_take_screenshot`, `browser_pdf_save`, `s
 `POCKET_VAULT_PICTURE_TOOLS`): Playwright MCP saves every screenshot and PDF to a file and names
 it, and the agent could open that file with its own tools. Since 1.124.3 it also refuses any call
 that names a `filename` (Playwright MCP saves a snapshot, an evaluate result or a log there), as
-the relay scrubs only what comes back to the agent, never a file the server writes. The relay is the agent's own
+the relay scrubs only what comes back to the agent, never a file the server writes. Since 1.124.4
+the browser tool running calls side by side cannot slip such a call past a fill: one that arrives
+while a fill waits (for approval too) is held until the fill settles, and a fill is typed only once
+every such call sent before it has answered (it is refused, with nothing typed, after
+`POCKET_VAULT_PICTURE_WAIT` seconds, default 30). The relay is the agent's own
 tool, running as the same user, and the agent drives the page: the agent that asked for a fill
 can read the value back, and so can the page. The placeholder keeps the value out of the
 transcript in normal use; it does not keep it out of the agent's reach. Allow a fill as you would

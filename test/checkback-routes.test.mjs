@@ -872,3 +872,34 @@ test('A check-back that is starting holds its place in the day\'s count: a job c
   assert.equal(started(), before + 1, 'one unattended start: the check-back\'s');
   assert.equal(s.cbPrompts().length, 1);
 });
+
+// 1.124.4 (bug review of 2026-11-23): test/store-fault.mjs, loaded into the server, fails the nth save of a store counted
+// from when the rule was written. The calls carry their own time limit, so a request left unanswered fails here, not at the end.
+const storeFault = dir => ({ NODE_OPTIONS: '--import ' + path.join(repo, 'test/store-fault.mjs'), STORE_FAULT_FILE: path.join(dir, 'store-fault') });
+const agentAdd = (port, s, token, body) => fetch(`http://127.0.0.1:${port}/api/checkbacks/agent/add`, { method: 'POST', headers: { 'content-type': 'application/json', ...s.bearer(), 'x-pocket-runner': token },
+  body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) }).then(async r => ({ status: r.status, body: await r.json().catch(() => null) }));
+
+test('1.124.4: an agent\'s check-back is saved with its title in one save: no second save can fail after it is set, answering 503 with no audit line while it stays set', { timeout: 60_000 }, async t => {
+  const dir = tmpDir(), port = 19026;
+  const s = await boot(t, port, { dir, env: storeFault(dir) });
+  await s.turnOn();
+  const id = await s.start('claude', 'owner asks to check back __HANG__'), token = await s.tokenFor(id);
+  // the add was 1, the title 2: the second save fails once
+  fs.writeFileSync(path.join(dir, 'store-fault'), JSON.stringify({ store: 'checkbacks.json', nth: 2, times: 1 }));
+  const r = await agentAdd(port, s, token, { at: '+1m', note: 'Check the status page' });
+  fs.rmSync(path.join(dir, 'store-fault'), { force: true });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(s.audit().filter(a => a.action === 'checkback' && a.event === 'set').length, 1, 'one set line');
+  const c = await s.one(r.body.checkback.id);
+  assert.ok(c && c.status === 'pending' && c.title, JSON.stringify(c));
+  assert.equal((await s.list()).checkbacks.length, 1, 'set once');
+  // the one save fails: the agent is told (the error handler's 503) and nothing is set or audited
+  const id2 = await s.start('claude', 'owner asks again __HANG__'), token2 = await s.tokenFor(id2);
+  fs.writeFileSync(path.join(dir, 'store-fault'), JSON.stringify({ store: 'checkbacks.json', nth: 1, times: 1 }));
+  const r2 = await agentAdd(port, s, token2, { at: '+1m', note: 'Check the other page' });
+  fs.rmSync(path.join(dir, 'store-fault'), { force: true });
+  assert.deepEqual([r2.status, r2.body], [503, { error: 'Request failed. Please retry.' }]);
+  assert.equal((await s.list()).checkbacks.length, 1, 'nothing more set');
+  assert.equal(s.audit().filter(a => a.action === 'checkback' && a.event === 'set').length, 1, 'nothing more audited');
+  await s.stopTurn(id); await s.stopTurn(id2);
+});

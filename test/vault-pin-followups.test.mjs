@@ -3,7 +3,7 @@
 //     by itself are refused; (2) a script an interpreter opens by its path can still be swapped as the command starts: the
 //     request says so when an agent could do it, and the docs say so plainly; (3) command forms that ran a changed file
 //     unasked either pin the file that runs or are not offered Always allow.
-import test from 'node:test';
+import test,{after} from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -14,7 +14,10 @@ import * as V from '../vault.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
 const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|CODEX)_/.test(k)));
-const tmp=()=>fs.mkdtempSync(path.join(os.tmpdir(),'pocket-vault-fu-'));
+// 1.124.4: every folder tmp() makes is removed when the file ends, also after a failed test (a test that removes its own
+// folder only at its end left it in the temp folder when it failed).
+const tmpDirs=[];after(()=>{for(const d of tmpDirs)try{fs.rmSync(d,{recursive:true,force:true,maxRetries:5});}catch{}});
+const tmp=()=>{const d=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-vault-fu-'));tmpDirs.push(d);return d;};
 const SECRET='sk-live-madeup-4b1d9e7c2a6f3085';
 const ROOT=process.getuid?.()===0;
 const LINUX=process.platform==='linux';
@@ -213,6 +216,32 @@ test('forms: what Pocket cannot pin is not offered Always allow, and the request
   for(const argv of [['sh','-c','echo "$T" | wc -c'],['timeout','5','sh','fjob.sh'],['xargs','-a','list.txt','echo'],['node','job.mjs'],['ssh','example-host'],['npm','whoami'],['docker','push','example/image'],['find','.','-name','*.sh']]){
     const pin=await V.pinCommand({argv,cwd:dir},{PATH:P});
     assert.equal(V.VaultStore.unpinnable(pin),false,argv.join(' ')+': '+JSON.stringify(pin.refuse||pin.unknown||pin.error));
+  }
+  fs.rmSync(dir,{recursive:true,force:true});
+});
+
+// 1.124.4 (bug review DIV-2): scp and rsync ran a helper given in an attached or clustered spelling (scp -S./h, -qS./h,
+// rsync -ave./h) unasked after one Always; scp and sftp also start one for -D, a ProxyCommand-style -o, and sftp's batch file.
+test('forms: scp, sftp and rsync with a local helper program, in any spelling, are not offered Always allow',async()=>{
+  const dir=tmp();write(dir,'h','#!/bin/sh\nexit 1\n',0o755);write(dir,'src.txt','x\n');write(dir,'batch','!./h\n');
+  for(const n of ['scp','sftp','rsync'])if(!has(n))write(dir,'bin/'+n,'#!/bin/sh\nexit 0\n',0o755);
+  const P=[path.join(dir,'bin'),PATH].join(':'),dst='example.invalid:dst';
+  const refused=[
+    ['scp','-S./h','src.txt',dst],['scp','-qS./h','src.txt',dst],['scp','-S','./h','src.txt',dst],['scp','-D./h','src.txt',dst],['scp','-D','./h','src.txt',dst],
+    ['scp','-oProxyCommand=./h','src.txt',dst],['scp','-o','ProxyCommand=./h','src.txt',dst],['scp','-o','ProxyCommand ./h','src.txt',dst],['scp','-qoProxyCommand=./h','src.txt',dst],
+    ['sftp','-S./h','example.invalid'],['sftp','-S','./h','example.invalid'],['sftp','-D','./h','example.invalid'],['sftp','-oProxyCommand=./h','example.invalid'],
+    ['sftp','-bbatch','example.invalid'],['sftp','-b','batch','example.invalid'],
+    ['rsync','-ave./h','src.txt',dst],['rsync','-e./h','src.txt',dst],['rsync','-avze','./h','src.txt',dst],['rsync','-e','./h','src.txt',dst],['rsync','--rsh=./h','src.txt',dst],['rsync','src.txt',dst,'--rsh','./h'],
+  ];
+  for(const argv of refused){
+    const pin=await V.pinCommand({argv,cwd:dir},{PATH:P});
+    assert.equal(pin.refuse?.why,'starts',argv.join(' ')+': '+JSON.stringify(pin.refuse||null));
+    assert.equal(V.VaultStore.unpinnable(pin),true,argv.join(' ')+' is never allowed always');
+  }
+  // Still offered: copies that start no program of their own here (-J goes through ssh, like a plain copy).
+  for(const argv of [['scp','-q','-P','2222','src.txt',dst],['scp','-J','example.invalid','src.txt',dst],['sftp','-P','2222','example.invalid'],['rsync','-av','src.txt',dst],['rsync','-av','--delete','src.txt',dst]]){
+    const pin=await V.pinCommand({argv,cwd:dir},{PATH:P});
+    assert.equal(V.VaultStore.unpinnable(pin),false,argv.join(' ')+': '+JSON.stringify(pin.refuse||pin.unknown||null));
   }
   fs.rmSync(dir,{recursive:true,force:true});
 });

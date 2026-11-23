@@ -35,6 +35,9 @@ idle closure. A separate default 30-minute stall watchdog (`POCKET_STALL_MS`; `0
 two-hour wall-clock cap. It considers stream activity, pending questions/approvals and CPU
 activity from programs started by the turn; reported Claude background jobs are exempt.
 Codex is interrupted first and its process is closed if the interruption is unanswered.
+**Stop** on a Codex reply closes its process too when the reply has not ended 20 seconds after the interrupt, whether or
+not the interrupt was answered (1.124.4; before, an answered interrupt with no end left the reply running until the stall
+watchdog); the reply ends as stopped by you.
 Closing a Codex session sends SIGTERM to the app-server's process group and, since 1.73.7,
 SIGKILL five seconds later if it is still running, so a hung app-server no longer keeps the
 thread's writer lock. Since 1.89 the close completes only when the process has really exited: if it
@@ -357,9 +360,12 @@ the checkout on `main` (fast-forwarded) or on a detached release, tracked files 
 was when the button was pressed; the tag `v<version>` must be on `origin/main`; at least 5 GB must be free.
 It backs up the git-ignored private files to `~/backups/pocket-code-<version>-update-<time>/`
 (`private-state.tar.gz`, `prev-head.txt`, `prev-branch.txt`); a backup `tar` could not finish, or one that does
-not list back, is removed and the update stops with nothing changed (1.124.2). It then runs `npm ci` and `check:release --released`,
+not list back, is removed and the update stops with nothing changed (1.124.2), as it does when the private files cannot be
+listed or the archive holds none of the files listed (1.124.4). It then runs `npm ci` and `check:release --released`,
 then waits until no reply is running (`busy` from `/api/health`; a reply can start after the button was pressed) for up to
-10 minutes, putting the previous version back if replies keep running (1.124.3), then `pm2 restart <its pm_id>` (the stored PM2 environment is kept; Pocket reads `.env` itself) and waits up
+10 minutes, putting the previous version back if replies keep running (1.124.3); it asks once more right before the
+restart and goes back to waiting if a reply started meanwhile (1.124.4). When `/api/health` does not answer after three
+tries a second apart, the number is unknown: the restart goes ahead and the log says so (1.124.4). Then `pm2 restart <its pm_id>` (the stored PM2 environment is kept; Pocket reads `.env` itself) and waits up
 to 90 seconds for a new process that serves the release and answers `/api/health`, and is still the same
 process 10 seconds later. Then `pm2 save`. If any step after the checkout moves fails, the checkout and
 packages go back to the previous commit; if the new version does not come up, the previous version is
@@ -367,7 +373,9 @@ restarted too. If the previous packages cannot be installed again either, the jo
 daemon carries on, but run `npm ci` in the checkout before it next restarts. When the new version did not start and the previous one cannot be put back, the job says so and does not restart (1.124.3): check out the commit in the backup's `prev-head.txt`, run `npm ci` and restart with PM2. The daemon refuses to start it while a reply or a CLI upgrade is running.
 
 Progress is in `pocket-self-update.json` in the data folder (the script touches `pocket-self-update.json.lock`
-every minute while it runs; a job with neither for 20 minutes died with its server and shows as interrupted, 1.124.3) and the script's output in `pocket-self-update.log`; both are git-ignored. Requirements: PM2
+every minute while it runs; a job with neither for 20 minutes died with its server and shows as interrupted, 1.124.3;
+a job still queued two minutes after the press, with no lock file newer than the press, never started and shows as failed,
+1.124.4) and the script's output in `pocket-self-update.log`; both are git-ignored. Requirements: PM2
 (the daemon must run under it), a git checkout, `git`, `npm`, `pm2`, GNU `tar` and `flock` on the daemon's
 PATH (on macOS, Homebrew's `gnu-tar`, used as `gtar`, and `flock`; the job names what is missing). Running an operator update on such an install works as before; an operator script that expects a
 particular `HEAD` will find the owner may already have moved it.
@@ -715,7 +723,10 @@ Once a value has been typed, image, audio and blob content from the server is re
 relay's life, since a screenshot of a page showing the value cannot be scrubbed; text snapshots still work. Calls that
 make a picture (`browser_take_screenshot`, `browser_pdf_save`, `screenshot`, and any tool in the comma-separated
 `POCKET_VAULT_PICTURE_TOOLS`) are refused from then on and never reach the server (1.124.2), because Playwright MCP saves
-each picture to a file and names it in its reply.
+each picture to a file and names it in its reply. A picture or `filename` call sent while a fill waits is held until
+the fill settles, and a fill waits up to `POCKET_VAULT_PICTURE_WAIT` seconds (default 30) for one sent before it to
+answer, then is refused with nothing typed (1.124.4). A server that closes its input is stopped (SIGTERM, then SIGKILL
+after five seconds) and the relay exits non-zero (1.124.4).
 `POCKET_VAULT_FILL_WAIT` (seconds, default 90) is how long a fill waits for an approval before telling the agent to
 call again; the relay gives the daemon that long plus 15 seconds to answer (1.73.3), refuses an answer that is not one
 string per placeholder, and starts the server without any of the daemon's own secrets (the same list `agentEnv` keeps

@@ -185,7 +185,7 @@ The same in both modes, and everything here applies to the whole install (**This
 | **Job keys** group | The **Job keys** switch first. While it is off, that is all the group shows. While it is on: **Waiting for you** (the requests conversations have made for a job key, each with **Allow**, **Edit first** and **Deny**, only while one waits), your list of keys with **New job key**, **Show job keys in the Tasks list** (the read-only [Jobs group in Tasks](tasks.md#jobs-in-the-list)), and then **Advanced**, closed, with the other settings: **Access for new keys**, **Job may add its own instructions (new keys)**, the per-key limits for new keys (**Runs per hour**, **Runs per day** and **Runs at once**), **Most data per run**, **Longest wait a job may ask for**, **Ignore a repeated call for**, **Push when a job finishes (new keys)**, **Job pushes respect the conversation's mute** and **Where Pocket offers to save new keys** ([Automation](automation.md#job-keys)) | **Job keys** Off; the rest as in [Automation](automation.md#job-settings) | Server (`automation` in `pocket-settings.json`; the keys in `job-keys.json`) |
 | **Unattended replies** | **Today** and **Last 7 days**: replies, tokens and cost, and **Limits reached today** | | Server (`automation-state.json`) |
 
-Each group has **Reset to defaults**. A value is checked when it is saved: out of range, it is refused with a message that names the range. While any limit is set to No limit, a warning shows at the top of the page. A change applies to the next start, never to a reply already running.
+Each group has **Reset to defaults**. A value is checked when it is saved: out of range, it is refused with a message that names the range. While any limit is set to No limit, a warning shows at the top of the page; one also shows while today's counts cannot be saved ([The usage table](automation.md#the-usage-table)). A change applies to the next start, never to a reply already running.
 
 ## Notifications & voice
 
@@ -259,7 +259,8 @@ and its packages; waits for any reply that started meanwhile to finish (up to 10
 running it goes back and changes nothing); and restarts. The sheet shows each step. While Pocket restarts the page loses
 contact for a moment and reconnects by itself; open conversations reconnect too. If the new version
 does not start, Pocket goes back to the one it was running and says so in the row, and you can try
-again; if it cannot go back either, the row says so and what to run on the server. If the backup cannot be written (the server ran out of room, say), Pocket removes it and
+again; if it cannot go back either, the row says so and what to run on the server. If the update could not start at all,
+the row says so within two minutes, nothing was changed, and you can try again. If the backup cannot be written (the server ran out of room, say), Pocket removes it and
 changes nothing. If the new packages fail to install and the old ones cannot be put back either, the row
 says so: Pocket keeps running, but run `npm ci` in its folder on the server before it next restarts. The button is not offered while a reply is running, while a Claude Code or Codex upgrade runs,
 or when Pocket cannot restart itself (it is not running under PM2, or the folder is not a git

@@ -183,3 +183,42 @@ test('MCP proxy (1.73.5): a daemon answer that is not one string per placeholder
   const r=await rpc('tools/call',{name:'type',arguments:{text:'{{vault:bank.password}}'}});assert.equal(r.result.isError,undefined,'the proxy is still running, and a well-formed answer fills');
   assert.equal(JSON.parse(fs.readFileSync(mcpLog,'utf8').trim()).text,'bank-secret-123');
 });
+
+test('MCP proxy (1.124.4): a fill waits for a screenshot sent before it; one still running after the wait gets the fill refused, nothing typed',async t=>{
+  // The browser tool runs calls side by side, so a screenshot sent just before a fill and still being taken when the
+  // value is typed would save the value in its file. The stand-in daemon allows at once; the fake's screenshot is slow
+  // and saves the page as it is when it finishes.
+  const VALUE='Slow-Shot-s3cret-value';
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-proxy-shot-'));fs.mkdirSync(path.join(dir,'data'));fs.writeFileSync(path.join(dir,'data','cli-token'),'t');
+  const fake=http.createServer((req,res)=>{req.resume();req.on('end',()=>setTimeout(()=>{res.setHeader('content-type','application/json');res.end(JSON.stringify({ok:true,values:{'bank.password':VALUE}}));},50));});
+  await new Promise(r=>fake.listen(0,'127.0.0.1',r));
+  const procs=[];t.after(()=>{for(const p of procs)try{p.kill('SIGKILL')}catch{};fake.close();fs.rmSync(dir,{recursive:true,force:true});});
+  const open=(log,extra)=>{
+    const p=spawn(process.execPath,[path.join(repo,'scripts/pocket-mcp-proxy.mjs'),'--name','browser','--',process.execPath,path.join(repo,'test/fake-mcp.mjs')],{cwd:dir,env:{...cleanEnv(),POCKET_ENV_FILE:'',POCKET_DATA_DIR:path.join(dir,'data'),POCKET_URL:`http://127.0.0.1:${fake.address().port}`,FAKE_MCP_LOG:path.join(dir,log),...extra},stdio:['pipe','pipe','pipe']});procs.push(p);
+    const waiting=new Map(),io={out:'',err:''};p.stderr.on('data',b=>{io.err+=b;});
+    readline.createInterface({input:p.stdout}).on('line',l=>{io.out+=l+'\n';const m=JSON.parse(l);waiting.get(m.id)?.(m);});
+    let id=0;const rpc=(method,params)=>new Promise(res=>{const k=++id;waiting.set(k,res);p.stdin.write(JSON.stringify({jsonrpc:'2.0',id:k,method,params})+'\n');});
+    return {rpc,io};
+  };
+  const fill={name:'type',arguments:{text:'{{vault:bank.password}}'}};
+  // The screenshot finishes within the wait: the fill is typed once it has answered, and the picture never holds the value.
+  const a=open('a.log',{FAKE_MCP_SLOW_SHOT:'600'});
+  const shot=a.rpc('tools/call',{name:'browser_take_screenshot',arguments:{filename:'first.png'}});await sleep(20);
+  const [s,f]=await Promise.all([shot,a.rpc('tools/call',fill)]);
+  assert.equal(s.result.isError,undefined,'the screenshot sent before any fill is taken');assert.equal(f.result.isError,undefined,JSON.stringify(f.result));
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir,'a.log'),'utf8')).text,VALUE,'the value was typed');
+  assert.equal(fs.readFileSync(path.join(dir,'first.png'),'utf8').includes(VALUE),false,'the saved picture does not hold the value');
+  // The screenshot outlasts POCKET_VAULT_PICTURE_WAIT: the fill is refused and nothing is typed or left behind.
+  const b=open('b.log',{FAKE_MCP_SLOW_SHOT:'2500',POCKET_VAULT_PICTURE_WAIT:'1'});
+  const slow=b.rpc('tools/call',{name:'browser_take_screenshot',arguments:{filename:'second.png'}});await sleep(20);
+  const refused=await b.rpc('tools/call',fill);
+  assert.equal(refused.result.isError,true);assert.match(refused.result.content[0].text,/^Pocket: type was not run: a screenshot, or a call that saves to a file, was still running in this browser session/);
+  assert.equal(fs.existsSync(path.join(dir,'b.log')),false,'nothing was typed');
+  assert.equal((await slow).result.isError,undefined);assert.equal(fs.readFileSync(path.join(dir,'second.png'),'utf8').includes(VALUE),false);
+  const after=await b.rpc('tools/call',{name:'browser_snapshot',arguments:{filename:'after.md'}});
+  assert.equal(after.result.isError,undefined,'nothing was typed, so a call that saves to a file still runs');
+  assert.equal((await b.rpc('tools/call',fill)).result.isError,undefined,'with nothing still running, the next fill is typed');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir,'b.log'),'utf8')).text,VALUE);
+  await sleep(600);
+  for(const o of [a.io.out,a.io.err,b.io.out,b.io.err])assert.equal(o.includes(VALUE),false,'the value is in no output');
+});

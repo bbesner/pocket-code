@@ -2,7 +2,7 @@
 // cannot hash, a file the command writes, launchers, inline code, the Vault PATH warning, an item edited while a large file
 // is hashed, and recipes saved before this change. The module is read through a namespace so each check fails on its own
 // against a store that lacks a function, instead of the whole file failing to load.
-import test from 'node:test';
+import test,{after} from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -14,7 +14,10 @@ import * as V from '../vault.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
 const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|CODEX)_/.test(k)));
-const tmp=()=>fs.mkdtempSync(path.join(os.tmpdir(),'pocket-vault-pin-'));
+// 1.124.4: every folder tmp() makes is removed when the file ends, also after a failed test (a test that removes its own
+// folder only at its end left it in the temp folder when it failed).
+const tmpDirs=[];after(()=>{for(const d of tmpDirs)try{fs.rmSync(d,{recursive:true,force:true,maxRetries:5});}catch{}});
+const tmp=()=>{const d=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-vault-pin-'));tmpDirs.push(d);return d;};
 const SECRET='sk-live-hunter2-0123456789abcdef';
 const ROOT=process.getuid?.()===0;
 const LINUX=process.platform==='linux';
@@ -185,6 +188,35 @@ test('D-4 launchers: env, timeout, nice, nohup, xargs, sudo, stdbuf, ionice, set
   const view=V.VaultStore.prototype.requestView.call({},{action:'run',argv:['env','-S','x'],pin:await V.pinCommand({argv:['timeout','5','sh','job.sh'],cwd:dir},{PATH})});
   assert.equal(view.runs,sh);assert.equal(JSON.stringify(view).includes('sha256'),false);
   fs.rmSync(dir,{recursive:true,force:true});
+});
+
+// 1.124.4 (bug review DIV-1): a #! line is read the way Linux and env read it.
+test('#! lines: env -S in a #! line is not offered Always; an interpreter that is itself a script has its own #! line pinned',async t=>{
+  const dir=tmp(),bin=path.join(dir,'bin');fs.mkdirSync(bin);t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+  const exe=(name,text)=>{const p=path.join(dir,name);fs.writeFileSync(p,text,{mode:0o755});return p;};
+  const tool=exe('bin/zz-tool','#!/bin/sh\necho tool\n'),PATH=['/usr/bin','/bin'].join(':');
+  // The kernel hands env the rest of the line as one word; -S splits it and applies what it says (a PATH of its own here),
+  // so the program that runs is not the one the Vault's PATH finds. Reached directly or through a launcher.
+  for(const [i,arg] of [`-S PATH=${bin} zz-tool`,'-S zz-tool','-vS zz-tool','-iS PATH=/elsewhere zz-tool','--split-string=zz-tool','--s=zz-tool'].entries()){
+    const job=exe('job'+i,`#!/usr/bin/env ${arg}\necho body\n`);
+    for(const argv of [[job],['timeout','5',job],['env',job]]){
+      const pin=await V.pinCommand({argv,cwd:dir},{PATH:[bin,PATH].join(':')});
+      assert.equal(pin.unknown,'env -S',`${argv.join(' ')} with #!/usr/bin/env ${arg}`);
+      assert.equal(V.VaultStore.unpinnable(pin),true);
+    }
+  }
+  // Without -S, env looks its one word up on the Vault's PATH: that program is pinned and Always is offered.
+  const plain=await V.pinCommand({argv:[exe('plain','#!/usr/bin/env sh\necho body\n')],cwd:dir},{PATH});
+  assert.ok(plain.files.some(f=>f.role==='interpreter'&&f.path===V.findProgram('sh',dir,PATH)),JSON.stringify(plain.files));
+  assert.equal(V.VaultStore.unpinnable(plain),false);
+  // An interpreter that is itself a script: Linux runs that script's #! line too, so it is followed and pinned.
+  const wrap=exe('wrap',`#!/usr/bin/env -S PATH=${bin} zz-tool\n`);
+  assert.equal((await V.pinCommand({argv:[exe('nested',`#!${wrap}\necho body\n`)],cwd:dir},{PATH})).unknown,'env -S');
+  const nested2=await V.pinCommand({argv:[exe('nested2',`#!${tool}\necho body\n`)],cwd:dir},{PATH});
+  assert.deepEqual(nested2.files.filter(f=>f.role==='interpreter').map(f=>f.path),[tool,'/bin/sh']);assert.equal(V.VaultStore.unpinnable(nested2),false);
+  // A #! line that names its own file (Linux gives up after a few levels) ends, and is not offered Always.
+  const loop=path.join(dir,'loop');exe('loop',`#!${loop}\n`);
+  assert.ok((await V.pinCommand({argv:[loop],cwd:dir},{PATH})).unknown);
 });
 
 test('D-4 launchers over HTTP: a shim for the program `env` starts asks again and does not run',async t=>{

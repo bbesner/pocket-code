@@ -10,19 +10,27 @@ dir=$1 target=$2 expected=$3 pmid=$4 port=$5 status=$6 node=$7 repo=$8 from=$9
 tag="v$target"
 # Tests shorten the waits; the daemon passes no such variables.
 tries=${POCKET_SELF_UPDATE_TRIES:-45} settle=${POCKET_SELF_UPDATE_SETTLE:-10} beat=${POCKET_SELF_UPDATE_BEAT:-60} idle=${POCKET_SELF_UPDATE_IDLE_TRIES:-300}
-branch='' prev='' moved=0
+[ "$idle" -ge 1 ] 2>/dev/null || idle=1 # the wait loop below says `restarting` and reads the PID, so it runs at least once
+branch='' prev='' moved=0 old_pid=''
 
-# say <phase> [error] [backup dir]: rewrite the progress file atomically.
+# say <phase> [error] [backup dir]: rewrite the progress file atomically. 1.124.4: it returns the writer's status (it returned
+# echo's, so a progress write that failed went unnoticed and the job sat at its last phase); each call says what a failure does.
 say() {
+  local rc
   "$node" -e '
 const fs=require("fs");const [f,phase,error,backup]=process.argv.slice(1);
 let j={};try{j=JSON.parse(fs.readFileSync(f,"utf8"));}catch{}
 Object.assign(j,{phase,updatedAt:Date.now()});if(error)j.error=error;if(backup)j.backup=backup;
 if(phase==="complete"||phase==="failed")j.finishedAt=Date.now();
-const t=f+".tmp";fs.writeFileSync(t,JSON.stringify(j,null,2),{mode:0o600});fs.renameSync(t,f);' "$status" "$1" "${2:-}" "${3:-}"
+const t=f+".tmp";fs.writeFileSync(t,JSON.stringify(j,null,2),{mode:0o600});fs.renameSync(t,f);' "$status" "$1" "${2:-}" "${3:-}"; rc=$?
   echo "$(date -u +%H:%M:%S) $1${2:+: $2}"
+  [ "$rc" = 0 ] || echo "$(date -u +%H:%M:%S) could not write $1 to $(basename "$status")"
+  return "$rc"
 }
+# A failed `say failed` is not checked: the script exits 1 either way, and the log has the reason.
 fail() { say failed "$1"; exit 1; }
+# 1.124.4: a progress write that failed before the checkout moves stops the update; fail tries once more to record why.
+unwritten() { fail "Pocket could not write the update's progress to its data folder, so it stopped. Nothing was changed."; }
 served() { # the version Pocket serves on its port, or nothing
   "$node" -e 'fetch(`http://127.0.0.1:${process.argv[1]}/release.json`,{signal:AbortSignal.timeout(5000)}).then(r=>r.json()).then(j=>process.stdout.write(String(j.version||""))).catch(()=>{})' "$port"
 }
@@ -30,8 +38,18 @@ served() { # the version Pocket serves on its port, or nothing
 app_pid() {
   pm2 jlist 9>&- 2>/dev/null | "$node" -e 'let t="";process.stdin.on("data",d=>t+=d).on("end",()=>{try{const a=JSON.parse(t.slice(t.indexOf("[")));const p=a.find(x=>String(x.pm_id)===process.argv[1]);process.stdout.write(String(p?.pid||""));}catch{}})' "$pmid"
 }
-busy() { # the replies a restart would cut short, from the daemon's /api/health (1.124.3); 0 when it does not say
-  "$node" -e 'fetch(`http://127.0.0.1:${process.argv[1]}/api/health`,{signal:AbortSignal.timeout(5000)}).then(r=>r.json()).then(j=>process.stdout.write(String(Number(j.busy)||0))).catch(()=>process.stdout.write("0"))' "$port"
+# The replies a restart would cut short, from the daemon's /api/health (1.124.3); 0 when a good answer does not say (an older
+# daemon). 1.124.4: a probe that fails was taken for 0 at once. It is tried three times a second apart; if it still fails the
+# number is unknown and the restart goes ahead (a daemon that cannot answer its health check is not helped by waiting), with
+# a line in the log that says so.
+busy() {
+  local i n
+  for i in 1 2 3; do
+    n=$("$node" -e 'fetch(`http://127.0.0.1:${process.argv[1]}/api/health`,{signal:AbortSignal.timeout(5000)}).then(r=>{if(!r.ok)throw new Error();return r.json();}).then(j=>process.stdout.write(String(Number(j.busy)||0))).catch(()=>process.exit(1))' "$port") && { echo "$n"; return 0; }
+    [ "$i" = 3 ] || sleep 1
+  done
+  echo "$(date -u +%H:%M:%S) /api/health did not answer, so the number of running replies is unknown; restarting anyway" >&2
+  echo 0
 }
 healthy() { "$node" -e 'fetch(`http://127.0.0.1:${process.argv[1]}/api/health`,{signal:AbortSignal.timeout(5000)}).then(r=>r.json()).then(j=>process.exit(j.ok?0:1)).catch(()=>process.exit(1))' "$port"; }
 # wait_for <version> <old pid>: up to 90 s for a new process to serve it and answer health, then still the same process and
@@ -69,7 +87,7 @@ flock -n 9 || fail 'Another Pocket Code update is running.'
 ( while sleep "$beat" && kill -0 $$ 2>/dev/null; do touch "$status.lock"; done ) 9>&- >/dev/null 2>&1 &
 beater=$!
 trap 'kill "$beater" 2>/dev/null' EXIT
-say checking
+say checking || unwritten
 origin=$(git config --get remote.origin.url)
 case "$origin" in
   "https://github.com/$repo"|"https://github.com/$repo.git"|"git@github.com:$repo.git") ;;
@@ -86,25 +104,35 @@ commit=$(git rev-parse "$tag^{commit}") || fail "Release $tag was not found. Not
 git merge-base --is-ancestor "$commit" origin/main || fail "Release $tag is not on main. Nothing was changed."
 if [ "$branch" = main ]; then git merge-base --is-ancestor "$prev" "$commit" || fail 'The checkout has commits that are not in the release. Update it from the server.'; fi
 
-say backing-up
+say backing-up || unwritten
 free_kb=$(df -Pk "$HOME" | awk 'NR==2{print $4}')
 [ "${free_kb:-0}" -ge 5242880 ] || fail 'The server has less than 5 GB free, and Pocket needs room for its backup. Free some space, then try again. Nothing was changed.'
 backup="$HOME/backups/pocket-code-$target-update-$(date -u +%Y%m%d-%H%M%S)"
 mkdir -m 700 -p "$backup" || fail 'Could not make the backup folder. Nothing was changed.'
-git ls-files --others --ignored --exclude-standard -z | grep -zv '^node_modules/' | grep -zv '^\.impeccable/' > "$backup/files.nul"
+# 1.124.4: git's own status is read (the pipeline's never was, and grep -zv exits 1 when it filters every name out, so that 1
+# is fine). A listing that failed gave an empty archive that passed every check below, and the job completed pointing at it.
+git ls-files --others --ignored --exclude-standard -z | grep -zv '^node_modules/' | grep -zv '^\.impeccable/' > "$backup/files.nul"; st=("${PIPESTATUS[@]}")
+if [ "${st[0]}" != 0 ] || [ "${st[1]}" -gt 1 ] || [ "${st[2]}" -gt 1 ]; then
+  rm -rf -- "$backup"
+  fail "Could not list Pocket's private files for the backup, so it stopped. Nothing was changed."
+fi
+names=$(tr -cd '\0' < "$backup/files.nul" | wc -c)
 # 1 = a file changed while it was read (a live log): fine. 1.124.2: 2 is GNU tar's fatal error (a disk that filled, say); a
-# turn file that vanished is only a warning under --ignore-failed-read, status 0. The archive must also list back, and a
-# backup that failed is removed, so it neither stays on a full disk nor passes for a backup.
+# turn file that vanished is only a warning under --ignore-failed-read, status 0. The archive must also list back (1.124.4:
+# with at least one entry when the listing named files), and a backup that failed is removed, so it neither stays on a full
+# disk nor passes for a backup.
 "$gnutar" --warning=no-file-changed --ignore-failed-read --null -czf "$backup/private-state.tar.gz" -T "$backup/files.nul"; rc=$?
-if [ "$rc" -gt 1 ] || ! [ -s "$backup/private-state.tar.gz" ] || ! "$gnutar" -tzf "$backup/private-state.tar.gz" >/dev/null 2>&1; then
+if [ "$rc" -gt 1 ] || ! [ -s "$backup/private-state.tar.gz" ] || ! entries=$("$gnutar" -tzf "$backup/private-state.tar.gz" 2>/dev/null | wc -l) \
+  || { [ "${names:-0}" -gt 0 ] && [ "${entries:-0}" -eq 0 ]; }; then
   rm -rf -- "$backup"
   fail 'The backup could not be written, so Pocket removed it. Nothing was changed. Check that the server has room for the backup, then try again.'
 fi
 echo "$prev" > "$backup/prev-head.txt"; echo "${branch:-detached}" > "$backup/prev-branch.txt"
 chmod 600 "$backup"/*
-say backing-up '' "$backup"
+# Its path could not be recorded, so nothing would point to it: it goes, as a backup that failed does.
+say backing-up '' "$backup" || { rm -rf -- "$backup"; unwritten; }
 
-say installing
+say installing || unwritten
 if [ "$branch" = main ]; then git merge --ff-only -q "$commit"; else git checkout -q --detach "$commit"; fi || fail "Could not move to $tag. Nothing was changed."
 moved=1
 npm ci --silent --no-audit --no-fund || { put_back || not_back "Installing $tag's packages failed"; fail "Installing $tag's packages failed. Pocket stays on $from."; }
@@ -113,17 +141,29 @@ npm run -s check:release -- --released || { put_back || not_back "$tag did not p
 # 1.124.3: the daemon checked for running replies when Update was pressed, and a reply can start in the minutes since (a
 # message, a check-back, a job). Wait for them, up to 10 minutes, so the restart does not cut one short; if they keep
 # running, put the version that is running back rather than restart under them.
-n=0
-for _ in $(seq 1 "$idle"); do n=$(busy); [ "$n" = 0 ] && break; echo "$(date -u +%H:%M:%S) waiting for $n replies to finish"; sleep 2; done
+# 1.124.4: once none is running, `restarting` is said and the PID read, then one last check right before the PM2 command; a
+# reply that started meanwhile sends it back to waiting, within the same limit. What is left is the time the PM2 command
+# itself takes. The checkout has moved, so a failed `restarting` write puts the running version back, as the other
+# failures before the restart do.
+n=0 said=0
+for _ in $(seq 1 "$idle"); do
+  n=$(busy)
+  if [ "$n" = 0 ]; then
+    [ "$said" = 1 ] || { say restarting || { put_back || not_back "Pocket could not write the update's progress"; fail "Pocket could not write the update's progress to its data folder, so it did not restart and stays on $from."; }; said=1; }
+    old_pid=$(app_pid); n=$(busy); [ "$n" = 0 ] && break
+  fi
+  echo "$(date -u +%H:%M:%S) waiting for $n replies to finish"; sleep 2
+done
 if [ "$n" != 0 ]; then put_back || not_back 'Replies kept running while Pocket waited to restart'; fail "Replies kept running while Pocket waited to restart, so it did not restart and stays on $from. Update again when they finish."; fi
-say restarting
-old_pid=$(app_pid)
 pm2 restart "$pmid" 9>&- >/dev/null
 if wait_for "$target" "$old_pid"; then
   pm2 save 9>&- >/dev/null 2>&1
-  say complete
+  # 1.124.4: tried twice. If it still fails the install is updated but the job would read restarting, then interrupted: say
+  # so in the log and exit non-zero, not 0.
+  say complete || { sleep 1; say complete; } || { echo "$(date -u +%H:%M:%S) $target is installed and running, but the result could not be recorded in $(basename "$status"). The job will show as interrupted; the version Pocket shows is the one running."; exit 2; }
   exit 0
 fi
+# A failed write here is not checked: putting the running version back matters more, and the fail below records the result.
 say rolling-back
 # 1.124.3: a put-back that failed is said, not restarted into "Pocket went back": the new version is not running, and the old
 # one cannot start without its checkout and packages.

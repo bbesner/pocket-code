@@ -3,6 +3,95 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.124.4] — 2026-11-23 · build 226
+
+The bug review of the risky files, run on the code as the whole-code review left it (1.124.3). Seven blind runs: one
+agent wrote a behaviour spec from the source without seeing its tests, an agent from another lab wrote tests from the
+spec without seeing the source, every step that writes state or starts a process was failed in turn, and a verifier
+with the source ruled on each failing test. 654 tests, 69 failures, **29 real faults: 5 medium, 24 low, none high**.
+Each fix has a test that failed before it. The passing contracts are kept as `test/*-contract-blind.test.mjs`; the
+rulings that changed nothing are in `docs/bug-review-decisions.md`, with four questions left for the owner.
+
+**Vault: what Always allow trusts** (`vault-pin.mjs`)
+- **A `#!/usr/bin/env -S …` line is not offered Always allow** (medium). Linux hands `env` the rest of the line as one
+  word and `-S` splits it, `PATH=` and all, so the program it started was found on a `PATH` the script chose and was
+  not in the pin. `--split-string` and its prefixes count too, and **an interpreter that is itself a script has its
+  own `#!` line pinned**.
+- **`scp`, `sftp` and `rsync` with a local helper are refused in every spelling** (medium): `scp -S./h`, `-qS./h`,
+  `-D`, a `ProxyCommand`-style `-o`, `sftp -b` (a batch file runs local commands) and `rsync -ave./h`. Only the
+  separate-word `-S` and `-e` were refused.
+- **The private copy of a script is removed in two steps**, so a failed removal of the file still removes its folder,
+  and a failure on only the empty folder no longer fails the run.
+
+**Browser relay** (`scripts/pocket-mcp-proxy.mjs`)
+- **A picture cannot be taken across a fill.** A screenshot, a PDF or a call that names a `filename`, sent while a
+  fill waits, is held until the fill settles (then refused if a value was typed); a fill waits up to 30 seconds
+  (`POCKET_VAULT_PICTURE_WAIT`) for one sent before it to answer, and is refused with nothing typed if it still runs.
+  The browser tool runs calls side by side, so the saved picture could hold the value.
+- **A server that closes its input is stopped and the relay exits non-zero**, with a tool error for the fill being
+  written. The write failed with no listener: the relay crashed and left the browser tool running.
+
+**Approvals** (`approvals.mjs`)
+- **A record the disk cut short is not a record.** A full disk makes the write return a short count, not an error;
+  the Allow was sent with half a line in the audit. The file goes back to its size, the owner gets the existing 503
+  *Nothing was approved*, and a trusted action shows a card instead.
+- **A trusted action's Allow that could not be delivered is logged on Codex and OpenRouter too**, as on Claude.
+- **Claude's session marker is written whole when a card appears or is answered** (temporary file, then rename). It was
+  rewritten in place, so a restart in that instant met an empty marker; the combined test run caught a reader doing so.
+
+**Automation** (`automation.mjs`)
+- **Counts that cannot be saved are flagged.** The day's unattended replies and OpenRouter spend stayed in memory
+  only, silently, so a restart forgot them and the daily limits could be passed. Settings → Automation now warns, and
+  the log has one line when saving fails and one when it works again.
+- **A damaged `automation-state.json` is kept aside** (`.corrupt-<UTC time>`) and logged, not reset and overwritten.
+- **A torn audit line no longer swallows the next one**, and **an audit line that cannot be written is logged**, at
+  most once a minute, never with its contents (job and check-back audit lines included).
+
+**Job keys and check-backs** (`job-keys.mjs`, `checkbacks.mjs`, their routes)
+- **A `job-keys.json` that does not parse is kept aside and logged** (medium). It was read as no keys, and the next
+  save replaced the only copy.
+- **A key whose file's path could not be saved is undone with its file**, and the answer says what is left if the
+  rollback fails too; **an Allow whose key or request could not be saved is undone** and can be pressed again.
+- **A Rotate cut off before the key file was rewritten is repaired by the next Rotate** (the key remembers what it
+  last wrote there, `fileHash`); the file was left holding a dead key for good.
+- **A job run whose reply started is answered as started when saving it fails**, so a retry with the same
+  idempotency key is a repeat, not a second reply.
+- **An agent's check-back is saved with its title in one save**; a failed second save answered 503 for a check-back
+  that was set, and the agent set another.
+
+**Self-update** (`self-update.mjs`, `scripts/pocket-self-update.sh`)
+- **An update that could not start says so**: at once when the log or the script cannot be opened, and within two
+  minutes when the script died before its first step. It read *preparing* and refused every press for 20 minutes.
+- **A progress write that fails stops the update before the checkout moves**, puts the running version back after
+  it, and a result that cannot be recorded is tried twice and then logged with a non-zero exit.
+- **A listing of the private files that fails stops the backup**; it gave an empty archive that passed for one.
+- **One more check for running replies right before the restart**, and the health probe is tried three times before
+  the count is taken as unknown (then the restart goes ahead, with a line in the log).
+
+**Codex sessions** (`codex.mjs`)
+- **A keeper process that cannot start no longer takes the daemon down** (medium; the same for Claude's keeper), and a
+  start that fails half-way leaves no app-server and no open pipe.
+- **A session or a reply Pocket could not record on disk is not started** (medium). The process outlived a restart
+  unmanaged and held the thread, so every later message was refused as open elsewhere. The message routes answer
+  503 `not_started`, so *Retry same message* sends it once the cause is gone.
+- **A stopped reply whose interrupt was answered but never ended is closed after 20 seconds**
+  (`POCKET_CODEX_STOP_GRACE_MS`); it stayed busy until the 30-minute stall check.
+- **A character cut by a read arrives whole**, **`codex-usage-state.json` drops a thread's record after 30 days**, and
+  **a reply the agent started keeps that mark, and its origin, across a restart**.
+- A usage-limit retry whose marker could not be written is said in the log.
+
+- Manual: Automation, Settings, Vault, For agents; `SECURITY.md`; the operations guide; the README's settings table.
+- Tested: the seven contracts (`test/vault-pin-contract-blind.test.mjs`, `approvals-contract-blind`,
+  `automation-contract-blind`, `jobs-contract-blind`, `mcp-proxy-contract-blind`, `self-update-contract-blind`,
+  `codex-contract-blind`, with `test/bugreview-faults.mjs`), and `test/vault-pin.test.mjs`,
+  `test/vault-pin-followups.test.mjs`, `test/vault.test.mjs`, `test/approvals.test.mjs`, `test/automation.test.mjs`,
+  `test/pause-routes.test.mjs`, `test/job-keys.test.mjs`, `test/job-routes.test.mjs`, `test/job-propose.test.mjs`,
+  `test/checkback-routes.test.mjs` (with `test/store-fault.mjs`), `test/mcp-proxy.test.mjs`,
+  `test/self-update.test.mjs`, `test/codex-reader.test.mjs`, `test/codex-session.test.mjs`,
+  `test/claude-limit.test.mjs`. Mutation checks (ten planted bugs per run): 10/10 on three runs; of the 16 misses on
+  the other four, 13 got a test, two were already caught by an older test file and one no test can see. The Vault test files remove the temporary folders
+  they make (one test had left a `pocket-vault-*` folder in `/tmp` on every run).
+
 ## [1.124.3] — 2026-11-23 · build 225
 
 The third and last batch from the whole-code review at 1.123.1: the 26 findings graded low, plus 11 faults of the same
