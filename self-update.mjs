@@ -74,17 +74,22 @@ export class SelfUpdate {
     // No Pocket secrets reach the script: the daemon's environment includes everything from .env.
     const env = { PATH: this.env.PATH || '/usr/local/bin:/usr/bin:/bin', HOME: this.env.HOME || os.homedir(), LANG: 'C.UTF-8' };
     if (this.env.PM2_HOME) env.PM2_HOME = this.env.PM2_HOME;
-    const out = fs.openSync(this.log, 'a', 0o600);
+    const failed = () => { try { write(this.file, { ...job, phase: 'failed', updatedAt: this.now(), finishedAt: this.now(), error: 'Could not start the update. Nothing was changed.' }); } catch {} };
+    // 1.124.4: the queued record is written first, so anything that throws after it (the log cannot be opened or written, the
+    // fork fails) records the job as failed. It was left queued: the route said the update could not start while Settings
+    // showed it preparing, and every further press was refused for 20 minutes. The log is closed on every path.
+    let out;
     try {
+      out = fs.openSync(this.log, 'a', 0o600);
       fs.writeSync(out, `\n=== ${new Date(this.now()).toISOString()} update ${from} -> ${to} (job ${job.id})\n`);
       // setsid -f forks once more, so the script is not the daemon's child: PM2 with treekill on would otherwise stop it
       // with the daemon it is restarting. (Pocket's ecosystem file turns treekill off; an install started another way may not.)
       const [bin, pre] = this.setsid ? ['setsid', ['-f', 'bash']] : ['bash', []];
       const child = this.spawner(bin, [...pre, this.script, this.checkout, to, head, String(this.env.pm_id), String(this.port), this.file, this.node, this.repo, from],
         { cwd: this.checkout, env, detached: true, stdio: ['ignore', out, out] });
-      child.on?.('error', () => { try { write(this.file, { ...job, phase: 'failed', updatedAt: this.now(), finishedAt: this.now(), error: 'Could not start the update. Nothing was changed.' }); } catch {} });
+      child.on?.('error', failed);
       child.unref?.();
-    } finally { fs.closeSync(out); }
+    } catch (e) { failed(); throw e; } finally { if (out !== undefined) try { fs.closeSync(out); } catch {} }
     return this.snapshot();
   }
 }

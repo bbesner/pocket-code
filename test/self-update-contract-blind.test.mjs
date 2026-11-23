@@ -462,25 +462,35 @@ describe('divergences (class)', () => {
     const j = f.make().job();
     assert.notEqual(j?.running, true, msg);
   };
+  // 1.124.4: begin() still throws the native error (the route answers 503), and the record it wrote says the start failed.
+  const startFailed = (f, threw) => {
+    assert.ok(threw && threw.status === undefined && threw.code, 'begin rethrows the native error');
+    const j = f.make().job(); assert.equal(j.phase, 'failed'); assert.equal(j.running, false); assert.equal(j.error, M.startFail);
+    assert.equal(typeof j.finishedAt, 'number');
+  };
   test('DIV-1: log-open failure must not leave a running queued job', () => {
     const f = fixture(); const r = failFsFor('openSync', SELF_UPDATE_LOG);
-    try { try { begin11(f.make()); } catch {} } finally { r(); }
+    let threw; try { try { begin11(f.make()); } catch (e) { threw = e; } } finally { r(); }
     assert.equal(f.calls.length, 0);
     freshNotRunning(f, 'log-open failure left a running job: no updater exists, but retry is blocked for 20 minutes');
+    startFailed(f, threw);
   });
   test('DIV-2: log-header write failure must not leave a running queued job', () => {
     const f = fixture(); const pred = (args) => String(args[1]).startsWith('\n===');
     const r1 = patch(fs, 'writeSync', failing(fs.writeSync, { on: pred }));
     const r2 = patch(fs, 'writeFileSync', failing(fs.writeFileSync, { on: pred }));
-    try { try { begin11(f.make()); } catch {} } finally { r2(); r1(); }
+    let threw; try { try { begin11(f.make()); } catch (e) { threw = e; } } finally { r2(); r1(); }
     freshNotRunning(f, 'log-header failure left a running job that blocks another press');
+    startFailed(f, threw);
   });
   test('DIV-3: synchronous spawn failure must leave a failed (not running) record', () => {
     const f = fixture();
-    try { begin11(f.make({ spawner: () => { throw Object.assign(new Error('spawn EACCES'), { code: 'EACCES' }); } })); } catch {}
+    let threw; try { begin11(f.make({ spawner: () => { throw Object.assign(new Error('spawn E2BIG'), { code: 'E2BIG' }); } })); } catch (e) { threw = e; }
     const j = f.make().job();
     assert.notEqual(j?.running, true, 'synchronous spawn failure left queued/running');
     assert.equal(j?.phase, 'failed', 'synchronous spawn failure should record phase failed');
+    startFailed(f, threw);
+    assert.equal(f.make().begin({ from: '1.0.0', to: '1.1.0' }).job.phase, 'queued', 'a second press is let through');
   });
   test('DIV-4: a failed error-listener write must not leave a running queued job', () => {
     const f = fixture(); begin11(f.make());
@@ -500,7 +510,8 @@ describe('divergences (class)', () => {
     try { process.kill(pid, 'SIGKILL'); } catch {}
     assert.ok(gone, 'begin threw after spawning, but the started child is still alive and untracked');
   });
-  test('DIV-6: a log close failure after spawn must not report a failed start while the updater runs', async () => {
+  // Ruled not a fault (close of a local file does not fail in practice); 1.124.4's always-close in begin() makes it hold anyway.
+  test('a log close failure after spawn does not report a failed start while the updater runs', async () => {
     const f = fixture(); let logFd = -1, pid;
     const su = f.make({ spawner: (cmd, args, opts) => {
       logFd = opts.stdio[1];
