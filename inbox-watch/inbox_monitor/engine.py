@@ -1687,13 +1687,13 @@ def deliver_left_queued(store: Store, dry_run: bool, awake: bool = False) -> int
     a duplicate, so one that did reach the Inbox is not listed again. One that failed before 1.124.2 has no count and is left."""
     sent = 0
     if dry_run:  # 1.124.3: says what it would send and changes nothing; deliver() would mark each 'dry-run', and no real check sent it
-        for a in store.pending(("notify",), ("queued",)):
+        for a in store.pending(("notify", "checkin"), ("queued",)):
             log(f"[dry-run] alert {a['id']} left unsent by an earlier run; a real check sends it: {a['subject']!r}")
         return 0
     failed = store.db.execute(  # 1.124.3: and one Pocket missed while another channel took it
-        "select * from alerts where kind='notify' and (status='failed' or (status='sent' and missed='pocket')) and tries<? and created_at>=? order by created_at",
+        "select * from alerts where kind in ('notify','checkin') and (status='failed' or (status='sent' and missed='pocket')) and tries<? and created_at>=? order by created_at",
         (FAILED_TRIES, iso(now_utc() - dt.timedelta(hours=FAILED_RETRY_HOURS)))).fetchall()
-    for a in [*store.pending(("notify",), ("queued",)), *failed]:
+    for a in [*store.pending(("notify", "checkin"), ("queued",)), *failed]:  # 1.124.3: a look-ahead too (its key is Pocket's as well)
         again, only = a["status"] in ("failed", "sent"), "pocket" if a["status"] == "sent" else None
         what = "not delivered to Pocket by an earlier run" if only else "not delivered by an earlier run" if again else "left unsent by an earlier run"
         s = store.story(a["issue_key"]) if a["issue_key"] else None
@@ -1705,7 +1705,7 @@ def deliver_left_queued(store: Store, dry_run: bool, awake: bool = False) -> int
                 store.mark_sent(a["id"], None, None, "superseded")
         elif in_quiet_hours() and a["priority"] != "critical" and "|added|" not in (a["dedupe_key"] or "") and not awake:
             log(f"alert {a['id']} {what}: held for morning: {a['subject']!r}")
-            if not only:  # one another channel took waits here, not among the held alerts the morning sends everywhere
+            if not only and a["kind"] == "notify":  # a look-ahead, or an alert another channel took, waits here: the morning release sends held alerts only, and everywhere
                 store.db.execute("update alerts set status='held' where id=?", (a["id"],))
         else:
             n = f" (try {a['tries'] + 1} of {FAILED_TRIES})" if again else ""

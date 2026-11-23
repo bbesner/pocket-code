@@ -592,6 +592,42 @@ def test_an_alert_another_channel_took_is_still_sent_to_pocket():
     with_run_fakes(check)
 
 
+def test_a_look_ahead_pocket_could_not_take_is_sent_again():
+    # 1.124.3: the retries of 1.124.2 covered alerts only. A look-ahead whose delivery failed (or that a killed run left
+    # queued) was never sent: the next look-ahead run finds its key taken and makes none.
+    store, _ = setup()
+
+    class LookaheadPocket(FakePocket):
+        down = True
+
+        def send_lookahead(self, a, pocket_url=None, items=None):
+            if self.down:
+                raise RuntimeError("pocket-inbox add: Pocket is not answering")
+            self.sent.append(a["subject"])
+            return "e"
+    pocket = LookaheadPocket()
+    E.DELIVERIES = [pocket]
+    failed = store.queue_alert("checkin|2026-11-23|morning", issue_key=None, thread_id="", kind="checkin", priority="high", text="Invoice 7 is due Friday.",
+                               subject="Look-ahead · Mon 8 AM", sender="Assistant (inv-7)", status="queued")
+    assert not E.deliver(store, failed, None, False)
+    store.queue_alert("checkin|2026-11-23|evening", issue_key=None, thread_id="", kind="checkin", priority="high", text="The gate visit is tomorrow.",
+                      subject="Look-ahead · Mon 5 PM", sender="Assistant (gate)", status="queued")  # a run killed before it went
+    store.commit()
+    saved = E.in_quiet_hours
+    try:
+        E.in_quiet_hours = lambda *a: True  # in quiet hours it waits, and is not held among the alerts
+        assert E.deliver_left_queued(store, False) == 0
+        st = [r[0] for r in store.db.execute("select status from alerts order by id")]
+        assert st == ["failed", "queued"], st
+        E.in_quiet_hours = lambda *a: False
+        pocket.down = False
+        assert E.deliver_left_queued(store, False) == 2
+    finally:
+        E.in_quiet_hours = saved
+    assert sorted(pocket.sent) == ["Look-ahead · Mon 5 PM", "Look-ahead · Mon 8 AM"], pocket.sent
+    assert all(r["status"] == "sent" for r in store.db.execute("select status from alerts"))
+
+
 def test_a_new_fact_folded_into_an_alert_that_never_left_takes_it_out():
     # process() on its own (no start-of-run recovery): the stuck alert goes out with the new fact instead of absorbing it.
     store, pocket = setup()
