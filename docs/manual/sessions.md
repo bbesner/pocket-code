@@ -572,7 +572,10 @@ A [handoff](conversation.md#hand-off-to-a-fresh-conversation) is a start link an
 in the reply, and it starts once.
 
 Links last 7 days by default (1 to 30), hold up to 20,000 characters of text and a 160-character title,
-and are kept in `starts.json`, at most 500, oldest dropped first.
+and are kept in `starts.json`, at most 500, oldest dropped first. A `starts.json` that does not hold valid JSON
+when Pocket starts (a hand edit, a file damaged by a power cut) is kept beside it as
+`starts.json.corrupt-<time>` and named in the server log, and the list starts empty; to get the old links
+back, stop Pocket, fix the kept copy and move it back to `starts.json`.
 
 ### Processes and limits
 

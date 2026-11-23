@@ -134,3 +134,17 @@ test('the skill is installed only while check-backs are on, names the command on
   syncSkills({ settings: { checkbacks: false }, commands, env, roots: [root], codexRoots: [] });
   assert.ok(!fs.existsSync(path.join(root, 'pocket-checkback')), 'removed when turned off');
 });
+
+test('1.124.3: a checkbacks.json that does not parse is kept aside and logged, and the next change does not replace it', () => {
+  const dir = tmp(), file = path.join(dir, 'checkbacks.json');
+  const a = new CheckbackStore(file, { now: () => NOW });
+  for (let i = 0; i < 3; i++) a.add({ sessionId: '11111111-2222-3333-4444-55555555555' + i, engine: 'claude', note: 'n' + i, dueAt: NOW + 60_000 });
+  const torn = fs.readFileSync(file, 'utf8').slice(0, 20); fs.writeFileSync(file, torn);
+  const said = [], b = new CheckbackStore(file, { now: () => Date.parse('2026-11-23T10:15:30Z'), log: m => said.push(m) });
+  assert.deepEqual(b.items, []);
+  const kept = path.join(dir, 'checkbacks.json.corrupt-20261123-101530');
+  assert.equal(fs.readFileSync(kept, 'utf8'), torn, 'kept as it was'); assert.ok(said.length === 1 && said[0].includes(kept), said.join('\n'));
+  b.add({ sessionId: '11111111-2222-3333-4444-555555555559', engine: 'claude', note: 'x', dueAt: NOW + 60_000 });
+  assert.equal(fs.readFileSync(kept, 'utf8'), torn, 'the next change leaves the kept copy alone'); assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).checkbacks.length, 1);
+  fs.rmSync(dir, { recursive: true, force: true });
+});

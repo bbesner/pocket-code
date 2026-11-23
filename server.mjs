@@ -499,7 +499,7 @@ const coordOn = (_req, res, next) => coordLive() ? next() : res.status(404).json
 // test can make one due, or hours late, without waiting. Unset everywhere but the tests.
 const CHECKBACK_CLOCK = process.env.POCKET_TEST_CHECKBACK_CLOCK || '';
 const cbNow = () => { if (!CHECKBACK_CLOCK) return Date.now(); let off = 0; try { off = Number(fs.readFileSync(CHECKBACK_CLOCK, 'utf8')) || 0; } catch { } return Date.now() + off; };
-const checkbacks = new CheckbackStore(path.join(DATA_DIR, 'checkbacks.json'), { now: cbNow });
+const checkbacks = new CheckbackStore(path.join(DATA_DIR, 'checkbacks.json'), { now: cbNow, log });
 const CHECKBACK_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-checkback.mjs');
 const checkbackSettings = () => auto.groupValues(settings.automation, 'checkbacks');
 const checkbacksOn = () => checkbackSettings().checkbacks === true;
@@ -527,7 +527,7 @@ if (process.env.POCKET_INBOX_RUNNER !== '0') inboxRunner.start();
 // A briefing an agent or a job hands to Pocket (starts.mjs): <data dir>/starts.json. POST /api/start with the loopback token
 // (or the owner's cookie) stores it and answers with an id and a URL; opening #/start/<id> signed in puts the briefing in New
 // session with the workspace and agent it names. Entries expire (7 days by default). Nothing starts until the owner taps Start.
-const starts = new StartStore(path.join(DATA_DIR, 'starts.json'));
+const starts = new StartStore(path.join(DATA_DIR, 'starts.json'), { log });
 const START_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-start.mjs');
 const startsClaimed = new Set(); // 1.96: handoffs whose /api/new is running, so a second tap in that window never makes a second conversation
 const tasksOn = (_req, res, next) => settings.tasks ? next() : res.status(404).json({ error: 'Tasks is off. Turn it on in Settings → Projects, files, tasks & vault.', code: 'tasks_off' });
