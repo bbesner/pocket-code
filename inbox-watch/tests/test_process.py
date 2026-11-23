@@ -601,6 +601,24 @@ def test_a_late_alert_waits_out_quiet_hours_and_one_on_a_resolved_story_is_dropp
     assert pocket.sent == ["fire"], pocket.sent
 
 
+def test_a_dry_run_leaves_an_unsent_alert_for_the_next_real_check():
+    # 1.124.3: deliver_left_queued sent a queued alert through deliver(dry_run=True), which marks it 'dry-run', so the
+    # real check after a dry run never sent it.
+    store, pocket = setup()
+    store.queue_alert("gate|f1", issue_key="gate", thread_id=A, kind="notify", priority="high", text="The gate is down.", subject="Gate down",
+                      sender="site@example.com", status="queued")
+    store.commit()
+    saved = E.in_quiet_hours
+    E.in_quiet_hours = lambda *a: False
+    try:
+        n = E.deliver_left_queued(store, True)
+        assert n == 0 and statuses(store) == {"gate": "queued"} and pocket.sent == [], (n, statuses(store), pocket.sent)
+        assert E.deliver_left_queued(store, False) == 1
+    finally:
+        E.in_quiet_hours = saved
+    assert statuses(store) == {"gate": "sent"} and pocket.sent == ["Gate down"], (statuses(store), pocket.sent)
+
+
 def test_a_closed_output_pipe_does_not_end_the_run():
     # Review 2026-11-23 (inbox-03): a Pocket restart during a check leaves the watcher running with nobody reading its
     # stdout and stderr. Its next log line raised BrokenPipeError and the run stopped wherever it was.

@@ -1677,7 +1677,11 @@ def deliver_left_queued(store: Store, dry_run: bool, awake: bool = False) -> int
     a run, FAILED_TRIES times in all and only within FAILED_RETRY_HOURS of its making, while Pocket still answers its key as
     a duplicate, so one that did reach the Inbox is not listed again. One that failed before 1.124.2 has no count and is left."""
     sent = 0
-    failed = [] if dry_run else store.db.execute(  # a dry run would mark it 'dry-run', as if it had been told
+    if dry_run:  # 1.124.3: says what it would send and changes nothing; deliver() would mark each 'dry-run', and no real check sent it
+        for a in store.pending(("notify",), ("queued",)):
+            log(f"[dry-run] alert {a['id']} left unsent by an earlier run; a real check sends it: {a['subject']!r}")
+        return 0
+    failed = store.db.execute(
         "select * from alerts where kind='notify' and status='failed' and tries<? and created_at>=? order by created_at",
         (FAILED_TRIES, iso(now_utc() - dt.timedelta(hours=FAILED_RETRY_HOURS)))).fetchall()
     for a in [*store.pending(("notify",), ("queued",)), *failed]:
