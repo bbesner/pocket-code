@@ -8,7 +8,7 @@ build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-co
 The bug review of the risky files, run on the code as the whole-code review left it (1.124.3). Seven blind runs: one
 agent wrote a behaviour spec from the source without seeing its tests, an agent from another lab wrote tests from the
 spec without seeing the source, every step that writes state or starts a process was failed in turn, and a verifier
-with the source ruled on each failing test. 654 tests, 69 failures, **30 real faults: 5 medium, 25 low, none high**.
+with the source ruled on each failing test. 654 tests, 69 failures, **29 real faults: 5 medium, 24 low, none high**.
 Each fix has a test that failed before it. The passing contracts are kept as `test/*-contract-blind.test.mjs`; the
 rulings that changed nothing are in `docs/bug-review-decisions.md`, with four questions left for the owner.
 

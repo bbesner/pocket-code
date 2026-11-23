@@ -139,7 +139,7 @@ Seven blind runs after the whole-code review's fixes: `vault-pin.mjs`; `approval
 `automation.mjs`; `job-keys.mjs` and `checkbacks.mjs` with their routes; `scripts/pocket-mcp-proxy.mjs`;
 `self-update.mjs` and `scripts/pocket-self-update.sh`; `codex.mjs` (session lifecycle). Blind specs: Codex GPT-6 Sol;
 blind contract tests and independent verification: Claude Opus; mutation checks: Codex GPT-6 Sol, and Claude Opus for
-`codex.mjs`. 654 tests written from the specs alone, 69 failed, 30 real faults (5 medium, 25 low, none high), fixed in
+`codex.mjs`. 654 tests written from the specs alone, 69 failed, 29 real faults (5 medium, 24 low, none high), fixed in
 1.124.4 with the passing contract tests kept as `test/*-contract-blind.test.mjs`. The rows below changed no code, or
 only the hardening named.
 
