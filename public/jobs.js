@@ -711,12 +711,13 @@ const JobKeys = (() => {
     let prev = null;
     for (const r of shown) {
       let li = ul.querySelector(`:scope > [data-job-run="${CSS.escape(r.run)}"]`);
-      if (!li) {
-        // A run opens its conversation; one that never started has none, so it is a line, not a link.
-        li = document.createElement('li'); li.dataset.jobRun = r.run;
+      if (!li) { li = document.createElement('li'); li.dataset.jobRun = r.run; }
+      // A run opens its conversation; one that never started has none, so it is a line, not a link. 1.124.3: a run first
+      // drawn before its conversation was recorded becomes the link once it is.
+      if (li.firstElementChild?.tagName !== (r.conversation ? 'A' : 'DIV')) {
         const a = document.createElement(r.conversation ? 'a' : 'div'); a.className = 'job-run';
         if (r.conversation) { a.href = '#/chat/' + encodeURIComponent(r.conversation); a.onclick = () => closeCurrentSheet?.(); }
-        li.append(a);
+        li.replaceChildren(a);
       }
       const a = li.firstElementChild, html = runInner(r);
       if (s.runsWritten.get(a) !== html) { a.innerHTML = html; s.runsWritten.set(a, html); }

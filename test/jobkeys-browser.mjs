@@ -160,6 +160,7 @@ export async function runJobKeysRegressions({p,base,out,repo,scan,settings=null}
   f.runs['jk-disk0001']=[...Array.from({length:5},(_,i)=>run(100+i,'done',0)),{...f.runs['jk-disk0001'][0],conversation:'job-conv-late',status:'done'},...f.runs['jk-disk0001'].slice(1)];
   await p.waitForSelector('[data-job-run="jr-many100"]',{timeout:8000});
   assert.deepEqual(await p.$$eval('[data-job-runs] > li',x=>x.map(l=>l.dataset.jobRun)),f.runs['jk-disk0001'].slice(0,20).map(r=>r.run),'the newest 20, no more');
+  assert.equal(await p.$eval('[data-job-run="jr-many0"] .job-run',e=>e.getAttribute('href')),'#/chat/job-conv-late','the run opens its conversation');
   await close();
  }finally{f.runs['jk-disk0001']=runsBefore;}
 
