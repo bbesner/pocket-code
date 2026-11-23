@@ -462,14 +462,14 @@ if (POCKET_DEFAULTS.claude.model && !isOffered(POCKET_DEFAULTS.claude.model)) co
 // connection (a request that arrived through the tunnel or a proxy carries forwarding headers and is refused),
 // and never in place of the cookie anywhere else. Due reminders go out by web push and, when the operator sets
 // POCKET_REMINDER_HOOK, to that command with the reminder as JSON on stdin; each is announced once.
-const board = new ProjectStore(path.join(DATA_DIR, 'projects.json'), { zone: () => ownerZone() }); // 1.81: offsetless times in the zone the commands print
+const board = new ProjectStore(path.join(DATA_DIR, 'projects.json'), { zone: () => ownerZone(), log }); // 1.81: offsetless times in the zone the commands print
 const BOARD_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-board.mjs');
 // ---------- 1.30: documents ----------
 // The library (documents.mjs): files in POCKET_DOCUMENTS_DIR, records in <data dir>/documents.json. Off until
 // Settings → Projects & documents turns it on; while off nothing is served, not even public files. The same loopback token as
 // the board serves pocket-docs on /api/documents* only.
 const DOCS_DIR = process.env.POCKET_DOCUMENTS_DIR || path.join(DATA_DIR, 'documents');
-const docs = new DocumentStore(DOCS_DIR, path.join(DATA_DIR, 'documents.json'));
+const docs = new DocumentStore(DOCS_DIR, path.join(DATA_DIR, 'documents.json'), { log });
 if (docs.migrated) log(docs.migrateError ? `documents: ${docs.migrated} share address(es) could not be removed from documents.json yet: ${docs.migrateError}` : `documents: removed ${docs.migrated} stored share address(es) from documents.json; their links keep working`); // 1.118 (PC-05)
 const thumbs = new Thumbnailer(docs, { log }); // 1.32: pictures for the library's grid, cached in <documents dir>/.thumbs
 // 1.61: pictures for file cards in a conversation (PDF pages and images only), cached under the data directory.
@@ -482,13 +482,13 @@ setTimeout(purgeDocs, 60_000).unref(); // 1.45: also a minute after start, so a 
 // ---------- 1.36: tasks ----------
 // To-dos (tasks.mjs): <data dir>/tasks.json. Off until Settings → Projects, files, tasks & vault turns it on. The same loopback
 // token serves pocket-tasks on /api/tasks* only; a dated task is announced once when due, like a project reminder.
-const taskStore = new TaskStore(path.join(DATA_DIR, 'tasks.json'), { zone: () => ownerZone() });
+const taskStore = new TaskStore(path.join(DATA_DIR, 'tasks.json'), { zone: () => ownerZone(), log });
 const TASKS_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-tasks.mjs');
 // ---------- 1.99: coordination ----------
 // Named holds, so two conversations don't work the same shared thing at once (coordination.mjs): <data dir>/coordination.json.
 // Off until Settings → Projects, files, tasks & vault turns it on, and never in Assistant mode. The same loopback token serves pocket-coord on
 // /api/coordination* only; who is asking comes from the runner token (coordCaller), never from the request body.
-const coord = new CoordStore(path.join(DATA_DIR, 'coordination.json'));
+const coord = new CoordStore(path.join(DATA_DIR, 'coordination.json'), { log });
 const COORD_CLI = path.join(import.meta.dirname, 'scripts', 'pocket-coord.mjs');
 const coordLive = () => Boolean(settings.coordination) && !assistantOn();
 const coordOn = (_req, res, next) => coordLive() ? next() : res.status(404).json({ error: 'Coordination is off. Turn it on in Settings → Projects, files, tasks & vault.', code: 'coordination_off' });
