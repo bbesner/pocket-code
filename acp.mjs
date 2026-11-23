@@ -399,6 +399,7 @@ function makeAcpTurn(session, { text, model, approvalMode, executionMode, hooks,
       try { client.respond(nativeId, result); resolve(); } catch (e) { reject(e); }
     }),
     onChange: () => { turn.emit({ type: 'approvals' }); if (turn.approvals?.list().length) onApproval?.(turn); if (turn.settling) armSettle(turn); },
+    onAutoError: (e, { tool }) => log(`trusted action reply not delivered session=${turn.fullId} tool=${tool}: ${e.message}`), // 1.124.4: as the Claude caller logs it
   });
   // Questions from Pocket's ask tool: the same inbox Claude's and Codex's questions use. The native id is the ask's
   // id; answering resolves the ask the tool is polling, skipping or ending the turn resolves it with no answer.
