@@ -72,7 +72,9 @@ function measureInPage({touch,scope}){
    if(!inline&&(w<43.5||h<43.5))out.small.push({el:describe(e),w:Math.round(w),h:Math.round(h)});
   }
   const cx=Math.min(vw-1,Math.max(0,r.left+r.width/2)),cy=Math.min(vh-1,Math.max(0,r.top+r.height/2)),hit=document.elementFromPoint(cx,cy);
-  if(hit&&hit!==e&&!e.contains(hit)&&!hit.contains(e)){const lab=hit.closest('label');if(!(lab&&(lab.contains(e)||lab.htmlFor===e.id)))out.covered.push({el:describe(e),by:describe(hit)});}
+  // A control whose middle is scrolled out of its own scrolling box (the last row of a tall dialog) is clipped, not covered.
+  let clipped=false;for(let a=e.parentElement;a&&a!==document.body&&!clipped;a=a.parentElement){const cs=getComputedStyle(a);if(cs.overflowY==='visible'&&cs.overflowX==='visible')continue;const ar=a.getBoundingClientRect();clipped=cx<ar.left||cx>ar.right||cy<ar.top||cy>ar.bottom;}
+  if(!clipped&&hit&&hit!==e&&!e.contains(hit)&&!hit.contains(e)){const lab=hit.closest('label');if(!(lab&&(lab.contains(e)||lab.htmlFor===e.id)))out.covered.push({el:describe(e),by:describe(hit)});}
   const named=(e.getAttribute('aria-label')||e.getAttribute('aria-labelledby')||e.getAttribute('title')||e.innerText||e.value||e.getAttribute('placeholder')||e.getAttribute('alt')||'').trim()||(e.id&&document.querySelector('label[for="'+CSS.escape(e.id)+'"]'))||e.closest('label');
   if(!named)out.unnamed.push(describe(e));
  }
@@ -89,7 +91,7 @@ function measureInPage({touch,scope}){
  // 1.124.5: a sheet's own text lines start where its heading does (14 px in); one that hangs out to the left, or is
  // inset twice, is measured against the heading's text edge.
  const sheet=document.querySelector('.sheet[role=dialog]'),head=sheet&&sheet.querySelector('h2');out.inset=[];
- if(sheet&&head&&shown(head)){const edge=e=>e.getBoundingClientRect().left+parseFloat(getComputedStyle(e).paddingLeft),want=edge(head);
+ if(sheet&&head&&shown(head)){const boxed=e=>e.matches('button,.chip,input,select,textarea'),edge=e=>e.getBoundingClientRect().left+(boxed(e)?0:parseFloat(getComputedStyle(e).paddingLeft)),want=edge(head); // a boxed control lines up by its box, text by its text
   for(const e of sheet.querySelectorAll(':scope > .sheet-help, .settings-scope, :scope > [data-environment] > *')){if(!shown(e)||!inView(e.getBoundingClientRect()))continue;
    const by=Math.round(edge(e)-want);if(Math.abs(by)>3)out.inset.push({el:describe(e),by});}}
  return out;
