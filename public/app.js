@@ -4513,6 +4513,10 @@ async function renderNew({ home = false, slot = '' } = {}) {
 }
 
 /* ---------- router ---------- */
+// 1.124.2: route() first runs as this file is read, before the files after it in index.html (split.js, voice.js,
+// sidechat.js, cli-updates.js, tips.js) have arrived. The views call into those, so nothing is drawn until the page's
+// scripts are all in. The first request to the server is not held back by it.
+const scriptsIn = new Promise(done => { if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', done, { once: true }); else done(); });
 async function route() {
   { const f = vaultFocusOf(location.hash); if (f) { history.replaceState(history.state, '', '#/vault'); vaultSetFocus(f); } } // 1.39: a request push opens the list at its Requests; 1.93: at one secret or one request
   // Job keys: a request's push (/#/settings/jobs/request/<id>) opens Settings → Automation at that request, over the home view.
@@ -4521,7 +4525,7 @@ async function route() {
   rememberViewNavigation(location.hash || '#/');
   rememberReading();stashAttachments(); closeCurrentSheet?.(); ++chatRenderVersion;
   closeES(); chatId = null;
-  try { const me = await api('/me'); window.pocketFeatures = me.features || {}; applyAssistantMode(); if (me.ok === false) { renderLogin(); reportWorkspaceChrome(); return; } loadSecretGuard(); reportTimezone(); Automation.fromMe(me); } // 1.20.1: 200 {ok:false} when signed out
+  try { const [me] = await Promise.all([api('/me'), scriptsIn]); window.pocketFeatures = me.features || {}; applyAssistantMode(); if (me.ok === false) { renderLogin(); reportWorkspaceChrome(); return; } loadSecretGuard(); reportTimezone(); Automation.fromMe(me); } // 1.20.1: 200 {ok:false} when signed out
   catch (e) { // 401 rendered the login; anything else (offline, deploy restart) gets a retry view
     if (e.message !== 'login') renderUnreachable(e);
     reportWorkspaceChrome(); return;

@@ -68,6 +68,12 @@ faults of the same kind found next to them while fixing. Each has a test that fa
 - **Edit project and Edit task: after one refused Save, the next Save goes through** (it resent the stale revision).
 - **Vault: focus stays on the same control when a request card arrives or leaves**, never moving onto an answer button.
 - **Voice: a second tap while the microphone is starting opens no second microphone.**
+- **A first load where a script file arrives late no longer leaves a half-wired conversation.** The first view was
+  drawn as soon as the server answered, which could be before the files after `app.js` (`split.js`, `voice.js`,
+  `sidechat.js`, `cli-updates.js`, `tips.js`) were in; the conversation view then threw at *chooseBeside is not
+  defined* and its Back button, conversation switcher and message box did nothing until a reload. Nothing is drawn now
+  until the page's scripts are all in; the first request to the server is not held back. Not a review finding: it
+  showed as one failed run of this release's browser suite and was then reproduced with a late `split.js`.
 
 - Manual: Automation, Conversations, Conversation view, Inbox Watch, Vault, Coordination, Projects, Tasks, Files,
   Settings, For agents; `SECURITY.md`; operations and install guides.
@@ -77,7 +83,10 @@ faults of the same kind found next to them while fixing. Each has a test that fa
   `test/choices.test.mjs`, `test/review-fixes.test.mjs`, `test/vault.test.mjs`, `test/mcp-proxy.test.mjs`,
   `test/projects.test.mjs`, `test/tasks.test.mjs`, `test/documents.test.mjs`, `test/coordination.test.mjs`,
   `test/worktrees.test.mjs`, `test/self-update.test.mjs`, `test/ui-regressions.mjs` (browser),
-  `inbox-watch/tests/test_process.py`. The Stop grace and the relay's picture refusal are proven against the
+  `inbox-watch/tests/test_process.py`. `test/jobrequest-live-browser.mjs` gave its expired request 8 s, not 6: the
+  server's first periodic pass (5 s after it starts) could expire the request and take its card off the page just
+  before the test clicked it, about one run in forty. `POCKET_UI_ONLY=1` runs the checks in
+  `test/ui-regressions.mjs` alone. The Stop grace and the relay's picture refusal are proven against the
   stand-ins only; how the real agents behave after a cancel was not observed.
 
 ## [1.124.1] — 2026-11-23 · build 223

@@ -351,6 +351,22 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.waitForFunction(()=>document.querySelector('#micb').getAttribute('aria-pressed')==='false');
    assert.equal(voiceLog.transcribe.length,heard);
   });
+  // 1.124.2: the first view used to be drawn as soon as the server answered, even when the script files after app.js
+  // (split.js is one) had not arrived yet. The conversation view then threw half-way through its wiring ("chooseBeside is
+  // not defined"), which left Back, the conversation switcher and the message box dead until a reload.
+  await check('First load: a script file that arrives after the server has answered still gets a fully wired conversation',async()=>{
+   const ctx=await browser.createBrowserContext(),pl=await ctx.newPage(),thrown=[];
+   pl.on('pageerror',e=>thrown.push(e.message));
+   setMode({slowScript:'split.js'});
+   try{
+    await pl.goto(base+'/#/chat/'+idle);
+    await pl.waitForFunction(()=>typeof chooseBeside==='function');          // the late file is in
+    await pl.waitForFunction(id=>chatId===id&&document.querySelector('#box'),{timeout:5000},idle).catch(()=>{});
+    assert.deepEqual(thrown,[],'nothing thrown while the view was drawn');
+    assert.equal(await pl.evaluate(()=>chatId),idle,'the conversation opened');
+    assert.deepEqual(await pl.evaluate(()=>['#back','#splitb','#session-switch'].map(s=>typeof document.querySelector(s)?.onclick)),['function','function','function'],'the header controls are wired');
+   }finally{setMode({slowScript:''});await ctx.close();}
+  });
   // 1.124.2: the microphone takes a moment to start (the permission prompt, a slow phone), and a second tap in that time
   // used to open a second microphone that nothing ever closed. getUserMedia is stubbed with a slow synthetic stream.
   await check('Voice: a second tap while the microphone is starting opens no second microphone, and Cancel turns it off',async()=>{
