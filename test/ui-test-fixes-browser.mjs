@@ -239,7 +239,7 @@ export async function runUiTestFixes({browser,base,rows,out,settingsState=()=>({
   await page.type('#box','Count the pallets in aisle 4');await page.click('#send');
   await page.waitForFunction(()=>document.querySelector('#retry-message'));
   const chat=await page.evaluate(()=>({text:document.querySelector('#delivery-status p').textContent,edit:Boolean(document.querySelector('#edit-message')),review:Boolean(document.querySelector('#review-message')),box:document.querySelector('#box').value}));
-  assert.equal(chat.text,'Not sent: '+REASON,'the server\'s own reason, not "Delivery not confirmed"');
+  assert.equal(chat.text,'Not sent: '+REASON,'the server\'s own reason, not "Delivery not confirmed"');await snap(page,'not-sent-chat');
   assert.deepEqual([chat.edit,chat.review,chat.box],[true,false,'Count the pallets in aisle 4'],'it can be edited (nothing was sent), and the words are back in the box');
   await page.click('#discard-message');
   await page.goto(base+'/?ui-fix=6#/new');await page.waitForSelector('#first');await page.waitForSelector('#start');
