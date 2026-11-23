@@ -15,6 +15,8 @@ const baseEnv = store => ({ ...process.env, POCKET_ACP_STORE: store });
 const turnOpts = (store, extra = {}) => ({ cmd: process.execPath, args: [FAKE], env: baseEnv(store), text: 'do the thing', model: 'openrouter/deepseek/deepseek-v4.1-flash-1017', hooks: {}, ...extra });
 const collect = () => { const ev = []; return { emit: e => ev.push(e), ev }; };
 const waitFor = async (fn, ms = 10000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (fn()) return true; await new Promise(r => setTimeout(r, 20)); } return false; };
+// A test that fails with a request still waiting would otherwise keep the run open until that request's timer.
+const unhang = turn => { for (const [, p] of turn?.client?.pending || []) clearTimeout(p.timer); };
 const afterEach = () => { for (const [, s] of acpSessions) { try { s.client.close(); } catch { } } acpSessions.clear(); acpTurns.clear(); };
 
 test('id namespace helpers', () => {
@@ -98,6 +100,72 @@ test('stopAcpTurn cancels during a pending permission', async () => {
   await turn.promptDone;
   assert.ok(ev.some(e => e.type === 'result' && e.stopReason === 'cancelled'));
   afterEach();
+});
+
+// 1.124.2: closing the pane with "Stop the reply" stops the reply and closes its process at once (server.mjs release).
+// The process exits before it answers the cancel; the reply used to stay open until its one-hour prompt timeout.
+test('stop and close at once: the reply ends as stopped now, not at the prompt timeout', async () => {
+  const store = mkStore();
+  const { emit, ev } = collect(), finished = [];
+  const turn = await startAcpTurn(turnOpts(store, { text: 'wait __HANG__', env: { ...baseEnv(store), FAKE_ACP_NO_ASK: '1' }, hooks: { emit, onFinish: r => finished.push(r) } }));
+  try {
+    assert.ok(await waitFor(() => turn.openPrompts === 1), 'the prompt is open');
+    stopAcpTurn(turn.sessionId); closeAcpSession('acp:' + turn.sessionId);
+    assert.ok(await waitFor(() => turn.done, 3000), 'the reply ended');
+    const r = ev.find(e => e.type === 'result');
+    assert.deepEqual([r.ok, r.stopReason, r.error], [false, 'cancelled', 'Stopped by you']);
+    assert.ok(ev.some(e => e.type === 'done'), 'open streams are told it is over');
+    assert.equal(finished.length, 1, 'onFinish ran once');
+    assert.equal(turn.client.pending.size, 0, 'no request is left waiting on its timer');
+    assert.ok(!acpTurns.has(turn.sessionId) && !acpSessions.has(turn.sessionId));
+  } finally { unhang(turn); afterEach(); }
+});
+
+// 1.124.2: a process that dies between replies (a crash, an out-of-memory kill) used to stay registered, and every later
+// message failed with "acp client closed" while each failure put off the idle close.
+test('a process that dies between replies is dropped, and the next message opens a new one', async () => {
+  const store = mkStore(), env = { ...baseEnv(store), FAKE_ACP_NO_ASK: '1' };
+  const first = await startAcpTurn(turnOpts(store, { env }));
+  await first.promptDone;
+  const sid = first.sessionId, pid = first.client.pid;
+  process.kill(pid, 'SIGKILL');
+  assert.ok(await waitFor(() => first.client.closed, 3000), 'the process is gone');
+  const { emit, ev } = collect();
+  const next = await startAcpTurn(turnOpts(store, { env, sessionId: 'acp:' + sid, resume: true, text: 'again', hooks: { emit } }));
+  await next.promptDone;
+  const r = ev.find(e => e.type === 'result');
+  assert.deepEqual([r.ok, r.stopReason, r.error], [true, 'end_turn', undefined]);
+  assert.notEqual(next.client.pid, pid, 'a new process');
+  afterEach();
+  // and with no message after it, the dead process is not kept as the conversation's (the idle close never saw it)
+  const lone = await startAcpTurn(turnOpts(store, { env }));
+  await lone.promptDone;
+  process.kill(lone.client.pid, 'SIGKILL');
+  assert.ok(await waitFor(() => !acpSessions.has(lone.sessionId), 3000), 'dropped when it exits');
+  afterEach();
+});
+
+// 1.124.2: two messages arriving together (two devices) on a conversation with no process open both opened one, ran two
+// prompts on one session, and left the first reply unreachable by Stop with its process never closed.
+test('two starts on a conversation with no process: one process, one reply, the other is told it is busy', async () => {
+  const store = mkStore(), env = { ...baseEnv(store), FAKE_ACP_NO_ASK: '1' };
+  const first = await startAcpTurn(turnOpts(store, { env }));
+  await first.promptDone;
+  const id = 'acp:' + first.sessionId;
+  closeAcpSession(id); // idled out
+  const slow = path.join(store, 'slow-load'); fs.writeFileSync(slow, ''); // the reopen takes 1.5 s, as a real one can
+  const start = text => startAcpTurn(turnOpts(store, { env: { ...env, FAKE_ACP_SLOW_LOAD: slow }, sessionId: id, resume: true, text, hooks: {} }));
+  const [a, b] = await Promise.allSettled([start('one __HANG__'), start('two __HANG__')]);
+  const won = [a, b].filter(r => r.status === 'fulfilled').map(r => r.value), lost = [a, b].filter(r => r.status === 'rejected').map(r => r.reason);
+  try {
+    assert.equal(fs.readFileSync(slow + '.loads', 'utf8').trim().split('\n').length, 1, 'one process opened the conversation');
+    assert.equal(won.length, 1, 'one reply runs');
+    assert.deepEqual(lost.map(e => [e.message, e.code]), [['busy', 409]]);
+    assert.equal(acpTurns.get(first.sessionId), won[0], 'and it is the one Stop reaches');
+    assert.equal(acpSessions.get(first.sessionId).client, won[0].client);
+    stopAcpTurn(id);
+    assert.ok(await waitFor(() => won[0].done, 3000));
+  } finally { for (const t of won) { unhang(t); t.client.close(); } afterEach(); } // an orphaned process is in no list
 });
 
 test('busy: a second turn on a live session is rejected 409', async () => {

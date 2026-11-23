@@ -12,6 +12,7 @@ import path from 'node:path';
 process.env.POCKET_ACP_SETTLE_QUIET_MS = '700'; // read when acp.mjs loads
 process.env.POCKET_ACP_SETTLE_MAX_MS = '900';
 process.env.POCKET_ACP_SETTLE_STEP_MS = '300';
+process.env.POCKET_ACP_STOP_GRACE_MS = '1000';
 const acp = await import('../acp.mjs');
 const { ENGINES, engineForSessionId, takesUnattended, validateModelForEngine } = await import('../engines.mjs');
 const { unattendedGate } = await import('../automation.mjs');
@@ -276,6 +277,36 @@ test('1.123.1: a step after the background command reports itself before its nex
   assert.equal(results(ev).length, 1); assert.equal(results(ev)[0].stopReason, 'end_turn');
 });
 
+// 1.124.2: the settle timers ended a reply that was waiting on the owner: an approval after the background command was
+// dropped unanswered after SETTLE_MAX_MS, a question cancelled after SETTLE_QUIET_MS.
+test('1.124.2: after a background command, an approval or a question waits for the owner, past every settle timer', async () => {
+  const store = mkStore();
+  const a = collect(), approve = await acp.startAcpTurn(opts(store, { text: 'render then copy __BGMORE__', hooks: { emit: a.emit } }));
+  assert.ok(await waitFor(() => approve.approvals.list().length === 1));
+  await approve.approvals.decide(approve.approvals.list()[0].id, 'allow'); // the command, which goes to the background
+  await approve.promptDone;
+  assert.ok(await waitFor(() => approve.approvals.list().length === 1, 3000), 'the next command asks');
+  await new Promise(r => setTimeout(r, 1500)); // longer than every settle timer (300, 700 and 900 ms here)
+  assert.equal(approve.done, false, 'the reply still waits on the approval');
+  assert.equal(approve.approvals.list().length, 1, 'and the card is still there');
+  await approve.approvals.decide(approve.approvals.list()[0].id, 'allow');
+  assert.ok(await waitFor(() => approve.done, 3000));
+  assert.equal(sessOf(store, approve.sessionId).permission2, 'allow', 'the late answer reached agy');
+  assert.match(said(a.ev), /Copied it: FOLLOWUP_OK\./);
+  assert.equal(results(a.ev).length, 1); assert.equal(results(a.ev)[0].stopReason, 'end_turn');
+
+  const q = collect(), ask = await acp.startAcpTurn(opts(store, { text: 'render then ask __BGASK__ __NOASK__', hooks: { emit: q.emit } }));
+  await ask.promptDone;
+  assert.ok(await waitFor(() => ask.questions.list().length === 1, 3000), 'the question card is shown');
+  await new Promise(r => setTimeout(r, 1500));
+  assert.equal(ask.done, false, 'the reply still waits on the question');
+  ask.questions.answer(ask.questions.list()[0].id, { q1: ['Claim folder'] });
+  assert.ok(await waitFor(() => ask.done, 3000));
+  assert.deepEqual(sessOf(store, ask.sessionId).elicit, { action: 'accept', content: { q1: '1' } });
+  assert.match(said(q.ev), /Copied it: ANSWERED_OK\./);
+  assert.equal(results(q.ev)[0].stopReason, 'end_turn');
+});
+
 test('1.123.1: the last step ends the reply after the short grace, not the two-minute wait', async () => {
   const store = mkStore(), { emit, ev } = collect();
   const turn = await acp.startAcpTurn(opts(store, { text: 'long job __BG__ __NOASK__', hooks: { emit } }));
@@ -312,6 +343,36 @@ test('stop: while a prompt runs, and while only a background command does', asyn
   acp.stopAcpTurn('agy:' + bg.sessionId, 'Stopped by Pause all');
   assert.equal(bg.done, true, 'no prompt is open to answer the cancel, so it ends at once');
   assert.deepEqual([results(b.ev)[0].stopReason, results(b.ev)[0].error], ['cancelled', 'Stopped by Pause all']);
+});
+
+// 1.124.2: Stop cleared the approval card without answering the agent, which ACP requires (the cancelled outcome), and
+// nothing followed a cancel the agent did not act on: the reply stayed running until its one-hour prompt timeout.
+test('1.124.2: Stop answers a waiting approval as cancelled, so an agent that waits for that answer ends the reply', async () => {
+  const store = mkStore(), { emit, ev } = collect();
+  const turn = await acp.startAcpTurn(opts(store, { addEnv: { FAKE_AGY_CANCEL_WAITS: '1' }, hooks: { emit } }));
+  assert.ok(await waitFor(() => turn.approvals.list().length === 1));
+  const pid = turn.client.pid;
+  acp.stopAcpTurn('agy:' + turn.sessionId);
+  assert.ok(await waitFor(() => turn.done, 700), 'the reply ended on the agent\'s own answer, before the grace');
+  assert.equal(sessOf(store, turn.sessionId).permission, 'cancelled', 'the agent was told the request was cancelled');
+  assert.deepEqual([results(ev)[0].stopReason, results(ev)[0].error], ['cancelled', 'Stopped by you']);
+  assert.equal(acp.acpSessions.get(turn.sessionId)?.client.pid, pid, 'its process is kept for the next message');
+});
+
+test('1.124.2: Stop on an agent that does not act on the cancel closes its process after the grace and ends the reply', async () => {
+  const store = mkStore(), { emit, ev } = collect(), finished = [];
+  const turn = await acp.startAcpTurn(opts(store, { text: 'wait __HANG__', addEnv: { FAKE_AGY_IGNORE_CANCEL: '1' }, hooks: { emit, onFinish: r => finished.push(r) } }));
+  try {
+    assert.ok(await waitFor(() => turn.openPrompts === 1));
+    acp.stopAcpTurn('agy:' + turn.sessionId, 'Stopped: no activity for 30 minutes');
+    acp.stopAcpTurn('agy:' + turn.sessionId, 'Stopped: no activity for 30 minutes'); // the watchdog asks again a minute later
+    await new Promise(r => setTimeout(r, 400));
+    assert.equal(turn.done, false, 'the agent gets its grace to end the reply itself');
+    assert.ok(await waitFor(() => turn.done, 3000), 'then the reply ends');
+    assert.deepEqual([results(ev)[0].stopReason, results(ev)[0].error], ['cancelled', 'Stopped: no activity for 30 minutes']);
+    assert.equal(finished.length, 1);
+    assert.ok(!acp.acpSessions.has(turn.sessionId) && !acp.acpTurns.has(turn.sessionId), 'its process was closed; the next message opens a new one');
+  } finally { for (const [, p] of turn.client.pending) clearTimeout(p.timer); }
 });
 
 test('the list and the history come from agy itself, under the Antigravity prefix', async () => {

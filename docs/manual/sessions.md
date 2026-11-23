@@ -322,6 +322,8 @@ What works the same as Claude Code and Codex:
   total, so the cost stays right after a restart.
 - A reply quiet for 30 minutes that is not waiting on you is stopped (`POCKET_STALL_MS`); an OpenCode
   process with no reply for 20 minutes is closed and reopens with the next message (`POCKET_ACP_IDLE_MS`).
+  A stopped reply that the agent has not ended 20 seconds later has its process closed, as Codex's is
+  (`POCKET_ACP_STOP_GRACE_MS`); a process that dies between replies is replaced by the next message.
 
 What OpenRouter does not have (Pocket hides these on its conversations):
 
@@ -416,7 +418,8 @@ cost: the plan is billed by Google, not per token.
 
 A message sent while a reply runs goes into that reply, as **Steer** does elsewhere. When the CLI leaves
 a command running in the background, the reply stays open until the command reports back and the agent has
-finished the steps after it, or until it goes quiet. After a background command, a reply shows **Response ready**
+finished the steps after it, or until it goes quiet. An approval or a question it asks in that time waits for you
+however long you take; waiting on you is not going quiet. After a background command, a reply shows **Response ready**
 a few seconds after the agent's last words, the time Pocket gives it to start another step.
 
 #### What Pocket will not do with it
