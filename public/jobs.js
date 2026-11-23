@@ -724,5 +724,43 @@ const JobKeys = (() => {
     }
   }
 
-  return { on, listHTML, bind, load, keySheet, newSheet, stateOf, lastRun, STATUS, ACCESS, openRequest, requestFromHash, paintBadges };
+  /* ---------- 1.124: Tasks, a read-only Jobs group ----------
+     GET /api/tasks `jobs: { keys, requests }` (only while Job keys and Show job keys in the Tasks list are on). The requests
+     waiting for you lead, then each key in the Settings order. A row opens what it names: a request's card in Settings →
+     Automation, a key's own sheet (Turn off, Rotate, Delete, Recent runs). The group itself changes nothing. */
+  function taskFacts(k) {
+    const s = k.lastRun?.status, needs = s === 'needs_you';
+    const state = needs ? 'Needs you' : stateOf(k);
+    const ran = k.lastRunAt ? `${lastRun(k)}${s && s !== 'working' && s !== 'starting' && !needs ? ` · ${STATUS[s] || s}` : ''}` : lastRun(k);
+    return [state, ran, short(k.workspace)].filter(Boolean);
+  }
+  // `urgent`: the first fact asks for the owner (Needs you), in the due colour as a request's Waiting for you is.
+  const factsHTML = (list, urgent = false) => list.map((f, i) => `<span${urgent && !i ? ' class="due-label"' : ''}>${esc(f)}</span>`).join('<span aria-hidden="true">·</span>');
+  function tasksHTML(snap) {
+    const g = on() && snap?.jobs && typeof snap.jobs === 'object' ? snap.jobs : null;
+    const keys = Array.isArray(g?.keys) ? g.keys : [], reqs = Array.isArray(g?.requests) ? g.requests : [];
+    if (!keys.length && !reqs.length) return '';
+    const reqRow = r => {
+      const from = r.sessionTitle || (typeof sessionName === 'function' ? sessionName(r.session) : '') || 'a conversation';
+      const facts = [`From ${from}`, r.expiresAt ? `Expires ${when(r.expiresAt)}` : ''].filter(Boolean);
+      return `<div class="session-item task-item job-task-item job-task-request" data-job-task-request="${esc(r.id)}">
+  <span class="job-task-slot" aria-hidden="true">${KEY_ICON}</span>
+  <button type="button" class="row" data-job-task-answer="${esc(r.id)}" aria-label="${esc(`Job key request: ${r.name}. ${facts.join('. ')}. Open it in Settings to allow or deny`)}"><span class="body"><span class="title">Job key request: ${esc(r.name)}</span><span class="session-status"><span class="due-label">Waiting for you</span><span aria-hidden="true">·</span>${factsHTML(facts)}</span></span></button></div>`;
+    };
+    const keyRow = k => {
+      const facts = taskFacts(k), title = k.title || k.name, needs = k.lastRun?.status === 'needs_you' && k.lastRun.conversation;
+      return `<div class="session-item task-item job-task-item" data-job-task-key="${esc(k.id)}">
+  <span class="job-task-slot" aria-hidden="true">${KEY_ICON}</span>
+  <button type="button" class="row" data-job-task-open="${esc(k.id)}" aria-label="${esc(`${title}, job key ${k.name}. ${facts.join('. ')}. Open the job key`)}"><span class="body"><span class="title">${esc(title)}</span><span class="session-status">${factsHTML(facts, Boolean(needs))}</span></span></button>
+  ${needs ? `<a class="chip job-task-chat" href="#/chat/${encodeURIComponent(k.lastRun.conversation)}" aria-label="${esc(`Open the run that needs you: ${title}`)}">Open</a>` : ''}</div>`;
+    };
+    const count = `${keys.length}${reqs.length ? ` · ${reqs.length} waiting for you` : ''}`;
+    return `<section class="session-group project-group job-task-group" aria-labelledby="tk-jobs-h"><h2 id="tk-jobs-h">Jobs <span>${esc(count)}</span></h2>${reqs.map(reqRow).join('')}${keys.map(keyRow).join('')}</section>`;
+  }
+  function bindTasks(root) {
+    root.querySelectorAll('[data-job-task-open]').forEach(b => { b.onclick = () => keySheet(b.dataset.jobTaskOpen); });
+    root.querySelectorAll('[data-job-task-answer]').forEach(b => { b.onclick = () => openRequest(b.dataset.jobTaskAnswer); });
+  }
+
+  return { on, listHTML, bind, load, keySheet, newSheet, stateOf, lastRun, STATUS, ACCESS, openRequest, requestFromHash, paintBadges, tasksHTML, bindTasks };
 })();

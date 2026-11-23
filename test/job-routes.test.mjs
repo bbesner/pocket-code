@@ -522,8 +522,8 @@ test('Where the install turns Full access off, a key can\'t ask for it and the d
   // the CLI token is refused on the settings route
   assert.equal((await s.call('/automation/settings', { group: 'jobs', values: { jobs: false } }, { authorization: 'Bearer ' + s.cliToken() })).status, 401);
   // every setting saves and refuses out of range through the route; reset restores the table
-  const good = { jobAddInstructions: true, jobPerHour: 120, jobPerDay: 'off', jobAtOnce: 5, jobDataMax: 100000, jobWaitMax: 30, jobRepeatDays: 1, jobPush: false, jobPushRespectsMute: false, jobKeyFolder: '~/keys' };
-  const bad = { jobAccess: 'root', jobAddInstructions: 'yes', jobPerHour: 0, jobPerDay: 1001, jobAtOnce: 0, jobDataMax: 100001, jobWaitMax: 901, jobRepeatDays: 0, jobPush: 1, jobPushRespectsMute: 'no', jobKeyFolder: '/etc' };
+  const good = { jobsInTasks: false, jobAddInstructions: true, jobPerHour: 120, jobPerDay: 'off', jobAtOnce: 5, jobDataMax: 100000, jobWaitMax: 30, jobRepeatDays: 1, jobPush: false, jobPushRespectsMute: false, jobKeyFolder: '~/keys' };
+  const bad = { jobsInTasks: 'no', jobAccess: 'root', jobAddInstructions: 'yes', jobPerHour: 0, jobPerDay: 1001, jobAtOnce: 0, jobDataMax: 100001, jobWaitMax: 901, jobRepeatDays: 0, jobPush: 1, jobPushRespectsMute: 'no', jobKeyFolder: '/etc' };
   for (const [k, v] of Object.entries(good)) {
     const r = await s.call('/automation/settings', { group: 'jobs', values: { [k]: v } });
     assert.equal(r.status, 200, k);
@@ -535,7 +535,7 @@ test('Where the install turns Full access off, a key can\'t ask for it and the d
   }
   const reset = await s.call('/automation/settings', { group: 'jobs', reset: true });
   const vals = Object.fromEntries(reset.body.groups.find(g => g.key === 'jobs').settings.map(x => [x.key, x.value]));
-  assert.deepEqual(vals, { jobs: false, jobAccess: 'ask', jobAddInstructions: false, jobPerHour: 6, jobPerDay: 24, jobAtOnce: 1, jobDataMax: 20000, jobWaitMax: 300, jobRepeatDays: 7, jobPush: true, jobPushRespectsMute: true, jobKeyFolder: '~/.config/pocket/jobs/' });
+  assert.deepEqual(vals, { jobs: false, jobsInTasks: true, jobAccess: 'ask', jobAddInstructions: false, jobPerHour: 6, jobPerDay: 24, jobAtOnce: 1, jobDataMax: 20000, jobWaitMax: 300, jobRepeatDays: 7, jobPush: true, jobPushRespectsMute: true, jobKeyFolder: '~/.config/pocket/jobs/' });
   assert.ok(s.audit().some(a => a.action === 'settings' && a.group === 'jobs' && a.reset === true));
 });
 
@@ -567,4 +567,45 @@ test('1.122.2: a job run in a new process on its conversation counts that reply\
   near(await runCost(old.run), 1.6, 'an older CLI: as before'); near(await today(), 2.8, 'today');
   const audited = s.audit().filter(a => a.action === 'job' && a.event === 'finished').map(a => a.cost);
   assert.equal(audited.length, 4); [0.4, 0.4, 0.4, 1.6].forEach((c, i) => near(audited[i], c, 'audit line ' + i));
+});
+
+test('1.124: the Tasks view\'s Jobs group: each key\'s state and newest run, for the app only, behind its setting; never the key or its instruction', { timeout: 120_000 }, async t => {
+  const s = await boot(t, 19097);
+  assert.equal((await s.call('/settings', { tasks: true })).status, 200);
+  assert.ok(!('jobs' in (await s.call('/tasks')).body), 'no group while Job keys are off');
+  await s.turnOn();
+  assert.ok(!('jobs' in (await s.call('/tasks')).body), 'no group while there is no key and no request');
+  const { key, secret } = await s.makeKey({ limits: { atOnce: 3 } });
+  let g = (await s.call('/tasks')).body.jobs;
+  assert.deepEqual(g.requests, []);
+  assert.deepEqual(g.keys.map(k => [k.id, k.name, k.title, k.enabled, k.running, k.lastRunAt, 'lastRun' in k]), [[key.id, 'disk-check', 'Disk check', true, 0, null, false]]);
+  assert.deepEqual(Object.keys(g.keys[0]).sort(), ['enabled', 'engine', 'id', 'lastRunAt', 'name', 'running', 'title', 'workspace']);
+  // a run that waits on the owner reads needs_you, as Recent runs does
+  const ap = await s.job(secret, { data: 'please __APPROVAL__', wait: 15 });
+  assert.equal(ap.body.status, 'needs_you', JSON.stringify(ap.body));
+  g = (await s.call('/tasks')).body.jobs;
+  assert.deepEqual([g.keys[0].running, g.keys[0].lastRun.status, g.keys[0].lastRun.conversation], [1, 'needs_you', ap.body.conversation]);
+  assert.ok(g.keys[0].lastRunAt);
+  await s.stopTurn(ap.body.conversation);
+  await s.until(async () => (await s.call('/tasks')).body.jobs.keys[0].running === 0, 15000, 'the run to end');
+  // a finished run: its status and when it ended
+  const done = await s.job(secret, { data: 'disk at 91%', wait: 20 });
+  assert.equal(done.body.status, 'done', JSON.stringify(done.body));
+  g = (await s.call('/tasks')).body.jobs;
+  assert.deepEqual([g.keys[0].lastRun.status, g.keys[0].lastRun.conversation], ['done', done.body.conversation]);
+  assert.ok(Date.parse(g.keys[0].lastRun.at) >= Date.parse(g.keys[0].lastRunAt));
+  // a key turned off still lists, as Off
+  assert.equal((await s.call(`/jobs/keys/${key.id}/disable`, {})).status, 200);
+  assert.equal((await s.call('/tasks')).body.jobs.keys[0].enabled, false);
+  // never the key, its hash, its file or its instruction
+  const text = (await s.call('/tasks')).text;
+  for (const bad of [secret, 'Look at the disk', 'keyFile', 'hash']) assert.ok(!text.includes(bad), `the Tasks answer has no ${bad}`);
+  // the CLI token's task list has no Jobs group; the setting hides it
+  assert.ok(!('jobs' in (await s.call('/tasks', undefined, { authorization: 'Bearer ' + s.cliToken() })).body), 'agents can\'t list keys through Tasks');
+  await s.settings({ jobsInTasks: false });
+  assert.ok(!('jobs' in (await s.call('/tasks')).body), 'the setting hides the group');
+  await s.settings({ jobsInTasks: true });
+  assert.ok('jobs' in (await s.call('/tasks')).body);
+  await s.settings({ jobs: false });
+  assert.ok(!('jobs' in (await s.call('/tasks')).body), 'Job keys off: no group, keys kept');
 });

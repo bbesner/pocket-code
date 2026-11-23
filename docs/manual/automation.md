@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.123.1
+checked: 1.124.0
 sources: automation.mjs, checkbacks.mjs, job-keys.mjs, public/automation.js, scripts/pocket-checkback.mjs, scripts/pocket-run.mjs, scripts/pocket-jobkey.mjs, skills/pocket-checkback/SKILL.md, skills/pocket-jobs/SKILL.md, server.mjs, queue.mjs, codex.mjs, acp.mjs, sidechat.mjs, coordination.mjs, usage.mjs, inbox-runner.mjs, public/voice-text.js
 -->
 # Automation: Pause all, check-backs, job keys and limits on unattended work
@@ -294,7 +294,8 @@ While it is on, the group reads from top to bottom:
 1. The **Job keys** switch and its help.
 2. **Waiting for you**, only while a conversation has asked for a key ([below](#let-a-conversation-set-one-up)).
 3. The list of your keys, with **New job key**. Each key is one row, with its name, folder, agent and model, access (**Ask first** or **Full access**), state (**On**, **Off** or **Running**) and the time of its last run (*Last run 2:30 PM*, or *Never ran*). With no keys yet, the list says what a job key is and offers the same button.
-4. **Advanced**, closed. It holds every other setting of the group ([Job settings](#job-settings)).
+4. **Show job keys in the Tasks list** (On by default): the read-only **Jobs** group in [Tasks](tasks.md#jobs-in-the-list), with each key's state and last run and the requests waiting for you.
+5. **Advanced**, closed. It holds every other setting of the group ([Job settings](#job-settings)).
 
 While the switch is on and a request waits, the count shows on the **Automation** entry in Settings and on the **Job keys** heading.
 
@@ -613,11 +614,12 @@ A key can only use an agent this server runs. If the agent is later turned off, 
 
 ### Job settings
 
-**Settings → Automation → Job keys**. All apply to the whole install. Every one except the **Job keys** switch is under **Advanced**, below the key list. The ones marked *(new keys)* are the defaults a new key starts with; each key then keeps its own copy, which you can change on its sheet, and changing a default never changes a key that exists. **Reset to defaults** in the group puts these back. **Job keys** is Off by default, so a reset turns it off; keys are kept. With **Job keys** off, the group shows only the switch. A value outside its range is refused with a message that names the range, and the old value stays. A limit in this group set to **No limit** shows a warning at the top of the page, for example *Runs per hour, per key (new keys) has no limit.*
+**Settings → Automation → Job keys**. All apply to the whole install. Every one except the **Job keys** switch and **Show job keys in the Tasks list** is under **Advanced**, below the key list. The ones marked *(new keys)* are the defaults a new key starts with; each key then keeps its own copy, which you can change on its sheet, and changing a default never changes a key that exists. **Reset to defaults** in the group puts these back. **Job keys** is Off by default, so a reset turns it off; keys are kept. With **Job keys** off, the group shows only the switch. A value outside its range is refused with a message that names the range, and the old value stays. A limit in this group set to **No limit** shows a warning at the top of the page, for example *Runs per hour, per key (new keys) has no limit.*
 
 | Setting | Default | Range |
 |---|---|---|
 | **Job keys** | Off | On or Off. Off: every job call is refused; keys are kept |
+| **Show job keys in the Tasks list** | On | On or Off. The read-only Jobs group in Tasks ([Jobs in the list](tasks.md#jobs-in-the-list)) |
 | **Access for new keys** | **Ask me for every action** | That, or **Full access (only where this server allows it)**. Where Full access is turned off for the server, a job runs under Ask me for every action whatever its key says |
 | **Job may add its own instructions (new keys)** | Off | On or Off. Off: everything a job sends is treated as data |
 | **Runs per hour, per key (new keys)** | 6 | 1 to 120, or No limit |
@@ -691,7 +693,7 @@ Restart Pocket after changing `.env`. A bad value is ignored and named in the pa
 | `STALE_HOURS` | A number of hours, 1 to 24 |
 | `NOTICE` | `push` or `settings` |
 | `CHECKBACK_ACCESS` | `same` or `review` |
-| `JOBS`, `JOB_ADD_INSTRUCTIONS`, `JOB_PUSH`, `JOB_PUSH_RESPECTS_MUTE` | On or off (as above). `JOBS=1` starts with job keys on |
+| `JOBS`, `JOBS_IN_TASKS`, `JOB_ADD_INSTRUCTIONS`, `JOB_PUSH`, `JOB_PUSH_RESPECTS_MUTE` | On or off (as above). `JOBS=1` starts with job keys on |
 | `JOB_ACCESS` | `ask` or `full` |
 | `JOB_PER_HOUR`, `JOB_PER_DAY` | A whole number in the range of the setting, or `off` |
 | `JOB_AT_ONCE`, `JOB_DATA_MAX`, `JOB_WAIT_MAX`, `JOB_REPEAT_DAYS` | A whole number in the range of the setting of that name (characters, seconds or days as the table says). No `off` |

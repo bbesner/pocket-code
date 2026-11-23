@@ -35,7 +35,7 @@ test('the defaults are the spec tables, and the groups are data', () => {
   assert.deepEqual(auto.groupValues({}, 'checkbacks', {}), { checkbacks: false, checkbackAccess: 'same', checkbackClaude: true, checkbackCodex: true, pushWhenMuted: true, showInTasks: true,
     perConversation: 10, perInstall: 50, chainLimit: 5, furthestHours: 2160, soonestMin: 1, noteMax: 1000, catchUpHours: 12, busyWaitMin: 60, spacingSec: 15 });
   // job keys: the Settings table of Part 3, off by default
-  assert.deepEqual(auto.groupValues({}, 'jobs', {}), { jobs: false, jobAccess: 'ask', jobAddInstructions: false, jobPerHour: 6, jobPerDay: 24, jobAtOnce: 1,
+  assert.deepEqual(auto.groupValues({}, 'jobs', {}), { jobs: false, jobsInTasks: true, jobAccess: 'ask', jobAddInstructions: false, jobPerHour: 6, jobPerDay: 24, jobAtOnce: 1,
     jobDataMax: 20000, jobWaitMax: 300, jobRepeatDays: 7, jobPush: true, jobPushRespectsMute: true, jobKeyFolder: '~/.config/pocket/jobs/' });
   const cbg = auto.GROUPS[2].settings;
   assert.deepEqual(cbg.filter(s => s.advanced).map(s => s.key), ['busyWaitMin', 'spacingSec']);
@@ -50,14 +50,14 @@ test('every setting saves a value in range, refuses one out of range by naming t
     openrouterDaily: 0.5, longestReply: 480, countWaiting: true, notice: 'settings', staleHours: 24, runOverdue: false,
     checkbacks: true, checkbackAccess: 'review', checkbackClaude: false, checkbackCodex: false, pushWhenMuted: false, showInTasks: false,
     perConversation: 50, perInstall: 500, chainLimit: 0, furthestHours: 8760, soonestMin: 60, noteMax: 4000, catchUpHours: 0, busyWaitMin: 480, spacingSec: 0,
-    jobs: true, jobAccess: 'full', jobAddInstructions: true, jobPerHour: 120, jobPerDay: 1000, jobAtOnce: 5, jobDataMax: 100000, jobWaitMax: 30, jobRepeatDays: 30,
+    jobs: true, jobsInTasks: false, jobAccess: 'full', jobAddInstructions: true, jobPerHour: 120, jobPerDay: 1000, jobAtOnce: 5, jobDataMax: 100000, jobWaitMax: 30, jobRepeatDays: 30,
     jobPush: false, jobPushRespectsMute: false, jobKeyFolder: '~/keys/' };
   const bad = { ownMessages: 'maybe', inboxWatch: 'yes', backgroundJobs: 'no', rearmRetries: 1, confirm: 'on',
     claudeWeekly: 9, claudeFiveHour: 101, codexWeekly: 50.5, codexFiveHour: 'lots', dailyReplies: 1001, countOwnerWork: 'off', ceilingsHoldOwnerWork: 0,
     openrouterDaily: 0.49, longestReply: 4, countWaiting: 'true', notice: 'email', staleHours: 'off', runOverdue: 'yes',
     checkbacks: 1, checkbackAccess: 'full', checkbackClaude: 'on', checkbackCodex: 'no', pushWhenMuted: 0, showInTasks: 'false',
     perConversation: 0, perInstall: 501, chainLimit: -1, furthestHours: 8761, soonestMin: 0, noteMax: 199, catchUpHours: 73, busyWaitMin: 4, spacingSec: 301,
-    jobs: 'yes', jobAccess: 'root', jobAddInstructions: 1, jobPerHour: 121, jobPerDay: 0, jobAtOnce: 6, jobDataMax: 999, jobWaitMax: 901, jobRepeatDays: 31,
+    jobs: 'yes', jobsInTasks: 'no', jobAccess: 'root', jobAddInstructions: 1, jobPerHour: 121, jobPerDay: 0, jobAtOnce: 6, jobDataMax: 999, jobWaitMax: 901, jobRepeatDays: 31,
     jobPush: 'on', jobPushRespectsMute: 'off', jobKeyFolder: '/etc/' };
   const ranges = { claudeWeekly: /must be 10% to 100%, or No limit\.$/, claudeFiveHour: /10% to 100%, or No limit/, dailyReplies: /1 to 1,000, or No limit/,
     openrouterDaily: /\$0\.50 to \$500, or No limit/, longestReply: /5 min to 480 min, or No limit/, staleHours: /1 h to 24 h\.$/, ownMessages: /'run' or 'blocked'/, inboxWatch: /On or Off/,

@@ -1,6 +1,6 @@
 <!-- manual
-checked: 1.120.0
-sources: tasks.mjs, checkbacks.mjs, public/tasks.js, scripts/pocket-tasks.mjs, scripts/owner-zone.mjs, skills/pocket-tasks/SKILL.md
+checked: 1.124.0
+sources: tasks.mjs, checkbacks.mjs, job-keys.mjs, public/tasks.js, public/jobs.js, scripts/pocket-tasks.mjs, scripts/owner-zone.mjs, skills/pocket-tasks/SKILL.md
 -->
 # Tasks
 
@@ -34,6 +34,16 @@ The **Tasks** segment, the phone chip and the tab show how many items are due, c
 ### Check-backs in the list
 
 With **Check-backs** on ([Automation](automation.md#check-backs)) and **Show check-backs in the Tasks list** on (both under **Settings → Automation → Check-backs**), the list gains a read-only **Check-backs** group, between your to-dos and **Done**: one row for each check-back that is waiting or running, soonest first. Each row shows its note, and under it the time it is set for, the conversation and, when something holds it or it is running, what (*Held while Pocket is paused*, *Waiting for the conversation to finish*, *Waiting for a usage limit to reset*, *Held by a plan ceiling*, *Held by the daily limit* or *Checking back now*). Tap the row to open the conversation. **Cancel** is on the row unless the check-back is running. A check-back is not a task: you can't edit it, finish it or set a reminder on it, and it is not announced as due (its own push says *Checked back · …* when it has run). The group is not shown, and the setting does nothing, while check-backs are off. A check-back is also not in the **Done** list; the card in its conversation says how it ended.
+
+### Jobs in the list
+
+With **Job keys** on ([Automation](automation.md#job-keys)) and **Show job keys in the Tasks list** on (both under **Settings → Automation → Job keys**), the list gains a read-only **Jobs** group after **Check-backs**, so everything that runs without you is in one place. The heading counts your keys and, when any wait, the requests: *Jobs 2 · 1 waiting for you*.
+
+- **A request a conversation made** for a job key leads the group, titled *Job key request: weekly-backup*, with *Waiting for you*, the conversation it came from and when it expires. Tap it to open its card in **Settings → Automation → Job keys**, where you read the whole instruction and **Allow**, **Edit first** or **Deny** it ([Let a conversation set one up](automation.md#let-a-conversation-set-one-up)).
+- **Each key** follows, in the order Settings lists them, with its title (*Disk check* for `disk-check`) and under it its state, its last run and its folder: *On · Last run 2:30 PM · Done · ~/ops*, *Off · Never ran · ~/reports*. The state is **On**, **Off**, **Running**, or **Needs you** while its newest run waits on an approval or a question; that run's status (**Done** or **Failed**) follows the time once it has ended. Tap the row to open the key's own sheet, the same one as in Settings, with **Turn off**, **Rotate key**, **Delete** and **Recent runs**.
+- **Open** is on a key's row while its newest run needs you, and opens that run's conversation.
+
+Nothing in the group changes a key: the changes are on the key's sheet. A job key has no due time, so the group shows no dates to come and nothing in it is announced as due; a script or a cron line on the server decides when a key runs. The group is not shown while job keys are off, when there is no key and no request, or with the setting off. Agents never see it: an agent's task list (`pocket-tasks`) has no Jobs group, as agents can't list job keys.
 
 ### Add a task yourself
 
