@@ -9,6 +9,7 @@ import {spawn,execFile} from 'node:child_process';
 import {createHmac,randomUUID} from 'node:crypto';
 import {ProjectStore} from '../projects.mjs';
 import {conductorPlaybook,conductorHandoffAt,startOf,CONDUCTOR_HANDOFF} from '../project-mode.mjs';
+import {freePort} from './free-port.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
 const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|CODEX|CLAUDE|OPENCODE)_/.test(k)));
@@ -109,7 +110,7 @@ async function server(t,port,extraEnv={}){
 }
 
 test('Claude: a conductor project starts its first process in the mode; Solo, explicit picks, linking later, the switches',{timeout:120_000},async t=>{
-  const s=await server(t,18000+Math.floor(Math.random()*1500),{POCKET_MAX_PROCESSES:'0'}); // every conversation keeps its process, so the handoffs below can prove their parent
+  const s=await server(t,await freePort(),{POCKET_MAX_PROCESSES:'0'}); // every conversation keeps its process, so the handoffs below can prove their parent
   assert.equal((await s.call('/settings',{projects:true,documents:true})).status,200);
   const p=await s.act({action:'track',name:'Big build',directory:s.work,mode:'conductor',doneWhen:'The suite passes'});
   await s.call('/codex/models');
@@ -269,7 +270,7 @@ test('Claude: a conductor project starts its first process in the mode; Solo, ex
 });
 
 test('Codex: the first thread gets Astra, high effort, the playbook and Sol workers; the next reply keeps the process',{timeout:60_000},async t=>{
-  const s=await server(t,19500+Math.floor(Math.random()*400));
+  const s=await server(t,await freePort());
   await s.call('/settings',{projects:true});
   const p=await s.act({action:'track',name:'Codex build',directory:s.work,mode:'conductor'});
   const r=await s.call('/new',{cwd:s.work,provider:'codex',text:'cx lead',project:p.id,clientMessageId:randomUUID()});
@@ -342,7 +343,7 @@ test('Codex: the first thread gets Astra, high effort, the playbook and Sol work
 });
 
 test('no top model: the mode is null and a conversation starts as it does today',{timeout:60_000},async t=>{
-  const s=await server(t,19950+Math.floor(Math.random()*40),{POCKET_CLAUDE_MODELS:'opus,sonnet,haiku',FAKE_CODEX_MODELS:JSON.stringify([{id:'gpt-6.1-sol',displayName:'GPT-6.1 Sol'}])});
+  const s=await server(t,await freePort(),{POCKET_CLAUDE_MODELS:'opus,sonnet,haiku',FAKE_CODEX_MODELS:JSON.stringify([{id:'gpt-6.1-sol',displayName:'GPT-6.1 Sol'}])});
   await s.call('/settings',{projects:true});
   const p=await s.act({action:'track',name:'No lead',directory:s.work,mode:'conductor'});
   await s.call('/codex/models');
@@ -369,7 +370,7 @@ test('no top model: the mode is null and a conversation starts as it does today'
 });
 
 test('pocket-board: the mode flags, step checks and status end to end',{timeout:60_000},async t=>{
-  const s=await server(t,19000+Math.floor(Math.random()*400));
+  const s=await server(t,await freePort());
   await s.call('/settings',{projects:true});
   const cli=args=>new Promise(r=>execFile(process.execPath,[path.join(repo,'scripts/pocket-board.mjs'),...args],{cwd:s.work,env:{...cleanEnv(),POCKET_ENV_FILE:'',POCKET_DATA_DIR:path.join(s.dir,'data')}},(e,stdout,stderr)=>r({code:e?e.code:0,stdout,stderr})));
   let o=await cli(['track','--requested','--name','CLI build','--mode','conductor','--done-when','Green suite','--works-in','/srv/a, https://staging.example.test']);

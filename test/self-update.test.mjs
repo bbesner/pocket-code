@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {execFileSync, spawnSync} from 'node:child_process';
 import {SelfUpdate} from '../self-update.mjs';
+import {freePort} from './free-port.mjs';
 
 const repo=path.resolve(import.meta.dirname,'..');
 const tmp=t=>{const d=fs.mkdtempSync(path.join(os.tmpdir(),'self-update-'));t.after(()=>fs.rmSync(d,{recursive:true,force:true}));return d;};
@@ -160,10 +161,9 @@ async function setup(t,{port}){
 // A stand-in for a real tool (tar, npm) that misbehaves the way the body says and otherwise is the real one.
 const which=tool=>execFileSync('sh',['-c','command -v '+tool],{encoding:'utf8'}).trim();
 const wrap=(bin,tool,body)=>fs.writeFileSync(path.join(bin,tool),`#!/bin/sh\n${body}\nexec '${which(tool)}' "$@"\n`,{mode:0o755});
-const freePort=()=>20000+Math.floor(Math.random()*20000);
 
 test('1.123: the script installs a release, backs up private state, restarts and confirms the new version',{timeout:120000},async t=>{
-  const {d,dir,st,run,served}=await setup(t,{port:freePort()});
+  const {d,dir,st,run,served}=await setup(t,{port:await freePort()});
   const before=sh(dir,'rev-parse','HEAD');
   const r=run('1.1.0','1.0.0');
   assert.equal(r.status,0,r.stdout+r.stderr);
@@ -180,7 +180,7 @@ test('1.123: the script installs a release, backs up private state, restarts and
 });
 
 test('1.123: a release that does not start is rolled back to the version that was running',{timeout:120000},async t=>{
-  const {dir,run,served}=await setup(t,{port:freePort()});
+  const {dir,run,served}=await setup(t,{port:await freePort()});
   assert.equal(run('1.1.0','1.0.0').job.phase,'complete');
   const before=sh(dir,'rev-parse','HEAD');
   const r=run('1.2.0','1.1.0');
@@ -191,7 +191,7 @@ test('1.123: a release that does not start is rolled back to the version that wa
 });
 
 test('1.123: a hand-edited checkout, a moved HEAD or an unknown origin is refused before anything changes',{timeout:60000},async t=>{
-  const {dir,st,run}=await setup(t,{port:freePort()});
+  const {dir,st,run}=await setup(t,{port:await freePort()});
   const head=sh(dir,'rev-parse','HEAD');
   const moved=run('1.1.0','1.0.0','b'.repeat(40));
   assert.equal(moved.job.phase,'failed');assert.match(moved.job.error,/changed since the update started/);
@@ -207,7 +207,7 @@ test('1.123: a hand-edited checkout, a moved HEAD or an unknown origin is refuse
 });
 
 test('1.124.2: a backup tar gives up on (exit 2, a full disk) is removed and nothing is installed',{timeout:60000},async t=>{
-  const {d,dir,bin,run}=await setup(t,{port:freePort()});
+  const {d,dir,bin,run}=await setup(t,{port:await freePort()});
   const head=sh(dir,'rev-parse','HEAD');
   // GNU tar on a disk that fills: part of an archive written, "Cannot write", "Error is not recoverable", status 2.
   wrap(bin,'tar',`case " $* " in *" -czf "*) prev=''; for a in "$@"; do [ "$prev" = -czf ] && out=$a; prev=$a; done
@@ -221,7 +221,7 @@ test('1.124.2: a backup tar gives up on (exit 2, a full disk) is removed and not
 });
 
 test('1.124.2: when npm ci fails and putting the old packages back fails too, the job says Pocket will not start again, not that it stays',{timeout:120000},async t=>{
-  const {d,dir,bin,run}=await setup(t,{port:freePort()});
+  const {d,dir,bin,run}=await setup(t,{port:await freePort()});
   const head=sh(dir,'rev-parse','HEAD');
   // npm ci removes node_modules before it installs; the first FAIL_CI runs then fail (the registry is unreachable, the disk full).
   const n=path.join(d,'npm-ci-runs');
@@ -240,7 +240,7 @@ test('1.124.2: when npm ci fails and putting the old packages back fails too, th
 });
 
 test('1.124.3: without flock (macOS has none) the job says flock is missing, not that another update is running',{timeout:60000},async t=>{
-  const {d,dir,env,run}=await setup(t,{port:freePort()});
+  const {d,dir,env,run}=await setup(t,{port:await freePort()});
   const head=sh(dir,'rev-parse','HEAD');
   // Every program on PATH but flock, as on a Mac.
   const farm=path.join(d,'no-flock');fs.mkdirSync(farm);
@@ -254,7 +254,7 @@ test('1.124.3: without flock (macOS has none) the job says flock is missing, not
 });
 
 test('1.124.3: the backup needs GNU tar: a BSD tar is refused before anything changes, and GNU tar as gtar is used',{timeout:120000},async t=>{
-  const {d,dir,bin,run,served}=await setup(t,{port:freePort()});
+  const {d,dir,bin,run,served}=await setup(t,{port:await freePort()});
   const head=sh(dir,'rev-parse','HEAD');
   // macOS's tar is bsdtar: it does not take GNU tar's --warning or --ignore-failed-read.
   wrap(bin,'tar',`case "$*" in *--version*) echo 'bsdtar 3.5.3 - libarchive 3.5.3 zlib/1.2.11'; exit 0 ;; *--warning=*|*--ignore-failed-read*) echo 'tar: Option --warning=no-file-changed is not supported' >&2; exit 1 ;; esac`);
@@ -270,7 +270,7 @@ test('1.124.3: the backup needs GNU tar: a BSD tar is refused before anything ch
 });
 
 test('1.124.3: the script beats its lock file while a step is quiet, and stops when it ends',{timeout:120000},async t=>{
-  const {d,dir,bin,env,run}=await setup(t,{port:freePort()});
+  const {d,dir,bin,env,run}=await setup(t,{port:await freePort()});
   env.POCKET_SELF_UPDATE_BEAT='1';
   const lock=path.join(dir,'data','pocket-self-update.json.lock'),mark=path.join(d,'ci-started'),seen=path.join(d,'beat-seen');
   // A quiet npm ci of 2.5 seconds: the lock file must be newer at its end than at its start.
@@ -283,7 +283,7 @@ test('1.124.3: the script beats its lock file while a step is quiet, and stops w
 });
 
 test('1.124.3: a reply started during the update holds the restart until it ends; one that does not end leaves Pocket where it was',{timeout:120000},async t=>{
-  const {dir,st,env,run,served}=await setup(t,{port:freePort()});
+  const {dir,st,env,run,served}=await setup(t,{port:await freePort()});
   const head=sh(dir,'rev-parse','HEAD'),restarts=()=>(fs.readFileSync(path.join(st,'calls'),'utf8').match(/restart/g)||[]).length,before=restarts();
   env.POCKET_SELF_UPDATE_IDLE_TRIES='3';
   fs.writeFileSync(path.join(st,'busy'),'99');
@@ -299,7 +299,7 @@ test('1.124.3: a reply started during the update holds the restart until it ends
 });
 
 test('1.124.3: when the new version does not start and putting the old one back fails too, the job says so, not that Pocket went back',{timeout:120000},async t=>{
-  const {d,dir,bin,run}=await setup(t,{port:freePort()});
+  const {d,dir,bin,run}=await setup(t,{port:await freePort()});
   assert.equal(run('1.1.0','1.0.0').job.phase,'complete');
   // 1.2.0 installs but does not start; then the npm ci that puts 1.1.0's packages back fails (the registry is unreachable).
   const n=path.join(d,'npm-ci-runs');

@@ -8,6 +8,7 @@ import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {createHash,createHmac,randomUUID} from 'node:crypto';
 import {DocumentStore} from '../documents.mjs';
+import {freePort} from './free-port.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
 const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|CODEX)_/.test(k)));
@@ -18,7 +19,7 @@ const T2='legacyTokenTwo_abcdefghijklmnopqrstuvwxyz0123456';
 
 // A Pocket server on a scratch data dir with Files on; `seed` runs before start (a documents.json to migrate).
 async function server(t,{seed}={}){
-  const dir=tmp();let port=19431+Math.floor(Math.random()*400);
+  const dir=tmp();let port=await freePort();
   const secret=randomUUID(),exp=Date.now()+3600000;
   const cookie=exp+'.'+createHmac('sha256',secret).update(String(exp)).digest('hex');
   const owner={'content-type':'application/json',cookie:'pc_auth='+cookie};

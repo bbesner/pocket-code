@@ -8,6 +8,7 @@ import {spawn,execFile} from 'node:child_process';
 import {createHmac} from 'node:crypto';
 import {StartStore,handoffInstructions} from '../starts.mjs';
 import {killStrays} from './stray-runners.mjs';
+import {freePort} from './free-port.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const repo=path.resolve(import.meta.dirname,'..');
 const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^(POCKET|VAPID|CODEX|CLAUDE|OPENCODE)_/.test(k)));
@@ -29,7 +30,7 @@ test('StartStore: only the server sets the handoff fields; a started entry keeps
 test('HTTP: parent, double start, permission and folder',{timeout:60_000},async t=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'handoff-')),home=path.join(dir,'home'),work=path.join(home,'work');
   for(const d of [work,path.join(dir,'sessions')])fs.mkdirSync(d,{recursive:true});
-  const port=18000+Math.floor(Math.random()*2000),secret='handoff-'+port,exp=Date.now()+3600_000;
+  const port=await freePort(),secret='handoff-'+port,exp=Date.now()+3600_000;
   const headers={'content-type':'application/json',cookie:'pc_auth='+exp+'.'+createHmac('sha256',secret).update(String(exp)).digest('hex')};
   const child=spawn(process.execPath,['server.mjs'],{cwd:repo,stdio:['ignore','pipe','pipe'],env:{...cleanEnv(),HOME:home,PORT:String(port),POCKET_SKILLS:'0',POCKET_ENV_FILE:'',POCKET_AUTO_TITLES:'0',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_VOICE:'off',POCKET_APPROVAL_MODE:'full',
     POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:path.join(dir,'data'),POCKET_TEST_CALLS:path.join(dir,'calls'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs')}});
