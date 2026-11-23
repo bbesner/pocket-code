@@ -76,3 +76,43 @@ test('a-05: with a message queued, a usage-limit wait reads Waiting for usage re
   const order = s.calls().filter(c => c.id === id).map(c => /interrupted by an API rate limit/.test(c.text) ? 'retry' : c.text === 'queued behind the limit' ? 'queued' : 'first');
   assert.deepEqual(order, ['first', 'retry', 'queued']);
 });
+
+// a-07: a background agent asks permission while no reply runs; its request holds a control-only stand-in turn. Pause all
+// counted that as a running reply and killed the process (the agent with it) even with "also stops background jobs" off,
+// and logged the request as answered.
+test('a-07: Pause all leaves a background agent\'s waiting request alone with the switch off; with it on, it is a background job and reads Stopped', { timeout: 90_000 }, async t => {
+  const s = await boot(t, 21182);
+  const runnerPid = id => { const d = path.join(s.data, 'turnlogs'); return JSON.parse(fs.readFileSync(path.join(d, fs.readdirSync(d).find(f => f.startsWith(id) && f.endsWith('.runner.json'))), 'utf8')).pid; };
+  const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  const standIn = async text => {
+    const id = await s.start(text, { approvalMode: 'review' });
+    await s.until(() => s.logs().includes(`turn start (a background job asked for permission) session=${id}`), 10000, 'the stand-in turn');
+    await s.until(async () => (await s.session(id))?.state?.label === 'Needs approval', 5000, 'Needs approval');
+    return id;
+  };
+  // the switch off: nothing of it is counted, nothing is stopped, the request stays answerable
+  assert.equal((await s.call('/automation/settings', { group: 'pause', values: { backgroundJobs: false } })).status, 200);
+  const a = await standIn('switch off __BG_ASK__'), pidA = runnerPid(a);
+  const would = (await s.call('/pause')).body.would;
+  assert.deepEqual([would.replies.claude, would.background], [0, 0], 'not a reply running: ' + JSON.stringify(would));
+  const p = await s.call('/pause', {});
+  assert.equal(p.status, 200); assert.equal(p.body.stopped.replies.claude, 0, JSON.stringify(p.body.stopped));
+  await sleep(1500);
+  assert.ok(!s.logs().includes(`stop requested (Pause all) session=${a}`), 'not stopped as a reply');
+  assert.ok(alive(pidA), 'the process, and the background agent in it, still run');
+  assert.equal((await s.call(`/session/${s.e(a)}/approvals`)).body.requests.length, 1, 'the request still waits');
+  assert.equal((await s.session(a)).state.label, 'Needs approval');
+  assert.equal((await s.call('/resume', {})).status, 200);
+
+  // the switch on: it counts as a background job, is stopped with it, and the conversation says Stopped
+  assert.equal((await s.call('/automation/settings', { group: 'pause', values: { backgroundJobs: true } })).status, 200);
+  const b = await standIn('switch on __BG_ASK__'), pidB = runnerPid(b);
+  const w2 = (await s.call('/pause')).body.would;
+  assert.deepEqual([w2.replies.claude, w2.background], [0, 2], 'two background jobs (both stand-ins\' agents), no reply: ' + JSON.stringify(w2));
+  const p2 = await s.call('/pause', {});
+  assert.deepEqual([p2.body.stopped.replies.claude, p2.body.stopped.background], [0, 2]);
+  await s.until(() => s.logs().includes(`turn done (background job's request withdrawn: stopped) session=${b}`), 8000, 'the stand-in to end stopped');
+  assert.ok(!s.logs().includes(`turn done (background job's request answered) session=${b}`), 'not logged as answered');
+  await s.until(() => !alive(pidB), 5000, 'the process to end');
+  assert.equal((await s.session(b)).state.label, 'Stopped');
+});

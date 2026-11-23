@@ -2458,7 +2458,9 @@ async function finalizeTurn(sessionId, turn, code) {
       for (const res of turn.subs) { try { res.end(); } catch { } }
       if (turns.get(sessionId) === turn) turns.delete(sessionId);
       if (r && !r.exited) { writeRunnerMeta(r); scheduleIdle(r); }
-      log(`turn done (background job's request answered) session=${sessionId}`);
+      // 1.124.5: Pause all stopped it with its background jobs: the conversation says Stopped, not answered
+      if (turn.stopped) { recordOutcome(sessionId, turn, null); log(`turn done (background job's request withdrawn: stopped) session=${sessionId}`); }
+      else log(`turn done (background job's request answered) session=${sessionId}`);
       carryRequests(r, carry);
     } finally { turn.finalizeResolve?.(); }
     return;
@@ -6325,8 +6327,9 @@ app.post('/api/claude/stop-all',requireAuth,(req,res)=>{
 // own stop paths, holds pending usage-limit retries, and pauses Inbox Watch through its own Pause flag (recorded here,
 // so Resume clears only what Pause all set). While paused the gate refuses every unattended start: the queue does not
 // drain and coordination wakes only queue their message. The owner's own messages run, unless the owner chose Blocked.
+// 1.124.5: a control-only stand-in (a background agent's request waiting, no reply running) is background work, not a reply
 const liveTurns = () => ({
-  claude: [...turns.entries()].filter(([, t]) => !t.stopped && !t.finalized),
+  claude: [...turns.entries()].filter(([, t]) => !t.stopped && !t.finalized && !t.controlOnly),
   codex: CODEX_ON ? [...codex.codexTurns.entries()].filter(([, t]) => !t.stopped && !t.done) : [],
   openrouter: ACP_ON ? [...acp.acpTurns.entries()].filter(([, t]) => !t.stopped && !t.done && t.session.runtime.id === 'opencode') : [],
   antigravity: AGY_ON ? [...acp.acpTurns.entries()].filter(([, t]) => !t.stopped && !t.done && t.session.runtime.id === 'antigravity') : [],
@@ -6339,8 +6342,10 @@ const liveSides = () => [...sideChats.chats.values()].filter(c => c.busy && !c.c
 // Claude conversations Working in background: no reply runs, but their process has background jobs, and the CLI starts a
 // reply by itself when one finishes. Stopped through the same path as Stop background jobs (the process and its jobs end),
 // unless the owner turned that off; then the reply they start is stopped instead (handleRunnerLine).
+// 1.124.5: and one whose only turn is the stand-in for a background agent's request (left running when the switch is off)
+const standInOnly = r => !r.turn ? !turns.has(r.sessionId) : r.turn.controlOnly && turns.get(r.sessionId) === r.turn;
 const backgroundRunners = () => autoValues('pause').backgroundJobs
-  ? [...runners.values()].filter(r => !r.turn && !turns.has(r.sessionId) && !r.exited && !r.closing && r.bgTasks.length) : [];
+  ? [...runners.values()].filter(r => standInOnly(r) && !r.exited && !r.closing && r.bgTasks.length) : [];
 // A reply still running whose process has background jobs: stopping the reply (signalTurn on turn.pid, the runner's process
 // group, as Stop does) ends the process and its jobs with it, whatever the switch says. Counted here, once each.
 const runningJobRunners = live => live.claude.map(([id, turn]) => runners.get(id)).filter(r => r && r.turn && turns.get(r.sessionId) === r.turn && !r.exited && !r.closing && r.bgTasks.length);
@@ -6394,7 +6399,7 @@ function pauseAll() {
   for (const [tid] of live.codex) step(`stop failed thread=${tid}`, () => { codex.stopCodexTurn(tid); log(`stop requested (Pause all) thread=${tid}`); });
   for (const [sid, t] of [...live.openrouter, ...live.antigravity]) step(`stop failed session=${t.fullId}`, () => { acp.stopAcpTurn(sid, 'Stopped by Pause all'); log(`stop requested (Pause all) session=${t.fullId}`); });
   for (const c of sides) step(`side chat stop failed session=${c.parentId}`, () => { sideChats.stop(c); log(`side chat stop requested (Pause all) session=${c.parentId}`); });
-  for (const r of background) step(`background stop failed session=${r.sessionId}`, () => { signalTurn(r); log(`stopping ${r.bgTasks.length} background job(s) (Pause all) session=${r.sessionId}`); });
+  for (const r of background) step(`background stop failed session=${r.sessionId}`, () => { if (r.turn?.controlOnly) r.turn.stopped = true; signalTurn(r); log(`stopping ${r.bgTasks.length} background job(s) (Pause all) session=${r.sessionId}`); });
   for (const id of [...retryTimers.keys()]) step(`retry not held session=${id}`, () => {
     let m = null; try { m = JSON.parse(fs.readFileSync(turnFiles(id).retry, 'utf8')); } catch { }
     if (m?.sessionId) holdRetry(m); // without a readable marker the timer stays, and the gate holds it when it fires
