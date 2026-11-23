@@ -98,12 +98,21 @@ free_kb=$(df -Pk "$HOME" | awk 'NR==2{print $4}')
 [ "${free_kb:-0}" -ge 5242880 ] || fail 'The server has less than 5 GB free, and Pocket needs room for its backup. Free some space, then try again. Nothing was changed.'
 backup="$HOME/backups/pocket-code-$target-update-$(date -u +%Y%m%d-%H%M%S)"
 mkdir -m 700 -p "$backup" || fail 'Could not make the backup folder. Nothing was changed.'
-git ls-files --others --ignored --exclude-standard -z | grep -zv '^node_modules/' | grep -zv '^\.impeccable/' > "$backup/files.nul"
+# 1.124.4: git's own status is read (the pipeline's never was, and grep -zv exits 1 when it filters every name out, so that 1
+# is fine). A listing that failed gave an empty archive that passed every check below, and the job completed pointing at it.
+git ls-files --others --ignored --exclude-standard -z | grep -zv '^node_modules/' | grep -zv '^\.impeccable/' > "$backup/files.nul"; st=("${PIPESTATUS[@]}")
+if [ "${st[0]}" != 0 ] || [ "${st[1]}" -gt 1 ] || [ "${st[2]}" -gt 1 ]; then
+  rm -rf -- "$backup"
+  fail "Could not list Pocket's private files for the backup, so it stopped. Nothing was changed."
+fi
+names=$(tr -cd '\0' < "$backup/files.nul" | wc -c)
 # 1 = a file changed while it was read (a live log): fine. 1.124.2: 2 is GNU tar's fatal error (a disk that filled, say); a
-# turn file that vanished is only a warning under --ignore-failed-read, status 0. The archive must also list back, and a
-# backup that failed is removed, so it neither stays on a full disk nor passes for a backup.
+# turn file that vanished is only a warning under --ignore-failed-read, status 0. The archive must also list back (1.124.4:
+# with at least one entry when the listing named files), and a backup that failed is removed, so it neither stays on a full
+# disk nor passes for a backup.
 "$gnutar" --warning=no-file-changed --ignore-failed-read --null -czf "$backup/private-state.tar.gz" -T "$backup/files.nul"; rc=$?
-if [ "$rc" -gt 1 ] || ! [ -s "$backup/private-state.tar.gz" ] || ! "$gnutar" -tzf "$backup/private-state.tar.gz" >/dev/null 2>&1; then
+if [ "$rc" -gt 1 ] || ! [ -s "$backup/private-state.tar.gz" ] || ! entries=$("$gnutar" -tzf "$backup/private-state.tar.gz" 2>/dev/null | wc -l) \
+  || { [ "${names:-0}" -gt 0 ] && [ "${entries:-0}" -eq 0 ]; }; then
   rm -rf -- "$backup"
   fail 'The backup could not be written, so Pocket removed it. Nothing was changed. Check that the server has room for the backup, then try again.'
 fi

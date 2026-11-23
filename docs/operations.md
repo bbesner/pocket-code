@@ -357,7 +357,8 @@ the checkout on `main` (fast-forwarded) or on a detached release, tracked files 
 was when the button was pressed; the tag `v<version>` must be on `origin/main`; at least 5 GB must be free.
 It backs up the git-ignored private files to `~/backups/pocket-code-<version>-update-<time>/`
 (`private-state.tar.gz`, `prev-head.txt`, `prev-branch.txt`); a backup `tar` could not finish, or one that does
-not list back, is removed and the update stops with nothing changed (1.124.2). It then runs `npm ci` and `check:release --released`,
+not list back, is removed and the update stops with nothing changed (1.124.2), as it does when the private files cannot be
+listed or the archive holds none of the files listed (1.124.4). It then runs `npm ci` and `check:release --released`,
 then waits until no reply is running (`busy` from `/api/health`; a reply can start after the button was pressed) for up to
 10 minutes, putting the previous version back if replies keep running (1.124.3), then `pm2 restart <its pm_id>` (the stored PM2 environment is kept; Pocket reads `.env` itself) and waits up
 to 90 seconds for a new process that serves the release and answers `/api/health`, and is still the same

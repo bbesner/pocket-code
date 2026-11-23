@@ -591,7 +591,8 @@ const WRAP = {
     'if [ "$1" = --version ]; then if [ -e "$S/f.tarnotgnu" ]; then echo "bsdtar 3.7.2 - libarchive 3.7.2"; exit 0; fi; exec /usr/bin/tar "$@"; fi',
     'if [ ! -e "$S/tar.created" ]; then : > "$S/tar.created"',
     '  if [ -e "$S/f.tarrc2" ]; then echo tarrc2 >> "$S/hits"; echo "tar: fict fatal" >&2; exit 2; fi',
-    '  if [ -e "$S/f.tarrc1" ]; then /usr/bin/tar "$@"; echo tarrc1 >> "$S/hits"; exit 1; fi', 'fi',
+    '  if [ -e "$S/f.tarrc1" ]; then /usr/bin/tar "$@"; echo tarrc1 >> "$S/hits"; exit 1; fi',
+    '  if [ -e "$S/f.tarempty" ]; then echo tarempty >> "$S/hits"; o=""; p=""; for a in "$@"; do [ "$p" = -czf ] && o=$a; p=$a; done; exec /usr/bin/tar -czf "$o" -T /dev/null; fi', 'fi',
     'exec /usr/bin/tar "$@"']),
   df: sh([
     'if [ -e "$HOME/.standin/f.lowspace" ]; then echo lowspace >> "$HOME/.standin/hits"',
@@ -815,6 +816,7 @@ const SM = {
   unwritten: "Pocket could not write the update's progress to its data folder, so it stopped. Nothing was changed.",
   unwrittenMoved: `Pocket could not write the update's progress to its data folder, so it did not restart and stays on ${F}.`,
   mkdir: 'Could not make the backup folder. Nothing was changed.',
+  list: "Could not list Pocket's private files for the backup, so it stopped. Nothing was changed.",
 };
 const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const both = (lead, E) => new RegExp('^' + esc(`${lead}, and putting ${F}'s packages back failed too. Pocket keeps running for now but will not start again after a restart until you run npm ci in ${E.co} on the server. Backup: `) + '\\S+$');
@@ -1048,6 +1050,13 @@ describe('shell (stand-in repository)', { concurrency: 6 }, () => {
     assert.match(hits(E), /lsfiles/, 'harness: ls-files fault hit');
     assert.equal(headOf(E), E.head, `checkout moved although the private-file listing failed (exit ${r.code}, phase ${readStatus(E)?.phase})`);
     assert.equal(r.code, 1); assert.equal(readStatus(E).phase, 'failed');
+    await expectFailure(E, r, SM.list);
+    assert.deepEqual(backups(E), [], 'the half-made backup folder is removed');
+    assert.equal(readStatus(E).backup, undefined);
+  }));
+  test('an archive with no entries is not a backup when the listing named files', () => withShell({ faults: ['tarempty'] }, async E => {
+    await expectFailure(E, await runShell(E), SM.backup, { hit: 'tarempty' });
+    assert.deepEqual(backups(E), [], 'backup folder removed');
   }));
   test('DIV-10: a backup metadata/permission write failure must fail before the checkout moves', () => withShell({ faults: ['chmod'] }, async E => {
     const r = await runShell(E);
