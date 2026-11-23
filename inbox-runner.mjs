@@ -125,7 +125,7 @@ export class InboxRunner {
       const r = await this.run('setup', ['whoami', '--agent', agent, '--state', stateDir, '--bin', bin], { module: 'inbox_monitor.mail_connector', config: false });
       let who = {};
       try { who = JSON.parse(lastLine(r.out) || '{}'); } catch { }
-      if (who.ok) found.push({ agent, bin, who }); else failed[agent] = { status: who.status, error: who.error || errLine(r) };
+      if (who.ok) found.push({ agent, bin, who }); else failed[agent] = { status: who.status, error: who.error || errLine(r), signedIn: who.signed_in !== false };
     }
     if (!found.length) {
       const none = Object.values(failed).every(f => f.status === 401 || f.status === 500);
@@ -134,7 +134,7 @@ export class InboxRunner {
     }
     const [main] = found, who = main.who;
     const backup = found.find(f => f.agent !== main.agent && f.who.email === who.email);
-    const claudeRuns = found.some(f => f.agent === 'claude') || failed.claude?.status === 401; // signed in, just no Gmail connector
+    const claudeRuns = found.some(f => f.agent === 'claude') || (failed.claude?.status === 401 && failed.claude.signedIn); // signed in, just no Gmail connector (not a Claude Code nobody signed in)
     const mailKeys = f => f.agent === 'codex'
       ? [`bin = ${toml(f.bin)}`, `model = ${toml(this.codexModel('gpt-6-luna'))}`, 'reasoning = "low"', ...(this.codexHome ? [`codex_home = ${toml(this.codexHome)}`] : [])]
       : [`bin = ${toml(f.bin)}`, 'model = "haiku"'];

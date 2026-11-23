@@ -28,6 +28,8 @@ open(os.environ["FAKE_LOG"] + ".calls", "a").write(json.dumps(calls) + "\n")
 def emit(e): print(json.dumps(e))
 tools = [] if box.get("no_connector") else ["mcp__claude_ai_Gmail__" + t for t in ("search_threads", "get_thread", "get_message", "send_message", "list_labels", "create_label", "label_thread", "unlabel_thread")]
 emit({"type": "system", "subtype": "init", "tools": tools})
+if box.get("signed_out"):  # a Claude Code nobody signed in answers every run like this
+    emit({"type": "result", "subtype": "success", "is_error": True, "result": "Not logged in \u00b7 Please run /login", "usage": {}}); sys.exit(1)
 skip = box.get("skip_first", 0) if len(open(os.environ["FAKE_LOG"]).readlines()) == 1 else 0  # only the first run skips
 for i, c in enumerate(calls):
     if i < skip:
@@ -367,6 +369,27 @@ def test_no_connector_says_how_to_fix_it():
         raise AssertionError("expected a 401")
 
 
+def test_a_signed_out_claude_is_not_a_missing_connector():
+    """Setup read a Claude Code nobody had signed in as "signed in, no Gmail connector" and made it the judge."""
+    b = Box()
+    b.data["signed_out"] = True
+    b.save()
+    try:
+        b.mail().whoami()
+    except C.MailError as e:
+        assert e.resp.status == 401 and e.signed_in is False and "not signed in" in str(e)
+    else:
+        raise AssertionError("expected a 401")
+    b.data = {"no_connector": True, "threads": []}
+    b.save()
+    try:
+        b.mail().whoami()
+    except C.MailError as e:
+        assert e.resp.status == 401 and getattr(e, "signed_in", True)
+    else:
+        raise AssertionError("expected a 401")
+
+
 def test_whoami_is_the_sender_of_sent_mail():
     b = Box()
     now = int(time.time())
@@ -424,6 +447,13 @@ else:
             "snippet": x["snippet"], "payload": {"mime_type": "multipart/alternative", "headers": [{"name": "From", "value": x["sender"]}, {"name": "Subject", "value": x["subject"]}],
             "body": {"content": None}, "parts": [{"mime_type": "text/plain", "body": {"content": x["plaintextBody"]}, "parts": []}]}} for x in t["messages"]]}
             for t in box["threads"] if t["id"] in a.get("thread_ids", [])]}
+big = box.get("codex_large", {})  # thread id -> the most messages a read of it may ask for before Codex cuts the result (0 = always cut)
+if tool == "batch_read_email_threads" and any(a.get("max_messages", 10) > big[t] for t in a["thread_ids"] if t in big):
+    emit({"type": "item.completed", "item": {"type": "mcp_tool_call", "server": "codex_apps", "tool": "gmail." + tool, "arguments": a, "status": "completed",
+          "result": {"content": [{"type": "text", "text": '{"content":[{"type":"text","text":"Action complete\\x'}], "structured_content": None}}})
+    emit({"type": "item.completed", "item": {"type": "agent_message", "text": "DONE"}})
+    emit({"type": "turn.completed", "usage": {"input_tokens": 3000, "output_tokens": 20}})
+    sys.exit(0)
 emit({"type": "item.completed", "item": {"type": "mcp_tool_call", "server": "codex_apps", "tool": "gmail." + tool, "arguments": a, "status": "completed",
       "result": {"content": [{"type": "text", "text": "ok"}], "structured_content": res}}})
 emit({"type": "item.completed", "item": {"type": "agent_message", "text": "DONE"}})
@@ -460,6 +490,47 @@ def test_codex_reads_and_locks_down():
     assert "[apps._default]\nenabled = false" in cfg and "default_tools_enabled = false" in cfg and "destructive_enabled = false" in cfg
     assert "shell_tool = false" in cfg and 'sandbox_mode = "read-only"' in cfg
     assert all(f".tools.{t}]\nenabled = true" in cfg for t in C.CODEX_READS) and "send_email" not in cfg
+
+
+def test_codex_reads_a_result_too_large_in_smaller_calls():
+    """Codex cuts a tool result that is too long, and the cut result has no structured_content. Seen on a Codex-only
+    install: eight threads came back at about 1 MB and every read of that batch failed, so the 14-day load never finished."""
+    b = codex_box()
+    now = int(time.time())
+    b.data["threads"] = [{"id": f"t{i}", "messages": [msg(f"m{i}", f"t{i}", now - 60 * i, body=f"Body {i}.")]} for i in range(1, 6)]
+    b.data["codex_large"] = {"t3": 3, "t5": 0}  # t3 fits with three messages, t5 never
+    b.save()
+    m = C.ConnectorMail({"agent": "codex", "bin": str(b.codex), "codex_home": str(b.dir / "codex-src")}, "alex@example.com", "", "", b.dir)
+    m.prefetch_threads([f"t{i}" for i in range(1, 6)])  # one unreadable thread does not fail the batch
+    for i in range(1, 5):
+        assert [x["id"] for x in m.thread_raw(f"t{i}")] == [f"m{i}"]
+    asked = [json.loads(re.search(r"arguments: (\{.*\})\.", r["argv"][-1]).group(1)) for r in b.argv()]
+    assert asked[0] == {"thread_ids": ["t1", "t2", "t3", "t4", "t5"], "max_messages": 10}
+    assert {"thread_ids": ["t3"], "max_messages": 3} in asked and {"thread_ids": ["t5"], "max_messages": 1} in asked
+    runs = len(b.argv())
+    for _ in range(2):
+        try:
+            m.thread_raw("t5")
+        except C.MailError as e:
+            assert e.resp.status == 413 and "too large" in str(e)
+        else:
+            raise AssertionError("expected a 413")
+    assert len(b.argv()) == runs  # asked once a run, not at every mention
+
+
+def test_codex_call_that_fails_is_still_a_502():
+    b = codex_box()
+    b.codex.write_text("""#!/usr/bin/env python3
+import json
+print(json.dumps({"type": "item.completed", "item": {"type": "mcp_tool_call", "tool": "gmail.batch_read_email_threads", "arguments": {}, "status": "failed", "error": {"message": "upstream"}, "result": None}}))
+""")
+    m = C.ConnectorMail({"agent": "codex", "bin": str(b.codex), "codex_home": str(b.dir / "codex-src")}, "alex@example.com", "", "", b.dir)
+    try:
+        m.thread_raw("t1")
+    except C.MailError as e:
+        assert e.resp.status == 502
+    else:
+        raise AssertionError("expected a 502")
 
 
 def test_codex_bot_check_is_a_503_and_claude_takes_over():

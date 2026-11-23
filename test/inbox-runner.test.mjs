@@ -15,6 +15,8 @@ prompt = sys.stdin.read()
 calls = json.loads(prompt[prompt.index("["):])
 def emit(e): print(json.dumps(e))
 emit({"type": "system", "subtype": "init", "tools": [] if box.get("no_connector") else ["mcp__claude_ai_Gmail__search_threads", "mcp__claude_ai_Gmail__get_thread", "mcp__claude_ai_Gmail__get_message"]})
+if box.get("signed_out"):
+    emit({"type": "result", "subtype": "success", "is_error": True, "result": "Not logged in \\u00b7 Please run /login", "usage": {}}); sys.exit(1)
 if box.get("no_connector"):
     emit({"type": "result", "subtype": "success", "result": "DONE", "total_cost_usd": 0, "usage": {}}); sys.exit()
 for i, c in enumerate(calls):
@@ -144,6 +146,26 @@ test('a Codex-only server reads Gmail and judges with Codex', async () => {
   assert.match(cfg, /\[pocket\][^[]*provider = "codex"/);
   assert.doesNotMatch(cfg, /fallback_agent/);
   assert.equal(r.runner.status().agent, 'codex');
+});
+
+test('a Claude Code nobody signed in is not the judge; one that only lacks the Gmail connector still is', async () => {
+  // Seen on a Codex-only install: the claude binary Pocket ships answered "Not logged in", setup read that as "signed in,
+  // no Gmail connector", wrote a Claude judge, and every email then failed at the judge.
+  const out = rig({ claude: true, codex: true, box: { signed_out: true } });
+  await out.runner.step();
+  let cfg = fs.readFileSync(path.join(out.data, 'inbox-watch-data', 'config.toml'), 'utf8');
+  assert.match(cfg, /agent = "codex"/);
+  assert.match(cfg, /\[judge\]\nkind = "codex"/);
+  assert.match(cfg, /\[pocket\][^[]*provider = "codex"/);
+  const signedIn = rig({ claude: true, codex: true, box: { no_connector: true } });
+  await signedIn.runner.step();
+  cfg = fs.readFileSync(path.join(signedIn.data, 'inbox-watch-data', 'config.toml'), 'utf8');
+  assert.match(cfg, /agent = "codex"/);
+  assert.match(cfg, /\[judge\]\nkind = "claude"/);
+  assert.match(cfg, /\[pocket\][^[]*provider = "claude"/);
+  const neither = rig({ claude: true, codex: false, box: { signed_out: true } });
+  await neither.runner.step();
+  assert.equal(neither.runner.status().state, 'needs-connector');
 });
 
 test('1.91.1: a Codex setup writes the newest version of each model the installed Codex lists', async () => {

@@ -344,6 +344,10 @@ class ClaudeConnector:
             self.last_usage = {"model": self.model, "input": int(u.get("input_tokens") or 0) + cw + cr, "cache_write": cw, "cache_read": cr,
                                "output": int(u.get("output_tokens") or 0), "thinking": None, "cost_usd": result.get("total_cost_usd"),
                                "ms": result.get("duration_ms") or int((time.time() - t0) * 1000)}
+        if result is not None and result.get("is_error") and "not logged in" in str(result.get("result") or "").lower():
+            e = MailError(401, "Claude Code is not signed in on this server")
+            e.signed_in = False  # setup must not take this for "signed in, no Gmail connector"
+            raise e
         if labels and tools_seen is not None and not all(t in tools_seen for t in LABEL_TOOLS):
             raise MailError(403, "Claude Code's Gmail connector here has no label tools")
         if not labels and tools_seen is not None and not any(t in tools_seen for t in READ_TOOLS):
@@ -507,18 +511,34 @@ class CodexConnector:
                     {"id": e["id"], "labelIds": e.get("labels") or [], "sender": e.get("from_") or ""})
         return list(threads.values()), res.get("next_page_token")
 
-    def read_threads(self, tids: list[str]) -> dict[str, list[dict] | MailError]:
-        args = {"thread_ids": tids, "max_messages": 10}
-        calls = [c for c in self._run(f"Call gmail_batch_read_email_threads exactly once with these arguments: {json.dumps(args)}.")
-                 if c["tool"] == "batch_read_email_threads" and isinstance(c["result"], dict)]
+    def read_threads(self, tids: list[str], max_messages: int = 10) -> dict[str, list[dict] | MailError]:
+        args = {"thread_ids": tids, "max_messages": max_messages}
+        made = [c for c in self._run(f"Call gmail_batch_read_email_threads exactly once with these arguments: {json.dumps(args)}.")
+                if c["tool"] == "batch_read_email_threads"]
+        calls = [c for c in made if isinstance(c["result"], dict)]
         out: dict[str, list[dict] | MailError] = {t: MailError(404, f"thread {t} not found") for t in tids}
         for c in calls:
             for resp in c["result"].get("responses") or []:
                 if resp.get("id") in out:
                     out[resp["id"]] = [codex_to_gmail(m) for m in resp.get("messages") or [] if m.get("id")]
         if not calls:
+            if any(not c["error"] for c in made):
+                return self._read_smaller(tids, max_messages)
             return {t: MailError(502, "the thread read failed") for t in tids}
         return out
+
+    def _read_smaller(self, tids: list[str], max_messages: int) -> dict[str, list[dict] | MailError]:
+        """The call went through and its result came back without `structured_content`: Codex cuts a tool result that is too
+        long (seen 2026-11-23 at about 1 MB for eight threads), and what is left cannot be parsed. Read half the threads at
+        a time, then one thread with fewer messages; a thread too large even then is a 413 of its own, so the rest of the
+        batch is still read."""
+        if len(tids) > 1:
+            h = len(tids) // 2
+            return {**self.read_threads(tids[:h], max_messages), **self.read_threads(tids[h:], max_messages)}
+        fewer = next((n for n in (3, 1) if n < max_messages), None)
+        if fewer:
+            return self.read_threads(tids, fewer)
+        return {tids[0]: MailError(413, f"thread {tids[0]} is too large to read through Codex's Gmail app")}
 
     def whoami(self) -> dict:
         calls = [c for c in self._run("Call gmail_get_profile exactly once.") if c["tool"] == "get_profile" and isinstance(c["result"], dict)]
@@ -597,8 +617,10 @@ class ConnectorMail:
         self.db.execute("create table if not exists connector_msg_thread(message_id text primary key, thread_id text)")
         self.db.execute("create table if not exists connector_meta(key text primary key, value text)")
         self.db.commit()
+        self._too_large: dict[str, MailError] = {}  # thread id -> its 413, so a run asks once
 
     # -- transport
+
     def _use(self, purpose: str, n: int, fn, *args):
         try:
             return fn(*args)
@@ -714,6 +736,8 @@ class ConnectorMail:
 
     def thread_raw(self, thread_id: str) -> list[dict]:
         got = self._threads([thread_id], "fetch")
+        if thread_id in self._too_large:
+            raise self._too_large[thread_id]
         if thread_id not in got:
             raise MailError(404, f"thread {thread_id} not found")
         return got[thread_id]
@@ -724,13 +748,16 @@ class ConnectorMail:
 
     def _threads(self, tids: list[str], purpose: str) -> dict[str, list[dict]]:
         out = {t: self._cache[t] for t in tids if t in self._cache}
-        todo = [t for t in tids if t not in out]
+        todo = [t for t in tids if t not in out and t not in self._too_large]
         n = self.fetch.threads_per_call
         for i in range(0, len(todo), n):
             batch = todo[i:i + n]
             for tid, r in self._use(purpose, len(batch), self.fetch.read_threads, batch).items():
                 if isinstance(r, MailError):
                     if r.resp.status == 404:
+                        continue
+                    if r.resp.status == 413:  # too large to read: its own error when asked for, never the batch's
+                        self._too_large[tid] = r
                         continue
                     raise r
                 self._cache[tid] = out[tid] = r
@@ -834,7 +861,7 @@ def main(argv: list[str] | None = None) -> int:
         cfg = {"agent": a.agent, "model": a.model or ("gpt-6-luna" if a.agent == "codex" else "haiku"), "bin": a.bin or a.agent}
         who = ConnectorMail(cfg, "", "", "", state).whoami()
     except MailError as e:
-        print(json.dumps({"ok": False, "status": e.resp.status, "error": str(e)}))
+        print(json.dumps({"ok": False, "status": e.resp.status, "error": str(e)} | ({"signed_in": False} if getattr(e, "signed_in", True) is False else {})))
         return 1
     print(json.dumps({"ok": bool(who), **who} if who else {"ok": False, "status": 404, "error": "no sent mail found to tell whose mailbox this is"}))
     return 0 if who else 1

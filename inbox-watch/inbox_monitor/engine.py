@@ -1924,7 +1924,7 @@ def process(store: Store, archive: Archive, gmail: Gmail, run_id: int, thread_id
                 archive.add([parse_message(m) for m in gmail.thread_raw(tid)])
             except MAIL_ERRORS as e:
                 log(f"thread {tid}: {e.resp.status}")
-                if e.resp.status in (404, 403):
+                if e.resp.status in (404, 403, 413):  # gone, not ours to read, or too large to read
                     store.db.execute("delete from backlog where thread_id=?", (tid,))
                 continue
         rows = archive.thread(tid, until)
