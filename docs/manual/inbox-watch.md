@@ -466,6 +466,7 @@ an earlier Not useful on its story: your own hand wins.
    so one that had already reached the Inbox is not listed or pushed again. An alert that could not be delivered
    (Pocket not answering, as while it restarts, or answering too late) is tried again the same way at the next checks,
    up to five times in all and within the day; after that it is only in `monitor.sqlite` and `monitor.log` says so.
+   One that Telegram or email took while Pocket did not is tried again the same way, to Pocket alone.
 6. Due items run: the digest, a look-ahead, the tidy pass. Then the watcher reports to Pocket with its settings, status
    and costs (the heartbeat).
 

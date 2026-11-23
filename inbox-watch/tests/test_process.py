@@ -566,6 +566,32 @@ def test_an_alert_pocket_keeps_refusing_is_tried_a_few_times_then_left():
     with_run_fakes(check)
 
 
+def test_an_alert_another_channel_took_is_still_sent_to_pocket():
+    # 1.124.3: with Telegram (or email) beside Pocket, an alert Pocket refused but Telegram took was recorded as sent, so it
+    # was never tried again and never reached the Inbox. Pocket alone is tried again (it knows the alert by its key);
+    # Telegram is not sent twice.
+    def check():
+        pocket, mailed = run_setup()
+        tg = FakePocket()
+        tg.kind = "telegram"
+        E.DELIVERIES = [pocket, tg]
+        pocket.down = True
+        mailed.append(GATE)
+        assert E.run(False, False) == 0
+        assert pocket.entries() == [] and tg.sent == ["Gate down"], (pocket.entries(), tg.sent)
+        pocket.down = False
+        E.in_quiet_hours = lambda *a: True  # quiet hours: it waits, and is not held for the morning's send on every channel
+        assert E.run(False, False) == 0
+        assert alerts_now() == {"gate": "sent"} and pocket.entries() == [], (alerts_now(), pocket.entries())
+        E.in_quiet_hours = lambda *a: False
+        assert E.run(False, False) == 0
+        assert [e["title"] for e in pocket.entries()] == ["Gate down"] and tg.sent == ["Gate down"], (pocket.entries(), tg.sent)
+        assert alerts_now() == {"gate": "sent"}, alerts_now()
+        tries = pocket.tries
+        assert E.run(False, False) == 0 and pocket.tries == tries, "once in, it is not sent again"
+    with_run_fakes(check)
+
+
 def test_a_new_fact_folded_into_an_alert_that_never_left_takes_it_out():
     # process() on its own (no start-of-run recovery): the stuck alert goes out with the new fact instead of absorbing it.
     store, pocket = setup()
