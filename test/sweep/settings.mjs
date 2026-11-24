@@ -6,6 +6,7 @@
 import {automationFixture} from '../automation-browser.mjs';
 import {checkbackFixture} from '../checkback-browser.mjs';
 import {jobsFixture} from '../jobkeys-browser.mjs';
+import {openSettingsPage} from '../ui-controls.mjs';
 
 export const area='settings';
 
@@ -15,9 +16,13 @@ const a=automationFixture,cbf=checkbackFixture,jf=jobsFixture;
 
 // ---- helpers -----------------------------------------------------------------------------------------------------
 // Settings at a category, the way the app opens it from a link (the index when category is '').
+// 1.124.9: the page is the one that holds `ready` (rows moved between pages), reached the way a person would.
 const openSettings=(category='',ready='.settings-sheet')=>async page=>{
  await page.waitForFunction(()=>typeof settingsSheet==='function');
  await page.evaluate(c=>settingsSheet({category:c}),category);
+ await page.waitForSelector(ready);
+ const key=await page.$eval(ready,e=>e.closest('[data-settings-panel]')?.dataset.settingsPanel||'');
+ if(key)await openSettingsPage(page,key);
  await page.waitForSelector(ready,{visible:true});
 };
 // Bring an element in a sheet into view (top of the sheet), so the picture shows it.
@@ -96,7 +101,7 @@ const answerJobs=async(page,{requests=[],create=false,createError=false}={})=>{
 };
 const openJobs=(opts={},after)=>async(page,h)=>{
  await answerJobs(page,opts);
- await openSettings('automation','[data-auto-group="jobs"] [data-auto-key="jobs"]')(page);
+ await openSettings('f-jobs','#s-jobs-auto [data-auto-group="jobs"]')(page);
  await page.waitForSelector(opts.empty?'[data-job-empty]':opts.requests?.length?'[data-job-request]':'[data-job-keys] .job-key-row',{visible:true});
  if(after)await after(page,h);
 };
@@ -110,8 +115,8 @@ const stepsConvo=[{role:'user',text:'Make a PDF of the quarterly deck and save i
 const list=[
  // Settings, Developer mode ---------------------------------------------------------------------------------------
  {name:'settings-index',route:'#/all',ready:'#settings',open:async(page,h)=>{await h.click('#settings');await page.waitForSelector('.settings-index',{visible:true});},scope:'.settings-sheet'},
- {name:'settings-appearance',route:'#/all',ready:'#settings',open:async(page,h)=>{await h.click('#settings');await page.waitForSelector('[data-settings-category="appearance"]');await page.click('[data-settings-category="appearance"]');await page.waitForSelector('#s-mode',{visible:true});},scope:'.settings-sheet'},
- {name:'settings-appearance-large-text',route:'#/all',ready:'#settings',open:async page=>{await openSettings('appearance','#s-mode')(page);
+ {name:'settings-appearance',route:'#/all',ready:'#settings',open:async(page,h)=>{await h.click('#settings');await page.waitForSelector('[data-settings-category="display"]');await page.click('[data-settings-category="display"]');await page.waitForSelector('#s-theme',{visible:true});},scope:'.settings-sheet'},
+ {name:'settings-appearance-large-text',route:'#/all',ready:'#settings',open:async page=>{await openSettings('display','#s-theme')(page);
    // a much larger text size, with its live sample (each context is fresh, so the saved size does not leak)
    for(let i=0;i<6;i++){const b=await page.$('[data-text-larger]:not([disabled])');if(!b)break;await b.click();}
    await scrollTo(page,'.chat-text-settings','center');},scope:'.settings-sheet'},
@@ -144,7 +149,7 @@ const list=[
  {name:'assistant-settings-index',route:'#/',ready:'.assistant-home',settings:{assistantMode:true},open:openSettings('','.settings-index'),scope:'.settings-sheet'},
  {name:'assistant-features',route:'#/',ready:'.assistant-home',settings:{assistantMode:true},open:openSettings('features','#s-features-lead'),scope:'.settings-sheet'},
  {name:'assistant-features-locked',route:'#/',ready:'.assistant-home',settings:{assistantMode:true,assistantLocked:true,projects:true,tasks:true},open:openSettings('features','#s-features-lead'),scope:'.settings-sheet'},
- {name:'assistant-appearance-mode',route:'#/',ready:'.assistant-home',settings:{assistantMode:true},open:openSettings('appearance','#s-mode'),scope:'.settings-sheet'},
+ {name:'assistant-appearance-mode',route:'#/',ready:'.assistant-home',settings:{assistantMode:true},open:openSettings('display','#s-theme'),scope:'.settings-sheet'},
  {name:'assistant-chat-steps-approval',route:ctx=>'#/chat/'+ctx.rows[4].id,ready:'#box',settings:{assistantMode:true},
   before:ctx=>{const id=ctx.rows[4].id,prev=ctx.conversations.get(id),st=ctx.rows[4].state;ctx.conversations.set(id,stepsConvo);ctx.rows[4].state={kind:'approval',label:'Waiting for your OK',confirmed:true};ctx.setRequests({approvals:[APPROVAL]});
    return async()=>{ctx.conversations.set(id,prev);ctx.rows[4].state=st;ctx.setRequests({});};},
@@ -189,14 +194,14 @@ const list=[
  {name:'automation-advanced-open',route:'#/all',ready:'#settings',open:async page=>{await openSettings('automation','[data-auto-advanced="limits"]')(page);await page.click('[data-auto-advanced="limits"] summary');await scrollTo(page,'[data-auto-advanced="limits"]');},scope:'.settings-sheet'},
  {name:'automation-usage',route:'#/all',ready:'#settings',open:async page=>{await openSettings('automation','.automation-usage')(page);await scrollTo(page,'.automation-usage');},scope:'.settings-sheet'},
  // Check-backs
- {name:'checkbacks-settings-off',route:'#/all',ready:'#settings',open:async page=>{await openSettings('automation','[data-auto-group="checkbacks"]')(page);await scrollTo(page,'[data-auto-group="checkbacks"]');},scope:'.settings-sheet'},
+ {name:'checkbacks-settings-off',route:'#/all',ready:'#settings',open:async page=>{await openSettings('f-checkbacks','#s-checkbacks-auto [data-auto-group="checkbacks"]')(page);await scrollTo(page,'#s-checkbacks-auto');},scope:'.settings-sheet'},
  {name:'checkbacks-settings-on',route:'#/all',ready:'#settings',before:withCheckbacks,open:async page=>{await openSettings('automation','[data-checkbacks-waiting]')(page);await scrollTo(page,'[data-auto-group="checkbacks"]');},scope:'.settings-sheet'},
  {name:'checkbacks-cancel-all',route:'#/all',ready:'#settings',before:withCheckbacks,open:async page=>{await openSettings('automation','[data-checkbacks-cancel-all]')(page);await page.click('[data-checkbacks-cancel-all]');await page.waitForFunction(()=>/Cancel \d+ check-back/.test(document.querySelector('.sheet h2')?.textContent||''));},scope:'.sheet'},
  {name:'checkbacks-cards',route:ctx=>'#/chat/'+ctx.rows[3].id,ready:'#msgs > [data-checkback]',before:withCheckbacks,open:async page=>{await page.$eval('#msgs > [data-checkback]',e=>e.scrollIntoView({block:'start'}));}},
  {name:'checkbacks-cards-end',route:ctx=>'#/chat/'+ctx.rows[3].id,ready:'#msgs > [data-checkback]',before:withCheckbacks,open:async page=>{await page.$$eval('#msgs > [data-checkback]',e=>e.at(-1).scrollIntoView({block:'end'}));}},
  {name:'checkbacks-row-clock',route:'#/all',ready:'.checkback-clock',before:withCheckbacks},
  // Job keys
- {name:'jobkeys-off',route:'#/all',ready:'#settings',open:async page=>{await openSettings('automation','[data-auto-group="jobs"] [data-auto-key="jobs"]')(page);await scrollTo(page,'[data-auto-group="jobs"]');},scope:'.settings-sheet'},
+ {name:'jobkeys-off',route:'#/all',ready:'#settings',open:async page=>{await openSettings('f-jobs','#s-jobs-auto [data-auto-group="jobs"]')(page);await scrollTo(page,'[data-auto-group="jobs"]');},scope:'.settings-sheet'},
  {name:'jobkeys-empty',route:'#/all',ready:'#settings',before:withJobs({empty:true}),open:openJobs({empty:true},async page=>{await scrollTo(page,'[data-auto-group="jobs"]');}),scope:'.settings-sheet'},
  {name:'jobkeys-list',route:'#/all',ready:'#settings',before:withJobs(),open:openJobs({},async page=>{await scrollTo(page,'[data-auto-group="jobs"]');}),scope:'.settings-sheet'},
  {name:'jobkeys-request',route:'#/all',ready:'#settings',before:withJobs(),open:openJobs({requests:[REQUEST]},async page=>{await scrollTo(page,'[data-job-request]');}),scope:'.settings-sheet'},

@@ -1,8 +1,8 @@
 // Job key requests, the owner's side, on the real server. An agent in a conversation the owner started proposes a job key
 // through the real agent route (the fake Claude Code CLI's runner token and the CLI token, as pocket-jobkey does); the
-// owner sees it in Settings → Automation → Job keys under "Waiting for you" with every field and the whole instruction,
-// and answers it. Covered: switched off there is no card and no key list; the layout order (switch, Waiting for you, the
-// key list, Advanced closed) at 1440 and 390; the count on the Automation entry and the group heading, and it clearing;
+// owner sees it in Settings → Features → Job keys under "Waiting for you" with every field and the whole instruction,
+// and answers it. Covered: switched off there is no card and no key list; the layout order (Waiting for you, the
+// key list, Advanced closed; the switch is in Features) at 1440 and 390; the count on the Features entry, the Job keys › and the group heading, and it clearing;
 // the whole instruction with no inner scroll (60 lines at 390 and 1440: nothing hidden in the block, a long token wraps,
 // Allow below its last line); a refresh with no change keeping the card's nodes; Full access in the warning colour; Allow
 // never focused for you and Enter never allowing, on the card or in any field of Edit first; the push link opening the card (and a gone id's line); the conversation's "Waiting for you" line
@@ -20,7 +20,7 @@ import { spawn } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 import puppeteer from 'puppeteer-core';
 import { killStrays } from './stray-runners.mjs';
-import { elementShot } from './ui-controls.mjs';
+import { elementShot, showSetting } from './ui-controls.mjs';
 
 const repo = path.resolve(import.meta.dirname, '..');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -104,7 +104,10 @@ try {
     const r = await p.evaluate(() => window.impeccableDetectAsync({ scrollOffscreen: false }));
     scans.push({ name, findings: r }); fs.writeFileSync(path.join(shots, 'design-' + name + '.json'), JSON.stringify(r, null, 1));
   };
-  const automation = async () => { await p.evaluate(() => settingsSheet({ category: 'automation' })); await p.waitForSelector('[data-auto-group="jobs"] [data-auto-key="jobs"]'); };
+  // 1.124.9: the switch is a row of Settings → Features; the group (waiting requests, the key list, Advanced) is its page under Features.
+  const FULL = '[data-auto-group="jobs"]:not(.automation-switch)';
+  const BADGES = '.settings-index [data-settings-category="features"] [data-job-requests-badge], .feature-open[data-settings-category="f-jobs"] [data-job-requests-badge]';
+  const automation = async () => { await p.evaluate(() => settingsSheet({ category: 'f-jobs' })); await showSetting(p, FULL); };
   const closeSheet = async () => { await p.keyboard.press('Escape'); await p.waitForFunction(() => !document.querySelector('.sheet')); };
   // A full load each time (a goto that only changes the hash would not reload the page).
   const visit = async h => { await p.goto('about:blank'); await p.goto(base + '/' + h); };
@@ -116,14 +119,15 @@ try {
   const inPage = k => p.evaluate(k => [document.documentElement.outerHTML.includes(k), [...document.querySelectorAll('input,textarea')].some(x => x.value.includes(k)),
     JSON.stringify({ ...localStorage }).includes(k), JSON.stringify({ ...sessionStorage }).includes(k), location.href.includes(k)].some(Boolean), k);
   // The group's parts, top to bottom: which come first on the page.
-  const order = () => p.$eval('[data-auto-group="jobs"]', g => {
+  const order = () => p.$eval(FULL, g => {
     const top = sel => { const el = g.querySelector(sel); return el && !el.hidden && el.getClientRects().length ? el.getBoundingClientRect().top : null; };
-    return { sw: top('[data-auto-row="jobs"]'), waiting: top('[data-job-requests]'), list: top('[data-job-key-block]'), advanced: top('[data-auto-advanced="jobs"]'), advancedOpen: g.querySelector('[data-auto-advanced="jobs"]')?.open ?? null };
+    return { switchHere: g.querySelector('[data-auto-row="jobs"]') !== null, waiting: top('[data-job-requests]'), list: top('[data-job-key-block]'), advanced: top('[data-auto-advanced="jobs"]'), advancedOpen: g.querySelector('[data-auto-advanced="jobs"]')?.open ?? null };
   });
   const assertOrder = (o, withWaiting, label) => {
-    assert.ok(o.sw != null && o.list != null && o.advanced != null, label + ': every part shows ' + JSON.stringify(o));
-    if (withWaiting) assert.ok(o.sw < o.waiting && o.waiting < o.list && o.list < o.advanced, label + ': switch, Waiting for you, key list, Advanced ' + JSON.stringify(o));
-    else assert.ok(o.waiting == null && o.sw < o.list && o.list < o.advanced, label + ': switch, key list, Advanced ' + JSON.stringify(o));
+    assert.ok(o.list != null && o.advanced != null, label + ': every part shows ' + JSON.stringify(o));
+    assert.equal(o.switchHere, false, label + ': the switch is in Features, not on the page');
+    if (withWaiting) assert.ok(o.waiting != null && o.waiting < o.list && o.list < o.advanced, label + ': Waiting for you, key list, Advanced ' + JSON.stringify(o));
+    else assert.ok(o.waiting == null && o.list < o.advanced, label + ': key list, Advanced ' + JSON.stringify(o));
     assert.equal(o.advancedOpen, false, label + ': Advanced is closed');
   };
   await visit('#/all'); await p.waitForSelector('.session-home');
@@ -137,24 +141,27 @@ try {
   assert.equal((await call('/automation/settings', { group: 'jobs', values: { jobs: true } })).status, 200);
   const full = (await call('/jobs/keys')).body.defaults.fullAccessAllowed === true;
 
-  console.log('Job key requests: on, nothing waiting; the key list sits under the switch, the settings under Advanced');
+  console.log('Job key requests: on, nothing waiting; the key list leads its page, the settings under Advanced');
   await visit('#/all'); await p.waitForSelector('.session-home');
   await automation(); await p.waitForFunction(() => document.querySelector('[data-job-keys] [data-job-loading]')?.hidden === true);
   assertOrder(await order(), false, '1440, no request');
-  await fourWays('group-no-request-advanced-closed', () => p.$eval('[data-auto-group="jobs"]', x => x.scrollIntoView({ block: 'start' })));
+  await fourWays('group-no-request-advanced-closed', () => p.$eval(FULL, x => x.scrollIntoView({ block: 'start' })));
   await p.$eval('[data-auto-advanced="jobs"] > summary', x => x.click());
-  await elShot('group-no-request-advanced-open-1440-dark', '[data-auto-group="jobs"]');
+  await elShot('group-no-request-advanced-open-1440-dark', FULL);
   await p.$eval('[data-auto-advanced="jobs"] > summary', x => x.click());
   await closeSheet();
 
-  console.log('Job key requests: an agent proposes; the count shows on the Automation entry and the group heading');
+  console.log('Job key requests: an agent proposes; the count shows on the Features entry, the Job keys › and the group heading');
   const convA = await startConversation('Set up a disk check job for me');
   const reqA = await propose(convA, { name: 'disk-check', instruction: LONG, access: full ? 'full' : 'ask', limits: { perHour: 4 } });
   await visit('#/all'); await p.waitForSelector('.session-home');
   await p.evaluate(() => settingsSheet());
-  await p.waitForFunction(() => document.querySelector('[data-settings-category="automation"] [data-job-requests-badge]')?.textContent === '1');
-  assert.equal(await p.$eval('[data-settings-category="automation"] [data-job-requests-badge]', x => x.hidden), false);
-  await p.click('[data-settings-category="automation"]');
+  await p.waitForFunction(() => document.querySelector('.settings-index [data-settings-category="features"] [data-job-requests-badge]')?.textContent === '1');
+  assert.equal(await p.$eval('.settings-index [data-settings-category="features"] [data-job-requests-badge]', x => x.hidden), false);
+  await p.click('.settings-index [data-settings-category="features"]');
+  await p.waitForFunction(() => document.querySelector('.feature-open[data-settings-category="f-jobs"] [data-job-requests-badge]')?.textContent === '1');
+  assert.equal(await p.$eval('.feature-open[data-settings-category="f-jobs"] [data-job-requests-badge]', x => x.hidden), false, 'the Job keys › counts it too');
+  await p.click('.feature-open[data-settings-category="f-jobs"]');
   await p.waitForSelector(card(reqA));
   assert.equal(await p.$eval('#auto-jobs-h [data-job-requests-badge]', x => x.textContent), '1', 'the group heading counts it');
   assert.equal(await p.$eval('[data-job-requests-count]', x => x.textContent), '1');
@@ -236,8 +243,8 @@ try {
   const heights = await p.$$eval(`${card(reqA)} .job-request-actions button`, x => x.map(b => Math.round(b.getBoundingClientRect().height)));
   assert.ok(heights.every(h => h >= 44), '44px answers: ' + heights);
   await desk();
-  await fourWays('group-request-waiting', () => p.$eval('[data-auto-group="jobs"]', x => x.scrollIntoView({ block: 'start' })));
-  await scan('group-request-waiting', '[data-auto-group="jobs"]');
+  await fourWays('group-request-waiting', () => p.$eval(FULL, x => x.scrollIntoView({ block: 'start' })));
+  await scan('group-request-waiting', FULL);
 
   console.log('Job key requests: Enter never allows, not on the card and not on Allow itself');
   for (const sel of [`${card(reqA)} h4`, `${card(reqA)} [data-jr-allow]`]) {
@@ -257,7 +264,7 @@ try {
   assert.equal(await p.$eval(card(reqA), x => x.classList.contains('vault-flash')), true, 'marked');
   assert.equal(await p.$eval(card(reqA), x => { const r = x.getBoundingClientRect(); return r.top < innerHeight && r.bottom > 0; }), true, 'in view');
   assert.equal(await p.evaluate(() => location.hash), '#/');
-  assert.equal(await p.$eval('[data-settings-panel="automation"]', x => x.hidden), false, 'Settings → Automation');
+  assert.equal(await p.$eval('[data-settings-panel="f-jobs"]', x => x.hidden), false, 'Settings → Features → Job keys');
   await visit('#/settings/jobs/request/jp-00000000');
   await p.waitForFunction(() => document.querySelector('[data-job-request-missing]')?.hidden === false);
   assert.equal(await p.$eval('[data-job-request-missing]', x => x.textContent), 'That request was already answered or expired.');
@@ -291,10 +298,10 @@ try {
   assert.equal(await inPage(keyA), false, 'the key is nowhere in the page');
   await p.waitForFunction(() => [...document.querySelectorAll('[data-job-keys] .job-key-name')].some(x => x.textContent === 'disk-check'));
   assert.deepEqual(await keys(), ['disk-check']);
-  await p.waitForFunction(() => document.querySelector('#auto-jobs-h [data-job-requests-badge]')?.hidden === true && document.querySelector('[data-settings-category="automation"] [data-job-requests-badge]')?.hidden === true, {}, );
+  await p.waitForFunction(b => document.querySelector('#auto-jobs-h [data-job-requests-badge]')?.hidden === true && [...document.querySelectorAll(b)].length === 2 && [...document.querySelectorAll(b)].every(x => x.hidden), {}, BADGES);
   assert.equal(await p.$eval('[data-job-requests-count]', x => x.hidden), true, 'the count went to zero');
   assert.equal((await call('/automation')).body.jobs.requests, 0);
-  await elShot('after-allow-1440-dark', '[data-auto-group="jobs"]');
+  await elShot('after-allow-1440-dark', FULL);
   assert.equal((await agentRead(convA, reqA)).status, 'allowed');
   await p.click(`${outcome(reqA)} a`);
   await p.waitForFunction(id => location.hash === '#/chat/' + encodeURIComponent(id) && !document.querySelector('.settings-sheet'), {}, convA);
@@ -379,7 +386,7 @@ try {
   assert.deepEqual(await keys(), ['disk-check', 'nightly-report'], 'no key made');
   assert.equal(fs.existsSync(path.join(keyFolder, 'cleanup-check.key')), false);
   assert.equal((await agentRead(convC, reqC)).status, 'denied');
-  await elShot('after-deny-1440-dark', '[data-auto-group="jobs"]');
+  await elShot('after-deny-1440-dark', FULL);
 
   console.log('Job key requests: answered elsewhere, the card says so in the server\'s words');
   const convD = await startConversation('Make a backup check job');

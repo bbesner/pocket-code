@@ -16,7 +16,7 @@ export async function runCoordinationRegressions({p,base,out,repo,rows,settings,
  await p.goto(base+'/#/coordination');await p.waitForFunction(()=>location.hash!=='#/coordination');
  // The switch lives with the other tools, and turning it on adds the way in.
  await home();await clickControl(p,'#settings');await p.waitForSelector('.settings-sheet');
- await p.evaluate(()=>[...document.querySelectorAll('.settings-sheet button')].find(b=>/Projects, files, tasks/.test(b.textContent))?.click());
+ await p.click('.settings-index [data-settings-category=features]'); // 1.124.9: Features
  await p.waitForFunction(()=>{const b=document.querySelector('#s-coordination');return b&&!b.disabled&&b.offsetParent;});
  assert.match(await p.$eval('#s-coordination-state',e=>e.textContent),/^Off\./);
  await clickControl(p,'#s-coordination');await p.waitForFunction(()=>window.pocketFeatures.coordination===true);

@@ -1,6 +1,6 @@
 /* Pocket Code — 1.119: check-backs, the app half. An agent, asked by the owner, sets one later reply in its own
    conversation (pocket-checkback); Pocket starts it at the time. Here: the card under the reply that set it, the clock
-   on a list row, the Tasks group, Cancel all in Settings → Automation, and the words for all of them.
+   on a list row, the Tasks group, Cancel all in Settings → Features → Check-backs, and the words for all of them.
    Server contract: GET /api/checkbacks, POST /api/checkbacks/cancel and /cancel-all; /api/me features.checkbacks;
    /api/session/:id `checkbacks` (oldest first); a list row's `checkback: { pending, running, nextAt }`; /api/tasks
    `checkbacks`. Loaded before app.js: everything here runs only when called, so app.js's helpers (api, esc, toast,
@@ -169,8 +169,8 @@ const CheckBacks = (() => {
     if (typeof refreshSessions === 'function') refreshSessions();
     if (typeof loadTasks === 'function' && typeof tasksOn === 'function' && tasksOn()) loadTasks(true).then(() => { if (typeof paintTasksView === 'function') paintTasksView(); }).catch(() => { });
   }
-  // Settings → Automation's Cancel all, after a confirmation (the sheets' own confirm: a title, a line of help, the two
-  // options). Running ones finish. Either answer goes back to Settings → Automation, which then shows the new count.
+  // Settings → Features → Check-backs's Cancel all, after a confirmation (the sheets' own confirm: a title, a line of help, the two
+  // options). Running ones finish. Either answer goes back to Settings → Features → Check-backs, which then shows the new count.
   function confirmCancelAll(n) {
     const scrim = document.createElement('div'); scrim.className = 'scrim';
     const sh = document.createElement('div'); sh.className = 'sheet';

@@ -1,4 +1,4 @@
-/* Vault (1.39): secrets agents use by name. Off until Settings → Projects, files, tasks & vault turns it on
+/* Vault (1.39): secrets agents use by name. Off until Settings → Features turns it on
    (window.pocketFeatures.vault), and it can only be turned on once POCKET_VAULT_KEY is set. One view, the list (#/vault,
    and #/vault/requests from a push; 1.93: #/vault/item/<name> and #/vault/request/<id> open the list at one secret or one request), which opens like Tasks: as a tab, beside a conversation, in a window of its own, or
    full-screen on the phone. The list never carries a value: a value is fetched one field at a time when the owner taps
@@ -27,7 +27,7 @@ const vaultFixedFields=kind=>VAULT_FIELDS[kind]||['value'];
 // A fixed field reads as a word; a custom field is its own name.
 const vaultFieldWord=(kind,f)=>!vaultFixedFields(kind).includes(f)?f:f==='value'?(kind==='token'?'Token':'Key'):f==='username'?'Username':f==='password'?'Password':'Note';
 const vaultKindIcon=kind=>VIC[kind==='api_key'||kind==='credentials'?'key':kind]||VIC.lock;
-// 1.41: Agent access is the install-wide dial (Settings → Vault); an item follows it ('default') or sets its own policy.
+// 1.41: Agent access is the install-wide dial (Settings → Features → Vault); an item follows it ('default') or sets its own policy.
 // The server sends each item's effectivePolicy and policyWord; the fallbacks here only cover a snapshot without them.
 const VAULT_ACCESS=[['free','Free rein','Agents use any secret by name without asking, and every use is recorded. Any agent on this server can obtain such a value, so keep it for low-value keys.'],
  ['once','Ask once per command','A new command needs your approval once; approved commands are remembered.'],
@@ -43,7 +43,7 @@ const vaultEff=i=>VAULT_POLICY[i.effectivePolicy]?i.effectivePolicy:!i.policy||i
 const vaultPolicyWord=i=>i.policyWord||VAULT_POLICY_WORD[vaultEff(i)];
 const vaultOwnPolicy=i=>Boolean(i.policy)&&i.policy!=='default';
 // The five choices for an item, the first naming what the Vault default is now.
-const vaultPolicyChoices=()=>[['default',`Vault default (currently: ${vaultAccessWord(vaultAccessNow())})`,`Follows Agent access in Settings → ${assistantMode()?'Features':'Projects, files, tasks & vault'}`],...Object.entries(VAULT_POLICY).map(([v,[l,sub]])=>[v,l,sub])];
+const vaultPolicyChoices=()=>[['default',`Vault default (currently: ${vaultAccessWord(vaultAccessNow())})`,'Follows Agent access in Settings → Features → Vault'],...Object.entries(VAULT_POLICY).map(([v,[l,sub]])=>[v,l,sub])];
 // Settings saved a new Agent access: the items that follow it change, so reload them.
 function vaultSetAccess(a){vaultAccess=a;if(vaultSnap){vaultSnap.access=a;loadVault(true).then(repaintVault).catch(()=>{});}}
 const VAULT_NAME_RE=/^[a-z0-9-]{1,64}$/;
@@ -90,7 +90,7 @@ function vaultTakeFocus(){
  try{const raw=localStorage.getItem(VAULT_FOCUS_KEY);if(raw){localStorage.removeItem(VAULT_FOCUS_KEY);const s=JSON.parse(raw);if(!f&&s&&Date.now()-s.at<VAULT_FOCUS_TTL)f=s;}}catch{}
  return f;
 }
-// A link in a conversation to one secret or request: the Vault opens the way Settings → Open files and links says, at it.
+// A link in a conversation to one secret or request: the Vault opens the way Settings → Features → Files → Open files and links says, at it.
 function openVaultLink(f){
  if(!vaultOn()){toast('The Vault is off. '+turnOnHint());return;}
  vaultSetFocus(f);
@@ -792,12 +792,12 @@ function addVaultItemFromComposer({insert=true}={}){
 /* ---------- Settings: the recovery key (1.44: the server makes and saves the key itself) ---------- */
 const vaultToday=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
 function rotateVaultKey(){
- confirmSheet('Rotate the Vault key?','Pocket re-encrypts the Vault under a new key, saves it on this server and shows you the new recovery key. Backups made before now still need the old key, so keep it with them.','Rotate key',async()=>{
+ confirmSheet('Rotate the Vault key?','Use this if the key may have been seen. Pocket re-encrypts everything under a new key, saves it on this server and shows you the new recovery key to download. Backups made before now still need the old key, so keep it with them.','Rotate key',async()=>{
   try{const r=await vaultPost('/vault/rotate',{});vaultRecoverySheet(r.key,{note:'New key saved on the server. Save the new recovery key; backups made before now still need the old one.'});}
   catch(e){if(e.message==='login')return;if(!vaultLockedError(e))toast(e.message||'Could not rotate the key');else toast('The Vault is locked. Unlock it, then rotate the key.');}
  });
 }
-// Settings → Download recovery key: the server's current key, recorded in the Vault history as a view.
+// Settings → Features → Vault → Download recovery key: the server's current key, recorded in the Vault history as a view.
 async function vaultShowRecoveryKey(){
  try{const r=await vaultPost('/vault/recovery-key',{});vaultRecoverySheet(r.key);}
  catch(e){if(e.message==='login')return;if(!vaultLockedError(e))toast(e.message||'Could not get the recovery key');else toast('The Vault is locked. Unlock it, then download the key.');}
@@ -808,7 +808,7 @@ function vaultRecoverySheet(key,{note=''}={}){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet vault-key-sheet';
  const fid='vk-'+(++vaultFieldSeq);
  sh.innerHTML=`<h2>Save your recovery key</h2>${note?`<p class="vault-key-note">${esc(note)}</p>`:''}
-  <p class="sheet-help">This key opens your Vault. Pocket keeps it on this server, but if the server or its settings are lost, a backup of the Vault can only be opened with it. Keep it in your password manager.</p>
+  <p class="sheet-help">This key decrypts your Vault. Keep it somewhere safe and off this server, such as your password manager: if the server’s key is lost, this is the only way back in.</p>
   <label class="vault-key-label" for="${fid}">Recovery key</label>
   <textarea class="vault-key" id="${fid}" readonly rows="2" spellcheck="false" autocapitalize="none" autocorrect="off" autocomplete="off"></textarea>
   <div class="vault-key-actions"><button class="chip" data-copy-key>${IC.copy}Copy</button><button class="chip" data-download-key>${VIC.download}Download</button><button class="primary" data-done>Done</button></div>`;
@@ -1026,7 +1026,7 @@ setInterval(()=>{if(!vaultOn()||document.visibilityState!=='visible'||!(vaultVie
    below: never in a textarea, a draft, storage, the outbox, a toast, the DOM of the sheet or the console. The sheet
    names what was found and how long it is, never any of its characters. */
 const secretGuard={on:(()=>{try{return localStorage.getItem('pc-secret-guard')!=='off';}catch{return true;}})(),loaded:false};
-// The setting is install-wide (Settings → Vault); this device remembers the last value so a reload starts with it.
+// The setting is install-wide (Settings → Features → Vault); this device remembers the last value so a reload starts with it.
 function setSecretGuard(on){secretGuard.on=on!==false;try{localStorage.setItem('pc-secret-guard',secretGuard.on?'on':'off');}catch{}}
 const secretsOn=()=>secretGuard.on&&Boolean(window.PocketSecrets);
 function loadSecretGuard(){
@@ -1051,7 +1051,7 @@ async function secretVaultState(){
  try{const s=await loadVault(true);if(s.ready===false)return {state:s.locked?'locked':'unready'};return {state:'ready',names:[...(s.items||[]),...(s.trash||[])].map(i=>i.name)};}
  catch(e){return {state:e?.status===423?'locked':'unready'};}
 }
-const SECRET_HINT={get off(){return featuresLocked()?'Ask the person who runs this install to turn on the Vault, to store secrets instead.':`Turn on the Vault in Settings → ${assistantMode()?'Features':'Projects, files, tasks & vault'}, to store secrets instead.`;},locked:'Unlock the Vault to store it.',unready:'The Vault is not ready, so it cannot store this now.'};
+const SECRET_HINT={get off(){return featuresLocked()?'Ask the person who runs this install to turn on the Vault, to store secrets instead.':'Turn on the Vault in Settings → Features, to store secrets instead.';},locked:'Unlock the Vault to store it.',unready:'The Vault is not ready, so it cannot store this now.'};
 // Over an open sheet (the queue editor in its dialog) the guard stacks instead of replacing it; elsewhere it is an
 // ordinary sheet. Returns the close function.
 function secretMount(scrim,sh,trigger){

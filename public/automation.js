@@ -1,4 +1,4 @@
-/* Pocket Code — 1.117: Pause all, the paused banner, origin labels and Settings → Automation.
+/* Pocket Code — 1.117: Pause all, the paused banner, origin labels and Settings → Unattended work.
    Server contract: GET/POST /api/pause, POST /api/resume, GET /api/automation, POST /api/automation/settings;
    /api/me carries paused and features.automation; /api/sessions carries `pause` (the banner's state); a list row carries
    lastOrigin/lastOriginRef. Loaded before app.js:
@@ -235,14 +235,14 @@ const Automation = (() => {
     const scrim = document.createElement('div'); scrim.className = 'scrim';
     const sh = document.createElement('div'); sh.className = 'sheet more-menu';
     sh.innerHTML = `<h2>More</h2>${toggleHTML('menu')}
-      <button type="button" class="opt" data-automation-settings>${typeof IC !== 'undefined' ? IC.sliders : ''}<span>Automation settings<span class="sub">What Pause all stops, and limits on work that runs without you</span></span></button>`;
+      <button type="button" class="opt" data-automation-settings>${typeof IC !== 'undefined' ? IC.sliders : ''}<span>Unattended work settings<span class="sub">What Pause all stops, and limits on work that runs while you’re away</span></span></button>`;
     mountSheet(scrim, sh);
     bindToggles(sh);
-    sh.querySelector('[data-automation-settings]').onclick = () => settingsSheet({ category: 'automation' });
+    sh.querySelector('[data-automation-settings]').onclick = () => settingsSheet({ category: 'unattended' });
     sh.querySelector('[data-pause-toggle]')?.focus();
   }
 
-  /* ---------- Settings → Automation ---------- */
+  /* ---------- Settings → Unattended work (and the Check-backs and Job keys pages) ---------- */
   let data = null, host = null;
   const advancedOpen = new Set();
   const unitText = (u, v) => u === '$' ? (Number.isInteger(Number(v)) ? '$' + v : money(v)) : u === '%' ? v + '%' : u === 'min' ? v + ' min' : u === 'h' ? v + ' h' : String(v);
@@ -251,10 +251,23 @@ const Automation = (() => {
   const tokens = n => n == null || !n ? '—' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'K' : String(n);
   const dayName = d => { const t = new Date(d + 'T12:00:00'); return Number.isNaN(t.getTime()) ? d : t.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }); };
 
+  // 1.124.9: Settings → Unattended work holds Pause all and the limits; Check-backs and Job keys have pages under
+  // Features (their switches in its list), the two "in Tasks" switches sit on the Tasks page, and the history on Usage.
+  // Each lands in its host here; a host that is not on the page leaves its part in the main body.
+  const HOSTS = { 'checkbacks-switch': 's-checkbacks-switch', 'jobs-switch': 's-jobs-switch', checkbacks: 's-checkbacks-auto', jobs: 's-jobs-auto', tasks: 's-tasks-auto', usage: 's-auto-usage' };
+  const IN_TASKS = { checkbacks: 'showInTasks', jobs: 'jobsInTasks' };
+  const loadingSwitch = name => `<button type="button" class="opt" disabled aria-pressed="false"><span class="dot"></span><span>${name}<span class="sub">Loading…</span></span></button>`;
   function settingsHTML() {
-    return `<div class="title-settings model-offer automation-settings" id="s-automation" role="group" aria-label="Automation">
+    return `<div class="title-settings model-offer automation-settings" id="s-automation" role="group" aria-label="Unattended work">
+      <p class="title-note automation-lead">Work that runs while you’re not watching, like check-backs, job runs, queued messages and retries. Pause all stops it; the limits keep it from using up your plan.</p>
       ${toggleHTML('settings')}
-      <div class="automation-body" id="s-automation-body" aria-busy="true"><p class="title-note">Loading the automation settings…</p></div></div>`;
+      <div class="automation-body" id="s-automation-body" aria-busy="true"><p class="title-note">Loading the settings for unattended work…</p></div></div>
+      <div class="automation-settings automation-host" id="s-checkbacks-switch">${loadingSwitch('Check-backs')}</div>
+      <div class="automation-settings automation-host" id="s-jobs-switch">${loadingSwitch('Job keys')}</div>
+      <div class="title-settings model-offer automation-settings automation-host" id="s-checkbacks-auto" role="group" aria-label="Check-backs"></div>
+      <div class="title-settings model-offer automation-settings automation-host" id="s-jobs-auto" role="group" aria-label="Job keys"></div>
+      <div class="title-settings model-offer automation-settings automation-host" id="s-tasks-auto" role="group" aria-label="Tasks"></div>
+      <div class="title-settings model-offer automation-settings automation-host" id="s-auto-usage" role="group" aria-label="Unattended replies"></div>`;
   }
   function settingRowHTML(g, s) {
     const id = `auto-${g.key}-${s.key}`, err = `<p class="vault-field-error" id="${id}-err" role="alert"></p>`;
@@ -272,12 +285,12 @@ const Automation = (() => {
       ${s.offAllowed ? `<button type="button" class="chip automation-off" data-auto-off="${esc(s.key)}" aria-pressed="${off}" aria-label="No limit: ${esc(s.label)}">No limit</button>` : ''}
       ${noteHTML}${err}</div>`;
   }
-  function groupHTML(g) {
+  function groupHTML(g, { switchHere = true, skip = [], page = false } = {}) {
     const rows = s => s.map(x => settingRowHTML(g, x)).join('');
     // 1.119: a feature's group leads with its own switch (the setting named like the group); while it is off, the rest
     // of the group reads as inactive (still editable, so it can be set up before it is turned on).
     const sw = g.settings[0]?.key === g.key && g.settings[0].type === 'bool' ? g.settings[0] : null, off = sw && sw.value !== true;
-    const rest = sw ? g.settings.slice(1) : g.settings;
+    const rest = (sw ? g.settings.slice(1) : g.settings).filter(s => !skip.includes(s.key));
     const main = rest.filter(s => !s.advanced), adv = rest.filter(s => s.advanced);
     const body = `${rows(main)}
       ${adv.length ? `<details class="settings-details automation-advanced" data-auto-advanced="${esc(g.key)}"${advancedOpen.has(g.key) ? ' open' : ''}><summary>Advanced</summary>${rows(adv)}</details>` : ''}`;
@@ -285,9 +298,10 @@ const Automation = (() => {
     // follow under Advanced.
     // While Job keys are off, the group is the switch and its help, nothing else.
     const lead = g.key === 'jobs' && !off && typeof JobKeys !== 'undefined' ? JobKeys.listHTML() : '', bare = g.key === 'jobs' && off;
-    return `<section class="automation-group${off ? ' automation-group-off' : ''}" data-auto-group="${esc(g.key)}" aria-labelledby="auto-${esc(g.key)}-h">
+    // On its own page (Features › Check-backs, › Job keys) the page is the named region; a second one by the same name is noise.
+    return `<section class="automation-group${off ? ' automation-group-off' : ''}" data-auto-group="${esc(g.key)}"${page ? '' : ` aria-labelledby="auto-${esc(g.key)}-h"`}>
       <h3 class="vault-set-head" id="auto-${esc(g.key)}-h">${esc(g.title)}</h3>
-      ${sw ? settingRowHTML(g, sw) + (bare ? '' : lead + `<div class="automation-dependent" data-auto-dependent="${esc(g.key)}">${off ? `<p class="title-note automation-inactive-note">These apply when ${esc(sw.label)} is on.</p>` : ''}${body}</div>`) : body}
+      ${sw ? (switchHere ? settingRowHTML(g, sw) : '') + (bare ? (switchHere ? '' : `<p class="title-note automation-inactive-note">${esc(g.title)} are off. Turn them on in Features.</p>`) : lead + `<div class="automation-dependent" data-auto-dependent="${esc(g.key)}">${off ? `<p class="title-note automation-inactive-note">These apply when ${esc(sw.label)} is on.</p>` : ''}${body}</div>`) : body}
       ${bare ? '' : `<span class="vault-set-actions"><button type="button" class="chip" data-auto-reset="${esc(g.key)}">Reset to defaults</button></span>`}
       <p class="title-note" data-auto-status="${esc(g.key)}" role="status"></p>${g.key === 'checkbacks' ? waitingHTML() : ''}</section>`;
   }
@@ -307,14 +321,26 @@ const Automation = (() => {
   }
   function paintSettings() {
     const body = host?.querySelector('#s-automation-body'); if (!body || !data) return;
-    const focusKey = document.activeElement?.closest?.('#s-automation') && (document.activeElement.dataset.autoKey || document.activeElement.dataset.autoOff || document.activeElement.dataset.autoReset);
+    const focusKey = document.activeElement?.closest?.('.automation-settings') && (document.activeElement.dataset.autoKey || document.activeElement.dataset.autoOff || document.activeElement.dataset.autoReset);
     const focusAttr = document.activeElement?.dataset.autoKey ? 'data-auto-key' : document.activeElement?.dataset.autoOff ? 'data-auto-off' : 'data-auto-reset';
     body.setAttribute('aria-busy', 'false');
-    body.innerHTML = `${(data.warnings || []).map(w => `<p class="title-note automation-warning" role="note">${esc(w)}</p>`).join('')}
-      ${(data.groups || []).map(groupHTML).join('')}${usageHTML(data.usage, data.notices)}`;
-    bindSettingsBody(body);
-    if (typeof JobKeys !== 'undefined') { JobKeys.paintBadges(data.jobs?.requests || 0); JobKeys.bind(body); } // the requests and the key list under Job keys, while it is on
-    if (focusKey) body.querySelector(`[${focusAttr}="${CSS.escape(focusKey)}"]`)?.focus({ preventScroll: true });
+    const hostOf = k => host.querySelector('#' + HOSTS[k]);
+    const groups = data.groups || [], html = { main: '' };
+    for (const g of groups) {
+      const own = hostOf(g.key), sw = g.settings[0]?.key === g.key && g.settings[0].type === 'bool' ? g.settings[0] : null;
+      const swHost = own && sw && hostOf(g.key + '-switch'), inTasks = IN_TASKS[g.key] && hostOf('tasks') ? [IN_TASKS[g.key]] : [];
+      const part = groupHTML(g, { switchHere: !swHost, skip: inTasks, page: Boolean(own) });
+      if (own) html[g.key] = part; else html.main += part;
+      if (swHost) html[g.key + '-switch'] = `<section class="automation-group automation-switch" data-auto-group="${esc(g.key)}" aria-label="${esc(g.title)}">${settingRowHTML(g, sw)}</section>`;
+      if (inTasks.length) { const s = g.settings.find(x => x.key === inTasks[0]); if (s) html.tasks = (html.tasks || '') + `<section class="automation-group automation-switch" data-auto-group="${esc(g.key)}" aria-label="${esc(s.label)}">${settingRowHTML(g, s)}</section>`; }
+    }
+    const usage = usageHTML(data.usage, data.notices);
+    if (hostOf('usage')) html.usage = usage; else html.main += usage;
+    body.innerHTML = `${(data.warnings || []).map(w => `<p class="title-note automation-warning" role="note">${esc(w)}</p>`).join('')}${html.main}`;
+    for (const k of Object.keys(HOSTS)) { const el = hostOf(k); if (el && html[k] != null) el.innerHTML = html[k]; }
+    bindSettingsBody(host);
+    if (typeof JobKeys !== 'undefined') { JobKeys.paintBadges(data.jobs?.requests || 0); JobKeys.bind(hostOf('jobs') || body); } // the requests and the key list under Job keys, while it is on
+    if (focusKey) host.querySelector(`.automation-settings [${focusAttr}="${CSS.escape(focusKey)}"]`)?.focus({ preventScroll: true });
   }
   const settingOf = (group, key) => data?.groups?.find(g => g.key === group)?.settings.find(s => s.key === key);
   // 1.119: turning check-backs on or off here changes what the app shows at once (the list's clock, the cards, Tasks),
@@ -390,9 +416,13 @@ const Automation = (() => {
     host = sh;
     bindToggles(sh);
     const body = sh.querySelector('#s-automation-body'); if (!body) return;
-    if (!on()) { body.innerHTML = `<p class="title-note">${typeof PANE !== 'undefined' && PANE && window.pocketFeatures?.automation ? 'Automation and Pause all are in the main window.' : 'This server does not offer automation settings yet.'}</p>`; body.setAttribute('aria-busy', 'false'); return; }
+    if (!on()) {
+      body.innerHTML = `<p class="title-note">${typeof PANE !== 'undefined' && PANE && window.pocketFeatures?.automation ? 'Unattended work and Pause all are in the main window.' : 'This server does not offer settings for unattended work yet.'}</p>`; body.setAttribute('aria-busy', 'false');
+      for (const k of ['checkbacks-switch', 'jobs-switch']) sh.querySelector('#' + HOSTS[k])?.closest('.feature-row')?.setAttribute('hidden', '');
+      return;
+    }
     try { data = await api('/automation'); if (!sh.isConnected) return; apply({ paused: data.paused ?? null }); paintSettings(); }
-    catch (e) { if (sh.isConnected) { body.innerHTML = `<p class="title-note">${esc(e.message || 'Could not load the automation settings.')}</p>`; body.setAttribute('aria-busy', 'false'); } }
+    catch (e) { if (sh.isConnected) { body.innerHTML = `<p class="title-note">${esc(e.message || 'Could not load the settings for unattended work.')}</p>`; body.setAttribute('aria-busy', 'false'); } }
   }
   // The Pause all row in an open Settings follows the state.
   listeners.push(() => { if (host?.isConnected) paintControls(); });

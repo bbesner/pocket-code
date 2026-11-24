@@ -1,4 +1,4 @@
-// 1.117: Pause all and Settings → Automation on the real server.mjs, with the fake Claude Code, Codex and OpenRouter CLIs.
+// 1.117: Pause all and Settings → Unattended work on the real server.mjs, with the fake Claude Code, Codex and OpenRouter CLIs.
 // Pause stops running replies on all three engines, holds a usage-limit retry, keeps the queue and coordination wakes
 // from starting anything, lets the owner's own messages run (or refuses them when Blocked), and survives a restart. The
 // settings route saves, refuses out of range, resets, beats an env preset, and refuses the CLI token. The gate's
@@ -213,7 +213,7 @@ test('Blocked own messages, coordination wakes while paused, and the Automation 
     for (const [k, v] of Object.entries(values)) { const x = r.body.groups.find(g => g.key === group).settings.find(y => y.key === k); assert.deepEqual([x.value, x.saved], [v, true], k); }
   }
   a = (await s.call('/automation')).body;
-  assert.ok(a.warnings.some(w => w === 'Plan ceiling, 5-hour (Claude Code) has no limit.'));
+  assert.ok(a.warnings.some(w => w === 'Claude plan, 5-hour: stop unattended work at has no limit.'));
   const bad = await s.call('/automation/settings', { group: 'limits', values: { dailyReplies: 9, longestReply: 2 } });
   assert.equal(bad.status, 400); assert.match(bad.body.error, /Longest unattended reply must be 5 min to 480 min, or No limit\./);
   assert.equal((await s.call('/automation')).body.groups[1].settings.find(x => x.key === 'dailyReplies').value, 2, 'nothing saved');
@@ -860,7 +860,7 @@ test('a queued start that finds a reply already running goes back to pending and
 // 1.124.4: when automation-state.json cannot be written (here a directory sits where its temporary file goes, so only
 // this file fails), today's counts are kept in memory and the Automation page says a restart may lower them; the log
 // has one line for it, however often the page is opened.
-test('Today\'s counts that cannot be saved: Settings → Automation warns, and the log says it once', { timeout: 60_000 }, async t => {
+test('Today\'s counts that cannot be saved: Settings → Unattended work warns, and the log says it once', { timeout: 60_000 }, async t => {
   const dir = tmpDir(), data = path.join(dir, 'data');
   fs.mkdirSync(path.join(data, 'automation-state.json.tmp'), { recursive: true });
   fs.writeFileSync(path.join(data, 'automation-state.json'), JSON.stringify({ today: { day: '2020-01-01', startedRoot: 3, replies: 3 }, days: [] })); // an earlier day: opening the page rolls it over and saves

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {createRequire} from 'node:module';
 import {clickControl} from './ui-controls.mjs';
+import {modelPanel} from './model-panel.mjs';
 const require=createRequire(import.meta.url);
 export async function runCleanupRegressions({browser,base,rows,out}) {
  const context=await browser.createBrowserContext(),page=await context.newPage();page.setDefaultTimeout(8000);
@@ -17,26 +18,28 @@ export async function runCleanupRegressions({browser,base,rows,out}) {
  await fetch(base+'/api/documents/reset',{method:'POST'});await fetch(base+'/api/board/reset',{method:'POST'});
  for(const width of [390,768,1440]){
   await page.setViewport({width,height:900});await fresh('#/','#settings');
-  await check('Settings visible initial focus and seven-category index at '+width,async()=>{
+  await check('Settings visible initial focus and the ten-page index at '+width,async()=>{
    await page.click('#settings');assert.equal(await page.evaluate(()=>document.activeElement.className),'sheet-close icon');
-   assert.equal(await page.$$eval('.settings-index button',es=>es.filter(e=>e.checkVisibility()).length),7); // 1.117 adds Automation
-   assert.equal(await page.$eval('.settings-sheet',e=>e.scrollHeight<=e.clientHeight+1),true,'index fits without scrolling');
+   assert.equal(await page.$$eval('.settings-index > [data-settings-category]',es=>es.filter(e=>e.checkVisibility()).length),10); // 1.124.9: ten pages, under Layout
+   // 1.124.9: ten pages do not fit one screen; Layout stays short, so the first pages show without scrolling
+   assert.ok(await page.$eval('.settings-index [data-settings-category=notifications]',e=>{const s=document.querySelector('.settings-sheet').getBoundingClientRect(),r=e.getBoundingClientRect();return r.bottom<=s.bottom;}),'Display, Conversations and Notifications show without scrolling');
    await scan('settings-'+width);
   });
   await check('Settings category and parent return at '+width,async()=>{
-   await page.click('[data-settings-category=agents]');await page.click('#s-usage');await page.waitForSelector('#usage-body');
-   await page.click('.sheet-back');await page.waitForSelector('[data-settings-panel=agents]:not([hidden])');
-   assert.match(await page.$eval('.settings-sheet h2',e=>e.textContent),/Agents/);
-   await page.click('#settings-back');await page.click('[data-settings-category=notifications]');
-   await page.click('#s-voice > summary');await page.waitForSelector('#s-voice-vocab');await scan('voice-'+width);
+   await page.click('[data-settings-category=usage]');await page.click('#s-usage');await page.waitForSelector('#usage-body');
+   await page.click('.sheet-back');await page.waitForSelector('[data-settings-panel=usage]:not([hidden])');
+   assert.match(await page.$eval('.settings-sheet h2',e=>e.textContent),/Usage/);
+   await page.click('#settings-back');await page.click('[data-settings-category=voice]');
+   await page.waitForSelector('#s-voice-vocab',{visible:true});await scan('voice-'+width); // 1.124.9: Voice is its own page, open
    await page.keyboard.press('Escape');assert.equal(await page.evaluate(()=>document.activeElement.id),'settings');
   });
   await fresh('#/new','#first');
   await check('New setup is labeled and preserves a draft at '+width,async()=>{
    await page.$eval('#first',e=>{e.value='';e.dispatchEvent(new Event('input'));});await page.type('#first','Do not lose this draft');assert.equal(await page.$eval('#new-setup',e=>e.open),false);
-   const text=await page.$eval('#task-context',e=>e.textContent);for(const label of ['Workspace','Agent','Permissions'])assert.ok(text.includes(label));
-   await page.click('#choose-workspace');await page.click('[data-a=codex]');await page.waitForFunction(()=>document.querySelector('#task-context').textContent.includes('Codex')&&CODEX_MODELS.length>1);
-   await clickControl(page,'#c-model');await page.waitForSelector('[data-v="gpt-6-sol"]');await page.click('[data-v="gpt-6-sol"]');
+   const text=await page.$eval('#task-context',e=>e.textContent);assert.ok(text.includes('Workspace'));
+   for(const label of ['Agent','Permissions'])assert.ok(!text.includes(label),'1.124.9: the agent is the model chip\'s, permissions their own chip');
+   const mp=modelPanel(page);await mp.agent('codex');await page.waitForFunction(()=>document.querySelector('#c-model').textContent.includes('Codex')&&CODEX_MODELS.length>1);
+   await mp.model('gpt-6-sol');
    assert.equal(await page.$eval('#first',e=>e.value),'Do not lose this draft');
    assert.equal(await page.$eval('#tbar',e=>Boolean(e.closest('#comp .toolbar-scroll'))),true,'1.58: model, reasoning and permissions use the conversation composer\'s toolbar');
    await page.click('#choose-workspace');await scan('new-'+width);

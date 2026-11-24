@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.99.0
+checked: 1.124.9
 sources: coordination.mjs, public/coordination.js, scripts/pocket-coord.mjs, skills/pocket-coord/SKILL.md
 -->
 # Coordination
@@ -12,12 +12,12 @@ A hold is a named claim such as `shop-staging`: one holder, a reason and an expi
 
 Coordination is off until you switch it on for the whole instance:
 
-1. Open **Settings → Projects, files, tasks & vault**.
+1. Open **Settings → Features**.
 2. Turn on **Coordination**.
 
 While it is on, Pocket installs the `pocket-coord` skill for Claude Code and Codex and tells the agents it runs to claim a shared thing before they start. Turning it off hides the view and removes the skill. Holds already made stay in the store, and nothing expires or wakes until it is back on.
 
-Assistant mode has no Coordination: the switch, the view and the line above the conversation list are all hidden, and `pocket-coord` answers that it is off.
+Assistant mode has no Coordination: its switch in **Features**, the view and the line above the conversation list are all hidden, and `pocket-coord` answers that it is off.
 
 ## Use it
 
@@ -99,7 +99,7 @@ The `pocket-coord` skill tells agents all of this. See [For agents](for-agents.m
 
 | Setting or variable | Effect |
 |---|---|
-| **Settings → Projects, files, tasks & vault → Coordination** | Turns Coordination on for the instance (`coordination` in `pocket-settings.json`). |
+| **Settings → Features → Coordination** | Turns Coordination on for the instance (`coordination` in `pocket-settings.json`). |
 | `POCKET_COORD_SWEEP_MS` | How often Pocket renews, expires and wakes, in milliseconds. Default 30000. |
 | `POCKET_SKILLS=0` | Pocket doesn't install the `pocket-coord` skill. |
 
@@ -111,6 +111,6 @@ The `pocket-coord` skill tells agents all of this. See [For agents](for-agents.m
 
 **A waiting conversation didn't wake.** It is woken only if it asked with `pocket-coord wait`, and a paused queue stays paused. Check **Held now** for who is first in line, and, for a free name, who it was offered to and whether that start is held.
 
-**`pocket-coord` says Coordination is off.** Turn it on in **Settings → Projects, files, tasks & vault**. In Assistant mode it stays off.
+**`pocket-coord` says Coordination is off.** Turn it on in **Settings → Features**. In Assistant mode it stays off.
 
 **Holds and waiting lines vanished after a restart; Coordination says *Coordination could not read what was held* (since 1.124.5; until you choose **Dismiss**), and the server log says `coordination.json could not be read`.** The file did not hold valid JSON when Pocket started (a hand edit, or a file damaged by a power cut). Since 1.124.2 Pocket keeps it beside the original as `coordination.json.corrupt-<time>` and starts with no holds. Holds are short-lived, so taking them again is usually enough; to get the old ones back, stop Pocket, fix the kept copy and move it back to `coordination.json`.

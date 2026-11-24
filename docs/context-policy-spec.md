@@ -31,7 +31,7 @@ Pocket starts every agent process, so it is the one place one policy can reach a
 
 ## Settings (phase 1)
 
-Settings → Agents & instance → **Context and subagents**. Server-wide, saved in `pocket-settings.json` as
+Settings → Agents → **Long conversations and helpers** (formerly Context and subagents). Server-wide, saved in `pocket-settings.json` as
 `contextPolicy`:
 
 ```json

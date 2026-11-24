@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.124.2
+checked: 1.124.9
 sources: voice.mjs, voice/, public/voice.js, public/voice-text.js, public/voice-worklet.js, scripts/voice-setup.sh
 -->
 # Voice mode (beta)
@@ -18,7 +18,7 @@ Voice needs a one-time install on the server, then a restart.
 
    It needs `python3`. It creates a Python virtual environment, installs `faster-whisper`, `kokoro-onnx`, `onnxruntime` and `numpy`, and downloads the Kokoro voice model and the Whisper `small.en` speech model into `POCKET_VOICE_HOME` (default `~/.local/share/pocket-code/voice`). The script's own estimate is about 1.5 GB on disk.
 2. Restart Pocket Code.
-3. Open **Settings → Notifications & voice → Voice (beta)**. It reads "Voice is available on this server." when the install worked.
+3. Open **Settings → Voice (beta)**. It reads "Voice is available on this server." when the install worked.
 
 Until the engine is installed, the mic and headset buttons stay hidden. Voice settings are kept per browser, so set them on each device you use.
 
@@ -110,7 +110,7 @@ When voice is available, the row above the message box has a **Voice** chip besi
 
 ### Voice settings
 
-All in **Settings → Notifications & voice → Voice (beta)**, saved in this browser:
+All in **Settings → Voice (beta)** (this device only), saved in this browser:
 
 | Setting | Default |
 |---|---|
@@ -151,7 +151,7 @@ The engine starts on the first voice request, which takes a few seconds, and sto
 
 ## For agents
 
-Voice mode has no CLI and no agent-side controls. A spoken message reaches you as an ordinary user message, transcribed, so expect occasional mis-heard words and no punctuation cues; ask when a transcription is ambiguous. To check whether voice is installed on the server, look for the engine in `POCKET_VOICE_HOME` (default `~/.local/share/pocket-code/voice`) or ask the user to open **Settings → Notifications & voice → Voice (beta)**. To install it for the user, run `bash scripts/voice-setup.sh` from the Pocket Code directory and tell them Pocket Code must be restarted; do not restart it without their say-so.
+Voice mode has no CLI and no agent-side controls. A spoken message reaches you as an ordinary user message, transcribed, so expect occasional mis-heard words and no punctuation cues; ask when a transcription is ambiguous. To check whether voice is installed on the server, look for the engine in `POCKET_VOICE_HOME` (default `~/.local/share/pocket-code/voice`) or ask the user to open **Settings → Voice (beta)**. To install it for the user, run `bash scripts/voice-setup.sh` from the Pocket Code directory and tell them Pocket Code must be restarted; do not restart it without their say-so.
 
 ## Troubleshooting
 

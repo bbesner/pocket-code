@@ -75,7 +75,7 @@ export async function runSlashRegressions({browser,base,rows,received,out}) {
   const box=await page.$eval('#slash [data-n="effort"]',e=>{const r=e.getBoundingClientRect();return {h:r.height,w:r.width};});
   assert.ok(box.h>=44&&box.w>=300,'a full-width target at least 44px tall: '+JSON.stringify(box));
   await page.tap('#slash [data-n="effort"]');
-  await page.waitForFunction(()=>/Reasoning effort/.test(document.querySelector('.sheet h2')?.textContent||''));
+  await page.waitForFunction(()=>document.activeElement?.matches?.('.model-sheet [data-effort]'));
   assert.equal(await page.$eval('#box',e=>e.value),'','/effort opens the effort choice');
   await page.keyboard.press('Escape');
   await scan('picker-390');

@@ -38,7 +38,7 @@ test('the defaults are the spec tables, and the groups are data', () => {
   assert.deepEqual(auto.groupValues({}, 'jobs', {}), { jobs: false, jobsInTasks: true, jobAccess: 'ask', jobAddInstructions: false, jobPerHour: 6, jobPerDay: 24, jobAtOnce: 1,
     jobDataMax: 20000, jobWaitMax: 300, jobRepeatDays: 7, jobPush: true, jobPushRespectsMute: true, jobKeyFolder: '~/.config/pocket/jobs/' });
   const cbg = auto.GROUPS[2].settings;
-  assert.deepEqual(cbg.filter(s => s.advanced).map(s => s.key), ['busyWaitMin', 'spacingSec']);
+  assert.deepEqual(cbg.filter(s => s.advanced).map(s => s.key), ['perConversation', 'perInstall', 'chainLimit', 'furthestHours', 'soonestMin', 'noteMax', 'catchUpHours', 'busyWaitMin', 'spacingSec']);
   assert.ok(!cbg.some(s => s.offAllowed), 'no check-back limit has No limit');
   const stale = auto.GROUPS[1].settings.find(s => s.key === 'staleHours');
   assert.equal(stale.advanced, true); assert.ok(!stale.offAllowed, 'the stale setting has no Off');

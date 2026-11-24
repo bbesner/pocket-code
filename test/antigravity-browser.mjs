@@ -12,6 +12,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 import puppeteer from 'puppeteer-core';
+import { modelPanel } from './model-panel.mjs';
 
 const repo = path.resolve(import.meta.dirname, '..');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -42,10 +43,8 @@ try {
   const exp = String(Date.now() + 3600_000);
   await page.setCookie({ name: 'pc_auth', value: exp + '.' + createHmac('sha256', secret).update(exp).digest('hex'), url: base });
   await page.evaluateOnNewDocument(() => { if (!localStorage.getItem('agy-browser-init')) { localStorage.setItem('agy-browser-init', '1'); localStorage.setItem('pc-provider', 'antigravity'); } });
-  const chipText = sel => page.$eval(sel, e => e.textContent.trim());
-  const sheetOptions = () => page.$$eval('.sheet .opt', es => es.map(e => e.dataset.v));
+  const mp = modelPanel(page);
   const closeSheet = () => page.waitForFunction(() => !document.querySelector('.sheet'), { timeout: 5000 }).catch(() => { });
-  const pick = async (chip, value) => { await page.click(chip); await page.waitForSelector('.sheet .opt'); await page.click(`.sheet .opt[data-v="${value}"]`); await closeSheet(); };
   const shot = async name => { if (out) { fs.mkdirSync(out, { recursive: true }); await sleep(300); await page.screenshot({ path: path.join(out, `${name}-${vw}.png`) }); } };
   // POCKET_AGY_BROWSER_HOLD: leave this view up for a scanner on the DevTools port, until the process is stopped
   const view = async name => { await shot(name); if (hold === name) { held = true; console.log(JSON.stringify({ holding: name, cdp, viewport: `${vw}x${vh}` })); await new Promise(() => { }); } };
@@ -54,29 +53,27 @@ try {
   await page.goto(base + '/#/new');
   await page.waitForSelector('#apick [data-a="antigravity"]:not([hidden])');
   await page.waitForFunction(() => /Gemini 4 Neon/.test(document.querySelector('#c-model')?.textContent || ''));
-  assert.equal(await page.$eval('#apick [data-a="antigravity"]', e => e.getAttribute('aria-checked')), 'true', 'Antigravity is the agent');
-  assert.equal(await page.$eval('#apick [data-a="acp"]', e => getComputedStyle(e).display), 'none', 'OpenRouter is off on this server, so its row does not show');
+  assert.equal((await mp.chosen()).agent, 'antigravity', 'Antigravity is the agent');
+  assert.equal((await mp.agents()).includes('acp'), false, 'OpenRouter is off on this server, so the panel does not offer it');
+  await mp.close();
   assert.equal(await page.$eval('#first', e => e.placeholder), 'What should Antigravity work on?');
   assert.equal(await page.$eval('#agy-note', e => e.hidden), true, 'signed in: no sign-in note');
-  await page.click('#c-model'); await page.waitForSelector('.sheet .opt');
-  assert.deepEqual(await page.$$eval('.sheet .opt', es => es.map(e => e.innerText.replace(/\s*\n\s*/g, ' | '))),
+  assert.deepEqual(await mp.modelRows(),
     ['Default | Gemini 4 Neon · Antigravity default', 'Gemini 4 Neon', 'Gemini 3.8 Flash', 'Claude Opus 5.5'], 'the models the plan lists');
-  await page.keyboard.press('Escape'); await closeSheet();
-  await page.click('#c-eff'); await page.waitForSelector('.sheet .opt');
-  assert.deepEqual(await sheetOptions(), ['default', 'xhigh', 'high', 'medium', 'low'], 'Gemini 4 Neon: its own levels, strongest first');
-  assert.match(await page.$eval('.sheet .opt[data-v="default"]', e => e.textContent), /Medium · the model's own default/);
-  await page.click('.sheet .opt[data-v="xhigh"]'); await closeSheet();
-  assert.match(await chipText('#c-eff'), /X-High/);
-  // a level the next model lacks goes back to Default; a model with no levels has no chip
-  await pick('#c-model', 'gemini-3.8-flash');
-  assert.match(await chipText('#c-eff'), /Default/, 'X-High is not one of Flash\'s levels');
-  await page.click('#c-eff'); await page.waitForSelector('.sheet .opt');
-  assert.deepEqual(await sheetOptions(), ['default', 'high', 'medium', 'low']);
-  await page.keyboard.press('Escape'); await closeSheet();
-  await pick('#c-model', 'claude-opus-5-5');
-  assert.equal(await page.$('#c-eff'), null, 'Claude Opus 5.5 lists no levels, so there is no chip');
-  await pick('#c-model', 'gemini-3.8-flash');
-  await pick('#c-eff', 'high');
+  assert.deepEqual(await mp.efforts(), ['default', 'xhigh', 'high', 'medium', 'low'], 'Gemini 4 Neon: its own levels, strongest first');
+  assert.match(await mp.effortNote(), /^Medium · the model's own default\./);
+  await mp.effort('xhigh');
+  assert.match(await mp.chip(), /X-High$/);
+  // a level the next model lacks goes back to Default; a model with no levels offers none
+  await mp.model('gemini-3.8-flash');
+  assert.equal((await mp.chosen()).effort, 'default', 'X-High is not one of Flash\'s levels');
+  assert.deepEqual(await mp.efforts(), ['default', 'high', 'medium', 'low']);
+  await mp.close();
+  await mp.model('claude-opus-5-5');
+  assert.deepEqual(await mp.efforts(), [], 'Claude Opus 5.5 lists no levels, so none is offered');
+  await mp.close();
+  await mp.model('gemini-3.8-flash');
+  await mp.effort('high');
   await page.click('#c-approval'); await page.waitForSelector('.sheet .opt[data-v="review"]');
   assert.match(await page.$eval('.sheet .opt[data-v="review"]', e => e.textContent), /Ask before each command and file edit/);
   await page.keyboard.press('Escape'); await closeSheet();
@@ -91,16 +88,15 @@ try {
   assert.equal(await page.$eval('#new-setup', e => e.open), true, 'the setup opens so the note is seen');
   assert.equal(await page.$eval('#agy-note p', e => e.textContent), 'Antigravity is not signed in to Google. On this server, run agy acp --login and follow the link it prints, then check again.');
   assert.equal(await page.$eval('#agy-note code', e => e.textContent), 'agy acp --login');
-  assert.equal(await page.$('#c-eff'), null, 'no levels to offer signed out');
-  await page.click('#c-model'); await page.waitForSelector('.sheet .opt');
-  assert.deepEqual(await page.$$eval('.sheet .opt', es => es.map(e => e.innerText.replace(/\s*\n\s*/g, ' | '))), ['Not signed in | On this server, run agy acp --login']);
-  await page.keyboard.press('Escape'); await closeSheet();
+  assert.deepEqual(await mp.efforts(), [], 'no levels to offer signed out');
+  assert.deepEqual(await mp.modelRows(), ['Not signed in | On this server, run agy acp --login']);
+  await mp.close();
   await view('signed-out');
   fs.rmSync(signedOut);
   await page.click('#agy-recheck');
   await page.waitForFunction(() => document.querySelector('#agy-note')?.hidden === true);
   await page.waitForFunction(() => /Gemini 3.8 Flash/.test(document.querySelector('#c-model')?.textContent || ''), { timeout: 5000 });
-  assert.match(await chipText('#c-eff'), /High/, 'the picks made before are still there');
+  assert.match(await mp.chip(), /Gemini 3\.8 Flash · High$/, 'the picks made before are still there');
 
   console.log('Antigravity: the reply asks before its command, Allow runs it, and it ran on the picked model and level');
   await page.type('#first', 'do the thing');

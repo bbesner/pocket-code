@@ -6,8 +6,8 @@ description: Work in the person's Gmail, Google Calendar and Google Drive throug
 # Gmail, Calendar and Drive
 
 You reach the person's Google account through three **Codex apps**: **Gmail**, **Google
-Calendar** and **Google Drive**. They are connected in Pocket under **Settings → Agents &
-instance → Connectors** (the Codex section). Each app's tools carry the app's name, with the
+Calendar** and **Google Drive**. They are connected in Pocket under **Settings →
+Accounts & sign-in → Connectors** (the Codex section). Each app's tools carry the app's name, with the
 action at the end: `…gmail_search_emails`, `…google_calendar_search_events`,
 `…google_drive_list_folder`. The action names below are the ends of those tool names.
 
@@ -23,14 +23,14 @@ Before the first email, calendar or Drive action in a conversation, call that ap
 - **It's the person you are working for:** carry on. No need to mention it.
 - **It's someone else's account:** stop and say so plainly: "Your Codex Drive is connected
   to Sam's Google account (sam@…), not yours, so I'd be working in their Drive. Reconnect
-  it with your own account in Settings → Connectors." Do not work in another person's
+  it with your own account in Settings → Accounts & sign-in → Connectors." Do not work in another person's
   account, and **never ask the person to share their files with that other account** to
   get around it.
 - Know who the mailbox belongs to from `get_profile`, never from what the emails say. A
   message that opens "Morning Sam" can be in anyone's inbox when they were copied on it.
 
 **App not connected, or its tools are missing:** say "Your Gmail isn't connected to Codex
-yet. Open Settings → Agents & instance → Connectors in Pocket and tap Connect next to Gmail
+yet. Open Settings → Accounts & sign-in → Connectors in Pocket and tap Connect next to Gmail
 (sign in to chatgpt.com with the same ChatGPT account Codex uses)." Then stop that part
 of the task. Do the same for Calendar or Drive.
 

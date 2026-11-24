@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.124.4
+checked: 1.124.9
 sources: checkbacks.mjs, choices.mjs, project-mode.mjs, public/projects.js, starts.mjs, results.mjs, queue.mjs, sidechat.mjs, public/sidechat.js, subagents.mjs, workspace.mjs, worktrees.mjs, public/secret-detect.js
 -->
 # Working in a conversation
@@ -24,9 +24,11 @@ Type in the message box at the bottom and press the send button.
   you type in one shows in the other. While one window is sending, the other says **Sending from another window…**.
 - A reply started somewhere else (another device, a job key, a check-back) shows on a page that already has the
   conversation open, with **Working** and **Stop**, within a few seconds.
-- The chips above the box set the next reply: model, reasoning effort, permissions (**Review actions** or **Full access**,
+- The chips above the box set the next reply: the model and effort on one chip (*Model · Effort*, which opens **Model and
+  effort**; on New conversation it also holds the agent), permissions (**Review actions** or **Full access**,
   see [Questions and approvals](approvals.md#choose-review-actions-or-full-access)) and, on Codex, OpenRouter and Antigravity, **Work normally**
-  or **Plan first**. These choices are remembered per conversation on this browser.
+  or **Plan first**. These choices are remembered per conversation on this browser. See
+  [Choose agent, model, effort, permissions and mode](sessions.md#choose-agent-model-effort-permissions-and-mode).
 - When delivery cannot be confirmed (the network dropped mid-send), the message stays on the device and the box shows
   **Retry same message**, **Review conversation** and **Discard message** (which deletes the unsent message). Retry resends with the same request id, so the
   server does not start a second reply for a message it already received. A message the server refused, or could not
@@ -92,7 +94,7 @@ The list has three groups:
   | `/branch` | Opens [Branch](#branch-into-a-new-conversation) |
   | `/handoff` | Asks the agent for a [handoff](#hand-off-to-a-fresh-conversation) |
   | `/new` | Starts a new conversation in this conversation's folder |
-  | `/model`, `/effort` | Open the model and effort choices, the same as the chips |
+  | `/model`, `/effort` | Open the **Model and effort** panel, the same as the chip; `/effort` puts focus on the effort choices |
   | `/usage` | Opens Plan usage |
 
 - **Skills**: for Claude, the skills and commands in `~/.claude/skills` and `~/.claude/commands`, the conversation
@@ -132,7 +134,7 @@ With **Job keys** on ([Automation](automation.md#job-keys)), a script on the ser
 
 ### A conversation asks for a job key
 
-With **Job keys** on, you can ask a conversation to set up something that runs by itself. It writes the script and the instruction, then asks Pocket for a job key. Nothing exists yet. While the request waits for you, the conversation shows a line, *Waiting for you: job key disk-check*, that opens the request in **Settings → Automation → Job keys**, where you read the whole instruction and tap **Allow**, **Edit first** or **Deny** ([Let a conversation set one up](automation.md#let-a-conversation-set-one-up)). The conversation doesn't wake by itself when you answer: tell it you did, and it gets the path of the key file, never the key. Only a reply to a message you sent can ask.
+With **Job keys** on, you can ask a conversation to set up something that runs by itself. It writes the script and the instruction, then asks Pocket for a job key. Nothing exists yet. While the request waits for you, the conversation shows a line, *Waiting for you: job key disk-check*, that opens the request in **Settings → Features → Job keys**, where you read the whole instruction and tap **Allow**, **Edit first** or **Deny** ([Let a conversation set one up](automation.md#let-a-conversation-set-one-up)). The conversation doesn't wake by itself when you answer: tell it you did, and it gets the path of the key file, never the key. Only a reply to a message you sent can ask.
 
 ### Close a finished conversation (the Complete card)
 
@@ -165,17 +167,17 @@ Replies render as GitHub-flavoured Markdown: headings, lists, tables, quotes, co
 
 - Raw HTML in a reply is shown as text, never run.
 - Links to websites (`http`/`https`) open in a new browser tab. A link to one of this Pocket's own things (a
-  conversation, a project, a file in Files, or a file Pocket serves) opens the way **Settings → Projects, files, tasks &
-  vault → Open files and links** says: as a tab, beside the conversation, or in a new window. A served file shows in a
+  conversation, a project, a file in Files, or a file Pocket serves) opens the way **Settings → Features → Files →
+  Open files and links** says: as a tab, beside the conversation, or in a new window. A served file shows in a
   link view with **Open in browser** and **Copy link**. Other links, and a website link with a user name or password in
   it, show as plain text.
 - A local image path on its own line (under the home directory, `.png`, `.jpg`, `.gif` or `.webp`) shows the image.
 - Each code block has a **Copy code** button, and each reply a **Copy message** button that copies the prose and code
   without the tool steps.
-- Runs of tool calls fold behind one line with the count and the latest step. **Settings → Conversation → Collapse steps**
+- Runs of tool calls fold behind one line with the count and the latest step. **Settings → Conversations → Collapse steps**
   keeps them folded; **Describe steps in plain words** shows "Saved Proposal.pdf" instead of the raw tool name. Both are
   per browser.
-- **Settings → Conversation → Show message times** shows a time on each message and a divider for each day.
+- **Settings → Conversations → Show message times** shows a time on each message and a divider for each day.
 
 ### See the cost of a reply
 
@@ -212,7 +214,7 @@ Markdown, CSV and JSON in Pocket's viewer; Office files and ZIPs download. HTML 
 do not run. Images get no card because they already show in the reply.
 
 With the Files library on, cards and Results rows offer **Keep in Files**, and a kept file reads **In Files** (or **Kept ·
-Open** in Results). **Settings → Projects, files, tasks & vault → Keep files from replies** keeps them automatically. See [Files](files.md).
+Open** in Results). **Settings → Features → Files → Keep files from replies** keeps them automatically. See [Files](files.md).
 
 ### See what the agent changed
 
@@ -424,7 +426,7 @@ conversation needs everything said so far: Branch keeps all of it, and each of i
 The new conversation opens with the briefing as its first message. It shows **Continued from …** under its header, and the
 original shows **Continued in …**.
 
-When a conversation grows past the size set in [Settings → Context and subagents](settings.md) (200K tokens unless you
+When a conversation grows past the size set in [Settings → Agents → Long conversations and helpers](settings.md#agents-developer-mode) (200K tokens unless you
 change it; 150K in a [Conductor conversation](#project-mode-chip), or your size when that is lower), a line appears under the latest finished reply: **This conversation is at 435K tokens, and every reply reads
 all of it.** with **Hand off** and **Not now**. Hand off asks for the briefing, the same as the button. The line shows
 only while nothing is running, waiting for you or typed in the message box, and not in a conversation that has already
@@ -462,8 +464,8 @@ background job finishes first). The chip follows a link or unlink made from the 
   models and checks what comes back.
 - **Solo**: one cheaper model does the work itself, with no lead.
 
-In these conversations the model chip's **Default** is the model this start chose, and its line says so (**Fable 5.1 · this
-project's lead**, or **Opus 5.5 · this project's Solo model**); the effort chip's **Default** is **High**. New conversation shows the
+In these conversations the model panel's **Default** is the model this start chose, and its line says so (**Fable 5.1 · this
+project's lead**, or **Opus 5.5 · this project's Solo model**); the effort's **Default** is **High**. New conversation shows the
 same before the first message, with the start as a chip beside the project chip. In a Conductor conversation the model choices carry one more
 line: **Changing the model restarts the lead without its reasoning. A handoff carries the work over cleanly.** You can still
 pick another model; a [handoff](#hand-off-to-a-fresh-conversation) is the cleaner way, because it keeps the project and the
@@ -512,7 +514,7 @@ When something matches, the message is held and **That looks like a secret** ope
 
 On paste, the same sheet offers **Store in the Vault**, **Paste as is** and **Cancel**. The server runs the same check on
 every message, branch and side chat question, so a held message is never recorded or delivered. Turn the check off with
-**Settings → Projects, files, tasks & vault → Catch secrets in messages** (on by default, for the whole install). More in
+**Settings → Features → Vault → Catch secrets in messages** (on by default, for the whole install). More in
 [Vault](vault.md#catch-secrets-typed-into-messages).
 
 ## How it works
@@ -576,11 +578,11 @@ run at once across Pocket; when a fifth is needed, the one idle longest is close
 
 | Setting or variable | Effect |
 |---|---|
-| **Settings → Conversation → Collapse steps** | Fold runs of tool calls. This browser. |
-| **Settings → Conversation → Describe steps in plain words** | Plain-language step lines. This browser. |
-| **Settings → Conversation → Show message times** | Times and day dividers. This browser. |
-| **Settings → Projects, files, tasks & vault → Catch secrets in messages** | The secret check. Whole install, on by default. |
-| **Settings → Projects, files, tasks & vault → Keep files from replies** | Keep files named in replies in Files automatically. |
+| **Settings → Conversations → Collapse steps** | Fold runs of tool calls. This browser. |
+| **Settings → Conversations → Describe steps in plain words** | Plain-language step lines. This browser. |
+| **Settings → Conversations → Show message times** | Times and day dividers. This browser. |
+| **Settings → Features → Vault → Catch secrets in messages** | The secret check. Whole install, on by default. |
+| **Settings → Features → Files → Keep files from replies** | Keep files named in replies in Files automatically. |
 | `POCKET_CHOICES=0` | Stop asking agents for suggested-reply buttons. |
 | `POCKET_SIDE_CHAT=0` | Turn side chat off. |
 | `POCKET_SIDE_CHAT_BUDGET_USD` | Spending cap for one Claude side chat, in dollars. Default `5`; `0` removes the cap. |
@@ -663,7 +665,7 @@ Variables go in the Pocket Code directory's `.env`; restart Pocket after changin
 | Side chat: "Claude AI usage limit reached" or "API Error: …" in red | Claude Code stopped the answer at a usage limit or on an error from Anthropic's API. These are its own words (1.124.2; before, the answer ended with no message). | After the limit resets, or for an API error a minute later, ask again. |
 | Side chat: "Too many side chats are answering right now." | `POCKET_SIDE_CHAT_MAX` side chats are all mid-answer. | Wait for one to finish. |
 | Side chat: "Side chat is switched off on this Pocket." | `POCKET_SIDE_CHAT=0`. | Remove it from `.env` and restart. |
-| Side chat or Branch: "Claude account sign-in is in progress." | A Claude sign-in is open in **Accounts & instance**. | Finish or cancel the sign-in. |
+| Side chat or Branch: "Claude account sign-in is in progress." | A Claude sign-in is open in **Claude and Codex accounts**. | Finish or cancel the sign-in. |
 | Cost line missing under a reply | The reply finished while the conversation was closed, or the page was reloaded (the line is not saved), or the conversation's process was started by an older Pocket. | Use the **Ready** notification or the plan usage view. |
 | Subagents show **Status unconfirmed** | Pocket cannot confirm the reply is running (it ran elsewhere, or the status check failed). | **Retry**; the last details stay readable. |
 | An agent has no **Show activity** | It has not written a transcript yet, or it is a Codex agent (Codex keeps none Pocket can read). | Wait for its first step; read **Latest activity**. |

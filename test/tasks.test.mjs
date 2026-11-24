@@ -179,7 +179,7 @@ test('HTTP: tasks are off until Settings turns them on, the loopback token serve
   out=await cli(['edit',zid,'--due','2027-03-10T09:00-05:00']);assert.match(out.stdout,/due Mar 10, 2027, 3:00\s?PM GMT\+1/,'an explicit offset is taken as written');
   await cli(['remove',zid]);
   assert.equal((await call('/settings',{tasks:false})).body.tasks,false);
-  out=await cli(['list']);assert.equal(out.code,3);assert.match(out.stderr,/Settings → Projects, files, tasks & vault/);
+  out=await cli(['list']);assert.equal(out.code,3);assert.match(out.stderr,/Settings → Features/);
   assert.equal((await call('/tasks')).status,404);
 });
 

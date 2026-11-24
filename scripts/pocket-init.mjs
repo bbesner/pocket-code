@@ -96,7 +96,7 @@ else {
   let id = null; try { id = JSON.parse(st.stdout); } catch { }
   const ver = (v.stdout || '').trim().split('\n')[0] || 'version unknown';
   if (id?.loggedIn === true) note('Claude Code', 'ok', `${ver}, signed in${id.email ? ` as ${id.email}` : ''}`);
-  else if (id?.loggedIn === false) note('Claude Code', 'warn', `${ver}, not signed in. Run \`claude\` in a terminal and sign in, or use Settings → Accounts in Pocket after it starts.`);
+  else if (id?.loggedIn === false) note('Claude Code', 'warn', `${ver}, not signed in. Run \`claude\` in a terminal and sign in, or use Settings → Accounts & sign-in → Claude and Codex accounts in Pocket after it starts.`);
   else note('Claude Code', 'warn', `${ver}, sign-in status unknown (claude auth status gave no answer)`);
 }
 {

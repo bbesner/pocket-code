@@ -55,7 +55,7 @@ is malformed or unsupported.
 ## Actions that run without asking
 
 Under Review actions every Bash command, MCP tool call and web lookup shows a card, including
-harmless reads. **Settings → Agents & instance → Actions that run without asking** lists
+harmless reads. **Settings → Agents → Actions that run without asking** lists
 read-only actions that Pocket approves itself in Review actions: when Claude asks to run a listed
 action, Pocket answers Allow without a card and records it; everything else shows the card as
 before. The list is empty by default, which is the behavior before 1.56.
@@ -63,8 +63,8 @@ before. The list is empty by default, which is the behavior before 1.56.
 This is a convenience, not a security boundary. A listed command runs with whatever arguments
 the agent gives it, so list only commands that cannot change anything whatever they are given:
 `Bash(git:*)` would also allow `git push`, and `Bash(curl:*)` can send data anywhere. It covers
-Claude turns in Review actions only. Full access already runs everything without asking; Codex
-turns are not covered and keep their own approvals.
+replies in Review actions: Claude Code for every kind of rule, and Codex, OpenRouter (both since 1.87)
+and Antigravity (since 1.120) for command rules (`Bash(…)`). Full access already runs everything without asking.
 
 Rules are a subset of [Claude Code's permission rules](https://code.claude.com/docs/en/permissions):
 

@@ -584,7 +584,7 @@ test('HTTP: off until Settings turns it on (and only with a key), the matrix of 
   assert.equal((await call('/vault/unlock',{passphrase:'nope nope nope nope'})).status,429);
   assert.equal((await call('/vault/unlock',{passphrase:'correct horse battery'})).status,429,'then even the right one waits');
   assert.equal((await call('/settings',{vault:false})).body.vault,false);
-  o=await cli(['list']);assert.equal(o.code,3);assert.match(o.stderr,/Settings → Projects, files, tasks & vault/);
+  o=await cli(['list']);assert.equal(o.code,3);assert.match(o.stderr,/Settings → Features/);
   assert.equal((await call('/vault')).status,404);
 });
 

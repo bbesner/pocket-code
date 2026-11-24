@@ -12,6 +12,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 import puppeteer from 'puppeteer-core';
+import { modelPanel } from './model-panel.mjs';
 
 const repo = path.resolve(import.meta.dirname, '..');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -52,18 +53,15 @@ try {
   const exp = String(Date.now() + 3600_000);
   await page.setCookie({ name: 'pc_auth', value: exp + '.' + createHmac('sha256', secret).update(exp).digest('hex'), url: base });
   await page.evaluateOnNewDocument(() => { if (!localStorage.getItem('acp-browser-init')) { localStorage.setItem('acp-browser-init', '1'); localStorage.setItem('pc-provider', 'acp'); } });
-  const chipText = sel => page.$eval(sel, e => e.textContent.trim());
-  const sheetOptions = () => page.$$eval('.sheet .opt', es => es.map(e => e.dataset.v));
-  const pick = async (chip, value) => { await page.click(chip); await page.waitForSelector('.sheet .opt'); await page.click(`.sheet .opt[data-v="${value}"]`); await page.waitForFunction(() => !document.querySelector('.sheet'), { timeout: 5000 }).catch(() => { }); };
 
+  const mp = modelPanel(page);
   console.log('OpenRouter: New conversation offers the model\'s own effort levels');
   await page.goto(base + '/#/new');
-  await page.waitForSelector('#apick [data-a="acp"]:not([hidden])');
-  await page.waitForSelector('#c-eff');
-  assert.equal(await page.$eval('#apick [data-a="acp"]', e => e.getAttribute('aria-checked')), 'true', 'OpenRouter is the agent');
-  await page.click('#c-eff'); await page.waitForSelector('.sheet .opt');
-  assert.deepEqual(await sheetOptions(), ['default', 'max', 'high', 'low', 'none'], 'DeepSeek V4.1 Flash: its own levels, strongest first');
-  // POCKET_DESIGN_SCANNER + POCKET_ACP_BROWSER_OUT: a screenshot and the impeccable detector on the open sheet
+  await page.waitForFunction(() => document.querySelector('#apick [data-a="acp"]') && !document.querySelector('#apick [data-a="acp"]').hidden);
+  assert.match(await mp.chip(), /^OpenRouter · /, 'OpenRouter is the agent, named on the chip');
+  assert.equal((await mp.chosen()).agent, 'acp');
+  assert.deepEqual(await mp.efforts(), ['default', 'max', 'high', 'low', 'none'], 'DeepSeek V4.1 Flash: its own levels, strongest first');
+  // POCKET_DESIGN_SCANNER + POCKET_ACP_BROWSER_OUT: a screenshot and the impeccable detector on the open panel
   const out = process.env.POCKET_ACP_BROWSER_OUT;
   if (out) { fs.mkdirSync(out, { recursive: true }); await sleep(300); await page.screenshot({ path: path.join(out, 'acp-effort-390.png') }); }
   if (out && process.env.POCKET_DESIGN_SCANNER) {
@@ -71,41 +69,42 @@ try {
     const t = await page.addScriptTag({ path: process.env.POCKET_DESIGN_SCANNER }); await t.evaluate(e => e.remove());
     fs.writeFileSync(path.join(out, 'acp-effort-design.json'), JSON.stringify(await page.evaluate(() => window.impeccableDetectAsync({ scrollOffscreen: false })), null, 1));
   }
-  await page.click('.sheet .opt[data-v="high"]'); await sleep(200);
-  assert.match(await chipText('#c-eff'), /High/);
-  // a model with no effort setting has no chip; a model with other levels offers those
-  await pick('#c-model', 'openrouter/meta-llama/llama-4-scout');
-  assert.equal(await page.$('#c-eff'), null, 'Llama 4 Scout takes no effort, so there is no chip');
-  await pick('#c-model', 'openrouter/anthropic/claude-sonnet-5.5');
-  await page.click('#c-eff'); await page.waitForSelector('.sheet .opt');
-  assert.deepEqual(await sheetOptions(), ['default', 'max', 'xhigh', 'high', 'medium', 'low']);
-  await page.click('.sheet .opt[data-v="xhigh"]'); await sleep(200);
+  await mp.effort('high');
+  assert.match(await mp.chip(), /High$/);
+  // a model with no effort setting offers none; a model with other levels offers those
+  await mp.model('openrouter/meta-llama/llama-4-scout');
+  assert.deepEqual(await mp.efforts(), [], 'Llama 4 Scout takes no effort, so none is offered');
+  assert.equal(await page.$eval('.model-sheet .mp-effort-note', e => e.textContent), 'This model has no effort setting.');
+  await mp.model('openrouter/anthropic/claude-sonnet-5.5');
+  assert.deepEqual(await mp.efforts(), ['default', 'max', 'xhigh', 'high', 'medium', 'low']);
+  await mp.effort('xhigh');
   // back on DeepSeek, X-High is not one of its levels, so the pick goes back to Default
-  await pick('#c-model', 'default');
-  assert.match(await chipText('#c-eff'), /Default/, 'an effort the model lacks resets to Default');
-  await pick('#c-eff', 'max');
+  await mp.model('default');
+  assert.equal((await mp.chosen()).effort, 'default', 'an effort the model lacks resets to Default');
+  await mp.effort('max');
 
-  console.log('OpenRouter: the model sheet finds a model by any words of its name');
-  await page.click('#c-model'); await page.waitForSelector('.sheet .sheet-find input');
+  console.log('OpenRouter: the model list finds a model by any words of its name');
+  await mp.open(); await page.waitForSelector('.model-sheet .sheet-find input');
   assert.notEqual(await page.evaluate(() => document.activeElement?.type), 'search', 'on a phone the keyboard does not open by itself');
-  const visibleRows = () => page.$$eval('.sheet .opt', es => es.filter(e => !e.hidden).map(e => e.dataset.v));
-  const status = () => page.$eval('.sheet-search-status', e => e.textContent);
+  const visibleRows = () => page.$$eval('.model-sheet .mp-models .opt', es => es.filter(e => !e.hidden).map(e => e.dataset.v));
+  const status = () => page.$eval('.model-sheet .sheet-search-status', e => e.textContent);
   assert.equal((await visibleRows()).length, 16, 'every model before typing');
-  await page.type('.sheet-find input', 'sonnet 5.5');
+  await page.type('.model-sheet .sheet-find input', 'sonnet 5.5');
   assert.deepEqual(await visibleRows(), ['openrouter/anthropic/claude-sonnet-5.5']);
   assert.equal(await status(), '1 of 16 models');
-  await page.$eval('.sheet-find input', e => { e.value = ''; }); await page.type('.sheet-find input', 'nothing like this');
+  await page.$eval('.model-sheet .sheet-find input', e => { e.value = ''; }); await page.type('.model-sheet .sheet-find input', 'nothing like this');
   assert.deepEqual(await visibleRows(), []);
   assert.match(await status(), /^No models match “nothing like this”$/);
   await page.keyboard.press('Escape');
-  assert.ok(await page.$('.sheet'), 'the first Escape clears the box and leaves the sheet open');
+  assert.ok(await page.$('.model-sheet'), 'the first Escape clears the box and leaves the panel open');
   assert.equal((await visibleRows()).length, 16);
-  await page.type('.sheet-find input', 'llama');
+  await page.type('.model-sheet .sheet-find input', 'llama');
   await page.keyboard.press('Enter');
-  await page.waitForFunction(() => !document.querySelector('.sheet'));
-  assert.match(await chipText('#c-model'), /Llama 4 Scout/, 'Enter picks the first match');
-  await pick('#c-model', 'default');
-  await pick('#c-eff', 'max');
+  await page.waitForSelector('.model-sheet .mp-models .opt.sel[data-v="openrouter/meta-llama/llama-4-scout"]');
+  await mp.close();
+  assert.match(await mp.chip(), /Llama 4 Scout/, 'Enter picks the first match');
+  await mp.model('default');
+  await mp.effort('max');
 
   console.log('OpenRouter: the approval shows on the banner, Allow runs it, the reply arrives');
   await page.click('#new-setup summary'); await page.type('#cpath', cwd);
@@ -139,7 +138,7 @@ try {
   console.log('OpenRouter: reopening the conversation shows the exchange');
   await page.reload();
   await page.waitForFunction(() => [...document.querySelectorAll('#msgs .m-asst')].some(e => /echo of do the thing/.test(e.textContent)), { timeout: 15000 });
-  assert.ok(await page.$eval('#c-eff', e => /Max/.test(e.textContent)), 'the conversation keeps its effort pick');
+  assert.match(await mp.chip(), /Max$/, 'the conversation keeps its effort pick');
   assert.equal((await page.$$('#msgs .ledger')).length, 2, 'the tool lines are there after a reload too');
 
   console.log('OpenRouter: Full access runs the next reply without asking');

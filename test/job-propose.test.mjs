@@ -361,7 +361,7 @@ test('pocket-jobkey: 6 while it waits, 0 with the key file\'s path once allowed 
   assert.equal(r.code, 6, r.err);
   const id = /^pending (jp-[0-9a-f]{8})$/m.exec(r.err)?.[1];
   assert.ok(id, r.err);
-  assert.match(r.err, /Tell the user it waits for their Allow in Settings → Automation → Job keys/);
+  assert.match(r.err, /Tell the user it waits for their Allow in Settings → Features → Job keys/);
   assert.match(r.err, new RegExp(`pocket-jobkey wait ${id}`));
   const shown = (await s.call('/jobs/keys')).body.requests[0];
   assert.deepEqual([shown.fields.workspace, shown.fields.engine, shown.fields.limits.perHour], [s.cwd, 'claude', 3], 'the folder it ran in, the conversation\'s agent');

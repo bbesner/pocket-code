@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.124.4
+checked: 1.124.9
 sources: checkbacks.mjs, prompts.mjs, starts.mjs, project-mode.mjs, scripts/pocket-start.mjs, search.mjs, titles.mjs, usage.mjs, models.mjs, claude-catalog.mjs, codex.mjs, session-state.mjs, acp.mjs, openrouter.mjs, engines.mjs
 -->
 # Conversations (sessions)
@@ -23,27 +23,26 @@ Open **New conversation**: the **+** button on the conversation list, the **+** 
 desktop rail, or Ctrl/⌘ Shift L. The screen asks **What would you like done?** above the same message
 box a conversation uses.
 
-1. Check the setup card above the box. It names the **Workspace**, the **Agent** with its model and
-   reasoning (for example *Claude Code · Opus 5.5 · High reasoning*) and the **Permissions**.
+1. Check the setup card above the box. It names the **Workspace** and, for a project's start, the
+   **Start**. The agent, model and effort are on the chip in the message box, and the permissions on
+   the chip beside it (step 3).
    With [Projects](projects.md) on, a **Start a project** chip sits above the card: it makes a project card for this
    work (a name, Conductor mode on or off in Developer mode, and optionally what done means) and links the conversation
    you are about to start to it. See [Track a project](projects.md#track-a-project).
-2. To change the agent or workspace, tap **Edit setup** (it becomes **Close setup**):
-   - **Agent**: **Claude Code**, **Codex** or, when the server has them on, **OpenRouter** and **Antigravity**.
-     The choice is remembered on this browser.
+2. To change the workspace, tap **Edit setup** (it becomes **Close setup**):
    - **Start**: only when you came from **Start conversation** on a project in
      [Conductor mode](projects.md#conductor-mode). **Conductor** (the default) has the agent's top model lead at high
      effort and hand out the work; **Solo** has one model do the work itself, for a small task. The setup card shows
      the choice as **Start**. An agent without a top model here, or OpenRouter or Antigravity, starts as usual and the setup says so.
-     While the choice shows, the model and effort chips start on **Default**, so the start picks its own model; a model
+     While the choice shows, the model and effort start on **Default**, so the start picks its own model; a model
      or effort you choose on this screen is still used. If the server starts the conversation but cannot link it (the
      project already has its 50 conversations, say), a notice says **Started, but not linked to *project*:** and why;
      the conversation runs without the project and its mode.
    - **Project**: the ten most recently used workspaces, with the configured default first.
    - **Or a custom path**: any folder on the server, as a full path (`/home/alex/projects/website`). It
      must already exist on the server; a path on your phone or laptop does not work.
-3. Set the chips above the box for the first reply: model, reasoning effort, permissions and, for
-   Codex, the mode (see [Choose model, effort, permissions and mode](#choose-model-effort-permissions-and-mode)).
+3. Set the chips above the box for the first reply: the agent, model and effort together, the
+   permissions and, for Codex, the mode (see [Choose agent, model, effort, permissions and mode](#choose-agent-model-effort-permissions-and-mode)).
 4. Write the task and press the Send arrow (**Start conversation**). On a screen 900 px or wider, Enter
    starts and Shift+Enter adds a line; on a phone Enter adds a line.
 
@@ -79,21 +78,42 @@ and the next **New conversation** opens empty, unless you edited the briefing. A
 is kept. A start link's briefing (an Inbox alert, a handoff) is different: it opens in an unsent
 conversation of its own, described under [Start links](#start-links).
 
-### Choose model, effort, permissions and mode
+### Choose agent, model, effort, permissions and mode
 
-The chips above the message box apply to the next reply, on New conversation and in a conversation:
+The chips above the message box apply to the next reply, on New conversation and in a conversation.
+
+**One chip for the agent, model and effort** (1.124.9). It shows what the next reply will use:
+*Agent · Model · Effort* on New conversation, for example *Codex · GPT-6 Sol · High*, and *Model ·
+Effort* in a conversation. The effort is left out when it is **Default**. Tap the chip to open one
+panel: **Agent, model and effort** on New conversation, **Model and effort** in a conversation.
+Every pick applies at once and the chip changes behind the panel. **Done** closes it. The `/model`
+and `/effort` commands open the same panel, and `/effort` puts focus on the effort choices. Assistant
+mode has no chip: [Automatic model choice](settings.md#automatic-model-choice-page) picks the model
+there.
+
+The panel has up to four sections:
+
+| Section | What it holds |
+|---|---|
+| **Recent** | The last few combinations you started or sent with, up to three besides the one now set, each as agent, model and effort. One tap applies it and closes the panel. On New conversation it can switch the agent; in a conversation it lists only that conversation's agent. It appears once you have sent something, and is kept in this browser. |
+| **Agent** | New conversation only. **Claude Code**, **Codex** and, when the server has them on, **OpenRouter** and **Antigravity**. In a conversation this section says the conversation runs on that agent and to start a new conversation to use another. The choice is remembered on this browser. |
+| **Effort** | **Default**, **Max**, **X-High**, **High**, **Medium**, **Low**, with a line under them saying what the chosen level does and what effort is: how much the model thinks before it answers; more is slower and uses more of your plan. For Claude, nothing above the ceiling in this computer's Claude Code policy (`maxEffortLevel`) is offered. For Codex, **Ultra** (maximum reasoning with automatic task delegation) is listed above **Max** only when the chosen model offers it; for **Default** that is the model in `POCKET_CODEX_MODEL`, if set. Changing to a model without it sets the effort back to **Default**. For OpenRouter and Antigravity, only the levels the chosen model has (DeepSeek V4.1 Flash: **Max**, **High**, **Low**, **None**; some models also have **Minimal**); a model with no levels shows *This model has no effort setting.* and no choices, and changing to a model without the picked level sets it back to **Default**. |
+| **Model** | **Default**, then the models the picker offers (see [Models in the picker](#models-in-the-picker)). Default's line names what it runs: the Pocket default, or your CLI's own setting. In a conversation started from a [Conductor project](projects.md#conductor-mode), Default is that start's model: **this project's lead** or **this project's Solo model**. A **Search models** box shows above the list when it has more than 12 models. |
+
+**Each agent remembers its own last model and effort.** Switching agents on New conversation brings
+back that agent's last choice. An agent you have not used yet starts on its default model and keeps
+the effort you had set.
+
+The other chips:
 
 | Chip | Choices |
 |---|---|
-| Model (**Model for this reply**) | **Default**, then the models the picker offers (see [Models in the picker](#models-in-the-picker)). Default's line names what it runs: the Pocket default, or your CLI's own setting. In a conversation started from a [Conductor project](projects.md#conductor-mode), Default is that start's model: **this project's lead** or **this project's Solo model**. |
-| Effort (**Reasoning effort**) | **Default**, **Max**, **X-High**, **High**, **Medium**, **Low**. For Claude, nothing above the ceiling in this computer's Claude Code policy (`maxEffortLevel`) is offered. For Codex, **Ultra** (maximum reasoning with automatic task delegation) is listed above **Max** only when the chosen model offers it; for **Default** that is the model in `POCKET_CODEX_MODEL`, if set. Changing to a model without it sets the effort back to **Default**. For OpenRouter, only the levels the chosen model has (DeepSeek V4.1 Flash: **Max**, **High**, **Low**, **None**; some models also have **Minimal**), and no chip for a model with no effort setting; changing to a model without the picked level sets it back to **Default**. |
 | Permissions | **Review actions** (actions wait for your approval) or **Full access**. See [Questions and approvals](approvals.md#choose-review-actions-or-full-access). |
 | Mode (Codex only, **Codex mode for the next reply**) | **Work normally** carries out the request; **Plan first** explores an approach and asks questions before implementing. Plan first is guidance for the agent, not a sandbox. |
 
-Choices are saved per conversation on this browser. Switching agents, or opening a conversation whose
-saved model belongs to the other agent, resets the model to Default. A Claude model the picker stopped
-offering also goes back to Default. A Codex model the menu does not list is shown by its id and still
-sent.
+Choices are saved per conversation on this browser. Opening a conversation whose saved model belongs
+to the other agent resets the model to Default. A Claude model the picker stopped offering also goes
+back to Default. A Codex model the list does not offer is shown by its id and still sent.
 
 On a Claude conversation, changing the model, effort or permissions between replies closes its
 process; the next reply starts a fresh one that resumes the saved conversation.
@@ -110,7 +130,8 @@ the wording, workspace and agent.
   arrows to reorder, **Edit** (rename, or **Replace with what is on screen**) and **Delete**, which asks
   once more (**Delete for good**).
 - **Recent** lists your last five starts from any device, each with its workspace and agent. A tap fills
-  the form the same way. Starts from a project card are not added to Recent.
+  the form the same way. Starts from a project card are not added to Recent. (The model panel has its
+  own **Recent** of agent, model and effort combinations; see [Choose agent, model, effort, permissions and mode](#choose-agent-model-effort-permissions-and-mode).)
 
 Saved prompts and Recent are kept on the server, so every device sees the same list. Limits: 50 saved
 prompts, a name of up to 60 characters, a task of up to 8,000 characters.
@@ -131,8 +152,8 @@ The conversation list is the home screen on a phone and the rail on a desktop. C
   resets them. Filters are saved on this browser.
 - **Attention** collects questions, approvals, failed replies and finished replies you have not opened.
   In **Attention** and **New**, **Mark all reviewed** clears them on every device, with **Undo** for ten
-  seconds. It clears replies that end with a question for you too; **Settings → Conversation → Mark all
-  reviewed bar** hides it (1.116.0).
+  seconds. It clears replies that end with a question for you too; **Settings → Conversations → Mark all
+  reviewed button** hides it (1.116.0).
 - A reply that ends with a [Complete card](conversation.md#close-a-finished-conversation-the-complete-card) reads
   **Complete** in the list, with the agent's one-line outcome under it, until you open or close it. The tick on that
   row closes the conversation without opening it: it leaves **Attention** on every device, its tab closes and its
@@ -212,7 +233,7 @@ control deletes the conversation; the next message resumes it.
 - Click the ring for **Usage**: the context window (window, used, free), the **Prompt cache** block for
   Claude conversations (status, expiry, cached tokens, lifetime, how the last reply started) and plan
   usage for that agent.
-- **Plan usage** (in Conversation options and **Settings → Agents & instance**) shows Claude Code's
+- **Plan usage** (in Conversation options and **Settings → Usage**) shows Claude Code's
   **5-hour**, **Weekly** and **Weekly + extra usage** windows with reset times and whether **Extra
   usage** is on, and Codex's windows when it reports them.
 - After each Claude reply a line shows its cost, duration and either *N% cached* or *cold start*.
@@ -227,7 +248,7 @@ the reset (plus `POCKET_RETRY_BUFFER_MS`, five minutes by default). The conversa
 for usage reset** and *Rate limited — auto-resume at …*; a push says when it picks the task back up. Messages waiting in
 the queue stay there through the wait and run after the retry's reply. While Pocket is
 paused ([Pause all](automation.md#pause-all)) the retry is held, not cancelled: the conversation's header reads **Retry held**, the pause banner counts the held
-retries, and **Resume** arms it again. If **On Resume, re-arm held usage-limit retries** is off, it still reads **Retry held** and
+retries, and **Resume** arms it again. If **On Resume, restart held retries** is off, it still reads **Retry held** and
 waits for your next message. A retry that does run is labelled **Continued after
 a usage limit** on the conversation's row and under its header.
 
@@ -235,22 +256,22 @@ a usage limit** on the conversation's row and under its header.
 
 **Only the newest version of each model is shown.** For Claude that is the newest Fable, Opus, Sonnet
 and Haiku (today Fable 5.1, Opus 5.5, Sonnet 5.5 and Haiku 5.5); for Codex, the newest of each family
-Codex lists (GPT-6.1 Sol, not GPT-6 Sol beside it). An older version is left out of the menus and of
+Codex lists (GPT-6.1 Sol, not GPT-6 Sol beside it). An older version is left out of the model panel and of
 Settings, and anything that still names it runs the newest version instead, without a notice: a
 conversation started on GPT-6 Sol, a saved prompt on Sonnet 5, and the Pocket default in
 `POCKET_CLAUDE_MODEL` or `POCKET_CODEX_MODEL` (**Default** names the version it really runs). The only
 exception is a newer Claude version this computer's Claude Code policy blocks: then the older one stays.
 
-**New models appear without a Pocket update.** Codex's menu is the list the installed Codex CLI
-reports, read again whenever the menu opens. For Claude, Pocket reads Anthropic's model list a couple
+**New models appear without a Pocket update.** Codex's list is what the installed Codex CLI
+reports, read again whenever the model panel opens. For Claude, Pocket reads Anthropic's model list a couple
 of minutes after it starts and then once a day, with the sign-in Claude Code already has on this
 computer (`~/.claude/.credentials.json`, or `ANTHROPIC_API_KEY`). A model newer than every model of
-its family, such as an Opus 6, joins the menu and replaces the older one; the Pocket log says
+its family, such as an Opus 6, joins the list and replaces the older one; the Pocket log says
 *claude catalog: Opus 6 (claude-opus-6[1m]) is new*. What it found is kept in `claude-models.json` in
 the data directory. Without a file-based sign-in (Claude Code on macOS keeps it in the keychain) the
 check finds nothing and the catalog stays as released. `POCKET_CLAUDE_DISCOVERY=0` turns the check off.
 
-**Settings → Agents & instance → Claude models in the picker** lists those models. Tap a row to offer
+**Settings → Agents → Models offered in the picker** lists those models. Tap a row to offer
 or stop offering it on every device; one must stay on (**Keep at least one model on**). **Use the
 server's list** forgets the choice. A list that names an older version (saved before 1.91, or in
 `POCKET_CLAUDE_MODELS`) offers the newest version of that family.
@@ -274,7 +295,7 @@ The server enforces the list too. A reply sent with a model the picker does not 
 saved prompt, a queued message) runs on Default, and the conversation and a toast say so, for example
 *Opus 5.5 is not offered in Settings, so this reply uses the default model (Sonnet 5.5).*
 
-Codex's model menu is what the installed Codex CLI reports, newest version of each family only.
+Codex's model list is what the installed Codex CLI reports, newest version of each family only.
 
 ### OpenRouter models
 
@@ -293,16 +314,16 @@ its own settings on top of yours (OpenCode merges them): ask-first permissions f
 web fetches, Pocket's instructions, and Pocket's question tool. Your own MCP servers, instruction files
 and providers stay as they are.
 
-With it on, **OpenRouter** joins **Agent** in the setup card. Its model menu is OpenRouter's live
+With it on, **OpenRouter** joins the **Agent** section of the model panel. Its model list is OpenRouter's live
 catalog of models that can use tools: **Default** (`POCKET_ACP_MODEL`, else DeepSeek V4.1 Flash), the
 **Tested** models (the default list plus any in `POCKET_ACP_MODELS`), then everything else marked
 **Experimental — unverified**. A model OpenRouter adds shows up without a Pocket update. Experimental
 means it may not use tools reliably.
 
-The menu has a search box at the top (1.88). Type any words of a model's name or maker, such as `kimi`
+The **Model** list has a search box at the top (1.88), shown for any list of more than 12 models. Type any words of a model's name or maker, such as `kimi`
 or `sonnet 5.5`: the list narrows as you type, keeps Default and Tested first and says how many match.
 Enter picks the first match and the arrow keys move through the list; on a phone the keyboard opens only
-when you tap the box. Escape clears the box, a second Escape closes the menu.
+when you tap the box. Escape clears the box, a second Escape closes the panel.
 
 What works the same as Claude Code and Codex:
 
@@ -391,22 +412,22 @@ To set it up, on the server and as the user Pocket runs as:
    code back. The sign-in is the CLI's own and stays in its folder.
 3. Put `POCKET_AGY_ENABLE=1` in Pocket's environment and restart Pocket.
 
-With it on, **Antigravity** joins **Agent** in the setup card.
+With it on, **Antigravity** joins the **Agent** section of the model panel.
 
-- **Model.** The menu is what your plan lists when Pocket asks the CLI (at start-up, then every six
+- **Model.** The list is what your plan lists when Pocket asks the CLI (at start-up, then every six
   hours): Gemini models and whatever else the plan includes. **Default** is `POCKET_AGY_MODEL` when the
   plan lists it, otherwise the CLI's own default. A model that needs a higher plan appears after you
   upgrade, with no Pocket update.
-- **Reasoning effort.** Only the thinking levels the chosen model has. **Default** names the level that
-  model starts on, and a model with no levels has no chip. Changing to a model without the chosen level
+- **Effort.** Only the thinking levels the chosen model has. **Default** names the level that
+  model starts on, and a model with no levels says so and has no choices. Changing to a model without the chosen level
   sets it back to **Default**.
 - **Permissions.** **Review actions** shows each command and file edit as an approval card; reading and
   searching files run without asking. **Full access** answers the CLI at once. Pocket never starts the CLI
   with its skip-all-permissions switch.
 - **Plan first** uses the CLI's plan mode.
 
-If nobody is signed in, the setup card says so under the agents, names the command to run on the server,
-and **Check again** reads the sign-in afresh. The model menu says **Not signed in**, and a reply that
+If nobody is signed in, the setup card says so, names the command to run on the server,
+and **Check again** reads the sign-in afresh. The model list says **Not signed in**, and a reply that
 finds the sign-in gone ends with the same instruction.
 
 What works the same as the other agents: your message shows as you send it; the reply streams with its
@@ -523,14 +544,14 @@ With **Sync names with code-server** on, a rename recorded in the Claude transcr
 Claude Code or code-server) comes before all of them. A branch is titled *Branch: <instruction>* until it
 has a generated title.
 
-These settings are in **Settings → Conversation** and apply to the whole install:
+These settings are in **Settings → Conversations** and apply to the whole install:
 
 | Setting | Default | What it does |
 |---|---|---|
 | **Sync names with code-server** | Off | Shares names with Claude Code itself. A rename in Claude Code or code-server shows in Pocket; a rename in Pocket is appended to the transcript as Claude Code's own rename record (or set as a Codex thread's name). Clearing a rename in Pocket clears only Pocket's name. |
-| **Generate short titles** | On (`POCKET_AUTO_TITLES=0` starts it off) | Asks a small model for a 3 to 7 word title for conversations named only by their opening request, active in the last 14 days, one at a time. A conversation with no message to title keeps *(untitled conversation)*. |
-| **Update titles as conversations progress** | On | After a reply run from Pocket ends, a conversation that grew by four of your messages or about 8,000 characters, at least ten minutes (`POCKET_LIVE_TITLE_GAP_MS`) after its last check, is shown to the same model, which keeps the title or writes a better one. A rename is never touched. |
-| **Summarize what you missed** | On | The While you were away summary. |
+| **Short titles** | On (`POCKET_AUTO_TITLES=0` starts it off) | Asks a small model for a 3 to 7 word title for conversations named only by their opening request, active in the last 14 days, one at a time. A conversation with no message to title keeps *(untitled conversation)*. |
+| **Keep titles up to date** | On | After a reply run from Pocket ends, a conversation that grew by four of your messages or about 8,000 characters, at least ten minutes (`POCKET_LIVE_TITLE_GAP_MS`) after its last check, is shown to the same model, which keeps the title or writes a better one. A rename is never touched. |
+| **Catch-up summary** | On | The While you were away summary. |
 | **Model for titles and summaries** | Automatic | **Automatic: Claude first, then Codex**, **Claude · Haiku** (`claude -p --model haiku`, no tools, nothing saved) or **Codex · GPT-6-Luna** (`codex exec --ephemeral`, read-only). |
 
 Calls run on that CLI's own sign-in. A Claude title costs about 400 tokens; Codex sends about 25k tokens
@@ -643,7 +664,7 @@ ttlDays}` over loopback with `Authorization: Bearer <cli-token>`.
 conversation's id in Pocket is `cx:` plus the thread id. Link the user to `/#/chat/<id>`.
 
 **Change models or titles only when asked.** The Claude model list, title settings and name sync apply
-to every device. Point the user to **Settings → Agents & instance** or **Settings → Conversation**, or,
+to every device. Point the user to **Settings → Agents** or **Settings → Conversations**, or,
 for a provisioned install, set `POCKET_CLAUDE_MODELS` and restart Pocket.
 
 ## Troubleshooting
@@ -656,10 +677,10 @@ for a provisioned install, set `POCKET_CLAUDE_MODELS` and restart Pocket.
 | *invalid project directory* or **Choose a workspace above** | The custom path is not an existing folder on the server. | Pick a listed workspace or enter a full server path. |
 | *codex not available on this box* | Codex is not installed or `POCKET_CODEX=0`. | Install the Codex CLI (or set `CODEX_BIN`) and restart Pocket. |
 | *Codex conversations are temporarily unavailable.* above the list | Pocket could not list Codex threads; Claude conversations still show. | Wait for the next check; if it persists, check the Codex CLI on the server. |
-| A reply says the model *is not offered in Settings* or *is blocked by this computer's Claude Code policy* | The chosen model is not offered. | Choose another model, or offer it in **Settings → Agents & instance**. |
-| *Choose a Claude model from the model menu, then send again.* | An old tab sent a Codex model to Claude (or the reverse). | Pick a model from the menu. |
+| A reply says the model *is not offered in Settings* or *is blocked by this computer's Claude Code policy* | The chosen model is not offered. | Choose another model, or offer it in **Settings → Agents**. |
+| *Choose a Claude model from the model panel, then send again.* | An old tab sent a Codex model to Claude (or the reverse). | Pick a model from the model panel. |
 | **Start request not yet confirmed** | The start was sent but the answer was lost. | **Retry start** (it cannot start a duplicate) or **Discard start**. |
 | **Not sent:** and a reason, above the message box | The server could not start the conversation or the reply (a full disk, a missing folder). Nothing ran. | Fix what the reason names, then **Start** again; in a conversation, **Retry same message** or **Edit message**. |
 | **Status unavailable** or **Status unconfirmed. Reconnecting…** | The list check failed or is older than 15 seconds. | Wait, or use **Refresh**; work on the server continues. |
 | *Could not search inside conversations.* | The search request failed or timed out. | **Try again**. |
-| No generated titles | Titles are off, or neither CLI is installed and signed in (Settings shows the reason). | Turn on **Generate short titles**, or sign the CLI in. |
+| No generated titles | Titles are off, or neither CLI is installed and signed in (Settings shows the reason). | Turn on **Short titles**, or sign the CLI in. |

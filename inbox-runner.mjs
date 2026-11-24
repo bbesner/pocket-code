@@ -2,7 +2,7 @@
 // to this Pocket, the runner writes a config for the owner's mailbox under <data dir>/inbox-watch-data/, reads mail through
 // the Gmail connector the owner already linked to Claude Code (inbox-watch's mail_connector.py: no Google client, token
 // or service account), starts from now, and then runs the watcher's `tick` every minute, which checks mail only when
-// the schedule set in Settings → Inbox Watch says a check is due. A watcher installed by hand (its own config and
+// the schedule set in Settings → Features → Inbox Watch says a check is due. A watcher installed by hand (its own config and
 // timer, sending its profile under its own source) is left alone: the runner never manages a mailbox someone else set up.
 //
 // States (status() → the Inbox shows them): off · external (a hand-installed watcher reports here) · waiting (needs the
@@ -92,7 +92,7 @@ export class InboxRunner {
     this.setStatus({ state: connector ? 'needs-connector' : 'error', message, failures });
     if (failures >= 3 && !this.state.alerted) {
       this.setStatus({ alerted: true });
-      this.notify?.('Inbox Watch can’t check your mail', connector ? 'Connect Gmail in Settings → Connectors, then it starts again by itself.' : message);
+      this.notify?.('Inbox Watch can’t check your mail', connector ? 'Connect Gmail in Settings → Accounts & sign-in → Connectors, then it starts again by itself.' : message);
     }
   }
 
@@ -131,7 +131,7 @@ export class InboxRunner {
     }
     if (!found.length) {
       const none = Object.values(failed).every(f => f.status === 401 || f.status === 500);
-      const msg = none ? 'Gmail isn’t connected to Claude Code or Codex on this server. Connect it in Settings → Connectors.' : (failed.claude?.error || failed.codex?.error || 'The Gmail connector did not answer.');
+      const msg = none ? 'Gmail isn’t connected to Claude Code or Codex on this server. Connect it in Settings → Accounts & sign-in → Connectors.' : (failed.claude?.error || failed.codex?.error || 'The Gmail connector did not answer.');
       return this.setStatus({ state: none ? 'needs-connector' : 'error', message: msg });
     }
     const [main] = found, who = main.who;
@@ -148,11 +148,11 @@ export class InboxRunner {
     const lines = [
       `# Inbox Watch for ${who.email}, written by Pocket Code on ${new Date(this.now()).toISOString().slice(0, 10)}.`,
       '# Pocket runs this watcher every minute while Inbox Watch is on. Schedule, models, rules and tidy are set in Pocket',
-      '# (Settings → Inbox Watch) and win over this file; edit it only for what Pocket has no setting for.',
+      '# (Settings → Features → Inbox Watch) and win over this file; edit it only for what Pocket has no setting for.',
       '[owner]', `name = ${toml(name)}`, `email = ${toml(who.email)}`, `timezone = ${toml(tz)}`, '',
       '[assistant]', 'name = "Pocket Assistant"', '',
       '[schedule]', 'every = 5', 'quiet_hours = [22, 8]', 'digest_hour = 8', 'lookahead = { morning = [8, 12], evening = [17, 22] }', '',
-      '[mail]', `provider = "connector"            # Gmail through ${main.agent === 'codex' ? 'Codex’s Gmail app' : 'Claude Code’s Gmail connector'} (Settings → Connectors)`,
+      '[mail]', `provider = "connector"            # Gmail through ${main.agent === 'codex' ? 'Codex’s Gmail app' : 'Claude Code’s Gmail connector'} (Settings → Accounts & sign-in → Connectors)`,
       `agent = ${toml(main.agent)}`, ...mailKeys(main), ...(backup ? [`fallback_agent = ${toml(backup.agent)}   # when a read fails (a bot check, a timeout)`] : []),
       'scope = "all"                       # 1.100: what it reads: "all" (every thread but spam, trash, drafts), "inbox", or "inbox_labels" with scope_labels = [...]; also a Pocket setting', '',
       ...(backup ? ['[mail.fallback]', ...mailKeys(backup), ''] : []),

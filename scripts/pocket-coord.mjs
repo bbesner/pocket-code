@@ -50,7 +50,7 @@ async function call(p, body) {
   catch (e) { die(`Pocket Code is not reachable at ${base}: ${e.name === 'TimeoutError' ? 'no answer in 30 seconds' : e.cause?.code || e.message}`); }
   const data = await r.json().catch(() => ({}));
   if (r.ok) return data;
-  if (data.code === 'coordination_off') die('Coordination is off for this Pocket Code. Turn it on in Settings → Projects, files, tasks & vault.', 5);
+  if (data.code === 'coordination_off') die('Coordination is off for this Pocket Code. Turn it on in Settings → Features.', 5);
   if (data.code === 'held') die(`${held(data.hold, data.now)}\nStop and tell the user, or wait with: pocket-coord wait ${data.hold.name}`, 2);
   die(data.error || `${r.status} from ${p}`, r.status === 401 ? 4 : r.status === 409 ? 2 : 1);
 }

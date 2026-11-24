@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.124.4
+checked: 1.124.9
 sources: tasks.mjs, checkbacks.mjs, job-keys.mjs, public/tasks.js, public/jobs.js, scripts/pocket-tasks.mjs, scripts/owner-zone.mjs, skills/pocket-tasks/SKILL.md
 -->
 # Tasks
@@ -10,12 +10,12 @@ Tasks are your to-dos, kept beside your conversations. A task is one line of tex
 
 Tasks is off until you switch it on for the whole instance:
 
-1. Open **Settings → Projects, files, tasks & vault**.
+1. Open **Settings → Features**.
 2. Turn on **Tasks**.
 
 While Tasks is on, Pocket installs the `pocket-tasks` skill for Claude Code and Codex and tells the agents it runs when to create and offer tasks (see [For agents](#for-agents)). Turning it off hides Tasks, refuses `pocket-tasks` and stops due tasks from being announced; your tasks stay on disk.
 
-In Assistant mode the switch is under **Settings → Features** instead. When Assistant mode is locked, ask the person who runs the install.
+When Assistant mode is locked, ask the person who runs the install. The **›** beside **Tasks** opens the Tasks page, with the two switches that list check-backs and job keys in Tasks.
 
 ## Use it
 
@@ -29,17 +29,17 @@ In Assistant mode the switch is under **Settings → Features** instead. When As
 
 With [Projects](projects.md) on as well, open project reminders appear in **To do** among the dated tasks, in time order. A reminder row names the reminder, its project and its step; it opens the project card, and its hourglass or **⋯** offers **Remind later** and **Dismiss**.
 
-The **Tasks** segment, the phone chip and the tab show how many items are due, counting due tasks and due project reminders together. The installed app's icon shows the same count unless you turn off **Settings → Notifications & voice → Count on the app icon** on that device.
+The **Tasks** segment, the phone chip and the tab show how many items are due, counting due tasks and due project reminders together. The installed app's icon shows the same count unless you turn off **Settings → Notifications → Count on the app icon** on that device.
 
 ### Check-backs in the list
 
-With **Check-backs** on ([Automation](automation.md#check-backs)) and **Show check-backs in the Tasks list** on (both under **Settings → Automation → Check-backs**), the list gains a read-only **Check-backs** group, between your to-dos and **Done**: one row for each check-back that is waiting or running, soonest first. Each row shows its note, and under it the time it is set for, the conversation and, when something holds it or it is running, what (*Held while Pocket is paused*, *Waiting for the conversation to finish*, *Waiting for a usage limit to reset*, *Held by a plan ceiling*, *Held by the daily limit* or *Checking back now*). Tap the row to open the conversation. **Cancel** is on the row unless the check-back is running. A check-back is not a task: you can't edit it, finish it or set a reminder on it, and it is not announced as due (its own push says *Checked back · …* when it has run). The group is not shown, and the setting does nothing, while check-backs are off. A check-back is also not in the **Done** list; the card in its conversation says how it ended.
+With **Check-backs** on ([Automation](automation.md#check-backs)) and **Show check-backs in Tasks** on (the switch is **Settings → Features → Check-backs**, the option is on **Settings → Features → Tasks**), the list gains a read-only **Check-backs** group, between your to-dos and **Done**: one row for each check-back that is waiting or running, soonest first. Each row shows its note, and under it the time it is set for, the conversation and, when something holds it or it is running, what (*Held while Pocket is paused*, *Waiting for the conversation to finish*, *Waiting for a usage limit to reset*, *Held by a plan ceiling*, *Held by the daily limit* or *Checking back now*). Tap the row to open the conversation. **Cancel** is on the row unless the check-back is running. A check-back is not a task: you can't edit it, finish it or set a reminder on it, and it is not announced as due (its own push says *Checked back · …* when it has run). The group is not shown, and the setting does nothing, while check-backs are off. A check-back is also not in the **Done** list; the card in its conversation says how it ended.
 
 ### Jobs in the list
 
-With **Job keys** on ([Automation](automation.md#job-keys)) and **Show job keys in the Tasks list** on (both under **Settings → Automation → Job keys**), the list gains a read-only **Jobs** group after **Check-backs**, so everything that runs without you is in one place. The heading counts your keys and, when any wait, the requests: *Jobs 2 · 1 waiting for you*.
+With **Job keys** on ([Automation](automation.md#job-keys)) and **Show job keys in Tasks** on (the switch is **Settings → Features → Job keys**, the option is on **Settings → Features → Tasks**), the list gains a read-only **Jobs** group after **Check-backs**, so everything that runs without you is in one place. The heading counts your keys and, when any wait, the requests: *Jobs 2 · 1 waiting for you*.
 
-- **A request a conversation made** for a job key leads the group, titled *Job key request: weekly-backup*, with *Waiting for you*, the conversation it came from and when it expires. Tap it to open its card in **Settings → Automation → Job keys**, where you read the whole instruction and **Allow**, **Edit first** or **Deny** it ([Let a conversation set one up](automation.md#let-a-conversation-set-one-up)).
+- **A request a conversation made** for a job key leads the group, titled *Job key request: weekly-backup*, with *Waiting for you*, the conversation it came from and when it expires. Tap it to open its card in **Settings → Features → Job keys**, where you read the whole instruction and **Allow**, **Edit first** or **Deny** it ([Let a conversation set one up](automation.md#let-a-conversation-set-one-up)).
 - **Each key** follows, in the order Settings lists them, with its title (*Disk check* for `disk-check`) and under it its state, its last run and its folder: *On · Last run 2:30 PM · Done · ~/ops*, *Off · Never ran · ~/reports*. The state is **On**, **Off**, **Running**, or **Needs you** while its newest run waits on an approval or a question; that run's status (**Done** or **Failed**) follows the time once it has ended. Tap the row to open the key's own sheet, the same one as in Settings, with **Turn off**, **Rotate key**, **Delete** and **Recent runs**.
 - **Open** is on a key's row while its newest run needs you, and opens that run's conversation.
 
@@ -57,7 +57,7 @@ The form has:
 - **Date and time (optional)**, in this device's time zone. **No date** clears it.
 - From a conversation only, **Include a summary of this conversation**, on by default.
 
-With the summary on, Pocket asks the helper model chosen in **Settings → Conversation → Model for titles and summaries** for a few lines on what the conversation is doing, and keeps them with the task as its **Context**. If no helper is available or the conversation is too short, the task is added without context and a message says so.
+With the summary on, Pocket asks the helper model chosen in **Settings → Conversations → Model for titles and summaries** for a few lines on what the conversation is doing, and keeps them with the task as its **Context**. If no helper is available or the conversation is too short, the task is added without context and a message says so.
 
 A task added from a conversation remembers that conversation and its workspace, so **Start** opens in the right folder.
 
@@ -79,11 +79,11 @@ When the work reaches a point you will need to return to (waiting on time or dat
 
 A dated task is announced once, when its time arrives:
 
-- **Push** to every device that has **Settings → Notifications & voice → Push to this device** on with **Due tasks and reminders** selected. The notification reads "Task due" with the task's text and opens the list. **Tomorrow** moves the task to 9:00 the next day in that device's time zone; **Done** finishes it. Both work without opening Pocket.
+- **Push** to every device that has **Settings → Notifications → Push to this device** on with **Due tasks and reminders** selected. The notification reads "Task due" with the task's text and opens the list. **Tomorrow** moves the task to 9:00 the next day in that device's time zone; **Done** finishes it. Both work without opening Pocket.
 - **Email**, when the server has email set up and **Email due tasks and reminders to** has an address.
 - **The server's reminder hook**, when the operator set `POCKET_REMINDER_HOOK`. The hook gets the task as JSON with `kind: "task"`.
 
-With **Notice a day before** on (same Settings group, for the whole instance), a second notice, "Task due tomorrow", goes out 24 hours ahead. A task whose time was set less than a day ahead gets only the due announcement.
+With **Notice a day before** on (in **Settings → Notifications**, for the whole instance), a second notice, "Task due tomorrow", goes out 24 hours ahead. A task whose time was set less than a day ahead gets only the due announcement.
 
 A due task stays marked **Due** until you finish it or give it a new time. Giving it a new time, from **Remind later**, **Edit** or the notification's **Tomorrow**, means it is announced again at the new time.
 
@@ -121,11 +121,12 @@ Click a task to open its sheet: the text, the date, the conversation it came fro
 
 | Setting or variable | Effect |
 |---|---|
-| **Settings → Projects, files, tasks & vault → Tasks** | Turns Tasks on for the instance (`tasks` in `pocket-settings.json`). |
-| **Settings → Automation → Check-backs → Show check-backs in the Tasks list** | Shows the read-only **Check-backs** group in the list (on by default, and only while check-backs are on). |
-| **Settings → Notifications & voice → Notice a day before** | A second notice 24 hours before each dated task. |
+| **Settings → Features → Tasks** | Turns Tasks on for the instance (`tasks` in `pocket-settings.json`). |
+| **Settings → Features → Tasks → Show check-backs in Tasks** | Shows the read-only **Check-backs** group in the list (on by default, and only while check-backs are on). |
+| **Settings → Features → Tasks → Show job keys in Tasks** | Shows the read-only **Jobs** group in the list (on by default, and only while job keys are on). |
+| **Settings → Notifications → Notice a day before** | A second notice 24 hours before each dated task. |
 | **Email due tasks and reminders to** (same group) | The address for due-task email. Needs `POCKET_SMTP_URL`. |
-| **Settings → Conversation → Model for titles and summaries** | Which helper writes the summary for **Include a summary of this conversation**. |
+| **Settings → Conversations → Model for titles and summaries** | Which helper writes the summary for **Include a summary of this conversation**. |
 | `POCKET_REMINDER_HOOK` | A shell command run for each due task, with the task as JSON on standard input. It runs without Pocket's own secrets in its environment. See [operations](../operations.md#optional-libraries-projects-files-tasks-inbox-and-the-vault) for the payload. |
 | `POCKET_REMINDER_HOOK_TIMEOUT_MS` | How long one hook run may take before Pocket stops it and everything it started. Default 60000. |
 | `POCKET_TZ` | The user's time zone until their browser reports one, for due times shown and given to `pocket-tasks` without an offset. Default: the server's own zone. |
@@ -194,7 +195,7 @@ pocket-tasks done 1c2d3e4f5a6b
 | 0 | Done. |
 | 1 | Any other error; the message says what. |
 | 2 | The task changed since it was read (someone edited or finished it). The message is followed by the task as it is now; check it before changing it again. |
-| 3 | Tasks is off. Tell the user to turn it on under **Settings → Projects, files, tasks & vault → Tasks**; do not keep a to-do list anywhere else. |
+| 3 | Tasks is off. Tell the user to turn it on under **Settings → Features → Tasks**; do not keep a to-do list anywhere else. |
 | 4 | The token was refused. |
 | 5 | No task has that id (`show`). |
 
@@ -202,11 +203,11 @@ pocket-tasks done 1c2d3e4f5a6b
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| A check-back is not in the list | Check-backs are off, **Show check-backs in the Tasks list** is off, or it has already run. | See [Automation](automation.md#check-backs). |
+| A check-back is not in the list | Check-backs are off, **Show check-backs in Tasks** is off, or it has already run. | See [Automation](automation.md#check-backs). |
 | A task comes due hours off | The agent gave a time without an offset before the user's browser reported a zone, and `POCKET_TZ` (or the server's zone) is not the user's zone. | Open Pocket in the user's browser once, set `POCKET_TZ` to the user's zone, or pass an offset. |
-| No announcement on any channel | Tasks is off, or the task has no date. | Turn on **Settings → Projects, files, tasks & vault → Tasks**; give the task a date. |
-| No push when a task comes due | Push is not set up on the server, the device is not subscribed, or **Due tasks and reminders** is off for that device. | Check **Settings → Notifications & voice** on the device. The list still shows the task as due. |
-| No email | `POCKET_SMTP_URL` is not set, or no address is saved. | Set it up (see [Settings](settings.md#notifications--voice)) and use **Send a test** in **Settings → Notifications & voice**. |
+| No announcement on any channel | Tasks is off, or the task has no date. | Turn on **Settings → Features → Tasks**; give the task a date. |
+| No push when a task comes due | Push is not set up on the server, the device is not subscribed, or **Due tasks and reminders** is off for that device. | Check **Settings → Notifications** on the device. The list still shows the task as due. |
+| No email | `POCKET_SMTP_URL` is not set, or no address is saved. | Set it up (see [Settings](settings.md#notifications)) and use **Send a test** in **Settings → Notifications**. |
 | A push, email or hook run failed once and never came | Each due task is announced once; a failed send is logged, not retried. | Check the server log; the list still shows the task as **Due**. |
 | "task added without context" | No helper model is available, or the conversation is too short to summarize. | Add the context with **Edit**, or check **Model for titles and summaries**. |
 | **Start** opens in the wrong folder | The task has no workspace: it was added from the list, or by an agent without `--session` or `--dir`. | Choose the workspace in the new conversation, or have agents pass `--session` or `--dir`. |

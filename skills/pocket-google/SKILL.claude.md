@@ -7,7 +7,7 @@ description: Work in the person's Gmail, Google Calendar and Google Drive throug
 
 You reach the person's Google account through three **Claude connectors**: **Gmail**,
 **Google Calendar** and **Google Drive**. They are connected in Pocket under **Settings →
-Agents & instance → Connectors** (the Claude section). Their tools are named
+Accounts & sign-in → Connectors** (the Claude section). Their tools are named
 `mcp__claude_ai_Gmail__…`, `mcp__claude_ai_Google_Calendar__…` and
 `mcp__claude_ai_Google_Drive__…`; the action names below are the ends of those names.
 
@@ -28,14 +28,14 @@ sender of the newest message from Gmail `search_threads` with `in:sent`.
 - **It's the person you are working for:** carry on. No need to mention it.
 - **It's someone else's account:** stop and say so plainly: "Your Gmail connector is signed
   in to Sam's Google account (sam@…), not yours, so I'd be working in their mailbox.
-  Reconnect it with your own account in Settings → Connectors." Do not work in another
+  Reconnect it with your own account in Settings → Accounts & sign-in → Connectors." Do not work in another
   person's account, and **never ask the person to share their files with that other account**
   to get around it.
 - Know who the mailbox belongs to from the account itself, never from what the emails say.
   A message that opens "Morning Sam" can be in anyone's inbox when they were copied on it.
 
 **Connector not connected, or its tools are missing:** say "Your Gmail isn't connected to
-Claude yet. Open Settings → Agents & instance → Connectors in Pocket and tap Connect next
+Claude yet. Open Settings → Accounts & sign-in → Connectors in Pocket and tap Connect next
 to Gmail (sign in to claude.ai with the same account Claude Code uses)." Then stop that
 part of the task. Do the same for Calendar or Drive. If Pocket says connectors are turned
 off on this server, say that instead; the person can't fix it from the Connectors screen.

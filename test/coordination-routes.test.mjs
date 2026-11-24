@@ -37,7 +37,7 @@ test('coordination routes and CLI', { timeout: 90_000 }, async t => {
   for (const [p, body, h] of [['/coordination'], ['/coordination/hold', { name: 'x' }, bearer], ['/coordination/owner-release', { name: 'x' }]]) {
     const r = await call(p, body, h); assert.equal(r.status, 404, p); assert.equal(r.body.code, 'coordination_off');
   }
-  const off = await cli(['list']); assert.equal(off.code, 5); assert.match(off.err, /Settings → Projects, files, tasks & vault/);
+  const off = await cli(['list']); assert.equal(off.code, 5); assert.match(off.err, /Settings → Features/);
   assert.equal((await call('/me')).body.features.coordination, false);
   assert.equal((await call('/sessions')).body.held, undefined);
 

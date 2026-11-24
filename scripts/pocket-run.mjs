@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// pocket-run: start a job's run on this server's Pocket Code with a job key (Settings → Automation → Job keys).
+// pocket-run: start a job's run on this server's Pocket Code with a job key (Settings → Features → Job keys).
 //
 //   pocket-run --key-file ~/.config/pocket/jobs/disk-check.key [--data-file <path> | --data -] [--id <idempotency key>]
 //              [--instructions-file <path>] [--conversation <id>] [--wait <seconds>] [--json]

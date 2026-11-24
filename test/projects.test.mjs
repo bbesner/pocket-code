@@ -189,7 +189,7 @@ test('HTTP: the board is off until Settings turns it on, the loopback token serv
   out=await cli(['track','--requested','--name','Relative dir','--dir','other','--json'],dir);assert.equal(out.code,0,out.stderr);assert.equal(JSON.parse(out.stdout).directory,path.join(dir,'other'));
   out=await cli(['update','-p','relative-dir','--dir','./other/deep','--json'],dir);assert.equal(out.code,0,out.stderr);assert.equal(JSON.parse(out.stdout).directory,path.join(dir,'other','deep'));
   assert.equal((await call('/settings',{projects:false})).body.projects,false);
-  out=await cli(['status','--all']);assert.equal(out.code,3);assert.match(out.stderr,/Settings → Projects, files, tasks & vault/);
+  out=await cli(['status','--all']);assert.equal(out.code,3);assert.match(out.stderr,/Settings → Features/);
   out=await cli(['context','--hook']);assert.equal(out.code,0);assert.equal(out.stdout,'','off: the hook stays silent');
   assert.equal((await call('/board')).status,404);
 });

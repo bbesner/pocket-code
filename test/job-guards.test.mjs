@@ -214,7 +214,7 @@ test('Who may propose: never from a conversation a job ran in (even after its ke
   assert.equal(ownerToken, jobToken, 'one token for the conversation');
   let r = await s.propose(ownerToken, s.fields({ name: 'from-job-conversation' }));
   assert.deepEqual([r.status, r.body.code], [403, 'job_conversation'], JSON.stringify(r.body));
-  assert.equal(r.body.error, 'A job has run in this conversation, so it can\'t propose a job key: what a job sends could be steering it. Tell the user that, and that they can ask for the key in a conversation of their own that no job runs in, or make it in Settings → Automation → Job keys.');
+  assert.equal(r.body.error, 'A job has run in this conversation, so it can\'t propose a job key: what a job sends could be steering it. Tell the user that, and that they can ask for the key in a conversation of their own that no job runs in, or make it in Settings → Features → Job keys.');
   await s.stopTurn(id);
   // the key deleted (its runs and conversations go with it): still refused
   assert.equal((await s.call(`/jobs/keys/${key.id}/delete`, {})).status, 200);

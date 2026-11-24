@@ -3,6 +3,69 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.124.9] — 2026-11-24 · build 231
+
+Settings, reorganized, and one place to choose the agent, model and effort. People found Settings hard to follow:
+220 controls, 41 of them without an explanation, two sections of six and seven phone screens, a feature's settings
+spread across several sections, and section names that changed between modes. This release moves things and rewrites
+their text. Nothing is removed, no default changes, and every saved value, env preset and storage key stays as it was.
+The owner approved the plan, which was built from a full inventory of the controls, before the build.
+
+- **Ten pages, the same in both modes.** The pages are Display, Conversations, Notifications, Voice (beta), Accounts & sign-in, Agents
+  (Developer mode only), Features, Unattended work, Usage, and Help & updates. Assistant mode shows fewer rows. It drops a page only
+  when every row on it is hidden, and it no longer renames pages ("Accounts" and "Features" were Assistant-only names).
+  `organizeSettings` in `public/workspace.js` builds them from one list. Old category names still open the page that took
+  over their rows (`appearance`, `conversation`, `libraries`, `automation`), so links and `settingsSheet({category})`
+  calls keep working.
+- **Layout heads the index.** The Developer or Assistant mode switch moved out of Appearance because it decides which
+  settings appear at all. **Search settings** sits above it: typing lists matching settings from every page, and picking
+  one opens its page, scrolls to the setting and outlines it for a moment.
+- **Every switch is in Features, with › to the feature's own page.** The switches are Projects, Files, Tasks, Inbox Watch, Vault,
+  Check-backs, Job keys, Coordination (Developer mode) and Automatic model choice. Each feature's own page holds its settings, for example
+  the Check-backs limits, the Job keys list and requests, the Vault's Agent access and protection, Files' keep and open choices,
+  and the "show in Tasks" switches on Tasks. Inbox Watch's › opens its existing sheet. A › whose page has nothing to show in
+  the current mode is hidden. A locked Assistant Pocket lists only Check-backs and Job keys under its line saying what is
+  on.
+- **Automation is now Unattended work.** It holds Pause all and the limits. The reply history and *Limits reached today* moved to
+  **Usage**, beside plan usage and a link to Inbox Watch's cost. Check-backs and Job keys moved to their Features pages.
+  The More menu reads **Unattended work settings**.
+- **The scope is said one way everywhere.** **This device only** or **All your devices**. A page with both shows the device group first.
+- **Every setting says what it is for.** Most labels and explanations were rewritten: labels that name the thing (*Short titles*,
+  *Catch-up summary*, *Models offered in the picker*, *Long conversations and helpers*, *Sign in with Cloudflare Access*,
+  *Application audience (AUD) tag*), a sentence for each of the 41 that had none, units written out, and the
+  jargon explained (plan ceiling, re-arm, chain limit, audience tag).
+- **Four wrong or missing explanations fixed.**
+  1. *Actions that run without asking* said Codex was not covered. Codex, OpenRouter and Antigravity have used the command rules since 1.87.
+  2. *Push to this device* named three of its five kinds.
+  3. *Sync names with code-server* described the sync even while it was off.
+  4. *Automatic model choice* did not say it works only in Assistant mode.
+- **Agent, model and effort: one chip, one panel.** The message box had a model chip and an effort chip, and New conversation
+  had a separate agent list. Now one chip shows the choice (for example *Claude Code · Opus 5.5 · High*), and tapping it opens
+  one panel:
+  - **Recent** shows your last three combinations, and one tap applies one.
+  - **Agent** appears on New conversation only. A conversation that has started says which agent it runs on.
+  - **Effort** offers the levels the chosen model supports, or says that model has none.
+  - **Model** lists the models offered.
+  - `/model` and `/effort` open the same panel, and `/effort` focuses the effort row.
+  - Switching agents restores that agent's last model and effort. An agent you have never used keeps the current effort.
+  - The panel is `modelPanel` in `public/app.js`, and the picks it remembers are `rememberPick`.
+- **Accessibility.**
+  - The Check-backs and Job keys pages no longer have two regions with the same name.
+  - Number fields under Unattended work are 44 px tall.
+  - The Features list's › buttons are 48 px and named for their feature (*Check-backs settings*).
+- **Docs.**
+  - Every manual page that names a Settings path is updated. `docs/manual/settings.md` is rewritten page by page and has a *Where things moved in 1.124.9* table.
+  - The new `docs/manual/features.md` is a feature reference: every feature, how it works, where it is controlled, the env vars and a glossary.
+  - The off-state messages from the server, the `pocket-*` commands and the skills now say *Settings → Features*.
+- **Tests.**
+  - The browser suites open a Settings page the way a person does, with the new helpers `openSettingsPage` and `showSetting` in `test/ui-controls.mjs`.
+  - `test/ui-regressions.mjs` has a `POCKET_KEEP_GOING=1` mode that logs a failing check and runs the rest.
+  - *1.19 Reading measure* now waits for the prose as well as the table. The history can be drawn twice, and the check sometimes measured the empty first draw. This also failed on 1.124.8.
+- **Design checks.**
+  - The design detector ran on the rendered Settings pages. It found nothing new: its six findings are older styles that apply to the whole app (the ember, the dark-page glow, 1.23 line height on small text, the number field's box from 1.117).
+  - The layout sweep ran on all 93 Settings surfaces at phone and desktop sizes, in light and dark.
+- **Migration:** none. **Rollback to 1.124.8:** nothing to undo. Settings are stored under the same keys.
+
 ## [1.124.8] — 2026-11-24 · build 230
 
 The owner's answers to the seven questions the bug review (1.124.4) and the UI/UX test (1.124.5) left open. Four change

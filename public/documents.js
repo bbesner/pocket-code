@@ -1,5 +1,5 @@
-/* Documents (1.30): the library of files that came out of the work, inside Pocket Code. Off until Settings →
-   Projects & documents turns it on (window.pocketFeatures.documents). Views: the library (#/documents) and one document
+/* Documents (1.30): the library of files that came out of the work, inside Pocket Code. Off until Settings → Features
+   it on (window.pocketFeatures.documents). Views: the library (#/documents) and one document
    (#/documents/<id>); both open like a session (tab, beside a conversation, full-screen on the phone) and, since
    1.31, in a window of their own (?solo=1); a document also opens in the device's own viewer or downloads. HTML
    renders in a sandboxed frame: the server's policy denies it cookies, storage and the API; scripts in a dashboard

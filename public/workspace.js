@@ -99,7 +99,7 @@ function chatTextControlsHTML(){
    <button data-text-reset aria-label="Reset chat text to 17 pixels">Reset</button>
   </div>
   <p class="chat-text-preview">Your conversation, at a size that works for you.</p>
-  <p class="chat-text-help">Saved for all conversations on this browser.</p>
+  <p class="chat-text-help">The size of conversation text. Saved for all conversations on this browser.</p>
  </section>`;
 }
 function setChatTextSize(size){
@@ -144,7 +144,7 @@ function accentControlsHTML(){
  return `<section class="chat-text-settings accent-settings" aria-label="Highlight colour">
   <p class="chat-text-label">Highlight colour</p>
   <div class="chat-text-controls accent-controls" role="group" aria-label="Choose highlight colour">${swatches}</div>
-  <p class="chat-text-help">Used for the send button, links, active markers and your messages. Saved on this browser.</p>
+  <p class="chat-text-help">The colour of the send button, links, your own messages and anything selected. Saved on this browser.</p>
  </section>`;
 }
 function bindAccentControls(container){
@@ -155,7 +155,7 @@ function themeControlsHTML(){
   <label class="voice-field">Colour mode<select id="s-theme">
    ${[['system','System'],['light','Light'],['dark','Dark']].map(([key,label])=>`<option value="${key}"${PocketTheme.preference===key?' selected':''}>${label}</option>`).join('')}
   </select></label>
-  <p class="chat-text-help">System follows your device’s appearance. Saved on this browser for all Pocket windows and split views.</p>
+  <p class="chat-text-help">Light or dark. System follows your phone or computer. Saved on this browser for all Pocket windows and split views.</p>
  </section>`;
 }
 function syncAppearanceControls(){
@@ -768,10 +768,10 @@ function restoreViewPosition(view) {
  const state=viewPositions.get('#/'+view),main=document.querySelector('main.scroll');if(!state||!main)return;
  main.querySelectorAll('details').forEach((d,i)=>{if(state.details[i]!==undefined)d.open=state.details[i];});main.scrollTop=state.top;
 }
-// 1.81 (#175): where an "is off" message sends you. Assistant mode has no Projects, files, tasks & vault category, its switches
-// are in Settings → Features, and a locked Pocket (POCKET_ASSISTANT_MODE=locked) leaves them to the person who runs the install.
+// 1.81 (#175): where an "is off" message sends you. Every switch is in Settings → Features (both modes since 1.124.9), and a
+// locked Pocket (POCKET_ASSISTANT_MODE=locked) leaves them to the person who runs the install.
 const featuresLocked=()=>Boolean(window.pocketFeatures?.assistantLocked);
-function turnOnHint(){return featuresLocked()?'Ask the person who runs this install to turn it on.':assistantMode()?'Turn it on in Settings → Features.':'Turn it on in Settings → Projects, files, tasks & vault.';}
+function turnOnHint(){return featuresLocked()?'Ask the person who runs this install to turn it on.':'Turn it on in Settings → Features.';}
 function showLibraryError(main,error,label,retry,hasData) {
  const panel=document.createElement('div');panel.className='library-error';panel.setAttribute('role','status');
  const off=error.status===404;
@@ -803,66 +803,136 @@ function bindRailNavigation() {
   e.preventDefault();const target=items[e.key==='Home'?0:e.key==='End'?items.length-1:(i+(e.key==='ArrowRight'?1:-1)+items.length)%items.length];target.focus();
   if(target.dataset.railView!=='documents'||filesButtonOpens()==='rail')target.click();}; // arrowing onto a Files button that opens the library only focuses it
 }
-// 1.35: the collapsed setup names the model and reasoning level, so you see what will run without opening it.
-function agentSummary(){
- const model=tbLabel(modelList(),tb.prefs.model);
- // an OpenRouter or Antigravity model with no reasoning-effort setting: the summary omits it
- const effort=['acp','antigravity'].includes(tb.provider)&&effortList().length<2?'':(tbLabel(effortList(),tb.prefs.effort)==='Default'?'default reasoning':tbLabel(effortList(),tb.prefs.effort)+' reasoning');
- return [tb.provider==='claude'?'Claude Code':window.PocketEngines.label(tb.provider),model==='Default'?'':model,effort].filter(Boolean).join(' · ');
-}
+// 1.124.9: the agent, model and effort are the message box's chip now, and permissions its own chip, so the setup card
+// names only what it sets: the workspace, and a project's start.
 function updateNewSummary() {
  const el=document.querySelector('#task-context');if(!el||!tb)return;
- el.innerHTML=`<span><strong>Workspace</strong> ${esc(el.dataset.workspace||'Choose a workspace')}</span><span><strong>Agent</strong> ${esc(agentSummary())}</span><span><strong>Permissions</strong> ${esc(permissionLabel(nextApprovalMode()))}</span>${typeof newStartLine==='function'&&newStartLine()?`<span><strong>Start</strong> ${esc(newStartLine())}</span>`:''}`;
+ el.innerHTML=`<span><strong>Workspace</strong> ${esc(el.dataset.workspace||'Choose a workspace')}</span>${typeof newStartLine==='function'&&newStartLine()?`<span><strong>Start</strong> ${esc(newStartLine())}</span>`:''}`;
 }
+// 1.124.9: Settings, reorganized (CHANGELOG 1.124.9). The same pages, names and order in both
+// modes; Assistant mode leaves out the rows marked '!' (Developer mode only) and a page whose rows are all left out.
+// Each page is [key, title, description, sections, parent]; a section is [scope heading, selectors]. A selector that
+// starts with '^' takes the field's .title-settings wrapper. Feature pages (parent 'features') open from Features.
+// Old category names still open the page that took their rows over.
+const SETTINGS_ALIASES={appearance:'display',conversation:'conversations',libraries:'features',automation:'unattended'};
+const SETTINGS_FEATURES=[ // [switch selector, page key or 'inbox' (its own sheet), name for the open button]
+ ['#s-projects','f-projects','Projects'],['#s-documents','f-files','Files'],['#s-tasks','f-tasks','Tasks'],
+ ['#s-inbox','inbox','Inbox Watch'],['#s-vault','f-vault','Vault'],['#s-checkbacks-switch','f-checkbacks','Check-backs'],
+ ['#s-jobs-switch','f-jobs','Job keys'],['!#s-coordination','',''],['#s-router-on','f-router','Automatic model choice'],
+];
 function organizeSettings(sh, {category='',scrollTop=0}={}) {
- // 1.60: Assistant mode shows the settings a person needs day to day; everything else stays as it is, hidden.
- const groups=assistantMode()?[
-  ['appearance','Appearance','Light, dark, text size and highlight colour', [['This device','.chat-text-settings'],['This Pocket · all devices','#s-mode']]],
-  ['conversation','Conversation','How replies and steps read', [['This device','#s-tools,#s-times']]],
-  ['accounts','Accounts','Your Claude sign-in, Gmail, Calendar and Drive, and signing out', [['','#s-environment,#s-connectors,#s-signout']]],
-  // 1.81 (#175): the switches the Developer category holds, for the seats that can change them; a locked Pocket gets a line saying what is on.
-  featuresLocked()
-   ?['features','Features','Which parts of Pocket are on', [['','#s-features-lead']]]
-   :['features','Features','Projects, Files, Tasks, Inbox Watch, Vault and automatic model choice', [['','#s-features-lead,#s-projects,#s-documents,#s-tasks,#s-inbox,#s-inbox-watch,#s-vault'],['','#s-router']]],
-  // 1.117: Pause all is never hidden, so Automation is a category in both modes (a row missing here would be hidden).
-  ['automation','Automation','Pause all, check-backs, and limits on work that runs without you', [['','#s-automation']]],
-  ['notifications','Notifications & voice','Sounds, alerts on this device, reminders by email and spoken replies', [['This device','#s-chime,#s-push,#s-push-kinds,#s-badge,#s-voice'],['This Pocket · all devices','#s-ahead,#s-email-wrap']]],
-  ['help','Help & updates','Version and what’s new', [['','#s-about,#s-notes']]],
- ]:[
-  ['appearance','Appearance','Light, dark, text size and highlight colour', [['This device','.chat-text-settings'],['This instance · all devices','#s-mode']]],
-  ['conversation','Conversation','Reading, conversation titles and summaries', [['This device','#s-tools,#s-plain,#s-times'],['This instance · all devices','#s-review-all,#s-sync,#s-sync-retry,#s-titles,#s-live,#s-away','#s-title-model']]],
-  ['agents','Agents & instance','Accounts, connectors, plan usage, models, context and subagents, automatic model choice, actions that run without asking and sign-in', [['This instance · all devices','#s-environment,#s-connectors,#s-usage,#s-models,#s-context,#s-trusted,#s-router,#s-access,#s-signout']]],
-  ['libraries','Projects, files, tasks & vault','Tools and how they open', [['This instance · all devices','#s-projects,#s-documents,#s-autokeep,#s-tasks,#s-coordination,#s-inbox,#s-inbox-watch,#s-vault,#s-vault-more'],['This device','', '#s-projects-open,#s-files-button,#s-documents-open']]],
-  ['automation','Automation','Pause all, check-backs, and limits on unattended work: plan ceilings, a daily count and the longest reply', [['This instance · all devices','#s-automation']]], // 1.117
-  ['notifications','Notifications & voice','Chime, push, the icon count, email and spoken replies', [['This device','#s-chime,#s-push,#s-push-kinds,#s-badge,#s-voice'],['This instance · all devices','#s-ahead,#s-email-wrap']]],
-  ['help','Help & updates','Keyboard shortcuts, version and feedback', [['','#s-keys,#s-about,#s-notes,#s-feedback']]],
+ const am=assistantMode(),locked=am&&featuresLocked(),DEVICE='This device only',ALL='All your devices';
+ const pages=[
+  ['display','Display','Colour mode, text size and highlight colour',[[DEVICE,['.chat-text-settings']]]],
+  ['conversations','Conversations','How conversations read and how they get their names',[[DEVICE,['#s-tools','!#s-plain','#s-times']],[ALL,['!#s-titles','!#s-live','!#s-away','!^#s-title-model','!#s-sync','!#s-sync-retry','!#s-review-all']]]],
+  ['notifications','Notifications','What reaches this device, and reminders by email',[[DEVICE,['#s-chime','#s-push','#s-push-kinds','#s-badge']],[ALL,['#s-ahead','#s-email-wrap']]]],
+  ['voice','Voice (beta)','Spoken replies and dictation on this device',[[DEVICE,['#s-voice']]]],
+  ['accounts','Accounts & sign-in','Claude and Codex accounts, Gmail, Calendar and Drive, signing in and out',[['',['#s-environment','#s-connectors','!#s-access','#s-signout']]]],
+  ['agents','Agents','Models offered, long conversations and helpers, actions that run without asking',[[ALL,['!#s-models','!#s-context','!#s-trusted']]]],
+  ['features','Features',locked?'Which parts of Pocket are on':'Turn parts of Pocket on or off, each with its own settings',[[ALL,['#s-features-list']]]],
+  ['unattended','Unattended work','Pause all, and limits on work that runs while you’re away',[[ALL,['#s-automation']]]],
+  ['usage','Usage','Plan usage, what ran without you, and limits reached',[['',['#s-usage','#s-auto-usage','!#s-usage-inbox']]]],
+  ['help','Help & updates',am?'Version and what’s new':'Keyboard shortcuts, version, what’s new and feedback',[['',['!#s-keys','#s-about','#s-notes','!#s-feedback']]]],
+  ['f-projects','Projects','',[[DEVICE,['!^#s-projects-open']]],'features'],
+  ['f-files','Files','',[[ALL,['!#s-autokeep']],[DEVICE,['!^#s-files-button','!^#s-documents-open']]],'features'],
+  ['f-tasks','Tasks','',[[ALL,['#s-tasks-auto']]],'features'],
+  ['f-vault','Vault','',[[ALL,['#s-vault-restore-wrap','!#s-vault-more','!#s-secrets']]],'features'],
+  ['f-checkbacks','Check-backs','',[[ALL,['#s-checkbacks-auto']]],'features'],
+  ['f-jobs','Job keys','',[[ALL,['#s-jobs-auto']]],'features'],
+  ['f-router','Automatic model choice','',[[ALL,['!#s-router']]],'features'],
  ];
+ const pickAll=sel=>{if(sel.startsWith('!')){if(am)return [];sel=sel.slice(1);}const field=sel.startsWith('^');return [...sh.querySelectorAll(field?sel.slice(1):sel)].map(el=>field?el.closest('.title-settings'):el).filter(Boolean);},pick=sel=>pickAll(sel)[0]||null;
+ // Features: each switch, with a › beside it that opens the feature's page (Inbox Watch: its own sheet).
+ const list=document.createElement('div');list.id='s-features-list';list.className='features-list';
+ const lead=sh.querySelector('#s-features-lead');
+ if(lead)list.append(lead);else{const p=document.createElement('p');p.className='title-note features-lead';p.textContent='Turn parts of Pocket on or off. › opens a feature’s own settings.';list.append(p);}
+ for(const [sel,page,name] of SETTINGS_FEATURES){
+  if(locked&&!['f-checkbacks','f-jobs'].includes(page))continue; // a locked Pocket's switches are the server's; its lead says what is on
+  const sw=pick(sel);if(!sw)continue;
+  const row=document.createElement('div');row.className='feature-row';row.dataset.feature=page||sel.replace(/^!?#s-/,'');row.append(sw);
+  if(page){const open=document.createElement('button');open.type='button';open.className='icon feature-open';open.dataset.settingsCategory=page;open.setAttribute('aria-label',name+' settings');open.innerHTML=IC.back;row.append(open);}
+  list.append(row);
+ }
+ sh.append(list);
  const heading=sh.querySelector('h2'),index=document.createElement('div');index.className='settings-index';
- const back=document.createElement('button');back.className='chip sheet-back';back.id='settings-back';back.innerHTML=IC.back+'All settings';back.hidden=true;heading.before(back);
- const panels=new Map(),positions=new Map();let current='';
- for(const [key,title,description,sections] of groups){
-  const panel=document.createElement('section');panel.dataset.settingsPanel=key;panel.hidden=true;panel.setAttribute('aria-label',title);
-  for(const [scope,selector,fieldSelector] of sections){
-   const nodes=[...(selector?sh.querySelectorAll(selector):[]),...(fieldSelector?[...sh.querySelectorAll(fieldSelector)].map(e=>e.closest('.title-settings')):[])].filter(Boolean);
+ const back=document.createElement('button');back.className='chip sheet-back';back.id='settings-back';back.innerHTML=IC.back+'<span>All settings</span>';back.hidden=true;heading.before(back);
+ const panels=new Map(),positions=new Map(),parents=new Map(),titles=new Map();let current='';
+ for(const [key,title,description,sections,parent] of pages){
+  const panel=document.createElement('section');panel.dataset.settingsPanel=key;panel.hidden=true;panel.setAttribute('aria-label',title);if(parent)panel.dataset.settingsParent=parent;
+  for(const [scope,selectors] of sections){
+   const nodes=selectors.flatMap(pickAll);if(!nodes.length)continue;
    if(scope){const h=document.createElement('h3');h.className='settings-scope';h.textContent=scope;panel.append(h);}
    nodes.forEach(n=>panel.append(n));
   }
-  panels.set(key,panel);sh.append(panel);
-  const button=document.createElement('button');button.className='opt';button.dataset.settingsCategory=key;button.innerHTML=`<span>${esc(title)}<span class="sub">${esc(description)}</span></span>${IC.back}`;button.onclick=()=>select(key);index.append(button);
+  if(!panel.querySelector(':scope > :not(h3)'))continue; // nothing for this mode
+  panels.set(key,panel);titles.set(key,title);if(parent)parents.set(key,parent);sh.append(panel);
+  if(parent)continue;
+  const button=document.createElement('button');button.className='opt';button.dataset.settingsCategory=key;button.innerHTML=`<span>${esc(title)}<span class="sub">${esc(description)}</span></span>${IC.back}`;index.append(button);
  }
- sh.querySelector('.settings-group')?.remove();heading.after(index);
- if(assistantMode())for(const el of [...sh.children])if(el!==heading&&el!==index&&el!==back&&!el.dataset.settingsPanel)el.classList.add('settings-assistant-hidden');
+ // A feature without a page in this mode loses its ›; one whose page shows nothing right now (Vault in Assistant mode
+ // until its key needs restoring) hides it until there is something.
+ list.querySelectorAll('.feature-open').forEach(b=>{const k=b.dataset.settingsCategory;if(k!=='inbox'&&!panels.has(k))b.remove();});
+ const paintOpens=()=>list.querySelectorAll('.feature-open').forEach(b=>{const p=panels.get(b.dataset.settingsCategory);if(!p)return;const off=![...p.children].some(c=>c.tagName!=='H3'&&!c.hidden);if(b.hidden!==off)b.hidden=off;});
+ paintOpens();new MutationObserver(paintOpens).observe(sh,{attributes:true,attributeFilter:['hidden'],subtree:true});
+ const voice=sh.querySelector('[data-settings-panel] #s-voice');if(voice){voice.open=true;voice.classList.add('settings-details-page');}
+ // Layout (Developer or Assistant mode) heads the index: it decides which settings appear at all.
+ const mode=sh.querySelector('#s-mode');
+ const search=settingsSearch(sh,{panels,titles,go:(key,el)=>{select(key);requestAnimationFrame(()=>{el.scrollIntoView({block:'center'});const c=el.matches('button,select,input,summary')?el:el.querySelector('button:not([disabled]),select,input,summary');c?.focus({preventScroll:true});el.classList.remove('settings-hit');void el.offsetWidth;el.classList.add('settings-hit');setTimeout(()=>el.classList.remove('settings-hit'),2400);});}});
+ sh.querySelector('.settings-group')?.remove();heading.after(search.box);search.box.after(index);
+ if(mode)index.prepend(mode); // its help says it changes every device
+ for(const el of [...sh.children])if(el!==heading&&el!==index&&el!==back&&el!==search.box&&!el.dataset.settingsPanel)el.classList.add('settings-assistant-hidden','settings-unplaced');
+ sh.querySelectorAll('[data-settings-category]').forEach(b=>b.onclick=()=>{const k=b.dataset.settingsCategory;if(k==='inbox')return sh.querySelector('#s-inbox-watch')?.click();select(k);});
+ // Inbox Watch's › follows its settings button, which shows only while Inbox Watch is on.
+ const inboxOpen=list.querySelector('.feature-open[data-settings-category="inbox"]'),inboxWatch=sh.querySelector('#s-inbox-watch');
+ if(inboxOpen&&inboxWatch){const paint=()=>{inboxOpen.hidden=inboxWatch.hidden;};paint();new MutationObserver(paint).observe(inboxWatch,{attributes:true,attributeFilter:['hidden']});inboxWatch.classList.add('settings-assistant-hidden');}
  function select(key,initial=false){
-  positions.set(current,sh.scrollTop);current=panels.has(key)?key:'';
-  heading.textContent=groups.find(g=>g[0]===current)?.[1]||'Settings';index.hidden=Boolean(current);back.hidden=!current;
+  key=SETTINGS_ALIASES[key]||key;
+  const from=current;positions.set(current,sh.scrollTop);current=panels.has(key)?key:'';
+  const parent=parents.get(current)||'';
+  heading.textContent=titles.get(current)||'Settings';index.hidden=Boolean(current);search.box.hidden=Boolean(current);back.hidden=!current;
+  back.querySelector('span').textContent=parent?titles.get(parent):'All settings';back.dataset.to=parent;
   for(const [k,p] of panels)p.hidden=k!==current;
   sh.scrollTop=positions.get(current)||0;
-  if(!initial)(current?back:index.querySelector(`[data-settings-category="${key||sh.dataset.lastCategory||'appearance'}"]`))?.focus({preventScroll:true});
-  if(current)sh.dataset.lastCategory=current;
+  if(!initial)(current?back:index.querySelector(`[data-settings-category="${from&&!parents.has(from)?from:sh.dataset.lastCategory||'display'}"]`)||search.input)?.focus({preventScroll:true});
+  if(current&&!parent)sh.dataset.lastCategory=current;
+  if(!initial&&parents.has(from)&&current===parents.get(from))sh.querySelector(`.feature-open[data-settings-category="${from}"]`)?.focus({preventScroll:true});
  }
- back.onclick=()=>select('');
+ back.onclick=()=>select(back.dataset.to||'');
  Object.defineProperty(sh,'_settingsReturn',{get(){const key=current,top=sh.scrollTop;return()=>settingsSheet({category:key,scrollTop:top});}});
  select(category,true);requestAnimationFrame(()=>{if(sh.isConnected)sh.scrollTop=scrollTop;});
+}
+// 1.124.9: Search settings. Matches each row's label and explanation on every page this mode shows; a result opens
+// its page with the row in view, focused and outlined for a moment.
+function settingsSearch(sh,{panels,titles,go}){
+ const box=document.createElement('div');box.className='settings-search';
+ box.innerHTML=`<div class="sheet-find settings-find"><div class="session-search">${IC.search}<input type="search" id="s-search" data-no-autofocus aria-label="Search settings" placeholder="Search settings" autocomplete="off" spellcheck="false" enterkeyhint="go" aria-controls="s-search-results"></div></div><div class="settings-results" id="s-search-results" role="list" aria-label="Matching settings" hidden></div><p class="title-note" id="s-search-none" role="status"></p>`;
+ const input=box.querySelector('input'),results=box.querySelector('.settings-results'),none=box.querySelector('#s-search-none');
+ const ROWS='.opt,.voice-field,.automation-row,.vault-set,.chat-text-settings,.mode-settings,.settings-details > summary,.title-settings > .vault-set-head,.trusted-add';
+ const labelOf=el=>{const c=(el.matches('summary')?el:el.matches('.title-settings > .vault-set-head')?el:el).cloneNode(true);c.querySelectorAll('.sub,select,option,.title-note,.chat-text-help,.chat-text-controls,.vault-field-error,svg,.badge,input').forEach(x=>x.remove());return c.textContent.replace(/\s+/g,' ').trim().slice(0,90);};
+ const textOf=el=>{const c=el.cloneNode(true);c.querySelectorAll('option,svg').forEach(x=>x.remove());return c.textContent.replace(/\s+/g,' ').toLowerCase();};
+ const paint=()=>{
+  const q=input.value.trim().toLowerCase(),words=q.split(/\s+/).filter(Boolean);
+  if(!words.length){results.hidden=true;results.innerHTML='';none.textContent='';return;}
+  const found=[];
+  for(const [key,panel] of panels)for(const el of panel.querySelectorAll(ROWS)){
+   const hid=el.closest('[hidden]');if(hid&&hid!==panel)continue;
+   if(el.closest('.settings-assistant-hidden'))continue;
+   if(found.some(f=>f.el.contains(el)&&f.el!==el&&f.el.matches('.opt,.automation-row')))continue;
+   const t=textOf(el);if(!words.every(w=>t.includes(w)))continue;
+   const label=labelOf(el);if(!label)continue;
+   // keep the most specific match: a row inside a matching group replaces the group
+   for(let i=found.length-1;i>=0;i--)if(found[i].el.contains(el))found.splice(i,1);
+   if(found.some(f=>f.label===label&&f.key===key))continue;
+   found.push({key,el,label});
+  }
+  const shown=found.slice(0,30);
+  results.hidden=!shown.length;none.textContent=shown.length?'':'No setting matches “'+input.value.trim()+'”.';
+  results.innerHTML=shown.map((f,i)=>`<button type="button" class="opt settings-result" role="listitem" data-result="${i}"><span>${esc(f.label)}<span class="sub">${esc(titles.get(f.key)||'')}${panels.get(f.key)?.dataset.settingsParent?' · '+esc(titles.get(panels.get(f.key).dataset.settingsParent)):''}</span></span></button>`).join('');
+  results.querySelectorAll('[data-result]').forEach(b=>b.onclick=()=>{const f=shown[Number(b.dataset.result)];go(f.key,f.el);});
+ };
+ input.oninput=paint;
+ input.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();results.querySelector('[data-result]')?.click();}};
+ return {box,input};
 }
 // 1.44.1: Projects, Files and Tasks catch up without a reload. A list registers its refresh here; it runs when this
 // window comes back into view or focus, and when a turn ends in any Pocket window on this device (a pane, a window of

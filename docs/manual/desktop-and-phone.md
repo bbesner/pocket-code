@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.124.8
+checked: 1.124.9
 sources: public/split.js, public/workspace.js, public/tips.js, public/sidechat.js, docs/session-focus.md
 -->
 # Desktop and phone
@@ -34,8 +34,8 @@ Its head holds:
   every view.
 - **Filters**, which folds the conversation filters away (the applied ones stay named, with **Clear
   filters**).
-- **More** (**⋯**, labelled *More: Pause all and automation*), which opens **Pause all** (it reads **Resume** while Pocket is
-  paused) and **Automation settings** ([Automation](automation.md#pause-all)). With **More** present, **Filters** shows as an icon
+- **More** (**⋯**, labelled *More: Pause all and unattended work*), which opens **Pause all** (it reads **Resume** while Pocket is
+  paused) and **Unattended work settings** ([Automation](automation.md#pause-all)). With **More** present, **Filters** shows as an icon
   only; its name is still its label.
 - **App settings** (the cog) and **New conversation** (the **+**).
 
@@ -129,15 +129,14 @@ No control deletes a conversation. Closing a browser or a tab leaves the work ru
 
 ### A view in its own window
 
-Projects, files and links can open **In a new browser window** (Settings → Projects, files, tasks &
-vault). That window shows the one view, without the rail, tabs or panes.
+Projects, files and links can open **In a new browser window** (**Settings → Features → Projects** and **Files**). That window shows the one view, without the rail, tabs or panes.
 
 ## Use it on a phone
 
 Below 900 px Pocket shows one thing at a time.
 
 - **Home** is the conversation list (in Assistant mode, the message box). Its header has the bell
-  (**Notifications off for this device** or **on**), **More** (**⋯**: **Pause all** and **Automation settings**, see
+  (**Notifications off for this device** or **on**), **More** (**⋯**: **Pause all** and **Unattended work settings**, see
   [Automation](automation.md#pause-all)) and Settings; **Your conversations** has chips to the
   Projects, Files, Tasks, Vault and Inbox libraries that are on, with their counts (**Tasks · 2 due**,
   **Vault · 1 waiting**, **Inbox · 3 new**), and **Refresh**. The round **+** starts
@@ -169,13 +168,13 @@ These work at every width and are saved on this browser:
   status check. Ctrl/⌘ F still opens Find. When Pocket is embedded in another page that allows it
   (`POCKET_FRAME_ANCESTORS`), the page around it is told so it can fold its own header too.
 - **The sliders button beside the message box** (**Hide message settings** / **Show message
-  settings**). It hides the chip row: model, effort, permissions, Codex mode, **Alerts**, voice,
+  settings**). It hides the chip row: agent, model and effort, permissions, Codex mode, **Alerts**, voice,
   **Side chat**, **Branch**, **Handoff**, the project chip and **Add task**. The paperclip, the context ring and Send
   stay, and so do attachments, upload problems, Stop, the steering choice and agent requests.
 - **Filters** on the rail and on the conversation list fold the filters behind a summary line.
-- **Settings → Conversation → Collapse steps** folds each run of agent steps behind a one-line summary.
+- **Settings → Conversations → Collapse steps** folds each run of agent steps behind a one-line summary.
 
-Assistant mode (**Settings → Appearance → Mode**) hides the developer controls altogether: the chips,
+Assistant mode (**Layout** at the top of Settings) hides the developer controls altogether: the chips,
 Results, Queue, Git, split view and the cost line.
 
 ## Move around
@@ -190,11 +189,10 @@ Results, Queue, Git, split view and the cost line.
   reopens where you were reading.
 - **Dialogs and sheets** keep the keyboard focus inside them, close with Escape or the X, and return the
   focus to the control that opened them. A page opened from Settings has **Back to Settings**; a
-  Settings category has **All settings**.
+  Settings page has **All settings**, and a feature's own page has **Features**.
 - **A library that fails to load** says so with **Retry**, keeping the last loaded list on screen when
-  there is one. A library that is turned off says *Projects is off. Turn it on in Settings → Projects,
-  files, tasks & vault.* with **Open Settings** (for Files, Tasks and the others alike). In Assistant mode
-  it says *Settings → Features* and **Open Settings** goes there; when Assistant mode is locked it says
+  there is one. A library that is turned off says *Projects is off. Turn it on in Settings → Features.*
+  with **Open Settings** (for Files, Tasks and the others alike); when Assistant mode is locked it says
   *Ask the person who runs this install to turn it on.* and has no button.
 
 ## Keyboard shortcuts
@@ -218,7 +216,7 @@ Results, Queue, Git, split view and the cost line.
 | Tab | In a dialog | Cycles inside the dialog |
 | Tab | First key on a page | Shows a skip link (**Skip to message**, **Skip to files**, …) that jumps past the rail |
 
-On a phone, Enter in the message box adds a line. **Settings → Help & updates → Keyboard & workspace**
+On a phone, Enter in the message box adds a line. **Settings → Help & updates → Keyboard shortcuts**
 shows the main shortcuts in the app.
 
 ## Tooltips
@@ -233,17 +231,17 @@ click or a tap opens the same text on the page, so it also works on a touch scre
 
 ## Text size
 
-**Chat text size** is in **Conversation options** and **Settings → Appearance**: **Smaller**,
+**Chat text size** is in **Conversation options** and **Settings → Display**: **Smaller**,
 **Larger** and **Reset**, from 14 to 24 px (17 by default). It applies to every conversation on this
 browser and keeps your reading position while it changes.
 
 ## Notifications on a phone and a computer
 
-The settings themselves are described in [Settings](settings.md#notifications--voice). Each browser
+The settings themselves are described in [Settings](settings.md#notifications). Each browser
 decides for itself. A phone and a computer signed in to the same Pocket each turn push on
 or off and choose what they get:
 
-- **Turn it on** with the bell on the conversation list or **Settings → Notifications & voice → Push to
+- **Turn it on** with the bell on the conversation list or **Settings → Notifications → Push to
   this device**, then allow notifications when the browser asks. Notifications then reach the device
   even when Pocket is closed.
 - **Choose what this device gets**: **Finished replies**, **Due tasks and reminders**, **Vault
@@ -293,7 +291,7 @@ both are per device and need the user's browser.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| No Split view button, rail or tabs | The window is under 900 px wide, or Assistant mode is on. | Widen the window, or switch to Developer mode in **Settings → Appearance → Mode**. |
+| No Split view button, rail or tabs | The window is under 900 px wide, or Assistant mode is on. | Widen the window, or switch to Developer mode in **Layout** at the top of Settings. |
 | *Not enough room for another pane.* | The window cannot fit another 380 px conversation. | Hide the conversation list, close a pane or widen the window. |
 | *Split view holds up to four conversations. Close a pane first.* | Four conversations already show. | Close a pane. |
 | *N panes are hidden at this width.* | The window narrowed or the rail grew. | Widen the window or hide the conversation list; the panes come back as they were. |

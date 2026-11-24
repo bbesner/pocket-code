@@ -46,7 +46,7 @@ Built in:
 - The server listens on `127.0.0.1` only. Expose it through an HTTPS tunnel or reverse proxy.
 - Constant-time password comparison, and a limit of 20 wrong passwords per hour per address (a correct one does not count).
   Since 1.89 the address is the caller's `cf-connecting-ip` only when Pocket can trust it: the
-  request carries a Cloudflare Access token that verifies for this application (One sign-in is
+  request carries a Cloudflare Access token that verifies for this application (Sign in with Cloudflare Access is
   set up), or `POCKET_TRUSTED_PROXY=1` says the port is reachable only through a proxy that sets
   the header itself. Otherwise it is the connection's own address, so a caller that types a new
   header on each try no longer gets a fresh count. The trade-off: through a tunnel with neither,
@@ -91,7 +91,7 @@ Built in:
   restart (sharing a folder is not supported). Sign out also removes that browser's
   push subscription, and Sign out everywhere removes every one, so a lost phone stops receiving
   notification text; the owner turns notifications on again on the devices that stay. With
-  Cloudflare Access and One sign-in in front, a signed-out browser is signed in again by Access
+  Cloudflare Access and Sign in with Cloudflare Access in front, a signed-out browser is signed in again by Access
   without the password; to end those sessions too, revoke them in Cloudflare.
 - `Strict-Transport-Security: max-age=31536000` on responses to requests that reached the
   tunnel or proxy over HTTPS (`X-Forwarded-Proto` or Cloudflare's `CF-Visitor`), since 1.118.
@@ -128,7 +128,7 @@ Changing `POCKET_SECRET` or `POCKET_PASSWORD` signs everyone out (the password s
 ## Pause all and Automation (1.117)
 
 **Pause all** stops every running reply and holds everything Pocket starts without the owner. Its limits
-(**Settings → Automation**) hold unattended work back from using up a plan.
+(**Settings → Unattended work**) hold unattended work back from using up a plan.
 
 - **Owner only.** `GET` and `POST /api/pause`, `POST /api/resume`, `GET /api/automation` and
   `POST /api/automation/settings` take the owner's sign-in only (the session cookie, or the one sign-in
@@ -157,7 +157,7 @@ Changing `POCKET_SECRET` or `POCKET_PASSWORD` signs everyone out (the password s
 ## Check-backs (1.119)
 
 A check-back lets an agent, asked by the owner, start one more reply in its own conversation at a later time. It is
-off until the owner turns it on in **Settings → Automation → Check-backs**. This is what it adds.
+off until the owner turns it on in **Settings → Features → Check-backs**. This is what it adds.
 
 - **Who may set one is enforced by the server.** `POST /api/checkbacks/agent/add` succeeds only while the conversation's
   current reply is one the owner started (origin `owner`), or a check-back's own reply with its chain under the **Chain
@@ -195,7 +195,7 @@ off until the owner turns it on in **Settings → Automation → Check-backs**. 
 
 ## Job keys
 
-Job keys (1.122.0) let a script on the server start a reply, in a conversation the owner can watch, with an instruction the owner wrote. They are off until the owner turns them on in **Settings → Automation → Job keys**. This is what they add.
+Job keys (1.122.0) let a script on the server start a reply, in a conversation the owner can watch, with an instruction the owner wrote. They are off until the owner turns them on in **Settings → Features → Job keys**. This is what they add.
 
 - **Who may call.** `POST /api/jobs/run` and `GET /api/jobs/runs/<run>` take a job key and nothing else, and only from this server:
   the socket must be loopback and the request must carry none of `cf-connecting-ip`, `x-forwarded-for`, `forwarded` or

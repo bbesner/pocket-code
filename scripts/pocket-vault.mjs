@@ -55,7 +55,7 @@ let token = '';
 try { token = fs.readFileSync(path.join(dataDir, 'cli-token'), 'utf8').trim(); } catch { die(`No CLI token at ${path.join(dataDir, 'cli-token')}. Is Pocket Code running from this checkout? (POCKET_DATA_DIR=${dataDir})`); }
 // The runner token Pocket put in this agent process's environment ties the call to its session.
 const headers = { authorization: 'Bearer ' + token, 'content-type': 'application/json', ...(process.env.POCKET_RUNNER_TOKEN ? { 'x-pocket-runner': process.env.POCKET_RUNNER_TOKEN } : {}) };
-const offMessage = 'The Vault is off for this Pocket Code. The owner can turn it on in Settings → Projects, files, tasks & vault.';
+const offMessage = 'The Vault is off for this Pocket Code. The owner can turn it on in Settings → Features.';
 async function call(p, body, method) {
   let r;
   try { r = await fetch(base + p, { method: method || (body ? 'POST' : 'GET'), headers, body: body ? JSON.stringify(body) : undefined }); }

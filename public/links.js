@@ -1,4 +1,4 @@
-/* Links (1.54): a link in a conversation to one of this Pocket's own things opens the way files do (Settings →
+/* Links (1.54): a link in a conversation to one of this Pocket's own things opens the way files do (Settings → Features → Files →
    Open files and links): as a tab, beside the conversation in a split pane, or in a new browser window. A Pocket
    address (#/documents/…, #/projects/…, a session) opens that view; a share or public link to one of your own
    files opens the file; an image or file served by this Pocket shows in a small link view (#/link/<address>). A

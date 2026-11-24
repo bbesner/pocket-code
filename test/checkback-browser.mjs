@@ -1,6 +1,6 @@
 // 1.119 check-backs, the app half: the card under the reply that set it (every state, placement, Cancel in place, a run
-// turning it to Checking back now and then Checked back), the clock on a list row, the Tasks group, Settings → Automation's
-// Check-backs group (switch, the rest inactive while off, save, range error, Reset, Cancel all), Pause all counting
+// turning it to Checking back now and then Checked back), the clock on a list row, the Tasks group, Settings → Features'
+// Check-backs switch and its page (the rest inactive while off, save, range error, Reset, Cancel all), Pause all counting
 // check-backs, the per-device push toggle, the feature switched off, and an unchanged refresh writing nothing. Runs
 // inside test/browser.mjs, or alone with POCKET_CHECKBACK_ONLY=1. The settings come from automation.mjs through the 1.117
 // fixture (automationFixture), so the switch saved there is what /api/me reports; the real server runs the same flows in
@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import fs from 'node:fs';
-import {clickControl,elementShot} from './ui-controls.mjs';
+import {clickControl,elementShot,showSetting} from './ui-controls.mjs';
 import {automationFixture} from './automation-browser.mjs';
 
 const HOUR=3600000;
@@ -74,6 +74,9 @@ export async function runCheckbackRegressions({p,base,out,repo,rows,conversation
  await p.emulateTimezone('UTC');
  const reload=async hash=>{await p.goto(base+'/'+hash);await p.reload();await p.waitForFunction(()=>window.pocketFeatures&&typeof CheckBacks!=='undefined');};
  const turnOn=async on=>{a.saved={...a.saved,checkbacks:{...a.saved.checkbacks,checkbacks:on}};};
+ // 1.124.9: the switch is a row of Settings → Features; the group (its settings, Reset, Cancel all) is Features → Check-backs.
+ const SWITCH='#s-checkbacks-switch [data-auto-key="checkbacks"]',FULL='[data-auto-group="checkbacks"]:not(.automation-switch)';
+ const openPage=async()=>{await p.evaluate(()=>settingsSheet({category:'f-checkbacks'}));await p.waitForSelector(FULL);await showSetting(p,FULL);};
 
  // The conversation: three owner messages, each answered; check-backs set during each reply.
  const host=rows[3],other=rows[4],T0=Date.now()-3*HOUR,T1=Date.now()-2*HOUR,T2=Date.now()-HOUR;
@@ -114,34 +117,45 @@ export async function runCheckbackRegressions({p,base,out,repo,rows,conversation
  settings.tasks=true;await reload('#/tasks');await p.waitForSelector('#tasks-main');assert.equal(await p.$('.checkback-group'),null,'no Tasks group while off');
  await p.evaluate(()=>settingsSheet({category:'notifications'}));await p.waitForSelector('#s-push-alerts');
  assert.equal(await p.$eval('#s-push-automation',e=>e.hidden),false,'the push toggle shows while off (it also carries the limit notices)');await p.keyboard.press('Escape');
- await p.evaluate(()=>settingsSheet({category:'automation'}));await p.waitForSelector('[data-auto-group="checkbacks"]');
- assert.deepEqual(await p.$$eval('[data-auto-group]',e=>e.map(x=>x.dataset.autoGroup)),['pause','limits','checkbacks','jobs']);
- assert.equal(await p.$eval('[data-auto-group="checkbacks"] > h3',e=>e.textContent),'Check-backs');
- assert.equal(await p.$eval('[data-auto-group="checkbacks"]',e=>e.classList.contains('automation-group-off')),true,'reads inactive while off');
- assert.equal(await p.$eval('[data-auto-group="checkbacks"] .automation-inactive-note',e=>e.textContent),'These apply when Check-backs is on.');
- assert.equal(await p.$eval('[data-auto-key="checkbacks"]',e=>e.getAttribute('aria-pressed')),'false');
- assert.equal(await p.$eval('[data-auto-group="checkbacks"] [data-auto-key]',e=>e.dataset.autoKey),'checkbacks','the switch comes first');
- assert.equal(await p.$eval('[data-auto-group="checkbacks"] [data-auto-key="perConversation"]',e=>e.disabled),false,'the rest can be set up before it is turned on');
+ await p.evaluate(()=>settingsSheet({category:'features'}));await showSetting(p,SWITCH); // the switch is in Features, with a › to the page
+ assert.equal(await p.$eval(SWITCH,e=>e.getAttribute('aria-pressed')),'false');
+ assert.equal(await p.$eval(SWITCH,e=>e.closest('section').dataset.autoGroup),'checkbacks');
+ assert.equal(await p.$('#s-checkbacks-switch [data-auto-status]'),null,'the switch has no status line of its own (its error line is beside it)');
+ assert.ok(await p.$('#s-checkbacks-switch .vault-field-error'),'an error line beside the switch');
+ assert.ok(await p.$('.feature-open[data-settings-category="f-checkbacks"]'),'a › opens the Check-backs page');
+ await p.keyboard.press('Escape');
+ await openPage();
+ assert.deepEqual(await p.$$eval('[data-auto-group]:not(.automation-switch)',e=>e.map(x=>x.dataset.autoGroup)),['pause','limits','checkbacks','jobs']);
+ assert.equal(await p.$eval(FULL+' > h3',e=>e.textContent),'Check-backs');
+ assert.equal(await p.$eval(FULL,e=>e.classList.contains('automation-group-off')),true,'reads inactive while off');
+ assert.equal(await p.$eval(FULL+' .automation-inactive-note',e=>e.textContent),'These apply when Check-backs is on.');
+ assert.equal(await p.$(FULL+' [data-auto-key="checkbacks"]'),null,'the switch is in Features, not repeated on the page');
+ assert.equal(await p.$eval(FULL+' [data-auto-key]',e=>e.dataset.autoKey),'checkbackAccess','the settings lead the page');
+ assert.equal(await p.$eval(FULL+' [data-auto-key="perConversation"]',e=>e.disabled),false,'the rest can be set up before it is turned on');
  assert.equal(await p.$('[data-checkbacks-cancel-all]'),null,'no Cancel all while off');
- assert.ok(await p.$('[data-auto-key="runOverdue"]'),'On Resume, run overdue check-backs is in the Pause all group');
+ assert.ok(await p.$('[data-auto-key="runOverdue"]'),'On Resume, run late check-backs is in the Pause all group');
  assert.equal(await p.$eval('[data-auto-key="runOverdue"]',e=>e.closest('[data-auto-group]').dataset.autoGroup),'pause');
- await p.$eval('[data-auto-group="checkbacks"]',e=>e.scrollIntoView({block:'start'}));
+ await p.$eval(FULL,e=>e.scrollIntoView({block:'start'}));
  await shot('settings-off-1440-dark');await axeCheck(p,repo,'.settings-sheet');
 
- // --- The switch: saved, the page follows without a reload ---
- await p.click('[data-auto-key="checkbacks"]');
- await p.waitForFunction(()=>document.querySelector('[data-auto-key="checkbacks"]')?.getAttribute('aria-pressed')==='true');
+ // --- The switch (in Features): saved, the page follows without a reload ---
+ await showSetting(p,SWITCH);
+ assert.ok((await p.$$eval('#s-checkbacks-switch button',e=>e.filter(x=>x.checkVisibility()).map(x=>x.getBoundingClientRect().height))).every(h=>h>=44),'44px switch');
+ await p.click(SWITCH);
+ await p.waitForFunction(s=>document.querySelector(s)?.getAttribute('aria-pressed')==='true',{},SWITCH);
  assert.equal(a.saved.checkbacks.checkbacks,true);
- await p.waitForFunction(()=>window.pocketFeatures.checkbacks===true&&!document.querySelector('[data-auto-group="checkbacks"]').classList.contains('automation-group-off'));
- assert.equal(await p.$('[data-auto-group="checkbacks"] .automation-inactive-note'),null,'the inactive note goes');
+ await p.waitForFunction(f=>window.pocketFeatures.checkbacks===true&&!document.querySelector(f).classList.contains('automation-group-off'),{},FULL);
+ assert.equal(await p.$eval('#s-checkbacks-switch .vault-field-error',e=>e.textContent),'','no error beside the switch');
+ await showSetting(p,FULL+' [data-auto-advanced]'); // the page's own settings are on the page
+ assert.equal(await p.$(FULL+' .automation-inactive-note'),null,'the inactive note goes');
  assert.equal(await p.$eval('[data-auto-advanced="checkbacks"]',e=>e.open),false,'Advanced starts collapsed');
  assert.equal(await p.$eval('[data-auto-key="spacingSec"]',e=>e.checkVisibility()),false,'an advanced setting is under Advanced');
  // N waiting and Cancel all (8: four held, two waiting, the rest finished or running)
  await p.waitForSelector('[data-checkbacks-waiting]');
  assert.equal(await p.$eval('[data-checkbacks-waiting] .automation-waiting-count',e=>e.textContent),'6 waiting');
  assert.equal(await p.$eval('[data-checkbacks-cancel-all]',e=>e.textContent),'Cancel all');
- assert.ok((await p.$$eval('[data-auto-group="checkbacks"] button, [data-auto-group="checkbacks"] .automation-input',e=>e.filter(x=>x.checkVisibility()).map(x=>x.getBoundingClientRect().height))).every(h=>h>=44),'44px controls');
- await p.$eval('[data-auto-group="checkbacks"]',e=>e.scrollIntoView({block:'start'}));
+ assert.ok((await p.$$eval(FULL+' button, '+FULL+' .automation-input',e=>e.filter(x=>x.checkVisibility()).map(x=>x.getBoundingClientRect().height))).every(h=>h>=44),'44px controls');
+ await p.$eval(FULL,e=>e.scrollIntoView({block:'start'}));
  await shot('settings-on-1440-dark');await axeCheck(p,repo,'.settings-sheet');
  await p.$eval('[data-checkbacks-waiting]',e=>e.scrollIntoView({block:'center'}));await shot('settings-waiting-1440-dark');
  // Saves a value; a value out of range is refused with the server's words and nothing saved; Reset.
@@ -151,13 +165,13 @@ export async function runCheckbackRegressions({p,base,out,repo,rows,conversation
  assert.equal(a.saved.checkbacks.perConversation,12);
  await setNumber('perConversation',99);
  await p.waitForFunction(()=>document.querySelector('#auto-checkbacks-perConversation-err')?.textContent);
- assert.match(await p.$eval('#auto-checkbacks-perConversation-err',e=>e.textContent),/^Pending check-backs per conversation must be 1 to 50/);
+ assert.match(await p.$eval('#auto-checkbacks-perConversation-err',e=>e.textContent),/^Waiting per conversation must be 1 to 50/);
  assert.equal(await p.$eval('[data-auto-key="perConversation"]',e=>e.value),'12');assert.equal(a.saved.checkbacks.perConversation,12);
  await shot('settings-error-1440-dark');
  await p.click('[data-auto-reset="checkbacks"]');
  await p.waitForFunction(()=>document.querySelector('[data-auto-status="checkbacks"]')?.textContent==='Back to the defaults. Check-backs are off.');
  assert.equal(a.saved.checkbacks,undefined,'Reset clears the group');
- assert.equal(await p.$eval('[data-auto-key="checkbacks"]',e=>e.getAttribute('aria-pressed')),'false','Reset turns the switch back off (its default)');
+ assert.equal(await p.$eval(SWITCH,e=>e.getAttribute('aria-pressed')),'false','Reset turns the switch back off (its default)');
  await p.waitForFunction(()=>window.pocketFeatures.checkbacks===false);
  // already off: the plain words
  await p.click('[data-auto-reset="checkbacks"]');
@@ -301,7 +315,7 @@ export async function runCheckbackRegressions({p,base,out,repo,rows,conversation
  await p.evaluate(ep=>{window.pushRegistration=async()=>({pushManager:{getSubscription:async()=>({endpoint:ep})}});},f.push.endpoint);
  await p.evaluate(()=>settingsSheet({category:'notifications'}));await p.waitForFunction(()=>document.querySelector('#s-push-automation')?.disabled===false);
  assert.equal(await p.$eval('#s-push-automation',e=>e.hidden),false);
- assert.equal(await p.$eval('#s-push-automation',e=>e.textContent),'Check-backs and job resultsWhen a check-back has checked back or was missed, and when a limit holds unattended work');
+ assert.equal(await p.$eval('#s-push-automation',e=>e.textContent),'Check-backs and job resultsA check-back ran or was missed, a job finished, or a limit held back unattended work. Muting and per-job choices are in Features › Check-backs and Features › Job keys');
  assert.equal(await p.$eval('#s-push-automation',e=>e.getAttribute('aria-pressed')),'true','on by default');
  await p.click('#s-push-automation');await p.waitForFunction(()=>document.querySelector('#s-push-automation').getAttribute('aria-pressed')==='false');
  assert.deepEqual(f.posts.at(-1),{push:{endpoint:f.push.endpoint,kinds:{automation:false}}});
@@ -310,9 +324,9 @@ export async function runCheckbackRegressions({p,base,out,repo,rows,conversation
  await p.keyboard.press('Escape');
 
  // --- Cancel all from Settings: confirm first, then the count goes ---
- await p.evaluate(()=>settingsSheet({category:'automation'}));await p.waitForSelector('[data-checkbacks-waiting]');
+ await p.evaluate(()=>settingsSheet({category:'f-checkbacks'}));await showSetting(p,'[data-checkbacks-waiting]');
  const waiting=f.summary().pending;assert.equal(await p.$eval('.automation-waiting-count',e=>e.textContent),`${waiting} waiting`);
- // Keep it as it is: back to Settings → Automation, nothing cancelled.
+ // Keep it as it is: back to Settings → Features → Check-backs, nothing cancelled.
  await p.click('[data-checkbacks-cancel-all]');await p.waitForSelector('.sheet [data-yes]');
  assert.equal(await p.$eval('.sheet:has([data-yes]) h2',e=>e.textContent),`Cancel ${waiting} check-backs?`);
  assert.equal(await p.$eval('.sheet:has([data-yes]) .sheet-help',e=>e.textContent),'They won’t run. One that is running now finishes.');
@@ -323,12 +337,12 @@ export async function runCheckbackRegressions({p,base,out,repo,rows,conversation
  await shot('cancel-all-confirm-1440-dark');await axeCheck(p,repo,'.sheet');
  await p.click('.sheet [data-no]');await p.waitForSelector('[data-checkbacks-waiting]');
  assert.equal(await p.$eval('.automation-waiting-count',e=>e.textContent),`${waiting} waiting`,'nothing cancelled');assert.ok(!f.posts.includes('cancel-all'));
- // Cancel all: back to Settings → Automation, reloaded, with the line gone.
+ // Cancel all: back to Settings → Features → Check-backs, reloaded, with the line gone.
  await p.click('[data-checkbacks-cancel-all]');await p.waitForSelector('.sheet [data-yes]');
  await p.click('.sheet [data-yes]');
  await p.waitForFunction(n=>document.querySelector('#toast')?.textContent===`Cancelled ${n} check-backs.`,{},waiting);
  assert.equal(f.summary().pending,0);assert.ok(f.posts.includes('cancel-all'));
- await p.waitForSelector('.settings-sheet [data-auto-group="checkbacks"]');
+ await p.waitForSelector('.settings-sheet '+FULL);
  assert.equal(await p.$('[data-checkbacks-waiting]'),null,'gone with nothing waiting');
  await p.keyboard.press('Escape');
 
@@ -352,8 +366,8 @@ export async function runCheckbackRegressions({p,base,out,repo,rows,conversation
    await axeCheck(p,repo,'#msgs');
    for(const on of [true,false]){
     await turnOn(on);await reload('#/all');await p.waitForSelector('[data-item]');
-    await p.evaluate(()=>settingsSheet({category:'automation'}));await p.waitForSelector('[data-auto-group="checkbacks"]');
-    await p.$eval('[data-auto-group="checkbacks"]',e=>e.scrollIntoView({block:'start'}));
+    await openPage();
+    await p.$eval(FULL,e=>e.scrollIntoView({block:'start'}));
     await shot(`settings-${on?'on':'off'}-${w}-${mode}`);await axeCheck(p,repo,'.settings-sheet');
     assert.equal(await p.$eval('.settings-sheet',e=>e.scrollWidth<=e.clientWidth),true,'no sideways scroll in Settings');
     await p.keyboard.press('Escape');

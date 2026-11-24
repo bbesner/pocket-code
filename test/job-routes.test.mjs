@@ -292,7 +292,7 @@ test('A run: the key\'s folder, model and access; the message labels the data as
   assert.equal((await s.call('/jobs/keys', { name: 'wrong-model', workspace: s.cwd, engine: 'claude', model: 'gpt-6', instruction: 'x' })).body.code, 'bad_model');
   assert.equal((await s.call('/jobs/keys', { name: 'alias-model', workspace: s.cwd, engine: 'claude', model: 'sonnet', instruction: 'x' })).body.code, 'bad_model', 'a model the start would drop');
   assert.equal((await s.call('/jobs/keys', { name: 'no-folder', workspace: path.join(s.home, 'missing'), engine: 'claude', instruction: 'x' })).body.code, 'bad_workspace');
-  // the summary Settings → Automation shows
+  // the summary Settings → Unattended work shows
   const sum = (await s.call('/automation')).body.jobs;
   assert.equal(sum.on, true); assert.equal(sum.keys, 2); assert.equal(sum.running, 0); assert.ok(sum.runsDay >= 3);
 });

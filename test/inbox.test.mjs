@@ -53,7 +53,7 @@ test('InboxStore: the contract, normalizing input, limits and the instructions l
   const r=syncSkills({settings:{inbox:true},commands,env:{},roots,codexRoots:[]});assert.ok(r.installed.includes(path.join(dir,'claude','pocket-inbox')));
   const skill=fs.readFileSync(path.join(dir,'claude','pocket-inbox','SKILL.md'),'utf8');
   assert.match(skill,/^---\nname: pocket-inbox\n/);assert.match(skill,/run `pocket-inbox` as `node \/srv\/pocket\/scripts\/pocket-inbox\.mjs`/);
-  assert.match(skill,/\*\*Act only when the user asks\*\*/);assert.match(skill,/Settings → Projects, files, tasks & vault → Inbox Watch/);
+  assert.match(skill,/\*\*Act only when the user asks\*\*/);assert.match(skill,/Settings → Features → Inbox Watch/);
   syncSkills({settings:{inbox:false},commands,env:{},roots,codexRoots:[]});assert.equal(fs.existsSync(path.join(dir,'claude','pocket-inbox')),false);
   fs.rmSync(dir,{recursive:true,force:true});
 });
@@ -318,7 +318,7 @@ test('HTTP: Inbox is off until Settings turns it on; token and cookie, tunnel re
   const tokenOf=()=>fs.readFileSync(path.join(dir,'data','cli-token'),'utf8').trim();
   let bearer={'content-type':'application/json',authorization:'Bearer '+tokenOf()};
   // Off by default, for the owner and the token alike; never reachable signed out.
-  let r=await call('/inbox');assert.equal(r.status,404);assert.equal(r.body.code,'inbox_off');assert.match(r.body.error,/Settings → Projects, files, tasks & vault/);
+  let r=await call('/inbox');assert.equal(r.status,404);assert.equal(r.body.code,'inbox_off');assert.match(r.body.error,/Settings → Features/);
   assert.equal((await call('/inbox',{title:'x'},bearer)).body.code,'inbox_off');assert.equal((await call('/inbox/feedback',null,bearer)).status,404);
   assert.equal((await call('/inbox',null,{})).status,401);
   assert.equal((await call('/me')).body.features.inbox,false);

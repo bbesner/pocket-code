@@ -19,8 +19,8 @@ content area because the hero already shows the session rail); phone captures ar
 | `assistant-home-desktop.png` | Assistant mode at a desk (1.60): the message box, Waiting for you with an Inbox Watch alert, the library chips |
 | `assistant-home-mobile.png` | Assistant mode's home on a phone |
 | `inbox-mobile.png` | Inbox (1.69) on a phone: an unread alert, a digest and a look-ahead (invented entries) |
-| `inbox-watch-rules-mobile.png` | Settings → Inbox Watch (1.73) opening on Your rules |
-| `inbox-watch-schedule-mobile.png` | Settings → Inbox Watch (1.70): status, Pause, the default interval and a period |
+| `inbox-watch-rules-mobile.png` | Settings → Features → Inbox Watch (1.73) opening on Your rules |
+| `inbox-watch-schedule-mobile.png` | Settings → Features → Inbox Watch (1.70): status, Pause, the default interval and a period |
 | `inbox-watch-models-mobile.png` | The same sheet further down: the first pass and seven days of cost |
 | `vault-desktop.png` | The Vault: an agent's waiting request with Deny, Always allow and Allow once, above five items with their kind, site and Agent access |
 

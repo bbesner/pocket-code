@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.124.5
+checked: 1.124.9
 sources: inbox.mjs, inbox-runner.mjs, public/inbox.js, scripts/pocket-inbox.mjs, skills/pocket-inbox/SKILL.md, inbox-watch/
 -->
 # Inbox Watch
@@ -30,9 +30,8 @@ one by hand.
 
 ## Set it up
 
-1. Connect Gmail for Claude Code or Codex: **Settings → Agents & instance → Connectors** (in Assistant mode,
-   **Settings → Accounts → Connectors**).
-2. Turn on **Settings → Projects, files, tasks & vault → Inbox Watch** (in Assistant mode, **Settings → Features → Inbox Watch**). The toast says
+1. Connect Gmail for Claude Code or Codex: **Settings → Accounts & sign-in → Connectors**.
+2. Turn on **Settings → Features → Inbox Watch**. The toast says
    *Inbox Watch is on*, and **Inbox** appears in the sidebar switch and as a chip on the home screen.
 3. Open Pocket once on your phone or computer, if you have not since turning it on. The watcher uses the time zone
    your browser reports for quiet hours, the digest and the look-ahead.
@@ -57,7 +56,7 @@ While this happens the Inbox shows a status line: *Setting up Inbox Watch for al
 | Mail source | Claude Code's Gmail connector (reads made by Haiku), else Codex's Gmail app (the newest GPT Luna this Codex lists, low reasoning); the other one as fallback when both reach the same mailbox | `config.toml`, `[mail]` |
 | Judge | Claude Code with Sonnet, medium reasoning, when Claude Code runs on the server; otherwise Codex with the newest GPT Sol this Codex lists (GPT-6.1 Sol today), medium. Both are written when the watcher is set up; an existing `config.toml` keeps its models | Schedule sheet, **Models** |
 | Schedule | every 5 minutes, quiet hours 10 PM to 8 AM, digest at 8 AM, look-aheads at 8 AM and 5 PM | Schedule sheet |
-| First pass | on, Jev, skip at 80% sure (works only once a key is present) | Schedule sheet, **First pass** |
+| First pass | on, Jev, skip at 80% sure (works only once a key is present) | Schedule sheet, **Skip routine mail first** |
 | Tidy | on, every 2 hours | Schedule sheet, **Keep the Inbox tidy** |
 | Gmail label | on, named *Pocket Inbox* | Schedule sheet, **Your list in Gmail** |
 | Briefed conversations | start in your home directory, with Claude Code (or Codex when only Codex is signed in) | `config.toml`, `[pocket]` |
@@ -185,7 +184,7 @@ security incidents and money leaving an account unexpectedly. During quiet hours
 rest are held. At the digest hour up to five held high or critical alerts go out on their own, marked *Held
 overnight.*, and the rest fold into the digest. A held alert whose story was resolved overnight is not sent.
 
-An alert can also push to devices that have **Settings → Notifications & voice → Inbox alerts** on. Which alerts push
+An alert can also push to devices that have **Settings → Notifications → Inbox alerts** on. Which alerts push
 is your choice (see [Push notifications](#push-notifications)); by default every one does. The push shows the title and
 the first sentence; tapping it opens the briefed conversation, or the entry when there is none. An open entry says
 whether it pushed and why (*Pushed: the site has been dark since 7:10 p.m.*, *On your list without a push*).
@@ -203,7 +202,7 @@ schedule sheet decides which of them also push:
   **Security incidents**, **Someone waiting on you** (blocked until you answer, today) and **Deadlines today or
   tomorrow** (the look-ahead counts here). A bug report, a phone call that went badly, a quote to prepare or an outage
   someone is already on is worth a place on the list but not an interruption.
-  **At most** caps pushes per day (3 to 20, or no limit); past it, alerts arrive silently. **Same story again**:
+  **At most** caps pushes per day (3 to 20, or no limit); past it, alerts arrive silently. **Same story again** (when more mail arrives about something you were already alerted to):
   *Only when it gets worse* pushes a story again within a day only when its priority rose; *With each new fact*
   pushes every alert on it. A critical alert ignores the cap and the repeat rule.
 - **Nothing, list only** pushes nothing, the digest included.
@@ -316,13 +315,12 @@ watcher reports it again within a minute (1.124.5), so the chip does not stay on
 
 ### Change the schedule, rules and models
 
-**Schedule** in the Inbox, or **Settings → Projects, files, tasks & vault → Schedule, models and cost** (shown under
-the Inbox Watch switch while it is on; in Assistant mode **Settings → Features → Inbox Watch schedule**), opens the Inbox Watch sheet. Its first line says what is in force, for example
+**Schedule** in the Inbox, or the **›** beside the **Inbox Watch** switch in **Settings → Features** (shown while Inbox Watch is on), opens the Inbox Watch sheet. Its first line says what is in force, for example
 *Checking every 5 minutes now (Work hours). Last check 9:14 AM, next about 9:19 AM.* **Save** sends the whole sheet;
 the watcher picks it up within a minute, and the line says *Your last change reaches the watcher within a minute*
 until it has. **Use the config file's settings** hands control back to `config.toml`.
 
-- **Pause Inbox Watch**: no checks, digests or look-aheads until you turn it off. **Pause all** ([Automation](automation.md#pause-all)) pauses Inbox Watch the same way, so its model calls stop too, unless you turned off **Pause all also pauses Inbox Watch**. **Resume** turns it back on only if Pause all paused it and you have not changed these settings since; a pause you set yourself stays. **Check now** still asks for a check at once.
+- **Pause Inbox Watch**: no checks, digests or look-aheads until you turn it off. **Pause all** ([Automation](automation.md#pause-all)) pauses Inbox Watch the same way, so its model calls stop too, unless you turned off **Also pause Inbox Watch**. **Resume** turns it back on only if Pause all paused it and you have not changed these settings since; a pause you set yourself stays. **Check now** still asks for a check at once.
 - **What it reads** (1.100): which mail the watcher looks at. **Everything** is every thread but spam, trash and drafts, so mail
   your Gmail filters archive or file away is judged too (the behaviour before 1.100). **Inbox only** reads what is in your Gmail
   inbox. **Inbox and these labels** adds the Gmail labels you pick from the chips (your labels appear once the watcher has read
@@ -330,7 +328,7 @@ until it has. **Use the config file's settings** hands control back to `config.t
   email you label Pocket Inbox always joins the check, your replies count wherever the thread sits, so the watcher sees that you
   answered, and the research the judge does on a story is not bounded. A new email you start yourself is not read.
 - **Your rules**: your own words about what you always or never want to hear about ("Tell me when a customer asks for
-  a quote", "Never alert me about newsletters"). The watcher follows them in every decision, the first pass, the
+  a quote", "Never alert me about newsletters"). The watcher follows them in every decision, when it skips routine mail, in the
   look-ahead and the tidy pass, and they win over its own judgment, even for something it would call critical. The
   box shows the watcher's rules file, including the rules it learned (*Learned from your choices*, at the end). Saving
   replaces the file; the watcher keeps the previous version. Up to 12,000 characters (8,000 before 1.109), of which
@@ -341,7 +339,8 @@ until it has. **Use the config file's settings** hands control back to `config.t
   runs past midnight. When periods overlap, the first listed wins. With *Don't check* and no periods, the watcher
   checks only on demand and with the digest and look-aheads.
 - **Quiet hours and summaries**: *Quiet from* and *Until*, and the **Morning digest**, **Morning look-ahead** and
-  **Evening look-ahead** hours (or *Off*). With the morning digest off, alerts held overnight arrive one by one when quiet
+  **Evening look-ahead** hours (or *Off*). The morning digest is sent once a day, at its hour: alerts held during quiet hours,
+  stories that resolved overnight, lines worth knowing, and what the tidy pass took off your list. Off: none is sent. With the morning digest off, alerts held overnight arrive one by one when quiet
   hours end, and there are no digest-only lines: mail that is work goes on the list, the rest only updates its story. Times are the watcher's time zone; the sheet
   names it when your device is in another.
 - **Push notifications** (1.105, both modes, under the rules): *Every alert*, *Only what can't wait* with its six
@@ -350,11 +349,13 @@ until it has. **Use the config file's settings** hands control back to `config.t
 - **Models** (Developer mode): model and reasoning for **Decisions** and for the **Look-ahead**. A Claude Code judge
   offers Haiku, Sonnet, Opus and Fable; a Codex judge offers the model its config names. *Model default* leaves the
   reasoning to the model.
-- **First pass** (Developer mode): *Skip routine mail first*, the **Classifier** and **Skip when at least** (70, 80,
-  90 or 95% sure).
-- **Cost, last 7 days** (Developer mode): checks, skipped mail, model calls, tokens and dollars per day.
+- **Skip routine mail first** (Developer mode; this is the [first pass](#first-pass)): a cheap model sets aside routine mail,
+  like receipts and newsletters, before the main model reads anything, which lowers the cost. **Who decides it's routine**
+  chooses the classifier, and **Skip only when at least** is how sure it must be (70, 80, 90 or 95%).
+- **Cost, last 7 days** (Developer mode): checks, skipped mail, model calls, tokens and dollars per day. It is also on
+  **Settings → Usage** (**Inbox Watch cost**), which opens this sheet.
 
-In Assistant mode the sheet opens only from **Schedule** in the Inbox and shows no models, first pass or costs.
+In Assistant mode the sheet opens from **Schedule** in the Inbox, or from the **›** beside **Inbox Watch** in Settings, and shows no models, first pass or costs.
 
 ### Keep the Inbox tidy
 
@@ -615,7 +616,7 @@ pocket-inbox check                         # Check now
   `duplicate`. An alert with a `--story` that already has an open alert entry from the same source updates that entry
   and prints `updated` (1.113). A job posting regularly should send `pocket-inbox seen` when it has nothing to post.
 - Exit code 1 with *Inbox Watch is off for this Pocket Code* means the feature is off: tell the user it is under
-  **Settings → Projects, files, tasks & vault → Inbox Watch**. Exit code 2 means Pocket is not running here (or
+  **Settings → Features → Inbox Watch**. Exit code 2 means Pocket is not running here (or
   refused the token).
 
 The CLI talks to the running server over loopback with the token in `POCKET_DATA_DIR/cli-token`. It reads
@@ -636,8 +637,8 @@ inbox-watch/bin/inbox-monitor --config … tidy --dry-run # what the tidy pass w
 **The Inbox says to open Pocket so it knows your time zone.** The watcher waits for the time zone your browser
 reports. Open Pocket Code on your phone or computer once.
 
-**"Inbox Watch can't read your mail yet. Connect Gmail in Settings → Connectors."** Neither Claude Code nor Codex has
-Gmail connected on this server. Connect it in **Settings → Agents & instance → Connectors** with the account that agent
+**"Inbox Watch can't read your mail yet. Connect Gmail in Settings → Accounts & sign-in → Connectors."** Neither Claude Code nor Codex has
+Gmail connected on this server. Connect it in **Settings → Accounts & sign-in → Connectors** with the account that agent
 is signed in with. Inbox Watch starts by itself within a minute.
 
 **Setup stops with "no sent mail found to tell whose mailbox this is."** Through Claude Code's connector the mailbox is
@@ -692,5 +693,5 @@ next tick picks it up.
 address. Open Pocket once through the address you normally use, or set `POCKET_PUBLIC_URL`. Entries in the Inbox itself
 always have **Start a conversation**: they use a path inside Pocket and need no address.
 
-**Digests show no Open in Files.** Files is off. Turn it on in **Settings → Projects, files, tasks & vault → Files**;
+**Digests show no Open in Files.** Files is off. Turn it on in **Settings → Features → Files**;
 the text is in the entry either way.

@@ -54,7 +54,7 @@ async function call(p, body, method) {
   catch (e) { die(`Pocket Code is not reachable at ${base}: ${e.name === 'TimeoutError' ? `no answer in ${secs} seconds` : e.cause?.code || e.message}`); }
   const data = await r.json().catch(() => ({}));
   if (!r.ok) {
-    if (data.code === 'documents_off') die('Files is off for this Pocket Code. Turn it on in Settings → Projects, files, tasks & vault.', 3);
+    if (data.code === 'documents_off') die('Files is off for this Pocket Code. Turn it on in Settings → Features.', 3);
     if (['denied', 'expired', 'request_stale', 'request_used', 'request_gone', 'request_mismatch'].includes(data.code)) die(data.error, 7);
     die(data.error || `${r.status} from ${p}`, r.status === 401 ? 4 : 1);
   }

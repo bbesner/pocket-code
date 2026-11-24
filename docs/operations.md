@@ -165,7 +165,7 @@ the selected CLI. A restart of Pocket alone preserves old CLI processes; it is n
 
 ## Claude account switching
 
-**Settings → Agents & instance → Accounts & instance** (**Settings → Accounts** in Assistant mode)
+**Settings → Accounts & sign-in → Claude and Codex accounts** (**Settings → Accounts** in Assistant mode)
 runs the installed `claude auth login --claudeai`
 with piped input/output. The CLI owns its OAuth flow and credential storage. Pocket
 keeps only one pending login in memory for ten minutes, validates the authorization
@@ -258,7 +258,7 @@ Pocket-owned persistent state includes:
   `preferences.md` (your rules, written from Pocket), `state/` (the watcher's databases and log)
   and `status.json`;
 - `starts.json`, briefings handed to Pocket with `pocket-start`;
-- `router-key` (mode `0600`), the key saved in **Settings → Agents & instance → Automatic model
+- `router-key` (mode `0600`), the key saved in **Settings → Features → Automatic model
   choice**. It is a secret: back it up privately, like `.env`;
 - `vault.enc`, the Vault's encrypted store (items and their approved commands), and
   `vault-audit.jsonl` (mode `0600`), its append-only record of use. Back up both together;
@@ -271,7 +271,7 @@ Pocket-owned persistent state includes:
   at the next start; after a restore, use **Sign out everywhere**;
 - `automation-state.json` and `automation-audit.jsonl`, the day's counts and limit notices behind
   [Automation](manual/automation.md), and its append-only record (created with mode `0600`) of pauses, resumes, settings
-  changes, check-back events and unattended replies. The audit never holds message text. Whether Pocket is paused, and the saved Automation settings, are in
+  changes, check-back events and unattended replies. The audit never holds message text. Whether Pocket is paused, and the saved Unattended work settings, are in
   `pocket-settings.json`;
 - `checkbacks.json` (1.119, mode `0600`, written by tmp file and rename), the check-backs: waiting and running ones
   until they finish, finished ones for 30 days (at most 300). It is created when the first check-back is set and holds
@@ -400,10 +400,10 @@ describes scope and audit behavior.
 **Pause all** (1.117, [Automation](manual/automation.md#pause-all)) is saved in `pocket-settings.json`, so a restart does not
 lift it: the install comes back paused, with its queues still and any usage-limit retry still held (its `.retry.json`
 marker carries `held: true`). Background jobs Pause all stopped stay stopped. The owner resumes from the banner or
-**Settings → Automation**. Do not edit the file to resume while Pocket runs.
+**Settings → Unattended work**. Do not edit the file to resume while Pocket runs.
 
 **Job keys** (1.122.0, [Automation](manual/automation.md#job-keys)) are off until the owner turns them on in
-**Settings → Automation → Job keys**. While they are off every call with a key is refused (a caller on this server gets
+**Settings → Features → Job keys**. While they are off every call with a key is refused (a caller on this server gets
 *Job keys are switched off on this Pocket.*; anyone else gets the plain 404 they got before the feature existed), and
 the keys and the settings are kept. A job calls Pocket on its own port, `127.0.0.1` directly, with
 `node <Pocket Code directory>/scripts/pocket-run.mjs --key-file <path> --data-file <file>` (the `pocket-run` command
@@ -446,8 +446,8 @@ when job keys are turned off; the agent's command is `pocket-jobkey` (`node <Poc
 or `npx pocket-jobkey` from that directory). It sends the CLI token and the conversation's runner token to
 `/api/jobs/agent/propose`, so it works only from a Pocket conversation, never from a terminal or code-server. The
 owner gets the push *Allow a job key?* (kind `vault`, so it follows each device's **Vault requests** switch; it has no
-action buttons) and answers in **Settings → Automation → Job keys**. On Allow, Pocket writes the key file to the
-folder in **Where Pocket offers to save new keys**, mode `0600`, and the agent gets only the path. At most one request
+action buttons) and answers in **Settings → Features → Job keys**. On Allow, Pocket writes the key file to the
+folder in **Where new keys are saved**, mode `0600`, and the agent gets only the path. At most one request
 waits for each conversation and five for the install, and one expires after 24 hours; Pocket looks for expired ones
 with the check-back pass (every `POCKET_CHECKBACK_TICK_MS`, whatever the check-backs switch says) and on every read.
 `POCKET_JOB_REQUEST_TTL_MS` shortens the 24 hours, in milliseconds. It is for tests; leave it unset. The audit file
@@ -470,8 +470,8 @@ they name is gone. A conversation a job started stays an ordinary conversation
 under 1.121, which already shows its *Started by job …* label.
 
 **Check-backs** (1.119, [Automation](manual/automation.md#check-backs)) are off until the owner turns them on in
-**Settings → Automation → Check-backs**. A pause holds every waiting check-back, and Resume lets them go or marks the
-overdue ones missed (**On Resume, run overdue check-backs**). A restart settles a check-back that was running: one whose
+**Settings → Features → Check-backs**. A pause holds every waiting check-back, and Resume lets them go or marks the
+overdue ones missed (**On Resume, run late check-backs**). A restart settles a check-back that was running: one whose
 reply had begun is recorded as cut off by the restart; one that had not begun is marked missed, and the owner gets one
 push. Nothing runs twice, because a check-back is saved as running before anything starts. After the daemon was down,
 waiting check-backs that are within the catch-up window (12 hours by default) run once, late, 15 seconds apart.
@@ -483,7 +483,7 @@ Presets for an install are `POCKET_AUTOMATION_CHECKBACKS` and its siblings, for 
 `POCKET_TEST_CHECKBACK_CLOCK` and `POCKET_TEST_CHECKBACK_GAP`; leave both unset.
 
 Rolling back to 1.118 (or 1.117) stops check-backs and loses nothing. 1.118 does not read `checkbacks.json`, the **Check-backs**
-settings or **On Resume, run overdue check-backs**; it keeps them in `pocket-settings.json` and the file, so upgrading
+settings or **On Resume, run late check-backs**; it keeps them in `pocket-settings.json` and the file, so upgrading
 again finds them, and a waiting check-back is then run or marked missed by the catch-up window. Delete the
 `pocket-checkback` folders 1.119 installed under `~/.claude/skills/` and `$CODEX_HOME/skills/` (1.118 does not remove
 them, and their command no longer exists). 1.118 ignores the device choice **Check-backs and job results** and sends the
@@ -511,7 +511,7 @@ next instruction. Review and remove an uncertain entry before later entries can 
 ## Optional libraries: Projects, Files, Tasks, Inbox and the Vault
 
 Projects (1.29), Files (1.30; called Documents before 1.34), Tasks (1.36), the Vault
-(1.39) and Inbox (1.69) are off by default. **Settings → Projects, files, tasks & vault** switches each one for
+(1.39) and Inbox (1.69) are off by default. **Settings → Features** switches each one for
 the whole instance. The choices are stored as the `projects`, `documents`, `tasks` and `vault`
 booleans in `pocket-settings.json` (and `inbox` for Inbox). While one is off, its API answers 404, and for Files that
 includes the public and link addresses. Switching off does not delete the records or files.
@@ -644,10 +644,10 @@ and write an empty store; the owner is shown the key once to save. You can still
 (`openssl rand -base64 32`), and must when `POCKET_ENV_FILE` is empty. The daemon reads the key at start and deletes it
 from its own environment, so agent turns, helper models, the reminder hook and every other process it starts never
 see it. If a store exists but its key is missing, Pocket never creates a new one over it: **Restore key** in
-Settings → Projects, files, tasks & vault → Vault takes the recovery key, checks it opens the store and saves it. A provisioning script that rewrites
+Settings → Features → Vault takes the recovery key, checks it opens the store and saves it. A provisioning script that rewrites
 its own block of `.env` must leave the `POCKET_VAULT_KEY` line alone.
 
-**Rotation.** Settings → Projects, files, tasks & vault → Vault → **Rotate key** writes the new key to `.env` (with the old one beside it as
+**Rotation.** Settings → Features → Vault → **Rotate key** writes the new key to `.env` (with the old one beside it as
 `POCKET_VAULT_KEY_PREVIOUS`), rewrites the store under the new key, then drops the old line, so a crash in between
 still opens the store at the next start. No restart is needed. Backups taken before the rotation still need the old
 key, so keep the old recovery key with them. A rotation whose store write fails changes nothing (1.73.6): the store, `.env`
@@ -664,7 +664,7 @@ the Files folder as they were; the next save cannot carry a half-applied change.
 directory) around its rename, since it is the one file whose loss is every secret at once; the other stores keep the plain
 temp-file-and-rename convention.
 
-**Passphrase mode (1.40).** When the owner sets a passphrase in Settings → Projects, files, tasks & vault → Vault, the store is
+**Passphrase mode (1.40).** When the owner sets a passphrase in Settings → Features → Vault, the store is
 rewritten in format 2: a salt in the header and a key derived from the passphrase with scrypt
 (N 2^15, r 8, p 1). The daemon opens such a file without `POCKET_VAULT_KEY` and starts
 **locked**; it holds the derived key in memory only, from unlock until a lock (the owner's

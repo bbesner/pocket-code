@@ -38,9 +38,9 @@ both themes and 56 fragile flows were driven by hand. What the pass settled, so 
   keeps `aria-controls` and `aria-activedescendant` on the box as it is.
 
 **Colour of state, as built.** Clay is the working colour (the ember, the header's run status, a running row in the
-list and on a tab) and the colour of anything a tap sends. Green (`--ok`) is finished, connected or on. One surface
-still has it the other way round: Assistant mode's home list draws a running conversation with a green dot and a ready
-one in clay (the 1.60 section below). It is left as built until the owner chooses; new work follows clay = working.
+list and on a tab) and the colour of anything a tap sends. Green (`--ok`) is finished, connected or on. Since
+1.124.8 Assistant mode's home list follows it too (a running conversation's dot is clay, a ready one green); the 1.60
+section below describes the earlier, reversed colours.
 
 **Known drift, not changed in this pass.** Corner radii and font sizes have grown values between the tokens (radii of
 5, 6, 8, 9, 10, 12, 14 and 16px; text from 11 to 17px in half steps). Each is locally reasoned, and changing them all
