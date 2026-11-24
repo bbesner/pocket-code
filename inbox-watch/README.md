@@ -2,7 +2,7 @@
 
 This folder is the program behind Pocket Code's **Inbox Watch**: it reads one Gmail mailbox on a schedule and posts
 what deserves attention to Pocket's Inbox. It ships with Pocket Code and runs beside it on the same server, on its own
-timer; Pocket is where the owner reads, answers and sets it up (Settings → Inbox Watch). See the Pocket
+timer; Pocket is where the owner reads, answers and sets it up (Settings → Features → Inbox Watch). See the Pocket
 [README](../README.md#inbox-watch-your-mailbox-read-for-you) for what it looks like from the Pocket side.
 
 An inbox watcher with a model as the judge. On the schedule you set (every five minutes by default) it syncs one Gmail mailbox, hands the changed threads to
@@ -116,7 +116,7 @@ $W/bin/inbox-monitor --config ~/my-inbox/config.toml backfill --days 90
 $W/bin/inbox-monitor --config ~/my-inbox/config.toml --baseline-only   # start from now
 ```
 
-Turn on **Settings → Projects, files, tasks & vault → Inbox Watch** in Pocket so its Inbox receives what the watcher
+Turn on **Settings → Features → Inbox Watch** in Pocket so its Inbox receives what the watcher
 sends. Then a timer **every minute** that runs `tick` (systemd, with a failure email). `tick` checks mail only when a check is
 due under the schedule, so the timer never sets the pace:
 
@@ -133,7 +133,7 @@ Running it without `tick` checks now, whatever the schedule says (a manual run).
 ## Schedule, models and cost
 
 When it checks and which models judge are settings: `[schedule]` and `[judge]` in the config are the defaults, and the
-owner can change them in Pocket Code (**Settings → Inbox Watch → Schedule, models and cost**, Pocket 1.70+), which the
+owner can change them in Pocket Code (**Settings → Features → Inbox Watch**, Pocket 1.70+), which the
 watcher reads every minute and caches for when Pocket does not answer. *Use the config file's settings* in Pocket hands
 control back to the file.
 
@@ -188,7 +188,7 @@ other arguments than asked does not count. Through Claude Code's Gmail connector
 
 **Neutral instructions.** `prompts/` assume nothing about the owner's work or industry. Everything specific to a person
 (what matters, what doesn't, their systems, their staff, their thresholds) belongs in their rules (the preferences file, or
-Settings → Inbox Watch → Your rules).
+Settings → Features → Inbox Watch → Your rules).
 
 **Tidy (optional, `[tidy]`).** Every few hours outside quiet hours (`every_hours`, default 2; also a Pocket setting) the
 watcher takes off the owner's Inbox what no longer needs them. Code first: an older entry on a story with a newer one is

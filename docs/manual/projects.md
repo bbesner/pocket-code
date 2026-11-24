@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.120.0
+checked: 1.124.9
 sources: projects.mjs, project-mode.mjs, public/projects.js, scripts/pocket-board.mjs, scripts/owner-zone.mjs, skills/pocket-projects/SKILL.md
 -->
 # Projects
@@ -10,14 +10,14 @@ Projects keep a card for each piece of work you want to come back to: where you 
 
 Projects is off until you switch it on for the whole instance:
 
-1. Open **Settings → Projects, files, tasks & vault**.
+1. Open **Settings → Features**.
 2. Turn on **Projects**.
 
 The switch applies to every device and to agent conversations. While it is on, Pocket installs the `pocket-projects` skill for Claude Code and Codex and tells the agents it runs how to track a project (see [For agents](#for-agents)). Turning it off hides Projects, refuses the `pocket-board` command and stops reminders from being announced; the cards stay on disk and come back when you turn it on again.
 
-In Assistant mode the switch is under **Settings → Features** instead. When Assistant mode is locked, ask the person who runs the install.
+When Assistant mode is locked, ask the person who runs the install.
 
-**Open projects** in the same Settings group (this device only) chooses how a project opens when you click it: **As a tab, like a conversation**, **Beside the conversation**, or **In a new browser window**.
+**Open projects** on the Projects page (the **›** beside the switch; Developer mode, this device only) chooses how a project opens when you click it: **As a tab, like a conversation**, **Beside the conversation**, or **In a new browser window**.
 
 ## Use it
 
@@ -99,11 +99,11 @@ A project has at most one open reminder of its own, and each step at most one. S
 
 When a reminder comes due, Pocket announces it once:
 
-- **Push** to every device that has **Settings → Notifications & voice → Push to this device** on with **Due tasks and reminders** selected. The notification reads "Reminder: *project name*" with the reminder's text. Tapping it opens the card; its **Tomorrow** button moves the reminder to 9:00 the next day in that device's time zone without opening Pocket.
-- **Email**, when the server has email set up and **Email due tasks and reminders to** has an address (same Settings group).
+- **Push** to every device that has **Settings → Notifications → Push to this device** on with **Due tasks and reminders** selected. The notification reads "Reminder: *project name*" with the reminder's text. Tapping it opens the card; its **Tomorrow** button moves the reminder to 9:00 the next day in that device's time zone without opening Pocket.
+- **Email**, when the server has email set up and **Email due tasks and reminders to** has an address (both in **Settings → Notifications**).
 - **The server's reminder hook**, when the operator set `POCKET_REMINDER_HOOK`.
 
-With **Notice a day before** on (same Settings group, for the whole instance), a second notice, "Reminder tomorrow: *project name*", goes out 24 hours ahead. A reminder set less than a day ahead gets only the due announcement.
+With **Notice a day before** on (in **Settings → Notifications**, for the whole instance), a second notice, "Reminder tomorrow: *project name*", goes out 24 hours ahead. A reminder set less than a day ahead gets only the due announcement.
 
 The due count shows on the Projects segment and chip, on the card's tab, and on the installed app's icon. When [Tasks](tasks.md) is on, Tasks carries the count instead, and open reminders are listed among your tasks.
 
@@ -152,12 +152,12 @@ Before a long run, use **Edit** to fill in:
 
 and give each step a **Passes when** check. The lead also writes them on the card itself when they are missing.
 
-**Start conversation** on a Conductor project starts as Conductor, from the card or from **Start a conversation** in its **⋯** options (which then reads **Conductor: *lead* leads**). New conversation shows it before you send: a **Conductor** chip beside the project chip, and the model and effort chips name what will run, for example **Fable 5.1** and **High**. Tap the **Conductor** chip to pick the other start; the same choice is under **Edit setup** as **Start**, and the setup summary reads **Start Conductor · *lead* leads**:
+**Start conversation** on a Conductor project starts as Conductor, from the card or from **Start a conversation** in its **⋯** options (which then reads **Conductor: *lead* leads**). New conversation shows it before you send: a **Conductor** chip beside the project chip, and the model and effort chip names what will run, for example **Claude Code · Fable 5.1 · High**. Tap the **Conductor** chip to pick the other start; the same choice is under **Edit setup** as **Start**, and the setup summary reads **Start Conductor · *lead* leads**:
 
 - **Conductor** (the default): the lead named for the chosen agent, at high effort, handing out the work.
 - **Solo**: one cheaper model does the work itself, with no lead. Use it for a fix or a single contained change; a lead costs more on small work because it re-reads everything it checks.
 
-With Solo picked, the chip reads **Solo** and the model chip names Solo's model (Opus on Claude Code, GPT Sol on Codex). While the choice shows, the model and effort chips start on **Default** (the lead or Solo model, at **High**), so a model you left picked on an earlier start does not replace the lead; a model or effort you choose on this screen is still used. An agent without a top model on this server, and OpenRouter, starts as usual; the setup says so instead of offering the choice. Removing the project link (the project chip, **Remove the link**) removes the choice too.
+With Solo picked, the chip reads **Solo** and the model and effort chip names Solo's model (Opus on Claude Code, GPT Sol on Codex). While the choice shows, the model and effort start on **Default** (the lead or Solo model, at **High**), so a model you left picked on an earlier start does not replace the lead; a model or effort you choose on this screen is still used. An agent without a top model on this server, and OpenRouter, starts as usual; the setup says so instead of offering the choice. Removing the project link (the project chip, **Remove the link**) removes the choice too.
 
 In the conversation, a **Conductor** or **Solo** chip sits beside the project chip; tap it to see which model leads. Changing the model mid-conversation restarts the lead without its reasoning, so the model picker suggests a [handoff](conversation.md#hand-off-to-a-fresh-conversation) instead. A Conductor conversation offers a handoff sooner (at 150K tokens, or the server's own size when that is lower), and a handoff keeps the project. Its card names the project and shows the start as a **Conductor** or **Solo** chip; tap the chip to start the new conversation the other way. See [Working in a conversation](conversation.md#project-mode-chip).
 
@@ -193,9 +193,9 @@ The **⋯** on a linked conversation offers **Open conversation**, **Open beside
 
 | Setting or variable | Effect |
 |---|---|
-| **Settings → Projects, files, tasks & vault → Projects** | Turns the feature on for the instance (`projects` in `pocket-settings.json`). |
+| **Settings → Features → Projects** | Turns the feature on for the instance (`projects` in `pocket-settings.json`). |
 | **Open projects** (same group, this device) | Tab, beside the conversation, or a new window. |
-| **Settings → Notifications & voice → Notice a day before** | A second notice 24 hours before each reminder. |
+| **Settings → Notifications → Notice a day before** | A second notice 24 hours before each reminder. |
 | **Email due tasks and reminders to** (same group) | The address for reminder email. Needs `POCKET_SMTP_URL`. |
 | `POCKET_REMINDER_HOOK` | A shell command run for each due reminder, with the reminder as JSON on standard input. It runs without Pocket's own secrets in its environment. See [operations](../operations.md#optional-libraries-projects-files-tasks-inbox-and-the-vault) for the payload. |
 | `POCKET_REMINDER_HOOK_TIMEOUT_MS` | How long one hook run may take before Pocket stops it and everything it started. Default 60000. |
@@ -290,7 +290,7 @@ pocket-board update -p acme-hoa-camera-upgrade --summary "Installed and tested."
 | 0 | Done. |
 | 1 | Any other error; the message says what. |
 | 2 | The project is finished; resume it first. The current card is printed. |
-| 3 | Projects is off. Tell the user to turn it on under **Settings → Projects, files, tasks & vault → Projects**; do not keep the project anywhere else. |
+| 3 | Projects is off. Tell the user to turn it on under **Settings → Features → Projects**; do not keep the project anywhere else. |
 | 4 | The token was refused. |
 | 5 | No tracked project contains the current directory, or no project has that id. |
 | 6 | `track` was run without `--requested`. |
@@ -306,14 +306,14 @@ pocket-board update -p acme-hoa-camera-upgrade --summary "Installed and tested."
 | `The directory must be a full path.` | A relative directory reached the server from the form or the API (the command resolves `--dir` against the current directory). | Pass an absolute path. |
 | `This project is finished. Resume it first.` | Steps and reminders cannot change on a Done project. | `update --status active`, or **Resume project** on the card. |
 | `Each place must be a full path or a web address.` | A **Works in** line is a relative path or an address that is not `http`/`https`. | Write each place as a full path (`/srv/site`) or a full address (`https://staging.example.com`). |
-| The **Conductor mode** switch is greyed out | This server offers neither top model (Fable for Claude Code, GPT Astra for Codex). | Make Fable available to Claude Code on this server (**Settings → Agents & instance → Claude models in the picker**, and the computer's Claude Code policy), or update Codex to a version that offers GPT Astra. |
-| No **Conductor mode** switch on the card | Pocket is in Assistant mode, where Conductor mode does not run. | Switch to Developer mode in **Settings → Appearance → Mode**, if the install allows it. |
+| The **Conductor mode** switch is greyed out | This server offers neither top model (Fable for Claude Code, GPT Astra for Codex). | Make Fable available to Claude Code on this server (**Settings → Agents → Models offered in the picker**, and the computer's Claude Code policy), or update Codex to a version that offers GPT Astra. |
+| No **Conductor mode** switch on the card | Pocket is in Assistant mode, where Conductor mode does not run. | Switch to Developer mode in **Layout** at the top of Settings, if the install allows it. |
 | **Started, but not linked to *project*:** after Start conversation | The conversation started, but the server could not link it, for example because the project already has 50 conversations. It runs without the project and its mode. | Unlink an old conversation from the card, then link this one with its **Add project** chip. |
-| No **Conductor** chip on New conversation, and the model chip shows your usual model | The project's Conductor mode is off, the chosen agent has no top model here, or it is OpenRouter or Antigravity. | Turn the mode on (the card's switch, or **Turn on Conductor mode** in its **⋯** options), or pick Claude Code or Codex. |
+| No **Conductor** chip on New conversation, and the model and effort chip shows your usual model | The project's Conductor mode is off, the chosen agent has no top model here, or it is OpenRouter or Antigravity. | Turn the mode on (the card's switch, or **Turn on Conductor mode** in its **⋯** options), or pick Claude Code or Codex in the chip's **Agent** section. |
 | A reminder arrives hours off | The time was given without an offset before the user's browser reported a zone, and `POCKET_TZ` (or the system zone) is not the user's. | Open Pocket in the user's browser once, set `POCKET_TZ` to the user's zone, or pass an offset. |
-| No reminder on any channel | Projects is off; reminders are announced only while it is on. | Turn on **Settings → Projects, files, tasks & vault → Projects**. |
-| No push for a due reminder | Push is not set up on the server, the device is not subscribed, or **Due tasks and reminders** is off for that device. | Check **Settings → Notifications & voice** on the device. The card still shows the reminder as due. |
-| No reminder email | `POCKET_SMTP_URL` is not set, or no address is saved. | Set it up (see [Settings](settings.md#notifications--voice)) and use **Send a test** in **Settings → Notifications & voice**. |
+| No reminder on any channel | Projects is off; reminders are announced only while it is on. | Turn on **Settings → Features → Projects**. |
+| No push for a due reminder | Push is not set up on the server, the device is not subscribed, or **Due tasks and reminders** is off for that device. | Check **Settings → Notifications** on the device. The card still shows the reminder as due. |
+| No reminder email | `POCKET_SMTP_URL` is not set, or no address is saved. | Set it up (see [Settings](settings.md#notifications)) and use **Send a test** in **Settings → Notifications**. |
 | A push, email or hook run failed once and never came | Each reminder is announced once; a failed send is logged, not retried. | Check the server log; the card still shows the reminder as **Due**. |
 | "This project changed since you loaded it" | The card changed on another device or by an agent. | Review the current card, which is now shown, and make the change again. In **Edit project** the sheet names the fields that changed and shows their new values; check the form and save again. |
 | Every project is gone after a restart, and the server log says `projects.json could not be read` | `projects.json` did not hold valid JSON when Pocket started (a hand edit, or a file damaged by a power cut). Since 1.124.2 Pocket keeps it beside the original as `projects.json.corrupt-<time>`, says so in the server log, and starts with an empty board. | Stop Pocket, fix the kept copy (or take `projects.json` from your backup), move it back to `projects.json`, then start Pocket. Projects tracked since then are replaced by the old file. |

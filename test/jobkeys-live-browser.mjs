@@ -1,6 +1,6 @@
 // Job keys, the app on the real server. public/jobs.js and public/automation.js run against the real server.mjs and the
 // fake Claude Code CLI on temp data, so a field the app reads that the server does not send fails here. It follows the
-// owner: Settings → Automation → Job keys (off, the folder setting saved, refused and reset, a number refused), the
+// owner: Settings → Features → Job keys (off, the folder setting saved, refused and reset, a number refused), the
 // switch on, the empty key list, New job key (refusals beside their fields, Create), the key shown once with Copy and the
 // example line and then nowhere in the page, a real call with that key (the row says Running, then its last run; the run
 // shows under Recent runs and opens its conversation; Needs you), Folder and Agent read-only after a run, Turn off and on,
@@ -17,7 +17,7 @@ import { spawn } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 import puppeteer from 'puppeteer-core';
 import { killStrays } from './stray-runners.mjs';
-import { elementShot } from './ui-controls.mjs';
+import { elementShot, showSetting } from './ui-controls.mjs';
 
 const repo = path.resolve(import.meta.dirname, '..');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -87,7 +87,10 @@ try {
     const r = await p.evaluate(() => window.impeccableDetectAsync({ scrollOffscreen: false }));
     scans.push({ name, findings: r }); fs.writeFileSync(path.join(shots, 'design-' + name + '.json'), JSON.stringify(r, null, 1));
   };
-  const automation = async () => { await p.evaluate(() => settingsSheet({ category: 'automation' })); await p.waitForSelector('[data-auto-group="jobs"] [data-auto-key="jobs"]'); };
+  // 1.124.9: the switch is a row of Settings → Features; the group (the key list, its settings, Reset) is its page under Features.
+  const SWITCH = '#s-jobs-switch [data-auto-key="jobs"]', FULL = '[data-auto-group="jobs"]:not(.automation-switch)';
+  const automation = async () => { await p.evaluate(() => settingsSheet({ category: 'f-jobs' })); await showSetting(p, FULL); };
+  const featuresSwitch = async () => { await p.evaluate(() => settingsSheet({ category: 'features' })); await showSetting(p, SWITCH); };
   const closeSheet = async () => { await p.keyboard.press('Escape'); await p.waitForFunction(() => !document.querySelector('.sheet')); };
   const status = () => p.$eval('[data-auto-status="jobs"]', x => x.textContent);
   const fieldErr = f => p.$eval(`.job-key-sheet [data-job-err="${f}"]`, x => x.textContent);
@@ -104,24 +107,29 @@ try {
   assert.equal(await p.evaluate(() => window.pocketFeatures.jobs), false);
   assert.equal((await call('/jobs/keys')).status, 404);
   await automation();
-  assert.deepEqual(await p.$$eval('[data-auto-group]', x => x.map(g => g.dataset.autoGroup)), (await call('/automation')).body.groups.map(g => g.key));
-  assert.equal(await p.$eval('[data-auto-group="jobs"] > h3', x => x.textContent), 'Job keys');
-  assert.equal(await p.$eval('[data-auto-group="jobs"]', x => x.classList.contains('automation-group-off')), true, 'reads inactive while off');
+  assert.deepEqual(await p.$$eval('[data-auto-group]:not(.automation-switch)', x => x.map(g => g.dataset.autoGroup)), (await call('/automation')).body.groups.map(g => g.key));
+  assert.equal(await p.$eval(FULL + ' > h3', x => x.textContent), 'Job keys');
+  assert.equal(await p.$eval(FULL, x => x.classList.contains('automation-group-off')), true, 'reads inactive while off');
+  assert.equal(await p.$(FULL + ' [data-auto-key="jobs"]'), null, 'the switch is in Features, not on the page');
+  assert.equal(await p.$eval(FULL + ' .automation-inactive-note', x => x.textContent), 'Job keys are off. Turn them on in Features.');
   assert.equal(await p.$('[data-job-keys]'), null, 'no key list while off');
   assert.equal(await p.$('[data-auto-dependent="jobs"]'), null, 'off: only the switch and its help');
   assert.equal(await p.$('[data-auto-reset="jobs"]'), null, 'off: no Reset either');
-  await elShot('group-off-1440-dark', '[data-auto-group="jobs"]');
+  await elShot('group-off-1440-dark', FULL);
+  await closeSheet(); await featuresSwitch();
+  assert.equal(await p.$eval(SWITCH, x => x.getAttribute('aria-pressed')), 'false', 'the switch is in Features, off');
 
   console.log('Job keys: the switch turns it on; the empty list says what a key is');
-  await p.click('[data-auto-key="jobs"]');
+  await p.click(SWITCH);
   await p.waitForFunction(() => window.pocketFeatures.jobs === true);
-  await p.waitForSelector('[data-job-keys] [data-job-new]');
+  assert.equal(await p.$eval('#s-jobs-switch .vault-field-error', x => x.textContent), '', 'no error beside the switch');
+  await showSetting(p, FULL + ' [data-job-keys] [data-job-new]');
   await p.waitForFunction(() => document.querySelector('[data-job-keys] [data-job-loading]')?.hidden === true);
   assert.equal(await p.$eval('[data-job-keys] [data-job-empty]', x => x.hidden), false);
   assert.match(await p.$eval('[data-job-keys] [data-job-empty]', x => x.textContent), /^A job key lets a script on this server start a reply/);
   assert.equal(await p.$eval('[data-job-new]', x => x.textContent.trim()), 'New job key');
-  await elShot('group-on-empty-1440-dark', '[data-auto-group="jobs"]');
-  await scan('group-on-empty', '[data-auto-group="jobs"]');
+  await elShot('group-on-empty-1440-dark', FULL);
+  await scan('group-on-empty', FULL);
 
   console.log('Job keys: the folder setting is a text field; it refuses, saves and resets');
   await p.$eval('[data-auto-advanced="jobs"] > summary', x => x.click());
@@ -145,9 +153,9 @@ try {
   assert.equal((await call('/automation')).body.groups.find(g => g.key === 'jobs').settings.find(s => s.key === 'jobKeyFolder').value, '~/.config/pocket/jobs/');
   // the reset also turned Job keys off (off is their default): on again
   await p.waitForFunction(() => window.pocketFeatures.jobs === false);
-  await p.click('[data-auto-key="jobs"]');
+  await featuresSwitch(); await p.click(SWITCH);
   await p.waitForFunction(() => window.pocketFeatures.jobs === true);
-  await p.waitForSelector('[data-job-keys] [data-job-new]');
+  await showSetting(p, FULL + ' [data-job-keys] [data-job-new]');
   assert.equal(await p.$eval('[data-auto-advanced="jobs"]', x => x.open), true, 'Advanced stays as the owner left it');
   await p.$eval('[data-auto-advanced="jobs"] > summary', x => x.click());
 
@@ -197,15 +205,15 @@ try {
   await fourWays('key-shown-once');
   await scan('key-shown-once', '.job-key-once');
   await p.click('.job-key-once [data-job-done]');
-  await p.waitForSelector('.settings-sheet [data-job-keys]'); // back to Settings → Automation
+  await p.waitForSelector('.settings-sheet [data-job-keys]'); // back to Settings → Features → Job keys
   await sleep(100);
   assert.deepEqual(await keyAnywhere(key1), [false, false, false, false, false], 'the key is nowhere in the page after the sheet closed');
 
   console.log('Job keys: the key list');
   await p.waitForFunction(() => document.querySelectorAll('[data-job-keys] .job-key-row').length === 1);
   assert.equal(await rowText('disk-check'), `disk-check ${home} · Claude Code · Default model Ask first · On · Never ran`);
-  await fourWays('key-list', () => p.$eval('[data-auto-group="jobs"]', x => x.scrollIntoView({ block: 'end' })));
-  await scan('key-list', '[data-auto-group="jobs"]');
+  await fourWays('key-list', () => p.$eval(FULL, x => x.scrollIntoView({ block: 'end' })));
+  await scan('key-list', FULL);
 
   console.log('Job keys: an unchanged refresh writes nothing in the list');
   const listWrites = await p.evaluate(async () => {
@@ -239,7 +247,7 @@ try {
   await p.click('.job-key-sheet .sheet-back'); await p.waitForSelector('.settings-sheet [data-job-keys] .job-key-row');
   const rowNode = await p.$('[data-job-keys] .job-key-row'), h0 = await rowNode.evaluate(x => x.getBoundingClientRect().height);
   await p.waitForFunction(() => /Ask first · Running · Last run /.test(document.querySelector('[data-job-keys] .job-key-row').innerText), { timeout: 15000 });
-  await elShot('key-list-running-1440-dark', '[data-auto-group="jobs"]');
+  await elShot('key-list-running-1440-dark', FULL);
   fs.rmSync(hangFile);
   assert.equal((await call(`/session/${e(convo1)}/stop`, {})).status, 200); await idle(convo1);
   const ended1 = await until(async () => { const r = await runOf(keyId, run1); return r && r.status !== 'working' ? r : null; }, 'the first run to end');
@@ -358,18 +366,20 @@ try {
   await p.waitForFunction(() => /^Deleted disk-check\./.test(document.querySelector('#toast')?.textContent || ''));
   assert.equal(fs.existsSync(file1), false, 'its key file went too');
   assert.equal((await job(key2, { data: 'z' })).status, 401);
-  await fourWays('group-on-empty', () => p.$eval('[data-auto-group="jobs"]', x => x.scrollIntoView({ block: 'end' })));
+  await fourWays('group-on-empty', () => p.$eval(FULL, x => x.scrollIntoView({ block: 'end' })));
   // the group off, for the manual
   await closeSheet();
 
   console.log('Job keys: switched off, only the group shows');
-  await automation();
-  await p.click('[data-auto-key="jobs"]');
+  await featuresSwitch();
+  await p.click(SWITCH);
   await p.waitForFunction(() => window.pocketFeatures.jobs === false);
   await p.waitForFunction(() => !document.querySelector('[data-job-keys]'));
-  assert.ok(await p.$('[data-auto-group="jobs"]'), 'the group stays, so it can be turned on');
+  assert.equal(await p.$eval(SWITCH, x => x.getAttribute('aria-pressed')), 'false', 'the switch stays in Features, so it can be turned on');
+  await showSetting(p, FULL);
+  assert.equal(await p.$eval(FULL + ' .automation-inactive-note', x => x.textContent), 'Job keys are off. Turn them on in Features.');
   assert.equal((await call('/jobs/keys')).status, 404);
-  await fourWays('group-off', () => p.$eval('[data-auto-group="jobs"]', x => x.scrollIntoView({ block: 'start' })));
+  await fourWays('group-off', () => p.$eval(FULL, x => x.scrollIntoView({ block: 'start' })));
   await closeSheet();
 
   assert.deepEqual(errors, []);

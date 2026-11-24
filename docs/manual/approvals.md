@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.124.5
+checked: 1.124.9
 sources: approvals.mjs, checkbacks.mjs, job-keys.mjs, trusted.mjs, questions.mjs, subagents.mjs, public/approvals.js, public/workspace.js
 -->
 # Questions and approvals
@@ -116,20 +116,21 @@ Closing the sheet, locking the phone or losing the connection never approves any
 ### Let read-only actions run without asking
 
 Under Review actions every Bash command, MCP tool call and web lookup shows a card, including harmless reads. The owner can
-list read-only actions that Claude may run without a card in **Settings → Agents & instance → Actions that run without
+list read-only actions that Claude may run without a card in **Settings → Agents → Actions that run without
 asking**:
 
 1. Type a rule under **Add an action**, for example `Bash(git status)`, `Bash(acme-report:*)` or `mcp__memory__*`.
 2. Choose **Add**. A rule Pocket will not accept is refused with the reason under the field.
 3. **Remove** takes a rule off. **Use the server's list** goes back to the list in `POCKET_TRUSTED_ACTIONS`.
 
-This covers Claude replies in Review actions only. Codex and Full access are not affected. A listed command runs with any
+This covers replies in Review actions: Claude Code for every kind of rule, and Codex (since 1.87), OpenRouter (1.87) and
+Antigravity (1.120) for command rules. Full access already runs everything without asking. A listed command runs with any
 arguments the agent gives it, so list only commands that cannot change anything. The rule syntax, what counts as a match
 and the audit record are in [Action approvals](../action-approvals.md#actions-that-run-without-asking).
 
 ### Get notified on your phone
 
-A new question or approval sends a push notification to every device with **Settings → Notifications & voice → Push to
+A new question or approval sends a push notification to every device with **Settings → Notifications → Push to
 this device** and **Finished replies** on: **Claude has a question** or **Codex has a question** ("Open Pocket Code to
 answer it."), or **Waiting for your OK** ("Open Pocket Code to review the pending action."); from a subagent, **A
 subagent has a question** or **A subagent is waiting for your OK**. The notification carries no command or argument details. Tapping it
@@ -165,7 +166,7 @@ Nothing is decided for you. The reply waits until you answer:
 
 ### Replies you did not start
 
-A reply Pocket starts without you (a queued message, a usage-limit retry, a conversation woken from [Coordination](coordination.md), a [check-back](automation.md#check-backs), a reply a [job key](automation.md#job-keys) started) asks for approval exactly as one you started does. It runs with the permissions the work was set up with: a queued message with the mode it was queued with, a coordination wake with the mode it asked with, a check-back with the mode of the reply that set it (**Always Review actions** in **Settings → Automation → Check-backs** lowers it to Review actions; a server with Full access turned off does the same; it is never raised), and a job key's reply with the key's access: **Ask first** is Review actions, and **Full access** is Full access, only where the server allows it (a server with Full access turned off runs the key under Review actions). Nothing the script sends changes the access. A usage-limit retry carries on with the mode of the reply it continues. When Full access has since been turned off for the install, a queued message that needed it does not start (see Troubleshooting).
+A reply Pocket starts without you (a queued message, a usage-limit retry, a conversation woken from [Coordination](coordination.md), a [check-back](automation.md#check-backs), a reply a [job key](automation.md#job-keys) started) asks for approval exactly as one you started does. It runs with the permissions the work was set up with: a queued message with the mode it was queued with, a coordination wake with the mode it asked with, a check-back with the mode of the reply that set it (**Always Review actions** in **Settings → Features → Check-backs** lowers it to Review actions; a server with Full access turned off does the same; it is never raised), and a job key's reply with the key's access: **Ask first** is Review actions, and **Full access** is Full access, only where the server allows it (a server with Full access turned off runs the key under Review actions). Nothing the script sends changes the access. A usage-limit retry carries on with the mode of the reply it continues. When Full access has since been turned off for the install, a queued message that needed it does not start (see Troubleshooting).
 
 Nobody may be looking when such a reply asks, and it waits for you like any other: it does not expire. (On a check-back's or a job's reply, the time it waits for you doesn't count toward **Longest unattended reply** unless you switch that on.) The conversation reads **Needs approval**, and the push goes out as usual.
 
@@ -182,7 +183,7 @@ Nobody may be looking when such a reply asks, and it waits for you like any othe
 | Request kinds | One kind: a tool call, shown in plain words. | Command, file change, network access, additional permissions. |
 | From subagents | Shown with the agent's name, read from the agent's own transcript (`<project>/<session>/subagents/`). | Re-homed on the reply with the agent's name; a subagent's file change cannot be previewed, so it offers only Don't allow. |
 | Questions | AskUserQuestion, always shown as a question. | Native questions, mostly in Plan first. |
-| Actions that run without asking | Supported. | Not supported. |
+| Actions that run without asking | Supported. | Command rules only (`Bash(…)`), since 1.87. |
 | Requests Pocket cannot show | Denied with "This interactive request is not supported in Pocket Code." | Declined (MCP elicitation requests are cancelled). |
 
 Deny rules and organization policies in the agent's own settings still apply in both modes. A Codex file change that asks
@@ -206,8 +207,8 @@ most 20 requests (and 20 question sets) can wait per reply.
 | `POCKET_APPROVAL_MODE` | The install default: `review` (default) or `full`. |
 | `POCKET_ALLOW_FULL_ACCESS=0` | Removes Full access from the picker and refuses it at the server. |
 | `POCKET_TRUSTED_ACTIONS` | The server's list of actions that run without asking: one rule per line, or several separated by commas outside parentheses. Used until a list is saved in Settings. |
-| **Settings → Agents & instance → Actions that run without asking** | The owner's list, saved for the whole install (`trustedActions` in `pocket-settings.json`). Up to 50 rules. |
-| **Settings → Notifications & voice → Finished replies** | Per device: also controls question and approval notifications. |
+| **Settings → Agents → Actions that run without asking** | The owner's list, saved for the whole install (`trustedActions` in `pocket-settings.json`). Up to 50 rules. |
+| **Settings → Notifications → Finished replies** | Per device: also controls question and approval notifications. |
 
 Variables go in the Pocket Code directory's `.env`; restart Pocket after changing them.
 
@@ -245,7 +246,7 @@ Variables go in the Pocket Code directory's `.env`; restart Pocket after changin
 | **Approval connection interrupted** or **Question interrupted** | Pocket restarted and cannot reach the agent process's input. | **Stop interrupted reply**, review, send a new message. |
 | "This question was already answered differently." | Another device answered first. | Refresh the conversation. |
 | A listed action still shows a card | The command was chained, piped, redirected, prefixed with `VAR=value`, called by path, or Codex is running; or the reply is in Full access (no cards at all). | See the matching rules in [Action approvals](../action-approvals.md#actions-that-run-without-asking). |
-| No notification for a question or approval | The conversation is muted, **Finished replies** is off on that device, push is not set up, or that device was signed out (**Sign out** and **Sign out everywhere** turn push off). | Check the **Alerts** chip and **Settings → Notifications & voice**, and turn **Push to this device** on again after signing in. |
+| No notification for a question or approval | The conversation is muted, **Finished replies** is off on that device, push is not set up, or that device was signed out (**Sign out** and **Sign out everywhere** turn push off). | Check the **Alerts** chip and **Settings → Notifications**, and turn **Push to this device** on again after signing in. |
 
 Deeper reference, including restart handling and rollback: [Action approvals](../action-approvals.md) and
 [Operations](../operations.md#restarted-questions-and-approvals).

@@ -1,4 +1,4 @@
-import {clickControl,elementShot} from './ui-controls.mjs';
+import {clickControl,elementShot,openSettingsPage} from './ui-controls.mjs';
 // Browser regressions for the 1.7 audit. Uses the existing synthetic API server;
 // no real credentials, transcripts, providers or production processes are involved.
 import assert from 'node:assert/strict';
@@ -19,7 +19,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
  const errors=[],checks=[],scans=[];
  page.on('pageerror',e=>errors.push(e.message));
  const idle=rows[4].id;
- const check=async(name,fn)=>{if(process.env.POCKET_CHECK&&!name.includes(process.env.POCKET_CHECK))return;await fn();checks.push(name);}; // POCKET_CHECK=<substring> runs one check while iterating on it
+ const check=async(name,fn)=>{if(process.env.POCKET_CHECK&&!name.includes(process.env.POCKET_CHECK))return;if(!process.env.POCKET_KEEP_GOING){await fn();checks.push(name);return;}try{await fn();checks.push(name);}catch(e){process.exitCode=1;console.log('KEEP-GOING FAIL: '+name+'\n  '+String(e.message).split('\n').slice(0,8).join('\n  ')+'\n  at '+String(e.stack).split('\n').filter(l=>l.includes('ui-regressions.mjs')).slice(0,2).join(' | '));}}; // POCKET_CHECK=<substring> runs one check while iterating on it; POCKET_KEEP_GOING=1 logs a failure and runs the rest (a later check can fail from an earlier one's state)
  const chat=async()=>{await page.goto(base+'/#/chat/'+idle);await page.waitForSelector('#box');};
  // Hash-only navigation keeps the old view for a moment; wait for the requested conversation to be loaded.
  const openChat=async id=>{await page.goto(base+'/#/chat/'+id);await page.waitForFunction(id=>chatId===id&&document.querySelector('#ctitle')?.textContent!=='Conversation'&&document.querySelector('#box'),{},id);};
@@ -88,7 +88,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
   });
   await check('Settings usable when service worker fails; explicit notification fallback',async()=>{
    await clickControl(page,'#settings');await page.waitForSelector('#s-usage',{timeout:1000});
-   assert.equal(await page.$$eval('.settings-index button',es=>es.filter(e=>e.checkVisibility()).length),7); // 1.117 adds Automation
+   assert.equal(await page.$$eval('.settings-index > button',es=>es.filter(e=>e.checkVisibility()).length),10); // 1.124.9: ten pages (Layout's two buttons head the list)
    assert.equal(await page.$eval('#s-notes',e=>e.open),false);
    await clickControl(page,'#s-chime');assert.equal(await page.$eval('#s-chime',e=>e.getAttribute('aria-pressed')),'false');
    await page.waitForFunction(()=>document.querySelector('#s-push-state').textContent.includes('Unavailable'));
@@ -646,8 +646,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.evaluate(()=>Voice.onLeave());await page.reload();await page.waitForSelector('#box');
   });
   await check('Voice: Settings saves preferences and lists voices',async()=>{
-   await page.evaluate(()=>settingsSheet());await page.waitForSelector('#s-voice');
-   await clickControl(page,'#s-voice > summary');
+   await page.evaluate(()=>settingsSheet({category:'voice'}));await page.waitForSelector('#s-voice-voice',{visible:true}); // 1.124.9: its own page
    await page.waitForFunction(()=>document.querySelector('#s-voice-state').textContent.includes('available'));
    assert.deepEqual(await page.$$eval('#s-voice-voice option',o=>o.map(x=>x.value)),['af_heart','bm_george']);
    await clickControl(page,'#s-voice-review');
@@ -812,20 +811,20 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.equal(await listedIs(true),true,'Undo brings it back');
    assert.equal(done.seenAt,undefined,'Undo also clears it on the server');
    // 1.116: Settings hides the bar; the row stays in Attention and its own Mark as reviewed still works
-   await page.evaluate(()=>settingsSheet());await page.waitForSelector('[data-settings-category=conversation]');await clickControl(page,'[data-settings-category=conversation]');await page.waitForSelector('#s-review-all:not(:disabled)');await pause(250);
+   await page.evaluate(()=>settingsSheet());await page.waitForSelector('[data-settings-category=conversations]');await clickControl(page,'[data-settings-category=conversations]');await page.waitForSelector('#s-review-all:not(:disabled)');await pause(250);
    assert.equal(await page.$eval('#s-review-all',b=>b.getAttribute('aria-pressed')),'true','shown unless switched off');
    assert.ok(await page.$eval('#s-review-all',b=>b.checkVisibility()&&b.getBoundingClientRect().height>=44),'visible in Conversation, a 44px target');
    await page.$eval('#s-review-all',b=>b.scrollIntoView({block:'center'}));await page.screenshot({path:path.join(out,'review-all-setting.png')});
    if(process.env.POCKET_DESIGN_SCANNER){await page.evaluate(()=>{window.__IMPECCABLE_CONFIG__={autoScan:false};});if(!await page.evaluate(()=>Boolean(window.impeccableDetectAsync))){const t=await page.addScriptTag({path:process.env.POCKET_DESIGN_SCANNER});await t.evaluate(e=>e.remove());}fs.writeFileSync(path.join(out,'review-all-design.json'),JSON.stringify(await page.evaluate(()=>window.impeccableDetectAsync({scrollOffscreen:false}))));}
    await clickControl(page,'#s-review-all');await page.waitForFunction(()=>document.querySelector('#s-review-all')?.getAttribute('aria-pressed')==='false');
    assert.equal(settingsState().markAllReviewed,false,'saved on the server');
-   assert.match(await page.$eval('#s-review-all-state',e=>e.textContent),/^Hidden\./);
+   assert.match(await page.$eval('#s-review-all-state',e=>e.textContent),/^Off\. You mark conversations one at a time/);
    await page.evaluate(()=>closeCurrentSheet?.());await pause(200);
    assert.equal(await listedIs(true),true,'still in Attention');
    assert.equal(await page.$('.review-bar'),null,'the bar is hidden');await page.screenshot({path:path.join(out,'review-bar-hidden.png')});
    await page.evaluate(()=>refreshSessions());await pause(300);assert.equal(await page.$('.review-bar'),null,'and stays hidden after a refresh');
    assert.ok(await page.$(`[data-more="${done.id}"]`),'Conversation options are still on the row');
-   await page.evaluate(()=>settingsSheet());await page.waitForSelector('[data-settings-category=conversation]');await clickControl(page,'[data-settings-category=conversation]');await page.waitForSelector('#s-review-all:not(:disabled)');await pause(250);
+   await page.evaluate(()=>settingsSheet());await page.waitForSelector('[data-settings-category=conversations]');await clickControl(page,'[data-settings-category=conversations]');await page.waitForSelector('#s-review-all:not(:disabled)');await pause(250);
    await clickControl(page,'#s-review-all');await page.waitForFunction(()=>document.querySelector('#s-review-all')?.getAttribute('aria-pressed')==='true');
    await page.evaluate(()=>closeCurrentSheet?.());await page.waitForSelector('[data-mark-all-reviewed]');
    assert.equal(settingsState().markAllReviewed,true);
@@ -1154,9 +1153,9 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
   await check('1.19 Reading measure: prose stops near 68 characters on wide screens; tables keep the full width',async()=>{
    const target=rows[3].id,prose='Stock on hand covers the next three weeks for most products, but the outdoor camera line will run short before the incoming order lands, so we should move part of the recorder budget to cameras this month.';
    conversations.set(target,[{role:'user',text:'How does stock look?'},{role:'assistant',blocks:[{t:'text',text:prose+'\n\n- '+prose+'\n\n| Product | On hand | Incoming | Supplier reference | Notes |\n|---|---:|---:|---|---|\n| Outdoor camera | 24 | 12 | WAREHOUSE-LONG-REFERENCE-001 | '+prose+' |'}]}]);
-   await page.setViewport({width:1440,height:900});await page.goto(base+'/#/chat/'+target);await page.waitForSelector('.m-asst .report-table');
-   const dump=await page.evaluate(()=>[...document.querySelectorAll('.m-asst :is(p,ul,ol,blockquote)')].find(e=>!e.closest('.report-table'))?'':'MSGS '+document.querySelectorAll('.m-asst').length+' '+[...document.querySelectorAll('.m-asst')].map(m=>(m.closest('[id]')?.id||'?')+':'+m.outerHTML.slice(0,600)).join(' ||| ')+' HASH '+location.hash+' HTML '+document.documentElement.className+' BODY '+document.body.className);
-   if(dump)console.log('MEASURE-DUMP',dump);
+   await page.setViewport({width:1440,height:900});await page.goto(base+'/#/chat/'+target);
+   // the history can be drawn twice (cached, then fetched); wait until the prose and the table are both there
+   await page.waitForFunction(()=>document.querySelector('.m-asst .report-table')&&[...document.querySelectorAll('.m-asst :is(p,ul,ol,blockquote)')].some(e=>!e.closest('.report-table')));
    const m=await page.evaluate(()=>{const p=[...document.querySelectorAll('.m-asst :is(p,ul,ol,blockquote)')].find(e=>!e.closest('.report-table')),t=document.querySelector('.report-table'),size=parseFloat(getComputedStyle(p).fontSize);
     const probe=document.createElement('div');probe.style.width='68ch';p.parentElement.append(probe);const limit=probe.getBoundingClientRect().width;probe.remove();
     const para=[...document.querySelectorAll('.m-asst p')].find(e=>e.textContent.length>150),range=document.createRange();range.selectNodeContents(para);
@@ -1276,7 +1275,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.deepEqual(await page.$$eval('#s-title-model option',os=>os.map(o=>[o.value,o.disabled])),[['auto',false],['claude',false],['codex',true]],'an unavailable provider cannot be chosen');
    assert.match(await page.$eval('#s-title-model option[value="codex"]',o=>o.textContent),/unavailable/);
    assert.match(await page.$eval('#s-title-note',e=>e.textContent),/Last title by Haiku 4\.5/);
-   await clickControl(page,'[data-settings-category=conversation]');
+   await clickControl(page,'[data-settings-category=conversations]');
    assert.ok(await page.$eval('#s-titles',e=>e.getBoundingClientRect().height)>=44);
    await page.$eval('#s-titles',e=>e.scrollIntoView({block:'center'}));
    await scan('title-settings-mobile');await page.screenshot({path:path.join(out,'title-settings-mobile.png')});
@@ -1580,7 +1579,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await elementShot(await page.$('aside.rail'),{path:path.join(out,'rail-tasks.png')});
    await clickControl(page,'[data-rail-view="sessions"]');await page.waitForSelector('#rail .session-panel');
    await clickControl(page,'#splitb');await page.waitForSelector('.sheet [data-v="tasks"]');await page.keyboard.press('Escape');
-   // Settings → Projects, files, tasks & vault turns the feature off for the whole install.
+   // Settings → Features turns the feature off for the whole install.
    await clickControl(page,'#railsettings');await page.waitForFunction(()=>document.querySelector('#s-tasks')?.disabled===false);
    assert.equal(await page.$eval('#s-tasks',e=>e.getAttribute('aria-pressed')),'true');
    await clickControl(page,'#s-tasks');for(let i=0;i<30&&settings.tasks;i++)await sleep(100);assert.equal(settings.tasks,false,'the server setting changed');
@@ -1589,8 +1588,8 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    settings.tasks=true;await page.goto(base+'/#/tasks');await page.waitForSelector('.task-item');
    await page.evaluate(()=>settingsSheet({category:'notifications'}));await page.waitForFunction(()=>document.querySelector('#s-ahead')?.disabled===false);
    const notify=await page.evaluate(()=>({heading:document.querySelector('.settings-sheet h2').textContent,push:document.querySelector('#s-push > span:last-child').firstChild.textContent,kindsDisabled:[...document.querySelectorAll('.push-kinds .opt:not([hidden])')].map(b=>b.disabled),badge:Boolean(document.querySelector('#s-badge')),scopes:[...document.querySelectorAll('[data-settings-panel="notifications"] .settings-scope')].map(e=>e.textContent),ahead:document.querySelector('#s-ahead').getAttribute('aria-pressed'),email:document.querySelector('#s-email').disabled,note:document.querySelector('#s-email-note').textContent}));
-   assert.equal(notify.heading,'Notifications & voice');assert.equal(notify.push,'Push to this device');assert.deepEqual(notify.kindsDisabled,[true,true,true,true,true],'the five kinds wait for a subscription (1.69: Inbox alerts too; 1.119: Check-backs and job results)');assert.equal(await page.$eval('#s-push-automation',e=>e.hidden),false,'1.119: the check-backs kind shows while check-backs are off (it also carries the limit notices)');assert.equal(notify.badge,true);
-   assert.deepEqual(notify.scopes,['This device','This instance · all devices']);assert.equal(notify.ahead,'false');assert.equal(notify.email,false,'the fixture server has mail set up');assert.match(notify.note,/Enter the address/);
+   assert.equal(notify.heading,'Notifications');assert.equal(notify.push,'Push to this device');assert.deepEqual(notify.kindsDisabled,[true,true,true,true,true],'the five kinds wait for a subscription (1.69: Inbox alerts too; 1.119: Check-backs and job results)');assert.equal(await page.$eval('#s-push-automation',e=>e.hidden),false,'1.119: the check-backs kind shows while check-backs are off (it also carries the limit notices)');assert.equal(notify.badge,true);
+   assert.deepEqual(notify.scopes,['This device only','All your devices']);assert.equal(notify.ahead,'false');assert.equal(notify.email,false,'the fixture server has mail set up');assert.match(notify.note,/Enter the address/);
    await clickControl(page,'#s-ahead');for(let i=0;i<30&&settings.remindAhead!==24;i++)await sleep(100);assert.equal(settings.remindAhead,24,'the notice is instance-wide');
    await page.waitForFunction(()=>document.querySelector('#s-ahead')?.getAttribute('aria-pressed')==='true');
    await page.type('#s-email','owner@example.test');await clickControl(page,'#s-email-save');for(let i=0;i<30&&settings.notifyEmail!=='owner@example.test';i++)await sleep(100);assert.equal(settings.notifyEmail,'owner@example.test');
@@ -1603,14 +1602,14 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await clickControl(page,'[data-tasks-home]');await page.waitForSelector('.task-item');await scan('tasks-list-mobile');await page.screenshot({path:path.join(out,'tasks-list-mobile.png')});
    await page.setViewport({width:1440,height:900});settings.tasks=false;settings.projects=false;settings.documents=false; // as the Projects check expects
   });
-  await check('Offered models (1.52): Settings → Agents & instance lists the catalog, a policy-blocked model is marked and cannot be turned on, a change saves and narrows the picker, the last model stays on, the server list comes back, at 1440 and 390',async()=>{
+  await check('Offered models (1.52): Settings → Agents lists the catalog, a policy-blocked model is marked and cannot be turned on, a change saves and narrows the picker, the last model stays on, the server list comes back, at 1440 and 390',async()=>{
    const settings=settingsState();delete settings.offeredClaudeModels;const sleep=ms=>new Promise(r=>setTimeout(r,ms));
    const rows=()=>page.$$eval('#s-models-list .opt',bs=>bs.map(b=>({id:b.dataset.offerModel,on:b.getAttribute('aria-pressed'),blocked:b.getAttribute('aria-disabled')==='true',sub:b.querySelector('.sub').textContent})));
    const open=async()=>{await page.evaluate(()=>settingsSheet({category:'agents'}));assert.equal(await page.$$eval('#s-models-list .opt',e=>e.length),4,'the rows are drawn before the server answers');await page.waitForFunction(()=>!document.querySelector('#s-models-list').hasAttribute('aria-busy'));};
    for(const width of [1440,390]){
     await page.setViewport({width,height:900});await page.goto(base+'/#/');await page.waitForSelector('.rail,.list,main');
     await open();
-    assert.equal(await page.$eval('.settings-sheet h2',e=>e.textContent),'Agents & instance');
+    assert.equal(await page.$eval('.settings-sheet h2',e=>e.textContent),'Agents');
     let r=await rows();
     assert.deepEqual(r.map(x=>x.id),['claude-fable-5-1[1m]','claude-opus-5-5[1m]','claude-sonnet-5-5','claude-haiku-5-5'],'1.91: the newest of each family only');
     assert.deepEqual(r.map(x=>[x.on,x.blocked]),[['false',true],['true',false],['true',false],['true',false]]);
@@ -1654,7 +1653,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    delete settings.offeredClaudeModels;await page.evaluate(()=>{localStorage.removeItem('pc-prefs-'+NEW_KEY);localStorage.removeItem('pc-provider');claudeModelsLoaded=false;});
    await page.setViewport({width:1440,height:900});
   });
-  await check('Trusted actions (1.56): Settings → Agents & instance shows the server default, adds a rule, explains a refused one under the field, removes one with focus kept, and goes back to the server list, at 1440 and 390',async()=>{
+  await check('Trusted actions (1.56): Settings → Agents shows the server default, adds a rule, explains a refused one under the field, removes one with focus kept, and goes back to the server list, at 1440 and 390',async()=>{
    const settings=settingsState();delete settings.trustedActions;const sleep=ms=>new Promise(r=>setTimeout(r,ms));
    const rules=()=>page.$$eval('#s-trusted-list .trusted-row code',e=>e.map(x=>x.textContent));
    for(const width of [1440,390]){
@@ -1704,7 +1703,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    const settings=settingsState();settings.vault=false;settings.vaultReady=true;
    await page.goto(base+'/#/vault');await page.waitForFunction(()=>/The Vault is off/.test(document.querySelector('#vault-main')?.textContent||''));
    assert.equal(await page.$('[data-rail-view="vault"]'),null,'no Vault segment while off');
-   // Settings → Projects, files, tasks & vault turns it on for the install.
+   // Settings → Features turns it on for the install.
    await clickControl(page,'#railsettings');await page.waitForFunction(()=>document.querySelector('#s-vault')?.disabled===false);
    assert.equal(await page.$eval('#s-vault',e=>e.getAttribute('aria-pressed')),'false');
    await clickControl(page,'#s-vault');for(let i=0;i<30&&!settings.vault;i++)await sleep(100);assert.equal(settings.vault,true,'the server setting changed');
@@ -2080,7 +2079,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    // Show the Settings category that holds Agent access, as clickControl does before a click.
    const showAccess=async()=>{await page.waitForFunction(()=>document.querySelector('#s-vault')?.disabled===false&&!document.querySelector('#s-vault-more').hidden);
     const cat=await page.$eval('#s-vault-access',e=>e.closest('[data-settings-panel]')?.dataset.settingsPanel);
-    if(cat&&await page.$eval(`[data-settings-panel="${cat}"]`,e=>e.hidden)){if(await page.$eval('.settings-index',e=>e.hidden))await page.click('#settings-back');await page.click(`[data-settings-category="${cat}"]`);}
+    if(cat)await openSettingsPage(page,cat);
     await page.$eval('#s-vault-access',e=>e.scrollIntoView({block:'center'}));};
    const openSettings=async()=>{await clickControl(page,'#railsettings');await showAccess();};
    try{
@@ -2132,7 +2131,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     // The editor: Who can use it has the same five, Vault default selected for a new secret.
     await clickControl(page,'#vt-add');await page.waitForSelector('.vault-editor [name=policy]');
     assert.deepEqual(await page.$eval('.vault-editor [name=policy]',s=>({value:s.value,options:[...s.options].map(o=>o.value),first:s.options[0].textContent,hint:document.querySelector('[data-policy-hint]').textContent})),
-     {value:'default',options:['default','auto','ask','every','owner'],first:'Vault default (currently: Ask every time)',hint:'Follows Agent access in Settings → Projects, files, tasks & vault.'});
+     {value:'default',options:['default','auto','ask','every','owner'],first:'Vault default (currently: Ask every time)',hint:'Follows Agent access in Settings → Features → Vault.'});
     await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.vault-editor'));
     // A request on an item that asks every time: Allow once and Deny only.
     vaultFixture.extraRequests=[{id:'fixture-every',items:['fixture'],itemNames:['payroll-api'],argv:['node','run-payroll.mjs'],cwd:'/srv/payroll',session:rows[0].id,sessionTitle:rows[0].title,created:new Date().toISOString(),expiresAt:new Date(Date.now()+15*60000).toISOString(),answer:null,allowAlways:false}];
@@ -2260,9 +2259,9 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     Object.assign(settings,{vault:false,vaultReady:false,vaultNeedsKey:true});
     await page.reload();await page.waitForFunction(()=>/The Vault is off/.test(document.querySelector('#vault-main')?.textContent||''));
     await openSettings();
-    assert.deepEqual(await toggle(),{disabled:true,sub:"This Vault's key is missing on this server. Restore it from your recovery key."});
-    if(await page.$eval('[data-settings-panel="libraries"]',e=>e.hidden)){if(await page.$eval('.settings-index',e=>e.hidden))await page.click('#settings-back');await page.click('[data-settings-category="libraries"]');}
-    assert.deepEqual(await page.$eval('#s-vault-restore-wrap',e=>({shown:!e.hidden&&e.getClientRects().length>0,panel:e.closest('[data-settings-panel]')?.dataset.settingsPanel,underSwitch:e.previousElementSibling?.id,more:document.querySelector('#s-vault-more').hidden})),{shown:true,panel:'libraries',underSwitch:'s-vault',more:true});
+    assert.deepEqual(await toggle(),{disabled:true,sub:"The Vault's key is missing on this server. Restore it from your recovery key or file."});
+    await openSettingsPage(page,'f-vault'); // 1.124.9: Restore key heads the Vault page
+    assert.deepEqual(await page.$eval('#s-vault-restore-wrap',e=>({shown:!e.hidden&&e.getClientRects().length>0,panel:e.closest('[data-settings-panel]')?.dataset.settingsPanel,first:e.previousElementSibling?.tagName,more:document.querySelector('#s-vault-more').hidden})),{shown:true,panel:'f-vault',first:'H3',more:true});
     await page.$eval('#s-vault-restore',e=>e.scrollIntoView({block:'center'}));await scan('vault-needs-key-settings');
     await clickControl(page,'#s-vault-restore');await page.waitForSelector('.vault-restore-sheet form');
     assert.equal(await page.$eval('.vault-restore-sheet [name=key]',e=>e.type),'password');
@@ -2378,10 +2377,10 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     assert.equal(await page.$eval('#first',f=>f.value),'Log in with password: hunter2! and pull the invoices');
     assert.equal(await page.$eval('#start',b=>b.getAttribute('aria-label')),'Start conversation');
     await page.evaluate(()=>{clearDraft(NEW_KEY);document.querySelector('#first').value='';});
-    // Settings → Vault: Catch secrets in messages, on by default; off lets a key paste through untouched.
+    // Settings → Features → Vault: Catch secrets in messages, on by default; off lets a key paste through untouched.
     await openChat(idleId);await clickControl(page,'#railsettings');await page.waitForFunction(()=>document.querySelector('#s-secrets')?.disabled===false);
     assert.deepEqual(await page.$eval('#s-secrets',b=>({pressed:b.getAttribute('aria-pressed'),label:b.querySelector('span:not(.dot)').firstChild.textContent,sub:b.querySelector('.sub').textContent,panel:b.closest('[data-settings-panel]')?.dataset.settingsPanel,afterVault:Boolean(document.querySelector('#s-vault-more').compareDocumentPosition(b)&Node.DOCUMENT_POSITION_FOLLOWING)})),
-     {pressed:'true',label:'Catch secrets in messages',sub:'Holds a key or password pasted or typed into a message and offers to store it in the Vault first',panel:'libraries',afterVault:true});
+     {pressed:'true',label:'Catch secrets in messages',sub:"If you paste or type a key or password into a message, Pocket holds the message and offers to store the secret in the Vault first, so it doesn't go to the agent. Works even while the Vault is off",panel:'f-vault',afterVault:true});
     await clickControl(page,'#s-secrets');for(let i=0;i<30&&settings.secretGuard!==false;i++)await pause(100);
     assert.deepEqual(last(/settings$/).body,{secretGuard:false});await page.waitForFunction(()=>document.querySelector('#s-secrets').getAttribute('aria-pressed')==='false');
     await untip();await scan('secret-settings');await page.keyboard.press('Escape');
@@ -2391,7 +2390,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     settings.vault=false;await page.reload();await page.waitForSelector('#box');
     await paste('#box',KEY);await page.waitForSelector('.secret-sheet');
     assert.deepEqual(await page.evaluate(()=>({form:Boolean(document.querySelector('.secret-sheet form')),help:document.querySelector('.secret-sheet .secret-help').textContent,hint:document.querySelector('.secret-sheet .secret-hint').textContent,alt:[...document.querySelectorAll('.secret-sheet .secret-alt .opt')].length})),
-     {form:false,help:'Pasting it sends it to the model and keeps it in the transcript.',hint:'Turn on the Vault in Settings → Projects, files, tasks & vault, to store secrets instead.',alt:2});
+     {form:false,help:'Pasting it sends it to the model and keeps it in the transcript.',hint:'Turn on the Vault in Settings → Features, to store secrets instead.',alt:2});
     await untip();await scan('secret-paste-sheet-vault-off');await clickControl(page,'.secret-sheet [data-back]');await sheetGone();settings.vault=true;
     // The phone: both sheets fit at 390, and the queue editor's paste stacks over its dialog and returns to it.
     await page.setViewport({width:390,height:844});await page.reload();await page.waitForSelector('#box');await setBox('');
@@ -2970,7 +2969,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     assert.equal(await page.$eval('#box',b=>b.placeholder),'Reply…');
     await scan('assistant-chat-390');
     await page.goto(base+'/#/');await page.waitForSelector('.assistant-home');await clickControl(page,'#settings');await page.waitForSelector('.settings-index');
-    assert.deepEqual(await page.$$eval('.settings-index [data-settings-category]',b=>b.map(x=>x.dataset.settingsCategory)),['appearance','conversation','accounts','features','automation','notifications','help']); // 1.81 (#175): Features joins Accounts
+    assert.deepEqual(await page.$$eval('.settings-index [data-settings-category]',b=>b.map(x=>x.dataset.settingsCategory)),['display','conversations','notifications','voice','accounts','features','unattended','usage','help']); // 1.81 (#175): Features joins Accounts
     assert.equal(await shown('#s-models'),false,'the model list is not offered');assert.equal(await shown('#s-trusted'),false);
     await page.keyboard.press('Escape');
     await page.goto(base+'/#/all');await page.waitForSelector('.session-home');
@@ -2990,9 +2989,10 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     for(const [w,h] of [[390,844],[1440,900]]){
      await page.setViewport({width:w,height:h});await page.goto(base+'/#/');await open();await features();
      assert.equal(await page.$eval('.sheet h2',e=>e.textContent.trim()),'Features');
-     assert.deepEqual(await page.$$eval('[data-settings-panel=features] > *',es=>es.filter(e=>e.getClientRects().length).map(e=>e.id)),['s-features-lead','s-projects','s-documents','s-tasks','s-inbox','s-vault','s-router'],'the lead, the five switches, then Automatic model choice, in that order at '+w);
+     assert.deepEqual(await page.$$eval('#s-features-list > *',es=>es.filter(e=>e.getClientRects().length).map(e=>e.id||e.dataset.feature)),['s-features-lead','f-projects','f-files','f-tasks','inbox','f-vault','f-checkbacks','f-jobs','f-router'],'the lead, the switches, then Automatic model choice, in that order at '+w);
+     assert.deepEqual(await page.$$eval('#s-features-list .feature-open',es=>es.filter(e=>e.getClientRects().length).map(e=>e.dataset.settingsCategory)),['f-tasks','f-checkbacks','f-jobs'],'a › only where its page has something in Assistant mode (1.124.9)');
      assert.equal(await page.$eval('#s-features-note',e=>e.textContent),'Switch on what you want to use. Each one adds its own place beside your conversations.');
-     assert.equal(await shown('#s-inbox-watch'),false,'no schedule button while Inbox Watch is off');assert.equal(await shown('#s-trusted'),false,'only Automatic model choice comes along, not the rest of Agents & instance');
+     assert.equal(await shown('.feature-open[data-settings-category=inbox]'),false,'no › for Inbox Watch while it is off');assert.equal(await shown('#s-trusted'),false,'only Automatic model choice comes along, not the rest of Agents & instance');
      for(const t of ['light','dark']){await theme(t);await scan(`assistant-features-${w}-${t}`);await page.screenshot({path:path.join(out,`assistant-features-${w}-${t}.png`)});}
      await theme('system');
      if(w===390){
@@ -3004,13 +3004,13 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
        await page.waitForFunction(()=>!document.querySelector('.settings-sheet'),{timeout:2500}).catch(()=>{}); // the view redraws a moment after the save
       }
       await reopen();
-      assert.deepEqual(await page.$$eval('[data-settings-panel=features] > *',es=>es.filter(e=>e.getClientRects().length).map(e=>e.id)),['s-features-lead','s-projects','s-documents','s-tasks','s-inbox','s-inbox-watch','s-vault','s-router'],'Inbox Watch brings its schedule button right under it');
-      assert.equal(await page.$eval('#s-inbox-watch',e=>e.textContent.trim().startsWith('Inbox Watch schedule')),true,'the Assistant-mode label');
-      await clickControl(page,'#s-inbox-watch');await page.waitForSelector('.watch-sheet #w-save');await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.watch-sheet'));
+      assert.equal(await shown('.feature-open[data-settings-category=inbox]'),true,'Inbox Watch on brings its › (its own sheet)');
+      assert.equal(await page.$eval('.feature-open[data-settings-category=inbox]',e=>e.getAttribute('aria-label')),'Inbox Watch settings');
+      await clickControl(page,'.feature-open[data-settings-category=inbox]');await page.waitForSelector('.watch-sheet #w-save');await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.watch-sheet'));
       await reopen();
       await page.$eval('#s-router',e=>e.scrollIntoView({block:'start'}));
       for(const sel of ['#s-router-provider','#s-router-key','#s-router-levels','#s-router-note'])assert.equal(await page.$eval(sel,e=>e.getClientRects().length),0,sel+': no model, level or key in Assistant mode');
-      assert.doesNotMatch(await page.$eval('#s-router',e=>e.innerText),/Opus|Sonnet|Haiku|GPT|Jev|OpenRouter/,'no model name reaches a seat');
+      assert.doesNotMatch(await page.$eval('.settings-sheet',e=>e.innerText),/Opus|Sonnet|Haiku|GPT|Jev|OpenRouter/,'no model name reaches a seat (1.124.9: the switch is in Features, its page is Developer mode only)');
       await clickControl(page,'#s-router-on');await page.waitForFunction(()=>/Automatic model choice is (on|off)/.test(document.getElementById('toast')?.textContent||''));
       await scan('assistant-features-router-390');
       Object.assign(settings,{projects:false,documents:false,tasks:false,inbox:false,vault:false});
@@ -3029,10 +3029,10 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     Object.assign(settings,{assistantLocked:true,projects:true,documents:false,tasks:true,inbox:false,vault:false});
     for(const [w,h] of [[390,844],[1440,900]]){
      await page.setViewport({width:w,height:h});await page.goto(base+'/#/');await open();
-     assert.deepEqual(await page.$$eval('.settings-index [data-settings-category]',b=>b.map(x=>x.dataset.settingsCategory)),['appearance','conversation','accounts','features','automation','notifications','help']);
+     assert.deepEqual(await page.$$eval('.settings-index [data-settings-category]',b=>b.map(x=>x.dataset.settingsCategory)),['display','conversations','notifications','voice','accounts','features','unattended','usage','help']);
      assert.equal(await page.$eval('[data-settings-category=features] .sub',e=>e.textContent),'Which parts of Pocket are on');
      await features();
-     assert.deepEqual(await page.$$eval('[data-settings-panel=features] > *',es=>es.map(e=>e.id)),['s-features-lead'],'nothing but the line');
+     assert.deepEqual(await page.$$eval('#s-features-list > *',es=>es.map(e=>e.id||e.dataset.feature)),['s-features-lead','f-checkbacks','f-jobs'],'the line, and only the switches the server does not fix (1.124.9)');
      assert.equal(await page.$eval('#s-features-note',e=>e.textContent),'Projects and Tasks are on. Files, Inbox Watch and Vault are off. To change them, ask the person who runs this install.');
      for(const id of ['s-projects','s-documents','s-tasks','s-inbox','s-vault','s-router-on'])assert.equal(await shown('#'+id),false,id+' is not offered when the mode is locked');
      if(w===390)for(const t of ['light','dark']){await theme(t);await scan(`assistant-features-locked-${w}-${t}`);await page.screenshot({path:path.join(out,`assistant-features-locked-${w}-${t}.png`)});}
@@ -3176,7 +3176,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     assert.equal(await page.evaluate(()=>inboxRunnerLine({managed:true,state:'running',mailbox:'sam@example.com',accountChange:{from:'alex@example.com',to:'sam@example.com'}})),'Gmail is now connected as sam@example.com (it was alex@example.com), so Inbox Watch now watches sam@example.com. Mail already kept from the old account stays in its memory.');
     assert.equal(await page.evaluate(()=>inboxRunnerLine({managed:true,state:'running',mailbox:'sam@example.com',accountChange:null})),'');
     // Settings: the switch under the libraries, the push kind under notifications
-    await page.setViewport({width:1440,height:900});await page.goto(base+'/#/all');await page.evaluate(()=>settingsSheet({category:'libraries'}));await page.waitForSelector('#s-inbox');
+    await page.setViewport({width:1440,height:900});await page.goto(base+'/#/all');await page.evaluate(()=>settingsSheet({category:'features'}));await page.waitForSelector('#s-inbox',{visible:true});
     await page.waitForFunction(()=>document.querySelector('#s-inbox')?.getAttribute('aria-pressed')==='true');assert.match(await page.$eval('#s-inbox-state',e=>e.textContent),/^On: alerts, digests and look-aheads/);
     await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.settings-sheet'));
     await page.evaluate(()=>settingsSheet({category:'notifications'}));await page.waitForSelector('#s-push-alerts');assert.equal(await page.$eval('#s-push-alerts',e=>e.textContent.includes('Inbox alerts')),true);
@@ -3310,14 +3310,14 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.watch-sheet'));
     // Settings opens the same sheet; Assistant mode keeps the schedule and drops models and cost
     // 1.81 (#182): inside its category the button still disappears with the switch (a hidden .opt needs its own rule)
-    settings.inbox=false;await page.goto(base+'/#/all');await page.evaluate(()=>settingsSheet({category:'libraries'}));
+    settings.inbox=false;await page.goto(base+'/#/all');await page.evaluate(()=>settingsSheet({category:'features'}));
     await page.waitForFunction(()=>/^Off\./.test(document.querySelector('#s-inbox-state')?.textContent||''));
-    assert.equal(await page.$eval('#s-inbox-watch',e=>e.getClientRects().length),0,'no Schedule, models and cost while Inbox Watch is off');
+    assert.equal(await page.$eval('.feature-open[data-settings-category=inbox]',e=>e.getClientRects().length),0,'no › to the schedule, models and cost while Inbox Watch is off');
     await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.settings-sheet'));settings.inbox=true;
-    await page.goto(base+'/#/all');await page.evaluate(()=>settingsSheet({category:'libraries'}));await page.waitForSelector('#s-inbox-watch:not([hidden])');
-    // 1.81 (#182): the button sits in Projects, files, tasks & vault, right under the Inbox Watch switch, not loose above the categories
-    assert.deepEqual(await page.$eval('#s-inbox-watch',e=>({panel:e.closest('[data-settings-panel]')?.dataset.settingsPanel,after:e.previousElementSibling?.id,before:e.nextElementSibling?.id,parent:e.parentElement.tagName})),{panel:'libraries',after:'s-inbox',before:'s-vault',parent:'SECTION'},'Schedule, models and cost follows the Inbox Watch switch');
-    await clickControl(page,'#s-inbox-watch');await page.waitForSelector('.watch-sheet #w-save');assert.ok(await page.$('.watch-sheet .sheet-back'),'Back to Settings');
+    await page.goto(base+'/#/all');await page.evaluate(()=>settingsSheet({category:'features'}));await page.waitForSelector('.feature-open[data-settings-category=inbox]:not([hidden])',{visible:true});
+    // 1.124.9: the › beside the Inbox Watch switch opens its sheet (1.81 #182: never loose above the pages)
+    assert.deepEqual(await page.$eval('.feature-open[data-settings-category=inbox]',e=>({panel:e.closest('[data-settings-panel]')?.dataset.settingsPanel,switch:e.previousElementSibling?.id})),{panel:'features',switch:'s-inbox'},'Inbox Watch settings sit beside its switch');
+    await clickControl(page,'.feature-open[data-settings-category=inbox]');await page.waitForSelector('.watch-sheet #w-save');assert.ok(await page.$('.watch-sheet .sheet-back'),'Back to Settings');
     await page.keyboard.press('Escape');
     settings.assistantMode=true;await page.setViewport({width:390,height:844});await page.goto(base+'/#/inbox');await page.reload();await page.waitForSelector('#inbox-watch');
     await clickControl(page,'#inbox-watch');await page.waitForSelector('.watch-sheet #w-save');
@@ -3327,17 +3327,17 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    }finally{Object.assign(settings,before);await page.evaluate(()=>fetch('/api/inbox/reset',{method:'POST'}));if(vp)await page.setViewport(vp);await page.goto(base+'/#/');}
   });
 
-  await check('1.68.1 Settings → Appearance: Mode shows Developer mode and Assistant mode with the current one pressed',async()=>{
+  await check('1.68.1 Settings → Layout: Mode shows Developer mode and Assistant mode with the current one pressed',async()=>{
    const settings=settingsState(),before={assistantMode:settings.assistantMode},vp=page.viewport();
    try{
     for(const [w,h] of [[390,844],[1440,900]])for(const assistant of [false,true]){
      settings.assistantMode=assistant;await page.setViewport({width:w,height:h});
      await page.goto(base+'/#/all');await page.reload();await page.waitForSelector('.session-home'); // a reload, so the page reads the mode afresh
-     await page.evaluate(()=>settingsSheet({category:'appearance'}));await page.waitForSelector('#s-mode');
+     await page.evaluate(()=>settingsSheet());await page.waitForSelector('.settings-index #s-mode',{visible:true}); // 1.124.9: Layout heads the index
      assert.deepEqual(await page.$$eval('#s-mode [data-pocket-mode]',b=>b.map(x=>[x.dataset.pocketMode,x.textContent.trim(),x.getAttribute('aria-pressed')])),[['developer','Developer mode',String(!assistant)],['assistant','Assistant mode',String(assistant)]],'the current mode is pressed at '+w+' assistant='+assistant);
      assert.ok((await page.$$eval('#s-mode [data-pocket-mode]',b=>b.map(x=>x.getBoundingClientRect().height))).every(x=>x>=44),'44px targets');
      assert.equal(await page.$('#s-assistant'),null,'the 1.60 switch is gone');
-     assert.match(await page.$eval('#s-mode .chat-text-help',e=>e.textContent),/Developer mode is the full workbench/);
+     assert.match(await page.$eval('#s-mode .chat-text-help',e=>e.textContent),/^Assistant mode opens on the message box and hides the developer tools\. Changes every device signed in to this Pocket\.$/);
      if(!assistant){await page.mouse.move(1,1);await page.evaluate(()=>document.querySelector('#tip')?.setAttribute('hidden',''));await scan('settings-mode-'+w);} // the hover tip from the reload is not part of this surface
      await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.settings-sheet'));
     }
@@ -3349,7 +3349,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    try{
     for(const [w,h] of [[390,844],[1440,900]]){
      await page.setViewport({width:w,height:h});await page.goto(base+'/#/all');await page.waitForSelector('.session-home');
-     await page.evaluate(()=>settingsSheet({category:'agents'}));await page.waitForFunction(()=>document.querySelectorAll('#s-router-levels .router-level').length===4);
+     await page.evaluate(()=>settingsSheet({category:'f-router'}));await page.waitForFunction(()=>document.querySelectorAll('#s-router-levels .router-level').length===4);
      assert.equal(await page.$eval('#s-router-on',b=>b.getAttribute('aria-pressed')),'true');
      assert.equal(await page.$eval('#s-router-provider',s=>s.value),'jev');
      assert.match(await page.$eval('#s-router-key-note',p=>p.textContent),/never shown again/);

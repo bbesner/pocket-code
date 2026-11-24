@@ -18,18 +18,19 @@ export async function runCleanupRegressions({browser,base,rows,out}) {
  await fetch(base+'/api/documents/reset',{method:'POST'});await fetch(base+'/api/board/reset',{method:'POST'});
  for(const width of [390,768,1440]){
   await page.setViewport({width,height:900});await fresh('#/','#settings');
-  await check('Settings visible initial focus and seven-category index at '+width,async()=>{
+  await check('Settings visible initial focus and the ten-page index at '+width,async()=>{
    await page.click('#settings');assert.equal(await page.evaluate(()=>document.activeElement.className),'sheet-close icon');
-   assert.equal(await page.$$eval('.settings-index button',es=>es.filter(e=>e.checkVisibility()).length),7); // 1.117 adds Automation
-   assert.equal(await page.$eval('.settings-sheet',e=>e.scrollHeight<=e.clientHeight+1),true,'index fits without scrolling');
+   assert.equal(await page.$$eval('.settings-index > [data-settings-category]',es=>es.filter(e=>e.checkVisibility()).length),10); // 1.124.9: ten pages, under Layout
+   // 1.124.9: ten pages do not fit one screen; Layout stays short, so the first pages show without scrolling
+   assert.ok(await page.$eval('.settings-index [data-settings-category=notifications]',e=>{const s=document.querySelector('.settings-sheet').getBoundingClientRect(),r=e.getBoundingClientRect();return r.bottom<=s.bottom;}),'Display, Conversations and Notifications show without scrolling');
    await scan('settings-'+width);
   });
   await check('Settings category and parent return at '+width,async()=>{
-   await page.click('[data-settings-category=agents]');await page.click('#s-usage');await page.waitForSelector('#usage-body');
-   await page.click('.sheet-back');await page.waitForSelector('[data-settings-panel=agents]:not([hidden])');
-   assert.match(await page.$eval('.settings-sheet h2',e=>e.textContent),/Agents/);
-   await page.click('#settings-back');await page.click('[data-settings-category=notifications]');
-   await page.click('#s-voice > summary');await page.waitForSelector('#s-voice-vocab');await scan('voice-'+width);
+   await page.click('[data-settings-category=usage]');await page.click('#s-usage');await page.waitForSelector('#usage-body');
+   await page.click('.sheet-back');await page.waitForSelector('[data-settings-panel=usage]:not([hidden])');
+   assert.match(await page.$eval('.settings-sheet h2',e=>e.textContent),/Usage/);
+   await page.click('#settings-back');await page.click('[data-settings-category=voice]');
+   await page.waitForSelector('#s-voice-vocab',{visible:true});await scan('voice-'+width); // 1.124.9: Voice is its own page, open
    await page.keyboard.press('Escape');assert.equal(await page.evaluate(()=>document.activeElement.id),'settings');
   });
   await fresh('#/new','#first');

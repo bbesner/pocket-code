@@ -1,6 +1,6 @@
 /* Pocket Code — job keys, the app half. The owner creates a key with a fixed instruction, folder, agent, model and access;
    a script on this server calls POST /api/jobs/run with it and some data, and Pocket starts a reply the owner can watch.
-   Here: the key list under Settings → Automation → Job keys, the New job key sheet, the key shown once (after Create and
+   Here: the key list under Settings → Features → Job keys, the New job key sheet, the key shown once (after Create and
    Rotate), a key's own sheet with Turn off / Turn on, Rotate key, Delete and Recent runs.
    Requests: an agent in a conversation the owner started proposes a key (pocket-jobkey). It waits under "Waiting for you"
    above the list, with every field and the whole instruction (no inner scroll: the card grows, so Allow is reached only
@@ -232,7 +232,7 @@ const JobKeys = (() => {
     return true;
   }
 
-  /* ---------- the list under Settings → Automation → Job keys ---------- */
+  /* ---------- the list under Settings → Features → Job keys ---------- */
   function rowInner(k) {
     return `${KEY_ICON}<span class="job-key-text"><span class="job-key-name">${esc(k.name)}</span><span class="sub job-key-facts">${esc(factsA(k))}</span><span class="sub job-key-facts" data-job-key-state="${esc(stateOf(k))}">${esc(factsB(k))}</span></span>`;
   }
@@ -251,7 +251,7 @@ const JobKeys = (() => {
   const listHTML = () => on() ? `<div class="job-keys" data-job-keys>${listInner()}</div>` : '';
   const hostEl = () => document.querySelector('[data-job-keys]');
   const written = new WeakMap(); // row button → the HTML last written into it
-  // Called after Settings → Automation paints its body: the rows came in as HTML, so what they hold is recorded first.
+  // Called after Settings → Features → Job keys paints its body: the rows came in as HTML, so what they hold is recorded first.
   function bind(root) {
     const host = root.querySelector('[data-job-keys]');
     if (!host) {
@@ -729,8 +729,8 @@ const JobKeys = (() => {
 
   /* ---------- 1.124: Tasks, a read-only Jobs group ----------
      GET /api/tasks `jobs: { keys, requests }` (only while Job keys and Show job keys in the Tasks list are on). The requests
-     waiting for you lead, then each key in the Settings order. A row opens what it names: a request's card in Settings →
-     Automation, a key's own sheet (Turn off, Rotate, Delete, Recent runs). The group itself changes nothing. */
+     waiting for you lead, then each key in the Settings order. A row opens what it names: a request's card in Settings → Features →
+     Job keys, a key's own sheet (Turn off, Rotate, Delete, Recent runs). The group itself changes nothing. */
   function taskFacts(k) {
     const s = k.lastRun?.status, needs = s === 'needs_you';
     const state = needs ? 'Needs you' : stateOf(k);

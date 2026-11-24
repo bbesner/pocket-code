@@ -54,7 +54,7 @@ checkout is left alone.
 | Platform | Linux or macOS. Windows stops with a pointer to WSL2. | Install inside WSL2. |
 | Node.js | 20.11 or newer. | Install a newer Node.js. |
 | Dependencies | `node_modules` present, or `npm ci --omit=dev` just ran. | Run `npm ci --omit=dev` in the checkout and read its error. |
-| Claude Code | `claude` found and signed in. Not signed in is a warning: sign in with `claude` in a terminal, or later from Pocket's **Settings → Agents & instance → Accounts & instance** (**Settings → Accounts** in Assistant mode). | Install Claude Code, or set `CLAUDE_BIN=/path/to/claude` in `.env`. |
+| Claude Code | `claude` found and signed in. Not signed in is a warning: sign in with `claude` in a terminal, or later from Pocket's **Settings → Accounts & sign-in → Claude and Codex accounts** (**Settings → Accounts** in Assistant mode). | Install Claude Code, or set `CLAUDE_BIN=/path/to/claude` in `.env`. |
 | Codex | Found (optional). | Nothing; Pocket shows Codex sessions once `codex` is installed. |
 | PM2 | `pm2` on `PATH`, or installed with `npm install -g pm2` (`--yes`, or answer the prompt). | Install PM2; a global npm prefix you cannot write to needs `sudo` or a user prefix. |
 | PM2 app | No `pocket-claude` process, or one running from this checkout. | One from another directory: stop it (`pm2 delete pocket-claude`) or install there instead. One daemon per data directory. |
@@ -138,8 +138,8 @@ comma-separated emails that may sign in this way). Pocket checks Cloudflare's si
 `Cf-Access-Jwt-Assertion` header, the team, the audience, the expiry and the email, then signs
 the browser in for as long as the Access token lasts, at most a day; anything else gets the
 password page. Leave any of the three unset to
-keep the password only. Since 1.67 the same can be set, changed or turned off in **Settings → Agents &
-instance → One sign-in**.
+keep the password only. Since 1.67 the same can be set, changed or turned off in **Settings → Accounts &
+sign-in → Sign in with Cloudflare Access**.
 
 **Caddy** (a public hostname with automatic certificates, on a machine with ports 80 and 443
 open):
@@ -182,7 +182,7 @@ Pocket in a frame.
 correct password does not use up a try (the Vault's ten wrong passphrases count per signed-in
 session instead, with 50 an hour across all sessions as a backstop). Behind a proxy every request arrives from `127.0.0.1`, so
 Pocket uses the `cf-connecting-ip` header for the address, but only when it can trust it: the
-request carries a Cloudflare Access token that verifies (One sign-in above is set up), or you set
+request carries a Cloudflare Access token that verifies (Sign in with Cloudflare Access, above, is set up), or you set
 `POCKET_TRUSTED_PROXY=1` in `.env`. Set it only when the port is reachable through that proxy and
 nothing else (the usual case for a Cloudflare Tunnel, whose `cloudflared` sets the header on
 every request), because anything that reaches the port directly can then pick its own address.
@@ -228,13 +228,13 @@ browser test suite. Report what you find in [issue #87](https://github.com/bbesn
 1. Open the HTTPS address and sign in with the password.
 2. On a phone, choose **Add to Home screen**, then tap the bell to allow notifications.
 3. Start a session: choose the agent, the working directory and the model.
-4. Choose a mode in **Settings → Appearance → Mode**: **Developer mode** if you write code or run
+4. Choose a mode in **Layout** at the top of Settings: **Developer mode** if you write code or run
    coding agents, **Assistant mode** if Pocket is your assistant for office work (see the
    [README](../README.md#developer-mode-or-assistant-mode)).
 5. Projects, Files, Tasks, Inbox Watch and the Vault are off until you switch them on in **Settings →
-   Projects, files, tasks & vault** (in Assistant mode, **Settings → Features**). With Inbox
+   Features**. With Inbox
    Watch on, Pocket runs the watcher itself every minute with `python3`, reading Gmail through the
-   Gmail connector Claude Code or Codex already has (**Settings → Agents & instance → Connectors**); see the
+   Gmail connector Claude Code or Codex already has (**Settings → Accounts & sign-in → Connectors**); see the
    [README](../README.md#inbox-watch-your-mailbox-read-for-you). Voice is a separate optional install
    (`scripts/voice-setup.sh`, see the [README](../README.md#voice-mode-beta)).
 
@@ -248,8 +248,7 @@ echo 'POCKET_CLAUDE_MODELS=claude-sonnet-5-5,claude-haiku-5-5' >> ~/pocket-code/
 echo 'POCKET_CLAUDE_MODEL=claude-sonnet-5-5' >> ~/pocket-code/.env   # optional: what Default runs
 ```
 
-The owner can change the list later in **Settings → Agents & instance → Claude models in the
-picker**; once saved there, that choice wins over `.env` (**Use the server's list** goes back).
+The owner can change the list later in **Settings → Agents → Models offered in the picker**; once saved there, that choice wins over `.env` (**Use the server's list** goes back).
 To make a limit binding, put it in Claude Code's managed settings
 (`availableModels` and `deniedModels` in `managed-settings.json` or `managed-settings.d/*.json`, under
 `/etc/claude-code` on Linux or `/Library/Application Support/ClaudeCode` on macOS): Pocket
@@ -266,7 +265,7 @@ memory searches run straight through, list them before the first start (restart 
 echo 'POCKET_TRUSTED_ACTIONS=Bash(acme-lookup:*),mcp__notes__search' >> ~/pocket-code/.env
 ```
 
-The owner can change the list later in **Settings → Agents & instance → Actions that run without
+The owner can change the list later in **Settings → Agents → Actions that run without
 asking**; a list saved there wins over `.env`. List only commands that cannot change anything,
 whatever their arguments. Writes always ask. Syntax and matching:
 [action approvals](action-approvals.md#actions-that-run-without-asking).

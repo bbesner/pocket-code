@@ -279,13 +279,13 @@ export async function runUiTestFixes({browser,base,rows,out,settingsState=()=>({
   await page.goto(base+'/#/all');await page.waitForSelector('#settings');await page.waitForFunction(()=>typeof settingsSheet==='function');
   const edges=sel=>page.evaluate(sel=>{const edge=e=>Math.round(e.getBoundingClientRect().left+parseFloat(getComputedStyle(e).paddingLeft));const sh=document.querySelector('.sheet[role=dialog]');
    return {head:edge(sh.querySelector('h2')),lines:[...sh.querySelectorAll(sel)].filter(e=>e.getClientRects().length).map(edge)};},sel);
-  await page.evaluate(()=>settingsSheet({category:'conversation'}));await page.waitForSelector('#s-titles',{visible:true});
+  await page.evaluate(()=>settingsSheet({category:'conversations'}));await page.waitForSelector('#s-titles',{visible:true});
   await page.waitForFunction(()=>!document.querySelector('#s-sync')?.disabled);
   assert.deepEqual(await page.$eval('#s-sync-retry',e=>[e.hidden,getComputedStyle(e).display]),[true,'none'],'"Retry name-sync setting" is not shown when nothing failed');
   const scope=await edges('.settings-scope');assert.ok(scope.lines.length>=2);
   assert.ok(scope.lines.every(x=>Math.abs(x-scope.head)<=1),'"This device" starts where the heading does: '+JSON.stringify(scope));
   // Accounts: the body is on the heading's inset, and every heading in it is one size
-  await page.evaluate(()=>settingsSheet({category:'agents'}));await page.waitForSelector('#s-environment',{visible:true});await page.click('#s-environment');
+  await page.evaluate(()=>settingsSheet({category:'accounts'}));await page.waitForSelector('#s-environment',{visible:true});await page.click('#s-environment');
   await page.waitForFunction(()=>document.querySelectorAll('.sheet[role=dialog] [data-environment] h3').length>=2);
   const env=await edges('[data-environment] > *');assert.ok(env.lines.every(x=>x>=env.head-1),'the Accounts body does not hang out to the left of its heading: '+JSON.stringify(env));
   assert.deepEqual([...new Set(await page.$$eval('.sheet[role=dialog] [data-environment] h3',hs=>hs.map(h=>getComputedStyle(h).fontSize)))],['16px'],'"Conversation controls" is the size of the account headings');
@@ -301,13 +301,13 @@ export async function runUiTestFixes({browser,base,rows,out,settingsState=()=>({
   assert.deepEqual(await state(),{err:'That does not look like an email address.',role:'alert',invalid:'true',focus:'s-email',value:'owner@example',novalidate:true},'a refusal from the server lands in the same place, and the address stays to be corrected');
  });
 
- await check('Settings in a split pane says where Automation is, not that the server lacks it',DESKTOP,async page=>{
+ await check('Settings in a split pane says where Unattended work is, not that the server lacks it',DESKTOP,async page=>{
   await page.setViewport({width:480,height:900,deviceScaleFactor:1});
   await page.goto(base+'/?pane=uifix#/all');await page.waitForFunction(()=>typeof settingsSheet==='function'&&window.pocketFeatures);
   assert.equal(await page.evaluate(()=>Boolean(window.pocketFeatures.automation)),true,'the fixture server offers automation');
-  await page.evaluate(()=>settingsSheet({category:'automation'}));
+  await page.evaluate(()=>settingsSheet({category:'unattended'}));
   await page.waitForFunction(()=>document.querySelector('#s-automation-body')?.getAttribute('aria-busy')==='false');
-  assert.equal(await page.$eval('#s-automation-body',e=>e.textContent.trim()),'Automation and Pause all are in the main window.');
+  assert.equal(await page.$eval('#s-automation-body',e=>e.textContent.trim()),'Unattended work and Pause all are in the main window.');
  });
 
  await check('Inbox: after Dismiss or Resolved the focus is on the next entry, times read PM, and an item\'s buttons are full size on touch',PHONE,page=>withSettings({inbox:true},async()=>{

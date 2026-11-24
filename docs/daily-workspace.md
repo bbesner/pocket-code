@@ -49,7 +49,7 @@ local to each browser; pinning, names, queues and conversations remain server da
 Hide is reversible, does not delete history, and does not hide active/waiting work.
 
 Ctrl/Cmd K finds sessions; Ctrl/Cmd Shift L starts one; Alt [ and Alt ] switch open
-tabs. Settings → Keyboard & workspace lists these. Resume returns to the last tab.
+tabs. Settings → Help & updates → Keyboard shortcuts lists these. Resume returns to the last tab.
 
 Claude questions use its native stream control protocol. Codex questions use the
 app-server protocol and the new Plan first mode. Select Work normally when ready

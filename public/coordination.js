@@ -1,5 +1,5 @@
 /* Coordination (1.99): which conversation holds staging or a deploy, who is waiting, and what ended lately. Off until
-   Settings → Projects, files, tasks & vault turns it on (window.pocketFeatures.coordination), and never in Assistant mode. One view (#/coordination),
+   Settings → Features turns it on (window.pocketFeatures.coordination), and never in Assistant mode. One view (#/coordination),
    which opens like a session: as a tab, beside a conversation, in a window of its own, or full-screen on the phone.
    Agents make the claims with pocket-coord. A person only reads this list and releases, and a hold is advisory: nothing
    here stops a deploy. Data comes from /api/coordination; the only action is /api/coordination/owner-release. */

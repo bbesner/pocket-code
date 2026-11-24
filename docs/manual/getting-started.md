@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.124.8
+checked: 1.124.9
 sources: docs/install.md, scripts/pocket-init.mjs, access.mjs, public/manifest.webmanifest, public/sw.js, public/workspace.js
 -->
 # Getting started
@@ -38,8 +38,7 @@ Open the HTTPS address. The sign-in screen asks for one thing, the **Password**,
   `pocket-init` prints it once; run by an agent, it leaves it in `.env` for you to read with
   `grep '^POCKET_PASSWORD=' ~/pocket-code/.env`.
 - A successful sign-in keeps that browser signed in for 90 days, until you sign it out in
-  [Settings → Agents & instance → Sign out](settings.md#agents--instance) (**Accounts** in
-  Assistant mode; 1.118), choose **Sign out everywhere**, or change the password.
+  [Settings → Accounts & sign-in → Sign out](settings.md#accounts--sign-in) (1.118), choose **Sign out everywhere**, or change the password.
 - After 20 sign-in attempts from one address within an hour, further attempts get **Too many
   attempts. Wait an hour.** When many addresses fail at once, Pocket checks sign-ins one at a
   time and may answer **Too many sign-in attempts right now. Try again in a minute.** A browser
@@ -49,13 +48,13 @@ Open the HTTPS address. The sign-in screen asks for one thing, the **Password**,
   sign in can run commands on the server as the user Pocket runs as. Read the
   [security model](../../SECURITY.md#security-model) before you share access.
 
-**One sign-in with Cloudflare Access.** If the address sits behind Cloudflare Access, Pocket can
+**Signing in with Cloudflare Access.** If the address sits behind Cloudflare Access, Pocket can
 accept the Access sign-in instead of asking for its own password as well. It checks Cloudflare's
 signature, the team, the application's audience tag, the expiry and the email against your list,
-and signs the browser in for at most a day. Set it up in **Settings → Agents & instance → One
-sign-in** (Team, Audience tag, Who may sign in this way), or with `POCKET_ACCESS_TEAM`,
+and signs the browser in for at most a day. Set it up in **Settings → Accounts & sign-in → Sign in with
+Cloudflare Access** (Team name, Application audience (AUD) tag, Who may sign in this way), or with `POCKET_ACCESS_TEAM`,
 `POCKET_ACCESS_AUD` and `POCKET_ACCESS_EMAILS` in `.env`. Anything that does not pass the check
-gets the normal password screen. See [Settings](settings.md#agents--instance).
+gets the normal password screen. See [Settings](settings.md#accounts--sign-in).
 
 The `cli-token` file Pocket writes to its data directory is for the agent commands
 (`pocket-board`, `pocket-docs` and the rest) on the server itself. It is not a browser login.
@@ -70,7 +69,7 @@ Pocket Code is an installable web app (a PWA).
 3. Open it from the new icon. It runs full screen, like an app. In Assistant mode the installed
    app is named **Pocket Assistant**.
 4. Tap the bell at the top of the conversation list to turn on notifications for this device, or
-   use **Settings → Notifications & voice → Push to this device**. Then choose which kinds this
+   use **Settings → Notifications → Push to this device**. Then choose which kinds this
    device gets: **Finished replies**, **Due tasks and reminders**, **Vault requests**, **Inbox
    alerts** and **Check-backs and job results**.
 
@@ -81,18 +80,18 @@ your conversations or files, so with no connection it opens and says **You're of
 
 ## Developer mode or Assistant mode
 
-Pocket has two faces over the same conversations, files, tasks and vault. Switch in **Settings →
-Appearance → Mode**: the mode you are in is shown pressed. The choice applies to this Pocket on
+Pocket has two faces over the same conversations, files, tasks and vault. Switch with **Layout** at the top of
+**Settings**: the mode you are in is shown pressed. The choice applies to this Pocket on
 every device.
 
 | | Developer mode | Assistant mode |
 |---|---|---|
 | Opens on | The conversation list (on a desktop, the conversation rail beside the open conversation) | A message box, **What would you like done?**, with **Waiting for you** cards and your five **Recent** conversations below |
-| Model and reasoning | Chips above the message box for model, reasoning, permissions and (Codex, OpenRouter, Antigravity) Plan first | Hidden. **Automatic model choice** picks one when it is set up, otherwise the default model runs. **Try harder** under a Claude reply asks for a more careful pass on a stronger model |
+| Agent, model and effort | Chips above the message box: one for the agent, model and effort, then permissions and (Codex, OpenRouter, Antigravity) Plan first | Hidden. **Automatic model choice** picks one when it is set up, otherwise the default model runs. **Try harder** under a Claude reply asks for a more careful pass on a stronger model |
 | Workbench | Tabs, split view, **Results**, **Queue**, **Git**, changed files, filters, cost and timing | Hidden |
 | Steps | Each step in plain words, with the command or path beside it | Plain words only |
 | Files from replies | Kept in Files when **Keep files from replies** is on | Always kept (when Files is on) |
-| Settings | Every category | Appearance, Conversation, Accounts, Features, Automation, Notifications & voice, Help & updates |
+| Settings | Every page | Display, Conversations (fewer rows), Notifications, Voice (beta), Accounts & sign-in (fewer rows), Features, Unattended work, Usage, Help & updates |
 | Name | Pocket Code | Pocket Assistant |
 
 Use Developer mode if you write code or run coding agents. Use Assistant mode if Pocket is your
@@ -101,16 +100,16 @@ Nothing is deleted when you switch; the same conversations are underneath.
 
 An administrator can set the starting mode for an install with `POCKET_ASSISTANT_MODE=on` in
 `.env`, or keep Assistant mode on with `POCKET_ASSISTANT_MODE=locked`. When it is locked, both
-Mode options show disabled with the reason, and Settings cannot switch back. The install's features
+**Layout** options show disabled with the reason, and Settings cannot switch back. The install's features
 then cannot be changed from Settings either: **Settings → Features** says what is on and to ask the person who runs the install.
 
 ## Turn on the optional features
 
 Projects, Files, Tasks, Inbox Watch and the Vault are off on a new install. Each is switched on
-for the whole install in **Settings → Projects, files, tasks & vault**, and its view then appears
-in the rail (desktop) or as a chip on the home screen (phone). In Assistant mode the same switches
-are under **Settings → Features**, with **Automatic model choice**. While the mode is locked,
-**Features** only says what is on, and the person who runs the install changes it.
+for the whole install in **Settings → Features**, and its view then appears
+in the rail (desktop) or as a chip on the home screen (phone). The same switches are in both
+modes, with **Check-backs**, **Job keys** and **Automatic model choice** beside them. While the mode is locked,
+**Features** says what is on in place of those switches, and the person who runs the install changes it.
 
 | Feature | What it does | Page |
 |---|---|---|
@@ -131,11 +130,12 @@ server know how to use it. Conversations already running pick it up from their n
 1. Press **+** (**New conversation**): at the top of the rail on a desktop, at the bottom corner
    of the list on a phone. In Assistant mode the home screen is already a new conversation.
 2. Type what you want done in the box under **What would you like done?**
-3. Check the line above the box: **Workspace**, **Agent** and **Permissions**. Press **Edit setup**
-   to choose **Claude Code** or **Codex**, a **Project** (a folder your recent conversations worked in),
-   or type a full path under **Or a custom path**. On a new install the project list is empty, so
-   type the path. The agent works in that folder.
-4. In Developer mode, the chips above the box set the model, the reasoning effort and the
+3. Check the line above the box: it names the **Workspace**. Press **Edit setup** to choose a
+   **Project** (a folder your recent conversations worked in), or type a full path under **Or a
+   custom path**. On a new install the project list is empty, so type the path. The agent works in
+   that folder. The agent, model and effort are on one chip above the box, for example **Codex ·
+   GPT-6 Sol · High**; tap it to choose **Claude Code** or **Codex** (and the model and effort).
+4. In Developer mode, the chips above the box set the agent, model and effort (one chip) and the
    permissions for this reply. Leave them on **Default** and **Review actions** for a first run.
 5. Press the arrow (**Start conversation**). On a desktop, Enter sends and Shift+Enter adds a line.
 
@@ -180,10 +180,9 @@ When a user asks you to set up or explain Pocket Code:
   or repeat the password.
 - Settings are changed by the signed-in owner in the browser. The `/api/settings` route needs the
   owner's sign-in cookie and does not accept the agent commands' loopback token, so give the user
-  the exact path to click, for example **Settings → Projects, files, tasks & vault → Tasks** (in
-  Assistant mode, **Settings → Features → Tasks**).
+  the exact path to click, for example **Settings → Features → Tasks**.
 - An agent command for a feature that is off fails with a message naming that path, for example
-  `Tasks is off. Turn it on in Settings → Projects, files, tasks & vault.` Pass it on; do not try
+  `Tasks is off. Turn it on in Settings → Features.` Pass it on; do not try
   to switch the feature on yourself.
 - Do not add settings to `.env` that the user did not ask for. Settings that exist only as
   environment variables need a restart from the Pocket Code directory:
@@ -200,8 +199,8 @@ When a user asks you to set up or explain Pocket Code:
 | Every browser had to sign in again after an upgrade | The first start of 1.118 begins a new sign-in generation, once | Sign in again; it does not repeat |
 | **Push not configured on server** when you tap the bell | `VAPID_PUBLIC` and `VAPID_PRIVATE` are not set | Run `node scripts/pocket-init.mjs` again (it adds missing keys) or set them by hand, then restart |
 | **Notifications blocked** | The browser's notification permission for the site is off | Allow notifications in the browser's site settings, then turn push on again |
-| No **Projects, files, tasks & vault** in Settings | You are in Assistant mode | Use **Settings → Features**, or switch to Developer mode in **Settings → Appearance → Mode** |
-| **Features** shows a line and no switches | `POCKET_ASSISTANT_MODE=locked` on the server | Ask the person who runs the install |
-| Mode options are disabled | `POCKET_ASSISTANT_MODE=locked` on the server | Change it in `.env` and restart to allow Developer mode |
+| The **Agents** page, or a row you used to see, is missing from Settings | You are in Assistant mode, which hides the developer settings | Switch to Developer mode with **Layout** at the top of Settings, or use **Search settings** |
+| **Features** shows a line in place of most switches | `POCKET_ASSISTANT_MODE=locked` on the server | Ask the person who runs the install |
+| The **Layout** options are disabled | `POCKET_ASSISTANT_MODE=locked` on the server | Change it in `.env` and restart to allow Developer mode |
 | No mic beside Send | The voice engine is not installed, or `POCKET_VOICE=off` | See [Voice](voice.md) |
 | **You're offline.** or **The server didn't answer** | The phone has no connection, or the daemon or tunnel is down | **Try again**; on the server check `pm2 status` and `curl -s http://127.0.0.1:3610/api/health` |

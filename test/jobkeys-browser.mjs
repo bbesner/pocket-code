@@ -1,5 +1,5 @@
 // Job keys, the app half against a fixture: the states the real server is slow or awkward to reach. Settings →
-// Automation → Job keys with the feature off (no list, no call) and on (a running key, a key that is off with Full
+// Features → Job keys with the feature off (no list, no call) and on (a running key, a key that is off with Full
 // access), an unchanged refresh writing nothing in the list or the runs, a row changing state in place at the same
 // height, a key that has run (Folder and Agent read-only with the server's reason; Full access kept for a key that has
 // it even where the server no longer offers it), Recent runs in every status and failed outcome, and a Rotate whose key
@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import fs from 'node:fs';
-import {elementShot} from './ui-controls.mjs';
+import {elementShot,showSetting} from './ui-controls.mjs';
 import {automationFixture} from './automation-browser.mjs';
 
 const MIN=60000;
@@ -73,7 +73,10 @@ export async function runJobKeysRegressions({p,base,out,repo,scan,settings=null}
  const f=jobsFixture,a=automationFixture;a.reset();f.reset();
  const shots=process.env.POCKET_JOBKEYS_SHOTS||'/tmp/unattended-jobkeys-shots';fs.mkdirSync(shots,{recursive:true});
  const shot=async(name,el)=>{await p.evaluate(()=>document.querySelector('#toast')?.classList.remove('show'));if(el){await el.evaluate(e=>e.scrollIntoView({block:'center'}));await elementShot(el,{path:path.join(shots,'fixture-'+name+'.png')});}else await p.screenshot({path:path.join(shots,'fixture-'+name+'.png')});await p.screenshot({path:path.join(out,'jobkeys-'+name+'.png')});if(scan)await scan('jobkeys-'+name);};
- const automation=async()=>{await p.evaluate(()=>settingsSheet({category:'automation'}));await p.waitForSelector('[data-auto-group="jobs"] [data-auto-key="jobs"]');};
+ // 1.124.9: the switch is a row of Settings → Features; the group (the key list, its settings, Reset) is its page under Features.
+ const SWITCH='#s-jobs-switch [data-auto-key="jobs"]',FULL='[data-auto-group="jobs"]:not(.automation-switch)';
+ const automation=async()=>{await p.evaluate(()=>settingsSheet({category:'f-jobs'}));await showSetting(p,FULL);};
+ const turnJobs=async()=>{await p.evaluate(()=>settingsSheet({category:'features'}));await showSetting(p,SWITCH);await p.click(SWITCH);};
  const close=async()=>{await p.keyboard.press('Escape');await p.waitForFunction(()=>!document.querySelector('.sheet'));};
  const rowOf=name=>p.$$eval('[data-job-keys] .job-key-row',(rows,n)=>{const r=rows.find(r=>r.querySelector('.job-key-name').textContent===n);return r?[...r.querySelectorAll('.job-key-facts')].map(x=>x.textContent):null;},name);
  await p.setViewport({width:1440,height:900});
@@ -86,10 +89,15 @@ export async function runJobKeysRegressions({p,base,out,repo,scan,settings=null}
  assert.equal(f.gets,0,'no call to the key list while off');
  assert.equal(await p.$('[data-auto-dependent="jobs"]'),null,'off: only the switch and its help');
  assert.equal(await p.$('[data-auto-reset="jobs"]'),null,'off: no Reset either');
+ assert.equal(await p.$(FULL+' [data-auto-key="jobs"]'),null,'the switch is in Features, not on the page');
+ assert.equal(await p.$eval(FULL+' .automation-inactive-note',e=>e.textContent),'Job keys are off. Turn them on in Features.');
+ await close();await p.evaluate(()=>settingsSheet({category:'features'}));await showSetting(p,SWITCH);
+ assert.equal(await p.$eval(SWITCH,e=>e.getAttribute('aria-pressed')),'false');
 
  console.log('Job keys (fixture): on, the list shows every key with its state');
- await p.click('[data-auto-key="jobs"]');
+ await p.click(SWITCH);
  await p.waitForFunction(()=>window.pocketFeatures.jobs===true);
+ await showSetting(p,FULL+' [data-job-keys]');
  await p.waitForFunction(()=>document.querySelectorAll('[data-job-keys] .job-key-row').length===2);
  const ago=await p.evaluate(at=>CheckBacks.when(at),f.keys[0].lastRunAt);
  assert.deepEqual(await rowOf('disk-check'),['~/ops · Claude Code · Default model','Ask first · Running · Last run '+ago]);
@@ -99,8 +107,8 @@ export async function runJobKeysRegressions({p,base,out,repo,scan,settings=null}
  assert.equal(await p.$eval('[data-auto-key="jobKeyFolder"]',e=>e.type),'text','the folder setting is a text field');
  const targets=await p.$$eval('[data-job-keys] .job-key-row,[data-job-keys] [data-job-new]',x=>x.map(e=>Math.round(e.getBoundingClientRect().height)));
  assert.ok(targets.every(h=>h>=44),'44 px targets: '+targets);
- await shot('key-list',await p.$('[data-auto-group="jobs"]'));
- await axeCheck(p,repo,'[data-auto-group="jobs"]');
+ await shot('key-list',await p.$(FULL));
+ await axeCheck(p,repo,FULL);
 
  console.log('Job keys (fixture): an unchanged refresh writes nothing; a change rewrites only its row, at the same height');
  assert.equal(await writesDuring(p,'[data-job-keys]',5600),0,'the list is not rewritten');
@@ -192,11 +200,11 @@ export async function runJobKeysRegressions({p,base,out,repo,scan,settings=null}
   await p.evaluate(async()=>{await loadTasks(true);paintTasksView();});
   await p.waitForFunction(()=>/^On·Last run .+ · Done·~\/ops$/.test(document.querySelector('[data-job-task-key="jk-disk0001"] .session-status').textContent));
   assert.equal(await p.$('[data-job-task-key="jk-disk0001"] .job-task-chat'),null,'Open only while a run needs you');
-  // a key's row opens its own sheet; a request's row opens its card in Settings → Automation
+  // a key's row opens its own sheet; a request's row opens its card in Settings → Features → Job keys
   await p.click('[data-job-task-open="jk-night001"]');await p.waitForSelector('.job-key-sheet [data-job-toggle]');
   assert.equal(await p.$eval('.job-key-sheet .job-key-title',e=>e.textContent),'nightly-report');
   await close();
-  await p.click('[data-job-task-answer="jp-fixture01"]');await p.waitForSelector('[data-auto-group="jobs"]');
+  await p.click('[data-job-task-answer="jp-fixture01"]');await p.waitForSelector('[data-settings-panel="f-jobs"]:not([hidden]) '+FULL);
   await close();
   // the setting hides the group; with nothing to show there is no group
   f.inTasks=false;await p.evaluate(async()=>{await loadTasks(true);paintTasksView();});
@@ -208,7 +216,7 @@ export async function runJobKeysRegressions({p,base,out,repo,scan,settings=null}
  }
 
  console.log('Job keys (fixture): switched off again, only the group');
- await automation();await p.click('[data-auto-key="jobs"]');
+ await turnJobs();
  await p.waitForFunction(()=>window.pocketFeatures.jobs===false);await p.waitForFunction(()=>!document.querySelector('[data-job-keys]'));
  await close();
  a.reset();f.reset();

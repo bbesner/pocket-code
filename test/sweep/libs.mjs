@@ -202,7 +202,7 @@ export const surfaces = [
   {name: 'vault-link-once', route: '#/vault', ready: '.vault-item', settings: V, allow: VAULT_ALLOW, scope: SHEET, layouts: phoneDesk,
     open: async page => { await page.evaluate(r => vaultIntakeLinkSheet({intake: r, url: location.origin + '/intake/2b7c9e04f1a35d6e8c0b4a29f7e1d3c5a8b6f0e2d4c7a9b1'}), intakeRows[0]); await page.waitForSelector(`${SHEET} .vault-key`, {visible: true}); }},
   {name: 'vault-access-setting', route: '#/vault', ready: '.vault-item', settings: V, allow: {...VAULT_ALLOW, covered: [/#s-vault\.opt|#s-inbox\.opt|#s-documents-open/]}, scope: SHEET, // rows scrolled above the settings sheet's own scroller
-    open: async page => { await page.evaluate(() => settingsSheet({category: 'libraries'})); await page.waitForSelector('#s-vault-access', {visible: true}); await page.$eval('#s-vault-more', e => e.scrollIntoView({block: 'start'})); }},
+    open: async page => { await page.evaluate(() => settingsSheet({category: 'f-vault'})); await page.waitForSelector('#s-vault-access', {visible: true}); await page.$eval('#s-vault-more', e => e.scrollIntoView({block: 'start'})); }},
   {name: 'intake-form', layouts: ['cover', 'phone', 'desktop'], route: '#/', ready: '#app',
     open: page => intakePage(page, renderIntake('form', {brand, r: intakeLink, token: 'tok-fixture', expires: 'Thursday, November 26 at 3:00 PM EST'}))},
   {name: 'intake-error', layouts: ['phone', 'desktop'], route: '#/', ready: '#app',

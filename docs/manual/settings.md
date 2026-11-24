@@ -1,14 +1,16 @@
 <!-- manual
-checked: 1.124.8
+checked: 1.124.9
 sources: context-policy.mjs, automation.mjs, job-keys.mjs, cli-updates.mjs, self-update.mjs, scripts/pocket-self-update.sh, public/cli-updates.js, public/app.js, public/workspace.js, public/theme.js, public/voice.js, server.mjs, router.mjs, access.mjs
 -->
 # Settings
 
-Settings holds every preference Pocket Code offers, grouped into categories. Some apply to the
-browser you are using and some to the whole install on every device; each category says which
-under the headings **This device** and **This instance · all devices** (**This Pocket · all
-devices** in Assistant mode). This page lists every category and control, what it does, its
-default and where it is stored.
+Settings holds every preference Pocket Code offers. This page lists each page of Settings, every
+control on it, what it does, its default and where it is stored.
+
+Every page says whose setting it is. **This device only** settings are kept in this browser and do
+not follow you to another device. **All your devices** settings are kept on the server and apply to
+everyone signed in to this Pocket. Where a page has both, the **This device only** group comes
+first. Both modes use the same names, order and headings.
 
 ## Open Settings
 
@@ -18,190 +20,125 @@ default and where it is stored.
 - **Assistant mode:** the gear (**Settings**) beside **Pocket Assistant** on the home screen.
 - **Conversation options → Version & updates** opens Settings at **Help & updates**.
 
-Settings opens on an index of categories. Choose one to open it; **All settings** returns to the
-index. Sub-pages such as **Accounts & instance**, **Connectors** and **Plan usage** have **Back to
-Settings**, which returns to the same category and scroll position. Escape or Close leaves
-Settings.
+Settings opens on a list. At the top are a **Search settings** box and the **Layout** switch
+(Developer mode or Assistant mode). Below them are the pages. Choose one to open it; the back button
+at the top (**All settings**) returns to the list. A feature's own page, opened from **Features**,
+has a back button named **Features**. Sub-pages such as **Claude and Codex accounts**,
+**Connectors** and **Plan usage** have **Back to Settings**, which returns to the same page and
+scroll position. Escape or Close leaves Settings.
 
-Both modes show seven categories, and Assistant mode has fewer controls:
+### Search settings
 
-| Category | Developer mode | Assistant mode |
-|---|---|---|
-| [Appearance](#appearance) | Everything | Everything |
-| [Conversation](#conversation) | Reading, titles and summaries | **Collapse steps** and **Show message times** |
-| [Agents & instance](#agents--instance) | Everything | Replaced by **Accounts**: **Accounts & instance**, **Connectors** and **Sign out** only |
-| [Projects, files, tasks & vault](#projects-files-tasks--vault) | Everything | Replaced by [Features](#features-assistant-mode): the five switches and **Automatic model choice** |
-| [Automation](#automation) | Everything | Everything |
-| [Notifications & voice](#notifications--voice) | Everything | Everything |
-| [Help & updates](#help--updates) | Shortcuts, version, what's new, feedback | Version and what's new |
+Type a word or two and Pocket lists every setting on a page this mode shows whose name or
+explanation matches, with the page it is on. Tap a result, or press Enter for the first, to open
+that page with the setting in view, focused and outlined for a moment. At most 30 results show.
+A search with no match says **No setting matches** and what you typed.
 
-A setting hidden in Assistant mode keeps its value and still applies. To change one that **Features**
-does not offer, switch to Developer mode in **Appearance → Mode**, change it, and switch back.
+### The pages
 
-Instance-wide settings load from the server when the category opens; their switches stay disabled
-with a **Loading…** note until they arrive. If loading fails, the notes say **Could not load this
+| Page | What it holds | Developer mode | Assistant mode |
+|---|---|---|---|
+| [Display](#display) | How Pocket looks on this device | Everything | Everything |
+| [Conversations](#conversations) | How conversations read and how they get their names | Reading, names and summaries | **Collapse steps** and **Show message times** |
+| [Notifications](#notifications) | What reaches this device, and reminders by email | Everything | Everything |
+| [Voice (beta)](#voice-beta) | Spoken replies and dictation on this device | Everything | Everything |
+| [Accounts & sign-in](#accounts--sign-in) | Claude and Codex accounts, Gmail, Calendar and Drive, signing in and out | Everything | **Claude and Codex accounts**, **Connectors** and **Sign out** |
+| [Agents](#agents-developer-mode) | Models offered, long conversations and helpers, actions that run without asking | Everything | Not shown |
+| [Features](#features) | Turn parts of Pocket on or off; each opens its own page | Everything | The same switches, fewer settings behind them |
+| [Unattended work](#unattended-work) | Pause all, and limits on work that runs while you are away | Everything | Everything |
+| [Usage](#usage) | Plan usage, what ran without you, and limits reached. Read only | Everything | Without the Inbox Watch cost |
+| [Help & updates](#help--updates) | Shortcuts, version and updates, what's new, feedback | Everything | Version and what's new |
+
+A setting hidden in Assistant mode keeps its value and still applies. To change one Assistant mode
+does not show, switch to Developer mode with **Layout** at the top of Settings, change it, and
+switch back.
+
+Settings that live on the server load when Settings opens; their switches stay disabled with a
+**Loading…** note until they arrive. If loading fails, the notes say **Could not load this
 setting.** and **Retry name-sync setting** loads them again.
 
-## Appearance
+### Where things moved in 1.124.9
+
+| Before | Now |
+|---|---|
+| Appearance | [Display](#display). **Mode** moved to **Layout** at the top of Settings |
+| Conversation | [Conversations](#conversations) |
+| Agents & instance (Accounts in Assistant mode) | [Accounts & sign-in](#accounts--sign-in) and [Agents](#agents-developer-mode). **Plan usage** moved to [Usage](#usage). **Automatic model choice** moved to [Features](#automatic-model-choice-page) |
+| Projects, files, tasks & vault (Features in Assistant mode) | [Features](#features), with a page for each feature |
+| Automation | [Unattended work](#unattended-work). **Check-backs** and **Job keys** moved to [Features](#check-backs-page). The unattended replies table and **Limits reached today** moved to [Usage](#usage) |
+| Notifications & voice | [Notifications](#notifications) and [Voice (beta)](#voice-beta) |
+
+No setting was removed and no default changed. Saved values, environment presets and storage keys
+are the same as before.
+
+## Layout
+
+At the top of the list, for all your devices.
 
 | Control | What it does | Default | Stored |
 |---|---|---|---|
-| **Colour mode** | **System** (follows the device), **Light** or **Dark**. Applies at once to every Pocket window and split pane of this browser | **System**; a browser that already had Pocket preferences before colour modes existed keeps **Dark** | This browser |
-| **Chat text size** | **Smaller** and **Larger** step from 14 to 24 px; **Reset** returns to 17 px. Prose, headings and tables scale; controls and tool logs keep their size. Also in **Conversation options** | 17 px | This browser |
-| **Highlight colour** | **Orange**, **Blue** or **Purple** for the send button, links, active markers and your own messages | **Orange** | This browser |
-| **Mode** | **Developer mode** or **Assistant mode**, the current one pressed. See [Getting started](getting-started.md#developer-mode-or-assistant-mode) | **Developer mode**, unless `POCKET_ASSISTANT_MODE` is `on`, `1`, `true` or `locked` | Server |
+| **Developer mode** / **Assistant mode** | Developer mode shows every tool and setting. Assistant mode opens on the message box and hides the developer tools. The help under the buttons says it changes every device signed in to this Pocket. The current one is pressed. See [Getting started](getting-started.md#developer-mode-or-assistant-mode). Changes every device signed in to this Pocket | **Developer mode**, unless `POCKET_ASSISTANT_MODE` is `on`, `1`, `true` or `locked` | Server |
 
-With `POCKET_ASSISTANT_MODE=locked`, both **Mode** options are disabled and the note says
-Assistant mode is kept on by the server.
+With `POCKET_ASSISTANT_MODE=locked`, both options are disabled and the note says Assistant mode is
+kept on by the server.
 
-## Conversation
+## Display
+
+This device only.
 
 | Control | What it does | Default | Stored |
 |---|---|---|---|
-| **Collapse steps** | Folds each run of tool calls behind a one-line summary | On | This browser |
-| **Describe steps in plain words** | Shows each step as a sentence ("Saved Proposal.pdf") with the command or path beside it. Off shows the tool name and its raw detail | On | This browser |
-| **Show message times** | A time on each message and a divider for each day | On | This browser |
-| **Mark all reviewed bar** | Shows the bar at the top of **Attention** and **New** that clears every waiting reply and failed reply in one tap. Off hides it on every device; **Mark as reviewed** on a single conversation works either way | On | Server |
-| **Sync names with code-server** | Conversation names follow Claude Code's own titles, and a rename in Pocket is written to the transcript so code-server and `claude --resume` show it too | Off | Server |
-| **Generate short titles** | Gives conversations named only by their first message a short generated title. A rename always wins | On, unless `POCKET_AUTO_TITLES=0` | Server |
-| **Update titles as conversations progress** | After a reply, once a conversation has moved on, its title is checked and rewritten to say what it is about now. Renames are never touched. Needs **Generate short titles** | On | Server |
-| **Summarize what you missed** | Coming back to a conversation opens it at the end with a **New since** card and a short summary of the new work. Off keeps the **New since** marker without the summary | On | Server |
-| **Model for titles and summaries** | **Automatic: Claude first, then Codex**, **Claude · Haiku** or **Codex · GPT-6-Luna**. A choice that is not signed in on the server shows **(unavailable)** | **Automatic** | Server |
+| **Colour mode** | Light or dark. **System** follows your phone or computer; **Light** and **Dark** fix it. Applies at once to every Pocket window and split pane of this browser | **System**; a browser that already had Pocket preferences before colour modes existed keeps **Dark** | This browser |
+| **Chat text size** | The size of conversation text on this device. **Smaller** and **Larger** step from 14 to 24 px; **Reset** returns to 17 px. Prose, headings and tables scale; controls and tool logs keep their size. A sample sentence shows the size. Also in **Conversation options** | 17 px | This browser |
+| **Highlight colour** | **Orange**, **Blue** or **Purple**: the colour of the send button, links, your own messages and anything selected | **Orange** | This browser |
+
+## Conversations
+
+**This device only**
+
+| Control | What it does | Default | Stored |
+|---|---|---|---|
+| **Collapse steps** | Folds the steps an agent takes, like reading files or running commands, behind one summary line so the reply comes first. Tap the line to see them | On | This browser |
+| **Describe steps in plain words** (Developer mode) | Writes each step as a sentence, like "Saved Proposal.pdf", with the command or path beside it. Off shows the raw tool name and detail | On | This browser |
+| **Show message times** | Puts the time on each message and a date line between days | On | This browser |
+
+**All your devices** (Developer mode)
+
+| Control | What it does | Default | Stored |
+|---|---|---|---|
+| **Short titles** | A model reads the start of each new conversation and gives it a short name. Off: a conversation is named after its first message. A name you set yourself always wins. Its status line says what is used, for example *On, using Claude · Haiku* | On, unless `POCKET_AUTO_TITLES=0` | Server |
+| **Keep titles up to date** | When a conversation moves on to something new, its name is rewritten to match. Names you set yourself are never changed. Needs **Short titles** | On | Server |
+| **Catch-up summary** | When you come back to a conversation that kept working, it opens at the end with a New since card: a short summary of what happened while you were away. A divider marks where the new work starts. Off keeps the **New since** marker without the summary | On | Server |
+| **Model for titles and summaries** | Which model writes names and catch-up summaries: **Automatic: Claude, or Codex if Claude isn't signed in**, **Claude · Haiku** or **Codex · GPT-6-Luna**. Codex uses far more of your plan per title, about 25,000 tokens. A choice that is not signed in on the server shows **(unavailable)** | **Automatic** | Server |
+| **Sync names with code-server** | Keeps conversation names the same here and in Claude Code on code-server, so a rename in either place shows in both. A rename in Pocket is written to the transcript so code-server and `claude --resume` show it too. Off: each keeps its own names, and the note says so | Off | Server |
+| **Mark all reviewed button** | Adds a button to **Attention** and **New** that clears every waiting and failed reply in one tap. Off hides it on every device; **Mark as reviewed** on a single conversation works either way | On | Server |
 
 Titles and summaries run on the signed-in CLI's own account. When Codex is the helper, the note
 under the model says what that costs: about 25k tokens of your plan for each Codex call, against
 about 400 for a Claude title and a few thousand for a Claude summary. When this computer's Claude
 Code policy blocks the title model, Pocket uses the cheapest offered model the policy allows.
 
-## Agents & instance
+## Notifications
 
-Everything here applies to the whole install.
-
-| Control | What it does |
-|---|---|
-| **Accounts & instance** | Opens a page with the Claude Code and Codex accounts, plan and sign-in method. Under Claude Code, **Switch account** (or **Sign in**) changes the server's Claude login through a sign-in link and a pasted code. Idle conversations move to the new login at once; one with a background job still running keeps the earlier login until the job ends. A message sent there waits and sends by itself on the new account when the job finishes; **Stop background jobs and send now** ends the job and sends it at once. **Stop all Claude replies** stops every running Claude reply after a second tap on **Stop replies**; the page shows how many are active. To stop every engine and hold everything automatic, use [Pause all](automation.md#pause-all). Codex sign-in is managed on the server |
-| **Connectors** | Shows whether each agent can reach Gmail, Google Calendar and Google Drive through its own account (claude.ai connectors for Claude Code, ChatGPT apps for Codex), with **Connect**, **Reconnect**, **Manage on claude.ai** or **chatgpt.com**, and **Refresh status** |
-| **Plan usage** | The 5-hour and weekly limits and extra-usage status, for Claude Code and for Codex when it is installed. Updates only when a reply runs |
-| **Claude models in the picker** | Tap a model to offer it, or stop offering it, in the model menu on every device. At least one stays on. A model blocked by this computer's Claude Code managed settings is marked and cannot be turned on. **Use the server's list** forgets the choice |
-| **Context and subagents** | 1.92. **Compact conversations:** *When the agent decides* (the agent's own behavior) or *Before 150K* to *600K tokens*, so the agent summarizes the older part of a conversation before it reaches that size. Each reply reads the whole conversation again, so long conversations use the most of a plan. **Offer a handoff:** *Off* or *After 150K* to *400K tokens* (200K unless you change it): past that size Pocket suggests [handing off](conversation.md#hand-off-to-a-fresh-conversation) under the latest finished reply and the context ring turns amber. When Compact conversations is set at or below that size, the offer comes at three quarters of the compaction size instead, so it shows before the summary. Applies to every agent at once and restarts nothing. **Subagent model:** *The agent's own choice*, or *One tier below the conversation's model* (Fable or Mythos conversations run Opus subagents, Opus runs Sonnet, GPT Astra runs the newest GPT Sol; other models keep the agent's choice, and a conversation can still name a model for one subagent). **Subagent effort:** the agent's own, or low, medium or high. Applies to Claude Code and Codex conversations from their next reply: idle ones restart when you save, and one running a background job keeps its earlier setting until it is replaced. OpenRouter conversations keep their own behavior for now. A conversation in a project's [Conductor mode](projects.md#conductor-mode) runs its subagents one tier down and is offered a handoff at 150K tokens (or sooner, when the offer here is lower), whatever is set here. How each agent receives it: [the spec](../context-policy-spec.md). |
-| **Actions that run without asking** | Read-only actions Claude Code, Codex, OpenRouter and Antigravity run without an approval card in **Review actions** (Codex and OpenRouter since 1.87, Antigravity since 1.120, for commands). Type a rule (`Bash(command:*)`, `Bash(exact command)`, `mcp__server__tool`, `mcp__server__*`, `WebSearch`) and press **Add**; **Remove** takes one off. Edit and Write always ask; Codex is not covered. **Use the server's list** goes back to `POCKET_TRUSTED_ACTIONS` |
-| **Automatic model choice** | In Assistant mode, sends a request typed from scratch to a small decision model that picks one of four levels; see below. Assistant mode shows only its switch, under **Features** |
-| **One sign-in** | Lets a Cloudflare Access sign-in replace Pocket's password; see below |
-| **Sign out** | 1.118. **Sign out** signs this browser out and turns off its notifications. **Sign out everywhere** asks first, then signs out every browser and phone, this one included, and turns off notifications on all of them; turn **Push to this device** on again on the ones you keep. Conversations and replies in progress carry on. Changing `POCKET_PASSWORD` and restarting signs every browser out too. With **One sign-in** on, a signed-out browser is let back in by Cloudflare Access, so revoke Access sessions in Cloudflare as well. If the sign-in runs out while a sheet is open (another device signed out everywhere, or the password changed), **Sign in again** covers the sheet; after **Unlock** the sheet is still there with what you typed, and you save again |
-
-**Defaults.** The picker offers every Claude model, or the list in `POCKET_CLAUDE_MODELS`. No
-action runs without asking, unless `POCKET_TRUSTED_ACTIONS` lists some. A list saved in Settings
-wins over the environment variable until you choose **Use the server's list**. Rule syntax and
-matching: [action approvals](../action-approvals.md#actions-that-run-without-asking).
-
-**Automatic model choice** controls:
-
-- **Choose the model for me**: on or off. Off unless `POCKET_ROUTER` is `jev` or `openai`. It
-  cannot be turned on without a key.
-- **Decision model**: **TypeSafe Jev, through OpenRouter** (an OpenRouter key) or **OpenAI Decisions
-  API (GPT-6 Luna)** (an OpenAI API key).
-- **Key**: paste and **Save key**. The key is saved to `router-key` in the data directory (mode
-  `0600`), never shown again, and replaces `POCKET_ROUTER_KEY` or `POCKET_ROUTER_KEY_FILE`.
-  **Remove** deletes it.
-- Four levels, **Quick**, **Standard**, **Careful** and **Deep**, each with a **Model** and an
-  **Effort**. **Automatic** follows the newest offered model of the level's family; the line under
-  each level says what it runs now.
-- **Use the server's settings** clears everything saved here.
-
-It acts only in Assistant mode and only on requests typed from scratch; saved prompts keep their
-own model. If the decision model fails, is unsure or takes longer than `POCKET_ROUTER_TIMEOUT_MS`
-(default 1500 ms), the default model runs, and the note says so. The decision model is told only that the
-request was typed into an AI work assistant; to tell it what routine work looks like on this install, describe the
-business in `POCKET_ROUTER_CONTEXT` (a sentence or two, up to 1,000 characters, read at start). In Assistant mode
-the other model control is **Try harder** under a Claude reply (see [Working in a conversation](conversation.md#try-harder-assistant-mode)).
-
-**One sign-in** controls: **Team** (the part before `.cloudflareaccess.com`), **Audience tag**
-(from the Access application's Overview) and **Who may sign in this way** (comma-separated emails,
-up to 50), then **Save**. **Turn off** goes back to Pocket's password; browsers already signed in
-stay signed in for up to a day. **Use the server's values** appears when `POCKET_ACCESS_TEAM`,
-`POCKET_ACCESS_AUD` or `POCKET_ACCESS_EMAILS` are set and a choice is saved here. The status line
-shows who can sign in and the last Access sign-in.
-
-## Projects, files, tasks & vault
-
-Developer mode only; Assistant mode has the switches under [Features](#features-assistant-mode). The
-switches apply to the whole install; the three **Open …** menus apply to this browser.
+**This device only**
 
 | Control | What it does | Default | Stored |
 |---|---|---|---|
-| **Projects** | Turns on [Projects](projects.md) | Off | Server |
-| **Files** | Turns on [Files](files.md) | Off | Server |
-| **Keep files from replies** | Keeps every file a reply hands over (a PDF, deck, sheet, page) in Files once, linked to its conversation. Needs Files; always on in Assistant mode | Off | Server |
-| **Tasks** | Turns on [Tasks](tasks.md) | Off | Server |
-| **Coordination** | Turns on [Coordination](coordination.md): which conversation holds staging or a deploy, and who is waiting. Not in Assistant mode | Off | Server |
-| **Inbox Watch** | Turns on [Inbox Watch](inbox-watch.md) and its Inbox. While it is on, **Schedule, models and cost** opens its schedule sheet; **Schedule** beside the Inbox's search box opens the same sheet, also in Assistant mode | Off | Server |
-| **Vault** | Turns on the [Vault](vault.md). The first time, it creates the encryption key, saves it to `.env` and shows a recovery key to save. **Restore key…** appears when the Vault exists but its key is missing | Off | Server |
-| **Agent access** (Vault on) | **Free rein**, **Ask once per command** or **Ask every time** | **Ask once per command** | Server |
-| **Protection** (Vault on) | **Set a passphrase**, **Lock now**, **Unlock…**, **Change passphrase**, **Remove passphrase**, **Download recovery key**, **Rotate key**, and **Lock after** (**Never**, 15 minutes, 1 hour, 8 hours, 24 hours) when a passphrase is set | Server key, **Lock after: Never** | Server |
-| **Export and import** (Vault on) | **Export…** and **Import…** one file with every item, encrypted with a passphrase you choose | | |
-| **Catch secrets in messages** | Holds a key or password pasted or typed into a message and offers to store it in the Vault first. Shown whether or not the Vault is on | On | Server |
-| **Open projects** | **As a tab, like a conversation**, **Beside the conversation** or **In a new browser window** | As a tab | This browser |
-| **Files button** | **Lists files in the sidebar**, **Opens the library in a tab** or **Opens the library in split view** | Lists files in the sidebar | This browser |
-| **Open files and links** | The same three choices, for a file and for a link in a conversation to one of your files, projects or conversations. Links to outside websites open in the browser | As a tab | This browser |
+| **Completion chime** | A short two-note sound when a reply finishes while Pocket is open on screen. Spoken announcements replace it when **Announce conversations** is on in Voice | On | This browser |
+| **Push to this device** | Sends notifications to this phone or computer even when Pocket is closed. Turn it on separately on each device, then choose the kinds below. Off, its note names all five kinds. The bell on the conversation list does the same. **Sign out** turns it off on this browser, **Sign out everywhere** on every device | Off until you turn it on | Server, per device (`push-subs.json`) |
+| **Finished replies** | A conversation finished a reply. Muted conversations never push, and neither does one open in a browser or one you stopped. Also covers question and approval notifications | On when push is turned on | Server, per device |
+| **Due tasks and reminders** | A task or reminder came due. **Done** and **Tomorrow** on the notification answer it without opening Pocket | On when push is turned on | Server, per device |
+| **Vault requests** | An agent is waiting for you to allow a stored password or key, or to share or publish a file, with **Allow** and **Deny**. The *Allow a job key?* push, when a conversation asks for a [job key](automation.md#let-a-conversation-set-one-up), follows this switch too, but it has no buttons: it opens the request in Settings, where you read the whole instruction first | On when push is turned on | Server, per device |
+| **Inbox alerts** | Inbox Watch, or another program on this server, flagged something that needs you. Which emails count is set in **Features › Inbox Watch** ([Push notifications](inbox-watch.md#push-notifications)) | On when push is turned on | Server, per device |
+| **Check-backs and job results** | A [check-back](automation.md#check-backs) ran (*Checked back · …*) or was missed, a [job](automation.md#job-pushes) finished (titled with the job's name, with the first line of the reply), or a limit held back unattended work (the **Unattended work held** notice). Muting and per-job choices are in **Features › Check-backs** and **Features › Job keys**. Shown whether check-backs and job keys are on or off, because of that notice | On when push is turned on | Server, per device |
+| **Count on the app icon** | Shows how many tasks and reminders are due on the installed app's icon. Only on browsers that support it; disabled elsewhere | On | This browser, and with its push subscription |
 
-Turning Projects, Files, Tasks, Coordination, Inbox Watch or the Vault on or off also installs or removes the
-matching agent skill for Claude Code and Codex (unless `POCKET_SKILLS=0`). Turning the Vault on or
-off restarts idle conversation processes so they get the Vault's rules.
-
-## Features (Assistant mode)
-
-Assistant mode has no **Projects, files, tasks & vault** or **Agents & instance** category, so
-**Features** holds the controls from them that a person needs. They are the same switches and the
-same settings, for the whole install, and a change made here shows in Developer mode and the other
-way round.
-
-| Control | What it does |
-|---|---|
-| **Projects**, **Files**, **Tasks**, **Inbox Watch**, **Vault** | The same switches as in Developer mode; see [Projects, files, tasks & vault](#projects-files-tasks--vault). While Inbox Watch is on, **Inbox Watch schedule** appears under its switch and opens the [schedule sheet](inbox-watch.md#change-the-schedule-rules-and-models) |
-| **Automatic model choice** | The **Choose the model for me** switch only. The decision model, key and four levels stay in Developer mode's [Agents & instance](#agents--instance), so no model name is shown in Assistant mode |
-
-Turning a feature on or off closes Settings, because the rail and the home screen redraw; open
-**Features** again for the next one. The other Vault controls (**Agent access**, **Protection**,
-**Export and import**) and **Keep files from replies** (always on in Assistant mode) stay in
-Developer mode.
-
-When Assistant mode is locked (`POCKET_ASSISTANT_MODE=locked`), **Features** shows one line and no
-switches, for example *Projects and Tasks are on. Files, Inbox Watch and Vault are off. To change
-them, ask the person who runs this install.* They change it by switching the install to
-Developer mode, which means removing `locked` from `.env` and restarting. A library that is off
-shows *Files is off. Ask the person who runs this install to turn it on.* in place of the pointer to
-Settings, with no **Open Settings** button.
-
-## Automation
-
-The same in both modes, and everything here applies to the whole install (**This instance · all devices**). The category reads *Pause all, check-backs, and limits on unattended work: plan ceilings, a daily count and the longest reply* (in Assistant mode, *Pause all, check-backs, and limits on work that runs without you*). [Automation](automation.md) explains each setting.
+**All your devices**
 
 | Control | What it does | Default | Stored |
 |---|---|---|---|
-| **Pause all** / **Resume** | The first row. Stops every running reply (side chats included) and Claude's background jobs, and holds everything automatic; reads **Resume** while Pocket is paused. It is also in the **More** (**⋯**) menu beside the conversation list and in **Switch conversation** (Ctrl/⌘ K). It can't be hidden or turned off | Running normally | Server (`paused`) |
-| **Pause all** group | **Your own messages while paused**, **Pause all also pauses Inbox Watch**, **Pause all also stops background jobs**, **On Resume, re-arm held usage-limit retries**, **On Resume, run overdue check-backs** and **Show what will stop before pausing** | Own messages run; the others On | Server (`automation`) |
-| **Limits on unattended work** group | The plan ceilings (weekly and 5-hour, for Claude Code and Codex), **Unattended replies per day**, **OpenRouter spend per day (unattended)**, **Longest unattended reply**, the two switches that extend limits to work you asked for, **Notice when a limit is reached**, and under **Advanced** the stale-reading age. A **No limit** button sits beside each number | 80%, 90%, 40 a day, $5 a day, 60 min | Server (`automation`) |
-| **Check-backs** group | The **Check-backs** switch first, then **Permissions for a check-back**, a switch for Claude Code and one for Codex, **Push the result when the conversation is muted**, **Show check-backs in the Tasks list**, the limits on how many may wait and how far ahead, the note length and the catch-up window, and under **Advanced** the busy wait and the spacing. While the switch is off the rest of the group is dimmed under *These apply when Check-backs is on.*, and can still be changed. Under it, *N waiting* and **Cancel all** while the switch is on and any are waiting | **Check-backs** Off; the rest as in [Automation](automation.md#settings) | Server (`automation`) |
-| **Job keys** group | The **Job keys** switch first. While it is off, that is all the group shows. While it is on: **Waiting for you** (the requests conversations have made for a job key, each with **Allow**, **Edit first** and **Deny**, only while one waits), your list of keys with **New job key**, **Show job keys in the Tasks list** (the read-only [Jobs group in Tasks](tasks.md#jobs-in-the-list)), and then **Advanced**, closed, with the other settings: **Access for new keys**, **Job may add its own instructions (new keys)**, the per-key limits for new keys (**Runs per hour**, **Runs per day** and **Runs at once**), **Most data per run**, **Longest wait a job may ask for**, **Ignore a repeated call for**, **Push when a job finishes (new keys)**, **Job pushes respect the conversation's mute** and **Where Pocket offers to save new keys** ([Automation](automation.md#job-keys)) | **Job keys** Off; the rest as in [Automation](automation.md#job-settings) | Server (`automation` in `pocket-settings.json`; the keys in `job-keys.json`) |
-| **Unattended replies** | **Today** and **Last 7 days**: replies, tokens and cost, and **Limits reached today** | | Server (`automation-state.json`) |
-
-Each group has **Reset to defaults**. A value is checked when it is saved: out of range, it is refused with a message that names the range. While any limit is set to No limit, a warning shows at the top of the page; one also shows while today's counts cannot be saved ([The usage table](automation.md#the-usage-table)). A change applies to the next start, never to a reply already running.
-
-## Notifications & voice
-
-| Control | What it does | Default | Stored |
-|---|---|---|---|
-| **Completion chime** | A two-note blip when a reply finishes on screen | On | This browser |
-| **Push to this device** | Web push to this browser, even when Pocket is closed. The bell on the conversation list does the same. **Sign out** turns it off on this browser, **Sign out everywhere** on every device | Off until you turn it on | Server, per device (`push-subs.json`) |
-| **Finished replies** | Push when a conversation finishes a reply, unless the conversation is muted or open in a browser, or you stopped the reply | On when push is turned on | Server, per device |
-| **Due tasks and reminders** | Push once when each comes due; **Tomorrow** and **Done** on the notification answer without opening Pocket | On when push is turned on | Server, per device |
-| **Vault requests** | Push when an agent needs a secret, or wants to share or publish a file, and you have to allow it, with **Allow** and **Deny**. The *Allow a job key?* push, when a conversation asks for a [job key](automation.md#let-a-conversation-set-one-up), follows this switch too, but it has no buttons: it opens the request in Settings, where you read the whole instruction first | On when push is turned on | Server, per device |
-| **Inbox alerts** | Push for an alert from Inbox Watch or another job on the server. Which Inbox Watch alerts push is chosen in its schedule sheet ([Push notifications](inbox-watch.md#push-notifications)) | On when push is turned on | Server, per device |
-| **Check-backs and job results** | Push when a [check-back](automation.md#check-backs) has run (*Checked back · …*) or was missed, and the **Unattended work held** notice when an [Automation limit](automation.md#one-notice-per-reason-per-day) holds work. Push when a [job key's](automation.md#job-pushes) run has ended (titled with the job's name, with the first line of the reply). Shown whether check-backs and job keys are on or off, because of that notice | On when push is turned on | Server, per device |
-| **Count on the app icon** | How many tasks and reminders are due, on the installed app's icon. Disabled in browsers without app-badge support | On | This browser, and with its push subscription |
-| **Voice (beta)** | Voice preferences for this device; see below | | This browser |
-| **Notice a day before** | A second notice 24 hours before a dated task or reminder comes due, the same way as the due one | Off | Server |
-| **Email due tasks and reminders to** | An address that gets each due task and reminder by email. **Save**, then **Send a test**. Needs `POCKET_SMTP_URL` on the server; without it the field is disabled and the note says what to set | Empty | Server |
+| **Notice a day before** | A second notice 24 hours before a dated task or reminder comes due, sent the same way as the due one | Off | Server |
+| **Email due tasks and reminders to** | Also emails each due task and reminder to this address. **Save**, then **Send a test**, which sends one test email now. Needs `POCKET_SMTP_URL` on the server; without it the field is disabled and the note says what to set | Empty | Server |
 
 The five push kinds are disabled until **Push to this device** is on. Push needs HTTPS, the
 server's `VAPID_PUBLIC` and `VAPID_PRIVATE`, and the browser's permission. Due reminders, Vault
@@ -214,17 +151,317 @@ last signed in from.
 `POCKET_SMTP_FROM` is the sender; without it Pocket uses the URL's user name when that is an email
 address. Pocket sends one short message per due item and nothing else.
 
-**Voice (beta)** controls, active only when the voice engine is installed on the server: **Mute
-voice on this device** (off), **Speak replies** (on), **Spoken reply length** (**Brief**,
-**Normal** (default) or **Detailed**), **Review before sending** (off), **Announce conversations**
-(**Off** (default), **Conversation name only**, **Name and a one-line summary**), **Hands-free:
-wait for my reply** (30 seconds, 1 minute, 2 minutes (default) or 5 minutes), **Voice**, **Names
-and terms to recognize** (up to 300 characters) and **Play a sample**. The status line says whether
-voice is available on the server. Details: [Voice](voice.md).
+## Voice (beta)
+
+This device only. Active only when the voice engine is installed on the server; the status line at
+the top says whether it is available, and without it every row is off. Details: [Voice](voice.md).
+
+| Control | What it does | Default |
+|---|---|---|
+| **Mute voice on this device** | Nothing is spoken here: no replies, announcements or approval questions. Your choices below are kept. You can also say "mute" or tap the speaker in the message box | Off |
+| **Speak replies** | When you ask something by voice, the reply is read aloud | On |
+| **Spoken reply length** | How much of a reply is read aloud: **Brief** (one sentence), **Normal** (about two) or **Detailed** (all of it). The full reply is always on screen | **Normal** |
+| **Review before sending** | What you say goes into the message box for you to check, instead of being sent straight away | Off |
+| **Announce conversations** | Speaks up when another conversation finishes or needs you: **Off**, **Conversation name only** or **Name and a one-line summary**. Replaces the chime while Pocket is open. Muted conversations stay quiet | **Off** |
+| **Hands-free: wait for my reply** | In hands-free mode, how long Pocket keeps listening for your answer before it stops: 30 seconds, 1 minute, 2 minutes or 5 minutes | 2 minutes |
+| **Voice** | The voice that reads replies aloud | American female |
+| **Names and terms to recognize** | Names, products and jargon the speech recognizer should expect, like customer names, separated by commas. Up to 300 characters | Empty |
+| **Play a sample** | Speaks a short line in the chosen voice | |
+
+All of these are stored in this browser (`pc-voice`).
+
+## Accounts & sign-in
+
+| Control | What it does |
+|---|---|
+| **Claude and Codex accounts** | Which Claude and Codex accounts this Pocket uses. Opens a page with the accounts, plan and sign-in method. Under Claude Code, **Switch account** (or **Sign in**) changes the server's Claude login through a sign-in link and a pasted code. Idle conversations move to the new login at once; one with a background job still running keeps the earlier login until the job ends. A message sent there waits and sends by itself on the new account when the job finishes; **Stop background jobs and send now** ends the job and sends it at once. **Stop all Claude replies** stops every running Claude reply after a second tap on **Stop replies**; the page shows how many are active. To stop every engine and hold everything automatic, use [Pause all](automation.md#pause-all). Codex sign-in is managed on the server |
+| **Connectors** | Whether each agent can reach your Gmail, Calendar and Drive through its own account (claude.ai connectors for Claude Code, ChatGPT apps for Codex), with **Connect**, **Reconnect**, **Manage on claude.ai** or **chatgpt.com**, and **Refresh status** |
+| **Sign in with Cloudflare Access** (Developer mode) | If Pocket sits behind Cloudflare Access, your Access login can sign you in to Pocket too, so you do not type Pocket's password as well. Pocket checks Cloudflare's signature, the application and your email. The sign-in lasts a day at most. See below |
+| **Sign out** | Signs this browser out and stops its notifications. See below |
+
+The accounts, connectors and Access settings are the server's, for the whole install. **Sign out**
+acts on browsers.
+
+**Sign in with Cloudflare Access** controls: **Team name** (the part before
+`.cloudflareaccess.com`), **Application audience (AUD) tag** (the tag that identifies Pocket's
+Access application, shown on its page in Cloudflare Zero Trust) and **Who may sign in this way**
+(email addresses, separated by commas, up to 50; anyone else still uses Pocket's password), then
+**Save**. **Turn off** goes back to Pocket's password; browsers already signed in stay signed in for
+up to a day. **Use the server's values** appears when `POCKET_ACCESS_TEAM`, `POCKET_ACCESS_AUD` or
+`POCKET_ACCESS_EMAILS` are set and a choice is saved here. The status line shows who can sign in and
+the last Access sign-in.
+
+**Sign out** (1.118). **Sign out** signs this browser out and turns off its notifications. **Sign
+out everywhere** asks first, then signs out every browser and phone, this one included, and turns
+off notifications on all of them; use it for a lost phone or a shared computer. Turn **Push to this
+device** on again on the ones you keep. Conversations and replies in progress carry on. Changing
+`POCKET_PASSWORD` and restarting signs every browser out too. With **Sign in with Cloudflare
+Access** on, a signed-out browser is let back in by Cloudflare Access, so revoke Access sessions in
+Cloudflare as well. If the sign-in runs out while a sheet is open (another device signed out
+everywhere, or the password changed), **Sign in again** covers the sheet; after **Unlock** the sheet
+is still there with what you typed, and you save again.
+
+## Agents (Developer mode)
+
+Not shown in Assistant mode. Everything here is for all your devices.
+
+| Control | What it does | Default | Stored |
+|---|---|---|---|
+| **Models offered in the picker** | Which Claude models people can pick when starting a conversation. Tap a model to offer it or stop offering it, on every device. At least one stays on. A model blocked by this computer's Claude Code managed settings is marked and cannot be turned on. **Use the server's list** goes back to the list set on the server | Every Claude model, or the list in `POCKET_CLAUDE_MODELS` | Server |
+| **Long conversations and helpers** | Every reply re-reads the whole conversation, so long conversations use the most of your plan. A token is about three quarters of a word. Four controls, below | See below | Server |
+| **Actions that run without asking** | In **Review actions**, an agent asks before each action. The actions listed here run without asking. See below | None, unless `POCKET_TRUSTED_ACTIONS` lists some | Server |
+
+**Long conversations and helpers** (1.92) applies to Claude Code and Codex conversations from their
+next reply: idle ones restart when you save, and one running a background job keeps its earlier
+setting until it is replaced. OpenRouter conversations keep their own behavior for now.
+
+- **Compact conversations:** when the older part of a conversation is replaced by a summary to save
+  room. *When the agent decides* (the default) leaves it to the agent; *Before 150K* to *600K tokens* makes it
+  happen at that size.
+- **Offer a handoff:** *Off* or *After 150K* to *400K tokens* (200K unless you change it). Past that
+  size Pocket suggests [handing off](conversation.md#hand-off-to-a-fresh-conversation) under the
+  latest finished reply, with a short briefing, and the context ring turns amber. Off: never
+  offered. When **Compact conversations** is set at or below that size, the offer comes at three
+  quarters of the compaction size instead, so it shows before the summary.
+- **Helper model:** helpers (subagents) are extra agents a conversation starts for side jobs like
+  searching. *The agent's own choice* (the default), or *One tier below the conversation's model* (Fable or Mythos
+  conversations run Opus helpers, Opus runs Sonnet, GPT Astra runs the newest GPT Sol; other models
+  keep the agent's choice, and a conversation can still name a model for one helper).
+- **Helper effort:** how much thinking helpers do before answering: the agent's own, or low, medium
+  or high (default: the agent's own). Higher is more thorough and uses more of your plan.
+
+A conversation in a project's [Conductor mode](projects.md#conductor-mode) runs its helpers one tier
+down and is offered a handoff at 150K tokens (or sooner, when the offer here is lower), whatever is
+set here. How each agent receives it: [the spec](../context-policy-spec.md).
+
+**Actions that run without asking.** Claude Code, Codex, OpenRouter and Antigravity run read-only
+actions without an approval card in **Review actions** (Codex and OpenRouter since 1.87,
+Antigravity since 1.120, for commands). A listed command runs with any arguments, so list only
+commands that cannot change anything. Edits and file writes always ask. **Add an action** takes a
+rule, then **Add**; **Remove** takes one off:
+
+- `Bash(git status:*)` for a command with any arguments
+- `Bash(exact command)` for one exact command
+- `mcp__server__tool` or `mcp__server__*` for a connector's tools
+- `WebSearch`
+
+Claude Code uses every rule. Codex, OpenRouter and Antigravity use the command rules. **Use the
+server's list** goes back to `POCKET_TRUSTED_ACTIONS`. A list saved in Settings wins over the
+environment variable until you choose **Use the server's list**. Rule syntax and matching:
+[action approvals](../action-approvals.md#actions-that-run-without-asking).
+
+## Features
+
+For all your devices. Turn parts of Pocket on or off. Each feature has its switch in this list, and
+a **›** beside it that opens the feature's own page. The switches apply to the whole install.
+
+| Feature | What it is | Its page (**›**) |
+|---|---|---|
+| **Projects** | Tracked [projects](projects.md) with a summary, next steps, a checklist and reminders, kept current by your agent conversations | [Projects page](#projects-page) |
+| **Files** | A library of the reports, PDFs, sheets and pages your agents make. Private unless you share them. See [Files](files.md) | [Files page](#files-page) |
+| **Tasks** | A [to-do list](tasks.md) you and your agents add to, with due dates and reminders | [Tasks page](#tasks-page) |
+| **Inbox Watch** | Watches your email, alerts you to what needs you, and sends a morning digest and look-aheads. See [Inbox Watch](inbox-watch.md) | The Inbox Watch sheet, [below](#inbox-watch-sheet) |
+| **Vault** | Keeps passwords, API keys and logins encrypted. Agents use them by name without seeing them. See the [Vault](vault.md) | [Vault page](#vault-page) |
+| **Check-backs** | A conversation can check back later: it takes one more turn at the time you asked for and tells you the result | [Check-backs page](#check-backs-page) |
+| **Job keys** | Lets a script or program on this server start a conversation. You make a key with a fixed instruction, folder and model; the program sends the data to work on | [Job keys page](#job-keys-page) |
+| **Coordination** (Developer mode) | Lets your conversations message each other and claim shared things, like a staging site, so two agents do not work on the same thing at once. See [Coordination](coordination.md) | A switch only |
+| **Automatic model choice** | A small, fast model reads each new request you type and picks the lightest of four levels that will do it well, so quick questions do not use your strongest model. Works in Assistant mode only | [Automatic model choice page](#automatic-model-choice-page) |
+
+All switches are Off by default and are stored on the server. **›** shows only while the feature has
+something to open: the Inbox Watch **›** appears while Inbox Watch is on, and a page that shows
+nothing in this mode (the Vault in Assistant mode, until its key needs restoring) has none. A
+switch that is on in Assistant mode shows what it is for: *Switch on what you want to use. Each one
+adds its own place beside your conversations.*
+
+Turning Projects, Files, Tasks, Coordination, Inbox Watch, Check-backs, Job keys or the Vault on or
+off also installs or removes the matching agent skill for Claude Code and Codex (unless
+`POCKET_SKILLS=0`). Turning the Vault on or off restarts idle conversation processes so they get
+the Vault's rules. In Assistant mode, turning a feature on or off closes Settings, because the rail
+and the home screen redraw; open **Features** again for the next one.
+
+When Assistant mode is locked (`POCKET_ASSISTANT_MODE=locked`), the switches the server keeps are
+replaced by one line and no switches, for example *Projects and Tasks are on. Files, Inbox Watch and
+Vault are off. To change them, ask the person who runs this install.* They change it by switching
+the install to Developer mode, which means removing `locked` from `.env` and restarting.
+**Check-backs** and **Job keys** keep their switches and pages, as they did in Automation. A library
+that is off shows *Files is off. Ask the person who runs this install to turn it on.* in place of
+the pointer to Settings, with no **Open Settings** button.
+
+### Projects page
+
+| Control | What it does | Default | Stored |
+|---|---|---|---|
+| **Open projects** (Developer mode, this device only) | Where a project opens on this device: **As a tab, like a conversation**, **Beside the conversation** or **In a new browser window** | As a tab | This browser |
+
+### Files page
+
+Developer mode only.
+
+| Control | What it does | Default | Stored |
+|---|---|---|---|
+| **Keep files from replies** (all your devices) | When a reply hands you a file, such as a PDF, deck, sheet or page, it is saved to Files once and linked to its conversation. Needs Files; always on in Assistant mode | Off | Server |
+| **Files button** (this device only) | What the Files button in the side bar does on this device: **Lists files in the sidebar**, **Opens the library in a tab** or **Opens the library in split view** | Lists files in the sidebar | This browser |
+| **Open files and links** (this device only) | Where a link to one of your files, projects or conversations opens on this device: the same three choices as **Open projects**. Links to outside websites always open in your browser | As a tab | This browser |
+
+### Tasks page
+
+All your devices. Both rows are about what Tasks lists from other features, and each applies only
+while its feature is on.
+
+| Control | What it does | Default | Stored |
+|---|---|---|---|
+| **Show check-backs in Tasks** | Lists waiting check-backs in Tasks, where you can see and cancel them | On | Server (`automation`) |
+| **Show job keys in Tasks** | Adds a **Jobs** group to Tasks: each key, whether it is on, its last run and any requests waiting for you | On | Server (`automation`) |
+
+### Inbox Watch sheet
+
+The **›** beside **Inbox Watch** opens its existing settings sheet: the schedule, quiet hours, the
+models, your rules, the digest and look-ahead. It shows while Inbox Watch is on. **Schedule** beside
+the Inbox's search box opens the same sheet, as does **Inbox Watch cost** on [Usage](#usage). Three rows have new names: **Skip routine mail first**
+(was First pass), **Who decides it's routine** (was Classifier) and **Skip only when at least** (was
+Skip when at least). Every setting is explained in [Inbox Watch](inbox-watch.md#change-the-schedule-rules-and-models).
+Pocket's own description of each row is on the sheet.
+
+### Vault page
+
+| Control | What it does | Default | Stored |
+|---|---|---|---|
+| **Restore key…** (only when the key is missing) | The Vault's key is missing on this server. Restore it from your recovery key or file | | |
+| **Agent access** (Developer mode, Vault on) | What happens when an agent wants a stored secret: **Free rein** uses it, **Ask once per command** has you allow each new command once, **Ask every time** has you allow every use. Each item can override this | **Ask once per command** | Server |
+| **Passphrase** (Developer mode, Vault on) | Adds a passphrase you type to unlock the Vault after a restart or a lock. Without one, the Vault opens with its key alone. **Set a passphrase**, **Change passphrase**, **Remove passphrase**, **Lock now**, **Unlock…**, **Download recovery key** and **Rotate key** are here | Server key | Server |
+| **Lock after** (with a passphrase) | Locks the Vault after this long without anyone using it: **Never**, 15 minutes, 1 hour, 8 hours or 24 hours. It always locks after a restart | **Never** | Server |
+| **Export and import** (Developer mode, Vault on) | **Export…** and **Import…** move the whole Vault to or from one file, locked with a passphrase you choose | | |
+| **Catch secrets in messages** (Developer mode) | If you paste or type a key or password into a message, Pocket holds the message and offers to store the secret in the Vault first, so it does not go to the agent. Works even while the Vault is off | On | Server |
+
+**Download recovery key** saves the key that decrypts the Vault. Keep it somewhere safe and off this
+server: if the server's key is lost, it is the only way back in. **Rotate key** re-encrypts
+everything under a new key; use it if the key may have been seen, then download the new recovery
+key.
+
+### Check-backs page
+
+Off by default; the switch is in the Features list. While it is off, the page's settings can still
+be changed and read *These apply when Check-backs is on.* Under them, *N waiting* and **Cancel
+all** show while the switch is on and any are waiting. Every setting, with its range, is in
+[Automation](automation.md#settings); the controls are:
+
+- **Permissions for a check-back**, **In Claude Code conversations**, **In Codex conversations** and
+  **Push the result even when the conversation is muted**.
+- Under **Advanced** (the defaults suit almost everyone): **Waiting per conversation**, **Waiting in
+  total**, **Check-backs one can set in a row**, **Furthest ahead**, **Soonest**, **Longest note**,
+  **Catch-up window after Pocket was down**, **Wait for a busy conversation** and **Spacing between
+  late check-backs**.
+
+All are stored on the server (`automation`). **Show check-backs in Tasks** is on the
+[Tasks page](#tasks-page).
+
+### Job keys page
+
+Off by default; the switch is in the Features list. While it is off, the page shows nothing but a
+note, and every call from a program is refused. While it is on it shows **Waiting for you** (the
+requests conversations have made for a job key, each with **Allow**, **Edit first** and **Deny**,
+only while one waits), your list of keys with **New job key**, and these settings. Every setting,
+with its range, is in [Automation](automation.md#job-settings):
+
+- What a new key starts with (each key can change its own): **Access**, **Job may add its own
+  instructions**, **Runs per hour**, **Runs per day**, **Runs at once** and **Push when a job
+  finishes**.
+- Under **Advanced** (the defaults suit almost everyone): **Job pushes respect the conversation's
+  mute**, **Most data per run**, **Longest wait a job may ask for**, **Ignore a repeated call for**
+  and **Where new keys are saved**.
+
+All are stored on the server (`automation` in `pocket-settings.json`; the keys in `job-keys.json`).
+**Show job keys in Tasks** is on the [Tasks page](#tasks-page).
+
+### Automatic model choice page
+
+Developer mode only. Assistant mode shows its switch in the Features list, and nothing behind it, so
+no model name is shown there. **Automatic model choice** works in Assistant mode only: someone in
+Developer mode can turn it on and nothing changes until the install is in Assistant mode, and the
+switch's note says so.
+
+- **Choose the model for me** (the switch in the Features list): on or off. Off unless
+  `POCKET_ROUTER` is `jev` or `openai`. It cannot be turned on without a key.
+- **Decision model**: the small model that reads each request and picks its level. **TypeSafe Jev,
+  through OpenRouter** (an OpenRouter key) or **OpenAI Decisions API (GPT-6 Luna)** (an OpenAI API
+  key).
+- **Key**: paste and **Save key**. The key is saved to `router-key` in the data directory (mode
+  `0600`), never shown again, and replaces `POCKET_ROUTER_KEY` or `POCKET_ROUTER_KEY_FILE`.
+  **Remove** deletes it.
+- Four levels, **Quick**, **Standard**, **Careful** and **Deep**, each with a **Model** and an
+  **Effort**. **Automatic** follows the newest offered model of the level's family; the line under
+  each level says what it runs now. Effort is how much the model thinks before answering: higher is
+  slower, more thorough and uses more of your plan, and Automatic leaves it to the model.
+- **Use the server's settings** clears everything saved here.
+
+It acts only in Assistant mode and only on requests typed from scratch; saved prompts keep their
+own model. If the decision model fails, is unsure or takes longer than `POCKET_ROUTER_TIMEOUT_MS`
+(default 1500 ms), the default model runs, and the note says so. The decision model is told only that the
+request was typed into an AI work assistant; to tell it what routine work looks like on this install, describe the
+business in `POCKET_ROUTER_CONTEXT` (a sentence or two, up to 1,000 characters, read at start). In Assistant mode
+the other model control is **Try harder** under a Claude reply (see [Working in a conversation](conversation.md#try-harder-assistant-mode)).
+
+## Unattended work
+
+For all your devices. Work that runs while you are not watching, like check-backs, job runs, queued
+messages and retries. **Pause all** stops it; the limits keep it from using up your plan. It is the
+same in both modes. [Automation](automation.md) explains each setting; the Check-backs and Job keys
+settings are on their [Features pages](#check-backs-page), and what ran and which limits were hit
+is on [Usage](#usage).
+
+| Control | What it does | Default | Stored |
+|---|---|---|---|
+| **Pause all** / **Resume** | The first row. Stops every running reply (side chats included) and Claude's background jobs, and holds everything automatic; reads **Resume** while Pocket is paused. It is also in the **More** (**⋯**) menu beside the conversation list and in **Switch conversation** (Ctrl/⌘ K). It cannot be hidden or turned off | Running normally | Server (`paused`) |
+| **Your own messages while paused** | Whether a message you send yourself still runs while paused, with a banner reminding you, or waits until you resume | **Run, with a banner** | Server (`automation`) |
+| **Also pause Inbox Watch** | Pause all also stops Inbox Watch's email checks, digests and look-aheads | On | Server (`automation`) |
+| **Also stop background commands** | Pause all also stops commands that agents left running in the background. Off: they keep running, but if one starts a reply, Pocket stops it | On | Server (`automation`) |
+| **On Resume, restart held retries** | When a reply hits your plan's usage limit, Pocket retries it once the limit resets. On: those retries start again when you resume. Off: they wait until you start them | On | Server (`automation`) |
+| **On Resume, run late check-backs** | A check-back that came due while paused runs when you resume, if it is within the catch-up window. Off: it is marked missed | On | Server (`automation`) |
+| **Ask before pausing** | Shows what will stop and asks you to confirm. Off: one tap pauses | On | Server (`automation`) |
+
+**Limits.** A **No limit** button sits beside each number.
+
+| Control | What it does | Default |
+|---|---|---|
+| **Unattended replies per day** | The most replies that can run without you in a day, counted in your time zone. Check-backs and job runs always count | 40 |
+| **Longest unattended reply** | A check-back or job reply still running after this many minutes is stopped. This is the only limit that stops a reply already running | 60 min |
+| **OpenRouter spend per day** | The most unattended work can spend on OpenRouter in a day, in dollars | $5 |
+| **Claude plan, weekly: stop unattended work at** | Once your Claude plan's weekly usage passes this percentage, check-backs and jobs wait, so the rest is kept for you. Messages you send are never held | 80% |
+| **Claude plan, 5-hour: stop unattended work at** | The same, for the 5-hour window | 90% |
+| **Codex plan, weekly: stop unattended work at** and **Codex plan, 5-hour: stop unattended work at** | The same, for Codex | 80% and 90% |
+| **Tell me when a limit is reached** | When a limit holds work back, tell you by push and on the Usage page (once per reason a day), or only on the Usage page | Push and Usage page |
+
+Under **Advanced** (the defaults suit almost everyone):
+
+| Control | What it does | Default |
+|---|---|---|
+| **Count my queued messages and retries toward the daily limits** | Off: work you started yourself does not use up the daily reply count or OpenRouter spend. That covers messages you queued, usage-limit retries, and a conversation woken by another conversation | Off |
+| **Plan limits also hold my queued messages and retries** | Off: the plan percentages hold back only check-backs and jobs | Off |
+| **Count time waiting for me toward the longest reply** | Off: time a reply spends waiting for your approval or answer does not count toward **Longest unattended reply** | Off |
+| **Treat a plan reading older than this as stale** | Pocket learns your plan usage from each reply. A reading older than this many hours does not hold work back; the next reply refreshes it | 6 h |
+
+Each group keeps its **Reset to defaults** button. A value is checked when it is saved: out of
+range, it is refused with a message that names the range. While any limit is set to No limit, a
+warning shows at the top of the page; one also shows while today's counts cannot be saved ([The
+usage table](automation.md#the-usage-table)). A change applies to the next start, never to a reply
+already running.
+
+## Usage
+
+Read only. It reports; nothing here can be changed.
+
+| Item | What it shows |
+|---|---|
+| **Plan usage** | Your Claude and Codex 5-hour and weekly usage, and extra-usage status. Codex shows only when it is installed. It updates when a reply runs, not live. Also in **Conversation options** |
+| **Unattended replies** | What ran without you: **Today**, and **Last 7 days** with replies, tokens and cost. Stored on the server (`automation-state.json`) |
+| **Limits reached today** | Which limits held work back today, and when |
+| **Inbox Watch cost** (Developer mode, Inbox Watch on) | What Inbox Watch spent each day for the last 7 days. Opens the cost table in its settings, where it also stays |
 
 ## Help & updates
 
-- **Keyboard & workspace** (Developer mode): the keyboard shortcuts.
+No scope heading: the version rows describe this browser and the server, and the rest is reading.
+
+- **Keyboard shortcuts** (Developer mode): every shortcut, and what your tabs and filters remember on this device.
 - **About & updates**: the app version and build in this browser, the server's build and commit,
   the Claude and Codex CLI versions, and the host and its uptime. The status says **Up to date**,
   **An update is available.**, **This browser is newer than the server. Server update pending.**
@@ -314,6 +551,7 @@ them.
 | Completion chime, icon count | `pc-chime`, `pc-icon-badge` |
 | Open projects, Files button, Open files and links | `pc-projects-open`, `pc-files-button`, `pc-documents-open` |
 | Voice preferences and mute | `pc-voice` |
+| Each agent's last model and effort, and the **Recent** list in the [model panel](sessions.md#choose-agent-model-effort-permissions-and-mode) | `pc-engine-pick-<agent>`, `pc-recent-picks` |
 
 Drafts, open tabs, split layout, filters, hidden conversations and per-conversation composer
 choices are also kept per browser.
@@ -323,7 +561,7 @@ defaults to the Pocket Code directory:
 
 | File | What it holds |
 |---|---|
-| `pocket-settings.json` | Every **Server** setting above, including whether Pocket is paused and the values you saved under Automation, plus two values Pocket learns: your browser's time zone and the public address you sign in through |
+| `pocket-settings.json` | Every setting marked **Server** above, including whether Pocket is paused and the values you saved under Unattended work, Check-backs and Job keys, plus two values Pocket learns: your browser's time zone and the public address you sign in through |
 | `automation-state.json`, `automation-audit.jsonl` | The day's counts and limit notices, and a line for each pause, resume, settings change, check-back event, job event and unattended reply (never message text) |
 | `checkbacks.json` | The check-backs: each one's conversation, note, time and state, for the cards, the list and Tasks |
 | `job-keys.json` | The job keys (a hash of each key, never the key), their recent runs and the requests from conversations, with their whole instruction. Mode `0600` |
@@ -343,19 +581,19 @@ opens Settings. The rule for each pair:
 
 | Setting | Variable | Which wins |
 |---|---|---|
-| **Mode** | `POCKET_ASSISTANT_MODE` | `on` sets the starting value; Settings wins after. `locked` always wins |
-| **Generate short titles** | `POCKET_AUTO_TITLES` | Starting value only |
+| **Layout** | `POCKET_ASSISTANT_MODE` | `on` sets the starting value; Settings wins after. `locked` always wins |
+| **Short titles** | `POCKET_AUTO_TITLES` | Starting value only |
 | **Model for titles and summaries** | `POCKET_TITLE_CLAUDE_MODEL`, `POCKET_TITLE_CODEX_MODEL` | The variables choose which model each option runs |
-| **Update titles as conversations progress** | `POCKET_LIVE_TITLE_GAP_MS` | The variable sets the minimum time between checks |
-| **Claude models in the picker** | `POCKET_CLAUDE_MODELS` | Settings, once a list is saved |
+| **Keep titles up to date** | `POCKET_LIVE_TITLE_GAP_MS` | The variable sets the minimum time between checks |
+| **Models offered in the picker** | `POCKET_CLAUDE_MODELS` | Settings, once a list is saved |
 | **Actions that run without asking** | `POCKET_TRUSTED_ACTIONS` | Settings, once a list is saved (even an empty one) |
 | **Automatic model choice** | `POCKET_ROUTER`, `POCKET_ROUTER_KEY`, `POCKET_ROUTER_KEY_FILE`, `POCKET_ROUTER_TIMEOUT_MS`, `POCKET_ROUTER_CONTEXT` | Settings, for each part saved there; the timeout and the business description are set only by the variables |
-| **One sign-in** | `POCKET_ACCESS_TEAM`, `POCKET_ACCESS_AUD`, `POCKET_ACCESS_EMAILS` | Settings, until **Use the server's values** |
+| **Sign in with Cloudflare Access** | `POCKET_ACCESS_TEAM`, `POCKET_ACCESS_AUD`, `POCKET_ACCESS_EMAILS` | Settings, until **Use the server's values** |
 | **Push to this device** | `VAPID_PUBLIC`, `VAPID_PRIVATE`, `VAPID_CONTACT` | Push is off without the keys |
 | **Email due tasks and reminders to** | `POCKET_SMTP_URL`, `POCKET_SMTP_FROM`, `POCKET_PUBLIC_URL` | The field is disabled without `POCKET_SMTP_URL` |
 | **Vault** | `POCKET_VAULT_KEY` | Created by the switch; set by hand only when there is no `.env` |
 | **Voice (beta)** | `POCKET_VOICE=off` | Turns voice off on the server |
-| **Automation** | `POCKET_AUTOMATION_<NAME>`, for example `POCKET_AUTOMATION_WEEKLY_CEILING=60` | Settings, for each value saved there; the variable presets the default for the install. The names are in [Automation](automation.md#presets-for-an-install) |
+| **Unattended work**, **Check-backs** and **Job keys** | `POCKET_AUTOMATION_<NAME>`, for example `POCKET_AUTOMATION_WEEKLY_CEILING=60` | Settings, for each value saved there; the variable presets the default for the install. The names are in [Automation](automation.md#presets-for-an-install) |
 
 A change to `.env` takes effect after a restart from the Pocket Code directory
 (`pm2 restart ecosystem.config.cjs`). The other variables are in the README's
@@ -364,20 +602,19 @@ A change to `.env` takes effect after a restart from the Pocket Code directory
 ## For agents
 
 - Settings are the owner's. `GET` and `POST /api/settings` need the owner's browser sign-in
-  (password or one sign-in); the loopback token the agent commands use is not accepted there. Tell the user the exact path to
-  change, for example **Settings → Notifications & voice → Notice a day before**, rather than
+  (password or the Cloudflare Access sign-in); the loopback token the agent commands use is not accepted there. Tell the user the exact path to
+  change, for example **Settings → Notifications → Notice a day before**, rather than
   trying to change it.
-- Pause, Resume and the **Automation** settings, job keys included, are the owner's too, and no agent can use them: the
+- Pause, Resume and the **Unattended work** settings, check-backs and job keys included, are the owner's too, and no agent can use them: the
   routes take only the owner's sign-in. Don't try to raise a limit, lift a pause or make a job key. Tell the user to open
-  **Settings → Automation**. The one thing an agent may do there is ask for a job key with `pocket-jobkey`; only the
+  **Settings → Unattended work** (or **Settings → Features → Check-backs** or **Job keys**). The one thing an agent may do there is ask for a job key with `pocket-jobkey`; only the
   owner's Allow makes it ([For agents](for-agents.md#propose-a-job-key)).
 - Do not edit `pocket-settings.json` while Pocket runs. The daemon reads it at start and rewrites
   the whole file on the next save, so a hand edit is lost.
 - When a feature command answers that the feature is off, pass on the message, which names
-  **Settings → Projects, files, tasks & vault**. In Assistant mode the switches are under
-  **Settings → Features**, and when the mode is locked the user has to ask the person who runs the
+  **Settings → Features**. When the mode is locked the user has to ask the person who runs the
   install.
-- To provision an install before first use (models, trusted actions, Assistant mode, one sign-in),
+- To provision an install before first use (models, trusted actions, Assistant mode, Cloudflare Access sign-in),
   add the variables above to `.env` only when the user asks, then restart.
 - Per-browser preferences cannot be set from the server.
 
@@ -386,7 +623,7 @@ A change to `.env` takes effect after a restart from the Pocket Code directory
 | Symptom | Cause | Fix |
 |---|---|---|
 | Server switches stay disabled with **Loading…**, or **Could not load this setting.** | The settings request failed or timed out | **Retry name-sync setting**, or reopen Settings; check the daemon is running |
-| **Generate short titles** says it is on but no signed-in Claude Code or Codex can make titles | Neither CLI is installed and signed in on the server | Sign in under **Accounts & instance**, or choose the other model |
+| **Short titles** says it is on but no signed-in Claude Code or Codex can make titles | Neither CLI is installed and signed in on the server | Sign in under **Accounts & sign-in → Claude and Codex accounts**, or choose the other model |
 | **Push not configured on server** | `VAPID_PUBLIC` and `VAPID_PRIVATE` are not set | Add them (re-running `pocket-init` adds missing keys) and restart |
 | **Notifications blocked. Allow notifications in this site's browser settings.** | The browser's permission is off | Allow notifications for the site, then turn **Push to this device** on |
 | **Count on the app icon** is disabled | The browser has no app-badge support | Use the installed app on a platform that shows icon counts |
@@ -397,6 +634,8 @@ A change to `.env` takes effect after a restart from the Pocket Code directory
 | **Keep at least one model on** | You tried to stop offering the last offered model | Offer another model first |
 | A rule is refused under **Add an action** | The rule changes files, covers everything, or is not valid syntax; the reason shows under the field | Fix the rule; see [action approvals](../action-approvals.md#actions-that-run-without-asking) |
 | The **Vault** switch is disabled with **This Vault's key is missing on this server** | `vault.enc` exists but its key is not in `.env` | **Restore key…** with your recovery key |
-| **Mode** options are disabled | `POCKET_ASSISTANT_MODE=locked` | Change it in `.env` and restart |
-| **Features** shows a line and no switches | `POCKET_ASSISTANT_MODE=locked` | Ask the person who runs the install, or remove `locked` in `.env` and restart |
-| A setting changed on one device does not show on another | It is a **This device** setting | Set it on each device |
+| The **Layout** options are disabled | `POCKET_ASSISTANT_MODE=locked` | Change it in `.env` and restart |
+| **Features** shows a line in place of most switches | `POCKET_ASSISTANT_MODE=locked` | Ask the person who runs the install, or remove `locked` in `.env` and restart |
+| A setting changed on one device does not show on another | It is a **This device only** setting | Set it on each device |
+| **Automatic model choice** is on and nothing changes | It works in Assistant mode only | Switch **Layout** to Assistant mode |
+| A setting is not where this page used to say | Settings was reorganized in 1.124.9 | Use **Search settings**, or see [Where things moved](#where-things-moved-in-11249) |

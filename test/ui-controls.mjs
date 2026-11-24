@@ -35,3 +35,13 @@ export async function openSettingsPage(page, key) {
  await page.click(`[data-settings-panel] [data-settings-category="${key}"], .settings-index [data-settings-category="${key}"]`);
  await page.waitForSelector(`[data-settings-panel="${key}"]:not([hidden])`);
 }
+
+// 1.124.9: a Settings row moved between pages, so a test names the row and is taken to the page that holds it (the
+// first match outside the unplaced rows), the way a person would get there. Opens Settings first if it is closed.
+export async function showSetting(page, selector, { category = '' } = {}) {
+ if(!await page.$('.settings-sheet'))await page.evaluate(c=>settingsSheet(c?{category:c}:undefined),category);
+ await page.waitForFunction(s=>[...document.querySelectorAll(s)].some(e=>!e.closest('.settings-unplaced')),{},selector);
+ const key=await page.$$eval(selector,es=>es.find(e=>!e.closest('.settings-unplaced'))?.closest('[data-settings-panel]')?.dataset.settingsPanel||'');
+ if(key)await openSettingsPage(page,key);
+ return page.waitForFunction(s=>[...document.querySelectorAll(s)].some(e=>!e.closest('.settings-unplaced')&&e.getClientRects().length),{},selector);
+}

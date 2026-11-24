@@ -165,7 +165,7 @@ Inbox Watch can also keep the list tidy on its own (the same sheet → Keep the 
 hours it takes off entries that have been resolved or handled, with the reason in the entry's note, and they show
 under **Done**. An agent asked to "clean up my Inbox" now can still go through `list` and `act` by hand.
 
-The same settings are in Pocket under **Settings → Projects, files, tasks & vault → Inbox Watch
+The same settings are in Pocket under **Settings → Features → Inbox Watch
 → Schedule, models and cost**; the watcher picks a change up within a minute. Dollar figures are
 what the tokens would cost at API list prices; on a Claude or ChatGPT plan nothing is billed per
 call, the plan's usage limits are what it draws on. Change settings only when the user asks.
@@ -191,5 +191,5 @@ adds nothing and says `duplicate`.
 ## If Inbox Watch is off
 
 `pocket-inbox` says so and exits with code 1. Tell the user that Inbox Watch is turned off and
-can be turned on in Pocket Code under **Settings → Projects, files, tasks & vault → Inbox Watch**.
+can be turned on in Pocket Code under **Settings → Features → Inbox Watch**.
 Exit code 2 means Pocket Code is not running on this server.

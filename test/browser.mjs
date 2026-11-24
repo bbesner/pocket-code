@@ -271,7 +271,7 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname==='/api/push/prefs')return json({error:'This device is not subscribed.',code:'not_subscribed'},404); // push is off in the fixture
  if(url.pathname==='/api/notify/test-email'){if(!fixtureSettings.notifyEmail)return json({error:'Save an email address first.',code:'no_address'},400);(uiModes.mailLog??=[]).push({to:fixtureSettings.notifyEmail,subject:'[Pocket Code] Test: reminders will arrive like this'});return json({ok:true,to:fixtureSettings.notifyEmail});}
  if(url.pathname.startsWith('/api/inbox')){ // 1.69
-  if(!fixtureSettings.inbox)return json({error:'Inbox Watch is off. Turn it on in Settings → Projects, files, tasks & vault.',code:'inbox_off'},404);
+  if(!fixtureSettings.inbox)return json({error:'Inbox Watch is off. Turn it on in Settings → Features.',code:'inbox_off'},404);
   if(url.pathname==='/api/inbox')return json({...inboxStore.snapshot({state:url.searchParams.get('state')||'new',since:url.searchParams.get('since')||undefined}),push:{enabled:false},email:Boolean(fixtureSettings.notifyEmail)});
   if(url.pathname==='/api/inbox/act'){let raw='';for await(const c of req)raw+=c;try{return json({ok:true,entry:inboxStore.act(JSON.parse(raw),{actor:'ui'})});}catch(e){return json({error:e.message},e.status||400);}}
   if(url.pathname==='/api/inbox/reset'){seedInbox();inboxStore.checks={};return json({ok:true});}
@@ -317,7 +317,7 @@ const server=http.createServer(async(req,res)=>{
   }
  }
  if(url.pathname.startsWith('/api/tasks')){ // 1.36
-  if(!fixtureSettings.tasks)return json({error:'Tasks is off. Turn it on in Settings → Projects, files, tasks & vault.',code:'tasks_off'},404);
+  if(!fixtureSettings.tasks)return json({error:'Tasks is off. Turn it on in Settings → Features.',code:'tasks_off'},404);
   if(url.pathname==='/api/tasks')return json({...taskStore.snapshot(),push:{enabled:false},hook:false,email:Boolean(fixtureSettings.notifyEmail),...checkbackFixture.tasks(id=>rows.find(r=>r.id===id)?.title||''),...jobsFixture.tasks()}); // 1.119: the Check-backs group (1.124: and the Jobs group)
   if(url.pathname==='/api/tasks/act'){let raw='';for await(const c of req)raw+=c;try{return json({ok:true,task:taskStore.act(JSON.parse(raw),{actor:'ui'})});}catch(e){return json({error:e.message,...(e.task?{task:e.task}:{})},e.status||400);}}
   if(url.pathname==='/api/tasks/summary'){let raw='';for await(const c of req)raw+=c;const b=JSON.parse(raw||'{}');await new Promise(r=>setTimeout(r,uiModes.slowSummary?1500:50));return json(uiModes.noSummary?{summary:null,reason:'unavailable'}:{summary:'Reviewing the warehouse stock report for '+(rows.find(r=>r.id===b.session)?.title||'a session')+'.\nAisle 4 is still 14 units short after the recount.\nThe reorder list is drafted and waiting for a decision.',model:'haiku',provider:'claude'});}
@@ -326,7 +326,7 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname==='/api/vault/restore-key'){let raw='';for await(const c of req)raw+=c;const b=JSON.parse(raw||'{}'); // 1.44: usable while the key is missing, on or off
   if(b.key!==vaultFixture.key)return json({error:'That key does not open this Vault.'},400);Object.assign(fixtureSettings,{vaultNeedsKey:false,vaultReady:true});return json({ok:true});}
  if(url.pathname.startsWith('/api/vault')){ // 1.39
-  if(!fixtureSettings.vault)return json({error:'The Vault is off. Turn it on in Settings → Projects, files, tasks & vault.',code:'vault_off'},404);
+  if(!fixtureSettings.vault)return json({error:'The Vault is off. Turn it on in Settings → Features.',code:'vault_off'},404);
   const body=async()=>{let raw='';for await(const c of req)raw+=c;return JSON.parse(raw||'{}');};
   const fail=e=>json({error:e.message,...(e.item?{item:e.item}:{}),...(e.code?{code:e.code}:{})},e.status||400);
   if(url.pathname==='/api/vault/reset'){resetVaultLock();seedVault();return json({ok:true});}
@@ -354,13 +354,13 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/vault/recovery-key'){if(pass)return json({error:'The Vault is protected by a passphrase; there is no recovery key.'},400);return json({key:vaultFixture.key});}
  }
  if(url.pathname.startsWith('/api/board')){
-  if(!fixtureSettings.projects)return json({error:'Projects is off. Turn it on in Settings → Projects, files, tasks & vault.',code:'projects_off'},404);
+  if(!fixtureSettings.projects)return json({error:'Projects is off. Turn it on in Settings → Features.',code:'projects_off'},404);
   if(url.pathname==='/api/board'){const snap=board.snapshot({dir:url.searchParams.get('dir')||''});return json({...snap,projects:snap.projects.map(withMode),conductor:uiModes.conductor||{claude:'Fable 5.2',codex:'GPT-6 Astra'},conductorStart:uiModes.conductorStart||{solo:{claude:'Opus 5.5',codex:'GPT-6 Sol'},effort:{claude:'high',codex:'high'}},push:{enabled:false},hook:false,email:Boolean(fixtureSettings.notifyEmail)});} // 1.106: conductor names each agent's lead
   if(url.pathname==='/api/board/act'){let raw='';for await(const c of req)raw+=c;try{return json({ok:true,project:actOnBoard(JSON.parse(raw))});}catch(e){return json({error:e.message,...(e.project?{project:withMode(e.project)}:{})},e.status||400);}}
   if(url.pathname==='/api/board/reset'){seedBoard();return json({ok:true});}
  }
  if(url.pathname.startsWith('/api/documents')||url.pathname.startsWith('/files/')||url.pathname.startsWith('/share/')){
-  if(!fixtureSettings.documents){if(url.pathname.startsWith('/api/'))return json({error:'Files is off. Turn it on in Settings → Projects, files, tasks & vault.',code:'documents_off'},404);res.writeHead(404);res.end();return;}
+  if(!fixtureSettings.documents){if(url.pathname.startsWith('/api/'))return json({error:'Files is off. Turn it on in Settings → Features.',code:'documents_off'},404);res.writeHead(404);res.end();return;}
   const sendDoc=(r,framed)=>{const file=docStore.filePath(r);if(!fs.existsSync(file)){res.writeHead(404);res.end();return;}
    res.writeHead(200,{'content-type':mimeOf(r.file),'cache-control':'private, no-store','x-content-type-options':'nosniff','content-security-policy':r.kind==='html'?`sandbox allow-scripts allow-popups allow-downloads allow-forms; frame-ancestors ${framed?"'self'":"'none'"}`:`default-src 'none'; style-src 'unsafe-inline'; frame-ancestors ${framed?"'self'":"'none'"}`,'content-disposition':(url.searchParams.get('download')==='1'?'attachment':'inline')+"; filename*=UTF-8''"+encodeURIComponent(r.file)});
    res.end(fs.readFileSync(file));};

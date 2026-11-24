@@ -15,11 +15,12 @@ say conversation.
 | Page | What it covers |
 |---|---|
 | [Getting started](getting-started.md) | Install, sign in, add Pocket to a phone, Developer and Assistant mode, a first conversation |
+| [Feature reference](features.md) | Every feature in one place: what it does, how it works, where it is controlled, the agent commands, the environment variables and a glossary |
 | [Conversations](sessions.md) | Start, find, resume and close conversations; agent, workspace, model, effort and permissions; saved prompts; usage and limits |
 | [Working in a conversation](conversation.md) | The message box, attachments, slash commands, reply buttons, results, changed files, Git, steering and the queue, side chat, Branch, subagents |
 | [Questions and approvals](approvals.md) | Questions from the agent, Review actions and Full access, action approvals, trusted rules |
 | [Desktop and phone](desktop-and-phone.md) | The desktop workspace, split view and dock, the phone layout, compact views, keyboard shortcuts |
-| [Settings](settings.md) | Every section of Settings, notifications, appearance and where each preference is stored |
+| [Settings](settings.md) | Every section of Settings, the Layout switch, a page for each feature, usage, and where each preference is stored |
 | [Projects](projects.md) | Project cards, checklists, reminders, Conductor mode (the top model leads a project's work) and the `pocket-board` command |
 | [Files](files.md) | The Files library, sharing and publishing, and the `pocket-docs` command |
 | [Tasks](tasks.md) | To-dos with due times, reminders and a Start button, and the `pocket-tasks` command |
@@ -39,6 +40,7 @@ Code, and [Operations](../operations.md) covers upgrades, restarts, backups and 
 
 | Question | Answer |
 |---|---|
+| What can Pocket Code do, and where is each feature controlled? | [Feature reference](features.md#features-at-a-glance) |
 | How do I turn on Projects, Files, Tasks, Inbox Watch or the Vault? | [Getting started](getting-started.md#turn-on-the-optional-features), then the feature's page |
 | What do Review actions and Full access do? | [Questions and approvals](approvals.md#choose-review-actions-or-full-access) |
 | How do I share a file by link? | [Files](files.md#share-a-file) |

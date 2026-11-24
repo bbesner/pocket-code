@@ -96,7 +96,7 @@ test('skills: the per-turn Google line points each agent at its own pocket-googl
     const line=googleInstructions(agent);
     const m=line.match(/`([^`]+pocket-google[^`]+)`/);assert.ok(m,'names the skill file');
     assert.equal(path.basename(m[1]),file);assert.ok(fs.existsSync(m[1]),'the path is the repository copy, readable without an installed skill');
-    assert.ok(line.includes(via));assert.match(line,/Settings → Connectors/);
+    assert.ok(line.includes(via));assert.match(line,/Settings → Accounts & sign-in → Connectors/);
     assert.match(line,/draft and show it first/);assert.match(line,/never refuse a send/);assert.match(line,/whose Google account/);
   }
   assert.doesNotMatch(googleInstructions('claude'),/SKILL\.codex\.md/);
@@ -114,9 +114,9 @@ test('skills: roots follow HOME, CLAUDE_CONFIG_DIR and CODEX_HOME; Codex only wh
 
 test('skills and agent lines: every name for the library maps to Files; projects ask little and remind only on request',()=>{
   const files=fs.readFileSync(path.join(repo,'skills','pocket-files','SKILL.md'),'utf8'),projects=fs.readFileSync(path.join(repo,'skills','pocket-projects','SKILL.md'),'utf8'),tasks=fs.readFileSync(path.join(repo,'skills','pocket-tasks','SKILL.md'),'utf8');
-  assert.match(tasks,/only when the user asks/);assert.match(tasks,/## Offering one/);assert.match(tasks,/offer \*\*once\*\*/);assert.match(tasks,/for every accepted offer/);assert.match(tasks,/Never add the task before the user says yes/);assert.match(tasks,/Never invent a time/);assert.match(tasks,/--summary/);assert.match(tasks,/Settings → Projects, files, tasks & vault → Tasks/);
+  assert.match(tasks,/only when the user asks/);assert.match(tasks,/## Offering one/);assert.match(tasks,/offer \*\*once\*\*/);assert.match(tasks,/for every accepted offer/);assert.match(tasks,/Never add the task before the user says yes/);assert.match(tasks,/Never invent a time/);assert.match(tasks,/--summary/);assert.match(tasks,/Settings → Features → Tasks/);
   for(const phrase of ['files','my files','documents','my documents','docs'])assert.ok(files.toLowerCase().includes(phrase),phrase);
-  assert.match(files,/Settings → Projects, files, tasks & vault → Files/);
+  assert.match(files,/Settings → Features → Files/);
   assert.match(projects,/at most one short question/);assert.match(projects,/Never add a reminder by default/);assert.match(projects,/--requested/);
   assert.match(renderSkill('a\n<!-- pocket:commands -->\nold\n<!-- /pocket:commands -->\nb','/x/c.mjs','pocket-docs'),/^a\n<!-- pocket:commands -->\nOn this server, run `pocket-docs` as `node \/x\/c\.mjs`\..*\n<!-- \/pocket:commands -->\nb$/s);
   const d=documentInstructions('/x/pocket-docs.mjs','s1');

@@ -1,4 +1,4 @@
-/* Projects (1.29): the tracked-project board inside Pocket Code. Off until Settings → Projects & documents turns it on
+/* Projects (1.29): the tracked-project board inside Pocket Code. Off until Settings → Features turns it on
    (window.pocketFeatures.projects, from /api/me). Views: the list (#/projects), one card (#/projects/<id>)
    and Scheduled (#/projects/scheduled). A view opens like a session: as a tab, beside a conversation, or
    full-screen on the phone. Data comes from /api/board; every change goes through /api/board/act and the

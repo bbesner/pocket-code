@@ -14,7 +14,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 import puppeteer from 'puppeteer-core';
-import { clickControl } from './ui-controls.mjs';
+import { clickControl, showSetting } from './ui-controls.mjs';
 import * as auto from '../automation.mjs';
 
 const repo = path.resolve(import.meta.dirname, '..');
@@ -78,8 +78,9 @@ try {
   const input = key => `[data-auto-key="${key}"]`;
   const setNumber = (key, v) => p.$eval(input(key), (e, v) => { e.focus(); e.value = String(v); e.dispatchEvent(new Event('change')); }, v);
   const openAutomation = async () => {
-    await clickControl(p, '#settings'); await p.waitForSelector('[data-settings-category="automation"]');
-    await p.click('[data-settings-category="automation"]'); await p.waitForSelector(`[data-auto-group="limits"] ${input('claudeWeekly')}`);
+    await clickControl(p, '#settings'); await p.waitForSelector('.settings-index [data-settings-category="unattended"]');
+    await showSetting(p, `[data-auto-group="limits"] ${input('claudeWeekly')}`); // 1.124.9: Unattended work holds Pause all and the limits
+    await p.waitForSelector(`[data-settings-panel="unattended"]:not([hidden]) [data-auto-group="limits"] ${input('claudeWeekly')}`);
   };
   const closeSheet = async () => { await p.keyboard.press('Escape'); await p.waitForFunction(() => !document.querySelector('.sheet')); };
   const status = group => p.$eval(`[data-auto-status="${group}"]`, e => e.textContent);
@@ -102,22 +103,29 @@ try {
   console.log('Live: Settings → Automation renders both groups from the server');
   await home(); await openAutomation();
   const served = (await call('/automation')).body;
-  assert.deepEqual(await p.$$eval('[data-auto-group]', e => e.map(x => x.dataset.autoGroup)), served.groups.map(g => g.key));
-  assert.deepEqual(await p.$$eval('[data-auto-group] > h3', e => e.map(x => x.textContent)), served.groups.map(g => g.title));
+  // 1.124.9: a feature's group is also in Features (its switch) and Tasks (its "in Tasks" switch), as sections of their own.
+  assert.deepEqual(await p.$$eval('[data-auto-group]:not(.automation-switch)', e => e.map(x => x.dataset.autoGroup)), served.groups.map(g => g.key));
+  assert.deepEqual(await p.$$eval('[data-auto-group]:not(.automation-switch) > h3', e => e.map(x => x.textContent)), served.groups.map(g => g.title));
   // Job keys while off: the switch and its help only (its settings come with the switch on, under Advanced).
   const bareOff = g => g.key === 'jobs' && g.settings[0]?.value !== true;
+  // Where each control is: a feature's own switch in Features, its "in Tasks" switch in Tasks, the rest in the group.
+  const inTasks = { checkbacks: 'showInTasks', jobs: 'jobsInTasks' };
   for (const g of served.groups) for (const s of g.settings) {
-    if (bareOff(g) && s.key !== g.key) { assert.equal(await p.$(`[data-auto-group="${g.key}"] ${input(s.key)}`), null, `no control for ${g.key}.${s.key} while it is off`); continue; }
-    assert.ok(await p.$(`[data-auto-group="${g.key}"] ${input(s.key)}`), `a control for ${g.key}.${s.key}`);
+    const where = s.key === g.key ? `.automation-switch[data-auto-group="${g.key}"]` : s.key === inTasks[g.key] ? `#s-tasks-auto .automation-switch[data-auto-group="${g.key}"]` : `[data-auto-group="${g.key}"]:not(.automation-switch)`;
+    if (bareOff(g) && s.key !== g.key && s.key !== inTasks[g.key]) { assert.equal(await p.$(`${where} ${input(s.key)}`), null, `no control for ${g.key}.${s.key} while it is off`); continue; }
+    assert.ok(await p.$(`${where} ${input(s.key)}`), `a control for ${g.key}.${s.key}`);
   }
+  assert.ok(await p.$(`#s-checkbacks-switch ${input('checkbacks')}`) && await p.$(`#s-jobs-switch ${input('jobs')}`), 'the two feature switches are in Features');
   assert.equal(await p.$eval(input('ownMessages'), e => e.value), 'run');
   assert.deepEqual(await p.$$eval(`${input('ownMessages')} option`, e => e.map(o => o.textContent)), setting('pause', 'ownMessages').choices.map(c => c.label));
   assert.equal(await p.$eval(input('claudeWeekly'), e => e.value), '80');
   assert.equal(await p.$eval(input('confirm'), e => e.getAttribute('aria-pressed')), 'true');
   assert.equal(await p.$eval(input('staleHours'), e => e.checkVisibility()), false, 'an advanced setting starts under Advanced');
+  await showSetting(p, '[data-auto-today]'); // the history is on the Usage page
   assert.equal(await p.$eval('[data-auto-today]', e => e.textContent), 'Today: 0 replies · $0.00');
   assert.equal(await p.$$eval('.automation-usage tbody tr', e => e.length), 7);
   assert.equal(await p.$eval('.automation-usage tbody tr th', e => e.textContent), await p.evaluate(d => new Date(d + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }), served.usage.days.at(-1).date), 'newest day first: the server sends oldest first');
+  await showSetting(p, `[data-auto-group="limits"] ${input('claudeWeekly')}`);
   assert.equal(await p.$('.automation-warning'), null);
   await p.$eval('#s-automation', e => e.scrollIntoView());
   await shot('automation-1440-dark');

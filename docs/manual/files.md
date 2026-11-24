@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.89.0
+checked: 1.124.9
 sources: documents.mjs, public/documents.js, scripts/pocket-docs.mjs, skills/pocket-files/SKILL.md, thumbnails.mjs
 -->
 # Files
@@ -12,20 +12,20 @@ Files was called Documents in older releases. The internal names still say docum
 
 Files is off until you switch it on for the whole instance:
 
-1. Open **Settings → Projects, files, tasks & vault**.
+1. Open **Settings → Features**.
 2. Turn on **Files**.
 
 While Files is off, nothing in the library is served, including public and share links, and `pocket-docs` is refused. Your files and their records stay on disk and come back when you turn it on again. While it is on, Pocket installs the `pocket-files` skill for Claude Code and Codex and tells the agents it runs about the library (see [For agents](#for-agents)).
 
-In Assistant mode the switch is under **Settings → Features** instead. When Assistant mode is locked, ask the person who runs the install.
+When Assistant mode is locked, ask the person who runs the install.
 
-The same Settings group has three more choices:
+The **›** beside **Files** opens the Files page, which has three more choices (Developer mode):
 
 | Setting | Scope | What it does |
 |---|---|---|
-| **Keep files from replies** | Instance | After each reply, keeps the files the reply handed you in Files, once each, linked to the conversation. Needs Files on; always on in Assistant mode. |
-| **Files button** | This device | What the rail's Files segment does: **Lists files in the sidebar**, **Opens the library in a tab**, or **Opens the library in split view**. |
-| **Open files and links** | This device | Whether clicking a file opens it **As a tab, like a conversation**, **Beside the conversation**, or **In a new browser window**. A link in a conversation to one of your files, projects or conversations opens the same way. |
+| **Keep files from replies** | All your devices | After each reply, keeps the files the reply handed you in Files, once each, linked to the conversation. Needs Files on; always on in Assistant mode. |
+| **Files button** | This device only | What the rail's Files segment does: **Lists files in the sidebar**, **Opens the library in a tab**, or **Opens the library in split view**. |
+| **Open files and links** | This device only | Whether clicking a file opens it **As a tab, like a conversation**, **Beside the conversation**, or **In a new browser window**. A link in a conversation to one of your files, projects or conversations opens the same way. |
 
 ## Use it
 
@@ -168,7 +168,7 @@ Since 1.118 an HTML file's picture is drawn with its scripts off and the network
 
 | Setting or variable | Effect |
 |---|---|
-| **Settings → Projects, files, tasks & vault → Files** | Turns the library on for the instance (`documents` in `pocket-settings.json`). |
+| **Settings → Features → Files** | Turns the library on for the instance (`documents` in `pocket-settings.json`). |
 | **Keep files from replies** | Keeps files named in replies automatically (`autoKeepFiles`). |
 | `POCKET_DOCUMENTS_DIR` | Where the files are kept. Default `<data dir>/documents`. |
 | `POCKET_PUBLIC_URL` | Makes the share and public addresses `pocket-docs` prints absolute. |
@@ -234,7 +234,7 @@ pocket-docs set 9c1e5b7d4e8f --visibility private
 |---|---|
 | 0 | Done. |
 | 1 | Any other error; the message says what. |
-| 3 | Files is off. Tell the user to turn it on under **Settings → Projects, files, tasks & vault → Files**, and give the file's path until then. |
+| 3 | Files is off. Tell the user to turn it on under **Settings → Features → Files**, and give the file's path until then. |
 | 4 | The token was refused. |
 | 5 | No file has that id. |
 | 6 | Pending: the user has not answered yet. Tell them, then run `wait <id>`. |

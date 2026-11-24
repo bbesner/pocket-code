@@ -768,10 +768,10 @@ function restoreViewPosition(view) {
  const state=viewPositions.get('#/'+view),main=document.querySelector('main.scroll');if(!state||!main)return;
  main.querySelectorAll('details').forEach((d,i)=>{if(state.details[i]!==undefined)d.open=state.details[i];});main.scrollTop=state.top;
 }
-// 1.81 (#175): where an "is off" message sends you. Assistant mode has no Projects, files, tasks & vault category, its switches
-// are in Settings → Features, and a locked Pocket (POCKET_ASSISTANT_MODE=locked) leaves them to the person who runs the install.
+// 1.81 (#175): where an "is off" message sends you. Every switch is in Settings → Features (both modes since 1.124.9), and a
+// locked Pocket (POCKET_ASSISTANT_MODE=locked) leaves them to the person who runs the install.
 const featuresLocked=()=>Boolean(window.pocketFeatures?.assistantLocked);
-function turnOnHint(){return featuresLocked()?'Ask the person who runs this install to turn it on.':assistantMode()?'Turn it on in Settings → Features.':'Turn it on in Settings → Projects, files, tasks & vault.';}
+function turnOnHint(){return featuresLocked()?'Ask the person who runs this install to turn it on.':'Turn it on in Settings → Features.';}
 function showLibraryError(main,error,label,retry,hasData) {
  const panel=document.createElement('div');panel.className='library-error';panel.setAttribute('role','status');
  const off=error.status===404;
@@ -809,7 +809,7 @@ function updateNewSummary() {
  const el=document.querySelector('#task-context');if(!el||!tb)return;
  el.innerHTML=`<span><strong>Workspace</strong> ${esc(el.dataset.workspace||'Choose a workspace')}</span>${typeof newStartLine==='function'&&newStartLine()?`<span><strong>Start</strong> ${esc(newStartLine())}</span>`:''}`;
 }
-// 1.124.9: Settings, reorganized (docs/plans/settings-proposal-2026-11-24.md). The same pages, names and order in both
+// 1.124.9: Settings, reorganized (CHANGELOG 1.124.9). The same pages, names and order in both
 // modes; Assistant mode leaves out the rows marked '!' (Developer mode only) and a page whose rows are all left out.
 // Each page is [key, title, description, sections, parent]; a section is [scope heading, selectors]. A selector that
 // starts with '^' takes the field's .title-settings wrapper. Feature pages (parent 'features') open from Features.
@@ -829,7 +829,7 @@ function organizeSettings(sh, {category='',scrollTop=0}={}) {
   ['voice','Voice (beta)','Spoken replies and dictation on this device',[[DEVICE,['#s-voice']]]],
   ['accounts','Accounts & sign-in','Claude and Codex accounts, Gmail, Calendar and Drive, signing in and out',[['',['#s-environment','#s-connectors','!#s-access','#s-signout']]]],
   ['agents','Agents','Models offered, long conversations and helpers, actions that run without asking',[[ALL,['!#s-models','!#s-context','!#s-trusted']]]],
-  ['features','Features','Turn parts of Pocket on or off, each with its own settings',[[ALL,['#s-features-list']]]],
+  ['features','Features',locked?'Which parts of Pocket are on':'Turn parts of Pocket on or off, each with its own settings',[[ALL,['#s-features-list']]]],
   ['unattended','Unattended work','Pause all, and limits on work that runs while you’re away',[[ALL,['#s-automation']]]],
   ['usage','Usage','Plan usage, what ran without you, and limits reached',[['',['#s-usage','#s-auto-usage','!#s-usage-inbox']]]],
   ['help','Help & updates',am?'Version and what’s new':'Keyboard shortcuts, version, what’s new and feedback',[['',['!#s-keys','#s-about','#s-notes','!#s-feedback']]]],
@@ -879,7 +879,7 @@ function organizeSettings(sh, {category='',scrollTop=0}={}) {
  const mode=sh.querySelector('#s-mode');
  const search=settingsSearch(sh,{panels,titles,go:(key,el)=>{select(key);requestAnimationFrame(()=>{el.scrollIntoView({block:'center'});const c=el.matches('button,select,input,summary')?el:el.querySelector('button:not([disabled]),select,input,summary');c?.focus({preventScroll:true});el.classList.remove('settings-hit');void el.offsetWidth;el.classList.add('settings-hit');setTimeout(()=>el.classList.remove('settings-hit'),2400);});}});
  sh.querySelector('.settings-group')?.remove();heading.after(search.box);search.box.after(index);
- if(mode){const h=document.createElement('h3');h.className='settings-scope';h.textContent=ALL;index.prepend(h,mode);}
+ if(mode)index.prepend(mode); // its help says it changes every device
  for(const el of [...sh.children])if(el!==heading&&el!==index&&el!==back&&el!==search.box&&!el.dataset.settingsPanel)el.classList.add('settings-assistant-hidden','settings-unplaced');
  sh.querySelectorAll('[data-settings-category]').forEach(b=>b.onclick=()=>{const k=b.dataset.settingsCategory;if(k==='inbox')return sh.querySelector('#s-inbox-watch')?.click();select(k);});
  // Inbox Watch's › follows its settings button, which shows only while Inbox Watch is on.
@@ -905,7 +905,7 @@ function organizeSettings(sh, {category='',scrollTop=0}={}) {
 // its page with the row in view, focused and outlined for a moment.
 function settingsSearch(sh,{panels,titles,go}){
  const box=document.createElement('div');box.className='settings-search';
- box.innerHTML=`<div class="sheet-find settings-find"><div class="session-search">${IC.search}<input type="search" id="s-search" aria-label="Search settings" placeholder="Search settings" autocomplete="off" spellcheck="false" enterkeyhint="go" aria-controls="s-search-results"></div></div><div class="settings-results" id="s-search-results" role="list" aria-label="Matching settings" hidden></div><p class="title-note" id="s-search-none" role="status"></p>`;
+ box.innerHTML=`<div class="sheet-find settings-find"><div class="session-search">${IC.search}<input type="search" id="s-search" data-no-autofocus aria-label="Search settings" placeholder="Search settings" autocomplete="off" spellcheck="false" enterkeyhint="go" aria-controls="s-search-results"></div></div><div class="settings-results" id="s-search-results" role="list" aria-label="Matching settings" hidden></div><p class="title-note" id="s-search-none" role="status"></p>`;
  const input=box.querySelector('input'),results=box.querySelector('.settings-results'),none=box.querySelector('#s-search-none');
  const ROWS='.opt,.voice-field,.automation-row,.vault-set,.chat-text-settings,.mode-settings,.settings-details > summary,.title-settings > .vault-set-head,.trusted-add';
  const labelOf=el=>{const c=(el.matches('summary')?el:el.matches('.title-settings > .vault-set-head')?el:el).cloneNode(true);c.querySelectorAll('.sub,select,option,.title-note,.chat-text-help,.chat-text-controls,.vault-field-error,svg,.badge,input').forEach(x=>x.remove());return c.textContent.replace(/\s+/g,' ').trim().slice(0,90);};

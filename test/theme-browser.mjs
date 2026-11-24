@@ -73,7 +73,7 @@ export async function runThemeRegressions({browser,base,rows,out,settings,modes,
   await clickControl(page,'#splitb');await page.waitForSelector(`[data-v="${rows[0].id}"]`);await clickControl(page,`[data-v="${rows[0].id}"]`);
   await page.waitForSelector('#panes iframe');const pane=await(await page.$('#panes iframe')).contentFrame();await pane.waitForSelector('#box');
   const other=await context.newPage();await other.goto(base+'/?solo=1#/chat/'+idle);await other.waitForSelector('#box');
-  await page.evaluate(()=>settingsSheet({category:'appearance'}));await page.waitForSelector('#s-theme');
+  await page.evaluate(()=>settingsSheet({category:'display'}));await page.waitForSelector('#s-theme');
   await page.select('#s-theme','dark');
   await pane.waitForFunction(()=>PocketTheme.resolved==='dark');await other.waitForFunction(()=>PocketTheme.resolved==='dark');
   await pane.evaluate(()=>{PocketTheme.setPreference('light');PocketTheme.setAccent('purple');});
@@ -116,14 +116,13 @@ export async function runThemeRegressions({browser,base,rows,out,settings,modes,
     for(const [name,route,selector] of [['sessions','#/','.session-item'],['new','#/new','#first'],['projects','#/projects','#projects-main'],['project','#/projects/warehouse-stock-report','.project-card'],['files','#/documents','#documents-main'],['tasks','#/tasks','#tasks-main']]){
      await go(route,selector);await scan(`${mode}-${name}-${width}`);
     }
-    await chat();await page.evaluate(()=>settingsSheet({category:'appearance'}));await page.waitForSelector('#s-theme');
+    await chat();await page.evaluate(()=>settingsSheet({category:'display'}));await page.waitForSelector('#s-theme');
     await scan(`${mode}-appearance-${width}`);await page.keyboard.press('Escape');
     await page.evaluate(()=>openResults(chatId));await page.waitForSelector('.results-sheet');await scan(`${mode}-results-${width}`);await close();
     await page.evaluate(()=>openGit(chatId));await page.waitForSelector('.git-sheet');await scan(`${mode}-git-${width}`);await close();
     await page.evaluate(()=>openQueue(chatId));await page.waitForSelector('#queue-items');await scan(`${mode}-queue-${width}`);await close();
     await page.evaluate(()=>openUsagePanel());await page.waitForSelector('#usage-body');await scan(`${mode}-usage-${width}`);await page.keyboard.press('Escape');
-    await page.evaluate(()=>settingsSheet({category:'notifications'}));await page.waitForSelector('#s-voice');
-    await clickControl(page,'#s-voice > summary');await page.waitForSelector('#s-voice-voice option');
+    await page.evaluate(()=>settingsSheet({category:'voice'}));await page.waitForSelector('#s-voice-voice',{visible:true});await page.waitForSelector('#s-voice-voice option'); // 1.124.9: Voice is its own page
     await scan(`${mode}-voice-${width}`);await page.keyboard.press('Escape');
     setRequests({approvals:[{id:'theme-approval',title:'Run this command?',kind:'command',details:'npm run build',canAllow:true,status:'pending'}]});
     await page.evaluate(()=>openApprovals(chatId));await page.waitForSelector('.approval-card');await scan(`${mode}-approval-${width}`);await page.keyboard.press('Escape');

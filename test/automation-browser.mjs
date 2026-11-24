@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import fs from 'node:fs';
-import {clickControl} from './ui-controls.mjs';
+import {clickControl,showSetting} from './ui-controls.mjs';
 import * as auto from '../automation.mjs';
 
 const DAY=86400000;
@@ -59,7 +59,7 @@ export async function runAutomationRegressions({p,base,out,repo,rows,settings,sc
  const shot=async name=>{await p.screenshot({path:path.join(shots,name+'.png')});await p.screenshot({path:path.join(out,'automation-'+name+'.png')});if(scan)await scan('automation-'+name);};
  const home=async()=>{await p.goto(base+'/#/all');await p.waitForSelector('.session-home');};
  const bannerShown=()=>p.$eval('.pause-banner',()=>true).catch(()=>false);
- const openAutomation=async()=>{await clickControl(p,'#settings');await p.waitForSelector('.settings-sheet [data-settings-category="automation"]');await p.click('[data-settings-category="automation"]');await p.waitForSelector('[data-auto-group="limits"] [data-auto-key="claudeWeekly"]');};
+ const openAutomation=async()=>{await clickControl(p,'#settings');await p.waitForSelector('.settings-sheet [data-settings-category="unattended"]');await showSetting(p,'[data-auto-group="limits"] [data-auto-key="claudeWeekly"]');await p.waitForSelector('[data-settings-panel="unattended"]:not([hidden]) [data-auto-group="limits"] [data-auto-key="claudeWeekly"]');};
  const input=key=>`[data-auto-key="${key}"]`;
  const setNumber=async(key,v)=>{await p.$eval(input(key),(e,v)=>{e.focus();e.value=String(v);e.dispatchEvent(new Event('change'));},v);};
  // The pause check with nothing changed, both ways it comes: the list refresh's own `pause` (no request) and the return
@@ -95,18 +95,20 @@ export async function runAutomationRegressions({p,base,out,repo,rows,settings,sc
 
  // --- Settings → Automation renders the server's groups; a category in both modes ---
  await openAutomation();
- assert.deepEqual(await p.$$eval('[data-auto-group]',e=>e.map(x=>x.dataset.autoGroup)),['pause','limits','checkbacks','jobs']); // 1.119; job keys (test/jobkeys-browser.mjs): Check-backs (test/checkback-browser.mjs)
- assert.deepEqual(await p.$$eval('[data-auto-group] > h3',e=>e.map(x=>x.textContent)),['Pause all','Limits','Check-backs','Job keys']);
+ assert.deepEqual(await p.$$eval('[data-auto-group]:not(.automation-switch)',e=>e.map(x=>x.dataset.autoGroup)),['pause','limits','checkbacks','jobs']); // 1.119; job keys (test/jobkeys-browser.mjs): Check-backs (test/checkback-browser.mjs)
+ assert.deepEqual(await p.$$eval('[data-auto-group]:not(.automation-switch) > h3',e=>e.map(x=>x.textContent)),['Pause all','Limits','Check-backs','Job keys']);
  assert.match(await p.$eval('#s-automation [data-pause-toggle]',e=>e.textContent),/^Pause allRunning normally\./);
  assert.equal(await p.$eval('[data-auto-advanced="limits"]',e=>e.open),false,'Advanced starts collapsed');
  assert.equal(await p.$eval(input('staleHours'),e=>e.checkVisibility()),false,'an advanced setting is under Advanced');
  assert.equal(await p.$eval(input('confirm'),e=>e.getAttribute('aria-pressed')),'true');
  assert.equal(await p.$eval(input('ownMessages'),e=>e.value),'run');
  assert.match(await p.$eval('[data-auto-row="longestReply"] .title-note',e=>e.textContent),/5 min to 480 min, or No limit\. Preset on this server\./);
+ await showSetting(p,'.automation-usage tbody tr'); // 1.124.9: the history is on the Usage page
  assert.equal(await p.$$eval('.automation-usage tbody tr',e=>e.length),7);
  assert.deepEqual(await p.$$eval('.automation-usage tbody tr td:first-of-type',e=>e.map(x=>x.textContent)),['3','5','0','2','8','1','0'],'newest day first');
  assert.equal(await p.$eval('[data-auto-today]',e=>e.textContent),'Today: 3 replies · $0.42 · 120K tokens');
  assert.match(await p.$eval('.automation-notices li',e=>e.textContent),/Claude Code weekly window is at 83%, over the 80% ceiling\./);
+ await showSetting(p,'[data-auto-group="limits"] [data-auto-key="claudeWeekly"]');
  assert.ok((await p.$$eval('#s-automation button, #s-automation .automation-input',e=>e.filter(x=>x.checkVisibility()).map(x=>x.getBoundingClientRect().height))).every(h=>h>=44),'44px controls');
  await shot('settings-1440-dark');await axeCheck(p,repo,'.settings-sheet');
  // Saves a value.
@@ -130,6 +132,7 @@ export async function runAutomationRegressions({p,base,out,repo,rows,settings,sc
  assert.equal(await p.$eval(input('dailyReplies'),e=>e.disabled),true);assert.equal(await p.$eval('[data-auto-off="dailyReplies"]',e=>e.getAttribute('aria-pressed')),'true');
  await shot('settings-off-1440-dark');
  // A switch and a choice save too.
+ await p.click('[data-auto-advanced="limits"] summary');await p.waitForFunction(()=>document.querySelector('[data-auto-advanced="limits"]').open); // the switch is under Advanced
  await p.click(input('countOwnerWork'));await p.waitForFunction(()=>document.querySelector('[data-auto-key="countOwnerWork"]').getAttribute('aria-pressed')==='true');
  assert.equal(f.saved.limits.countOwnerWork,true);
  // Reset to defaults: every saved value in the group goes, and the warning with it.
@@ -137,6 +140,7 @@ export async function runAutomationRegressions({p,base,out,repo,rows,settings,sc
  await p.waitForFunction(()=>document.querySelector('[data-auto-status="limits"]')?.textContent==='Back to the defaults.');
  assert.equal(f.saved.limits,undefined);assert.equal(await p.$eval(input('claudeWeekly'),e=>e.value),'80');assert.equal(await p.$('.automation-warning'),null);
  assert.equal(await p.$eval(input('countOwnerWork'),e=>e.getAttribute('aria-pressed')),'false');
+ await p.click('[data-auto-advanced="limits"] summary');await p.waitForFunction(()=>!document.querySelector('[data-auto-advanced="limits"]').open);
  await p.keyboard.press('Escape');
 
  // --- Origin labels: a list row and the chat say who started the newest reply ---
@@ -247,7 +251,7 @@ export async function runAutomationRegressions({p,base,out,repo,rows,settings,sc
  // Assistant mode keeps the category (Pause all is never hidden).
  settings.assistantMode=true;await p.setViewport({width:1440,height:900,isMobile:false,hasTouch:false});await theme(p,'dark');
  await p.goto(base+'/#/all');await p.waitForSelector('#settings');await clickControl(p,'#settings');
- await p.waitForSelector('[data-settings-category="automation"]');await p.click('[data-settings-category="automation"]');
+ await p.waitForSelector('.settings-index [data-settings-category="unattended"]');await p.click('.settings-index [data-settings-category="unattended"]');
  await p.waitForSelector('#s-automation [data-pause-toggle]');assert.equal(await p.$eval('#s-automation',e=>e.checkVisibility()),true);
  await p.keyboard.press('Escape');settings.assistantMode=false;
  delete retryRow.lastOrigin;delete jobRow.lastOrigin;delete jobRow.lastOriginRef;f.reset();await theme(p,themeBefore);

@@ -148,7 +148,7 @@ not in place: stop and tell the owner.
 
 ## Pending, refused and off
 
-How freely you may use secrets is the owner's choice. **Agent access** in Settings applies
+How freely you may use secrets is the owner's choice. **Agent access** in Settings → Features → Vault applies
 to every item, and an item can override it:
 
 - **Free rein**: any command runs at once, and is recorded. Any agent on the server can obtain
@@ -253,6 +253,6 @@ move on; never ask for the passphrase and never look for the value elsewhere.
 ## If the Vault is off
 
 `pocket-vault` exits with code 3 and says so. Tell the user that the Vault is turned off and
-can be turned on in Pocket Code under **Settings → Projects, files, tasks & vault → Vault**
+can be turned on in Pocket Code under **Settings → Features → Vault**
 (it also needs `POCKET_VAULT_KEY` set on the server). Do not keep secrets anywhere else
 instead, and still do not ask for one in the chat.

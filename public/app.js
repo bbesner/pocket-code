@@ -279,7 +279,7 @@ function mountSheet(scrim, sh, trigger = document.activeElement) {
   };
   scrim.onclick = close; closeButton.onclick = close; sh.addEventListener('keydown', keydown);
   app.inert = true; document.body.append(scrim, sh); closeCurrentSheet = close;
-  (focusables().find(el => el.matches('input,textarea')) || closeButton).focus();
+  (focusables().find(el => el.matches('input,textarea') && !el.hasAttribute('data-no-autofocus')) || closeButton).focus(); // 1.124.9: Search settings waits for a tap (no keyboard on open)
   return close;
 }
 
@@ -966,14 +966,14 @@ async function hardRefresh() {
   } catch { }
   location.reload();
 }
-// 1.68.1: Settings → Appearance → Mode. Two options, the current one pressed, so the view you are in is always visible
+// 1.68.1: Settings → Layout. Two options, the current one pressed, so the view you are in is always visible
 // (1.60's single Assistant mode switch read as "on/off" with nothing saying what off was). This instance, every device.
 function modeControlsHTML() {
   const on = assistantMode(), locked = Boolean(window.pocketFeatures?.assistantLocked);
   const opt = (key, label) => `<button data-pocket-mode="${key}" aria-pressed="${(key === 'assistant') === on}"${locked ? ' aria-disabled="true"' : ''}>${label}</button>`;
   const help = locked
     ? 'Assistant mode is kept on by this server (POCKET_ASSISTANT_MODE=locked). Change it there to allow Developer mode.'
-    : 'Developer mode shows every tool and setting. Assistant mode is the plain-words layout: it opens on the message box and hides the developer controls. Changes every device signed in to this Pocket.';
+    : 'Assistant mode opens on the message box and hides the developer tools. Changes every device signed in to this Pocket.';
   return `<section class="mode-settings" id="s-mode" aria-label="Layout">
   <p class="chat-text-label">Layout</p>
   <div class="chat-text-controls mode-controls" role="group" aria-label="Choose Developer mode or Assistant mode">${opt('developer', 'Developer mode')}${opt('assistant', 'Assistant mode')}</div>
@@ -1373,7 +1373,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     saveRouter({ levels }, 'Levels saved');
   };
   sh.querySelector('#s-router-reset').onclick = () => confirmSheet('Use the server\'s settings?', 'The switch, decision model, key and levels saved here are cleared; the server\'s POCKET_ROUTER settings apply again.', 'Use the server\'s settings', async () => { try { srv = await api('/settings', { method: 'POST', body: JSON.stringify({ router: null }) }); toast('Using the server\'s settings'); } catch (err) { toast(err.message); } paintRouter(); });
-  // 1.67: one sign-in.
+  // 1.67: Sign in with Cloudflare Access (was One sign-in).
   const paintAccess = () => {
     const a = srv?.access; if (!a) return;
     ['#s-access-team', '#s-access-aud', '#s-access-emails', '#s-access-save'].forEach(q => { sh.querySelector(q).disabled = false; });
@@ -1392,8 +1392,8 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     finally { if (sh.isConnected) paintAccess(); }
   };
   sh.querySelector('#s-access-form').oninput = e => { e.currentTarget.dataset.dirty = '1'; };
-  sh.querySelector('#s-access-form').onsubmit = e => { e.preventDefault(); saveAccess({ team: sh.querySelector('#s-access-team').value, aud: sh.querySelector('#s-access-aud').value, emails: sh.querySelector('#s-access-emails').value }, 'One sign-in saved'); };
-  sh.querySelector('#s-access-off').onclick = () => confirmSheet('Turn off one sign-in?', 'Pocket asks for its own password again after Cloudflare Access. Browsers already signed in stay signed in for up to a day.', 'Turn off', () => saveAccess({ enabled: false }, 'One sign-in is off'));
+  sh.querySelector('#s-access-form').onsubmit = e => { e.preventDefault(); saveAccess({ team: sh.querySelector('#s-access-team').value, aud: sh.querySelector('#s-access-aud').value, emails: sh.querySelector('#s-access-emails').value }, 'Sign in with Cloudflare Access saved'); };
+  sh.querySelector('#s-access-off').onclick = () => confirmSheet('Turn off Sign in with Cloudflare Access?', 'Pocket asks for its own password again after Cloudflare Access. Browsers already signed in stay signed in for up to a day.', 'Turn off', () => saveAccess({ enabled: false }, 'Sign in with Cloudflare Access is off'));
   sh.querySelector('#s-access-reset').onclick = () => saveAccess(null, 'Using the server\'s values');
   // 1.118: sign out this browser, or every browser (the server ends every earlier cookie); either way the sign-in page follows.
   // D-5.3: the server forgets this browser's push subscription (Sign out everywhere forgets them all) and the browser drops it.
@@ -1486,7 +1486,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     const away = sh.querySelector('#s-away'), awayOn = t.awaySummaries !== false;
     away.disabled = false; away.setAttribute('aria-pressed', String(awayOn)); away.querySelector('.dot').classList.toggle('on', awayOn);
     sh.querySelector('#s-away-state').textContent = !awayOn ? 'Off. Coming back to a conversation still marks where new work starts.'
-      : t.helper ? 'When you come back to a conversation that kept working, it opens at the new part with a short summary of what happened while you were away.'
+      : t.helper ? 'When you come back to a conversation that kept working, it opens at the end with a New since card: a short summary of what happened while you were away. A divider marks where the new work starts.'
       : 'On, but no signed-in Claude Code or Codex on this server can write summaries. The New since divider and card still show.';
     sel.value = t.choice; sel.disabled = !t.enabled && !awayOn;
     const chosen = t.choice === 'auto' ? null : t[t.choice];
@@ -2352,7 +2352,7 @@ async function renderList() {
   Voice.onLeave();
   app.innerHTML = `<header class="bar">${assistantMode() ? `<button class="icon" id="back" aria-label="Back">${IC.back}</button><h1>Conversations</h1>` : '<h1>Pocket Code</h1>'}
     <button class="icon bell" id="bell" aria-pressed="false" aria-label="Notifications off for this device">${IC.bellOff}</button>
-    ${Automation.on() ? `<button class="icon bell" id="listmore" aria-label="More: Pause all and automation" aria-haspopup="dialog">${IC.more}</button>` : ''}<button class="icon bell" id="settings" aria-label="Settings and version">${IC.cog}</button></header>
+    ${Automation.on() ? `<button class="icon bell" id="listmore" aria-label="More: Pause all and unattended work" aria-haspopup="dialog">${IC.more}</button>` : ''}<button class="icon bell" id="settings" aria-label="Settings and version">${IC.cog}</button></header>
     <main class="scroll session-home"><div class="session-home-head"><h2>Your conversations</h2><span class="project-head-actions">${projectsOn() ? '<a class="chip" href="#/projects" data-projects-home>Projects</a>' : ''}${documentsOn() ? '<a class="chip" href="#/documents">Files</a>' : ''}${tasksOn() ? '<a class="chip" href="#/tasks" data-tasks-home>Tasks</a>' : ''}${vaultOn() ? '<a class="chip" href="#/vault" data-vault-home>Vault</a>' : ''}${inboxOn() ? '<a class="chip" href="#/inbox" data-inbox-home>Inbox</a>' : ''}${coordOn() ? '<a class="chip" href="#/coordination" data-coord-home>Coordination</a>' : ''}<button class="chip" id="refresh-sessions">Refresh</button></span></div>
     <div id="resume-last"></div>${sessionPanelHTML()}</main><button class="fab" id="new" aria-label="New conversation">${IC.plus}</button>`;
   $('#new').onclick = () => openFreshNew(assistantMode() ? '#/' : '#/new');
@@ -2460,7 +2460,7 @@ function foldSummary(d) {
   const last = items[items.length - 1];
   const name = last?.querySelector('.name')?.textContent || '', det = last?.querySelector('.det')?.textContent || '';
   const sum = d.querySelector(':scope > summary'); if (!sum) return;
-  // 1.59: plain words by default ("3 steps · Saved Proposal.pdf"); Settings > Describe steps in plain words off
+  // 1.59: plain words by default ("3 steps · Saved Proposal.pdf"); Settings → Conversations → Describe steps in plain words off
   // brings back the tool name and its raw detail.
   const plain = plainSteps(), say = last?.dataset.say || '';
   const html = plain
@@ -2471,7 +2471,7 @@ function foldSummary(d) {
 /* ---------- 1.61: files in the conversation ----------
    A file a reply hands over (named in its text: a link, a code span or a path on its own line) shows under that
    reply as a card: a picture (the first page of a PDF), its name and type, and Open, Download and Keep in Files.
-   Open follows Settings → Open files and links (a tab, beside the conversation or a new window), like any link
+   Open follows Settings → Features → Files → Open files and links (a tab, beside the conversation or a new window), like any link
    here: a kept file opens in Files, a readable one (PDF, HTML, text) in Pocket's link view, an Office file downloads.
    Images already show in the reply, so they get no card. */
 const CARD_EXT = /\.(pdf|docx|pptx|xlsx|csv|tsv|html?|md|txt|json|zip)$/i, INLINE_EXT = /\.(pdf|html?|md|txt|csv|tsv|json)$/i;
@@ -2616,7 +2616,7 @@ async function paintFileCards(container, fresh = false) {
     });
   }
   // 1.64.2: files the conversation kept in Files itself (pocket-docs add --session …) get a card too, even when the
-  // reply only says "it's in your Files". Under the first reply after it was kept; it opens in Files the way Settings →
+  // reply only says "it's in your Files". Under the first reply after it was kept; it opens in Files the way Settings → Features → Files →
   // Open files and links says, with the library's own picture.
   const docs = typeof documentsOn === 'function' && documentsOn() && typeof docsSnap !== 'undefined' && docsSnap ? docsSnap.documents : [];
   const shown = new Set(cardResults.list.map(r => keptDocFor(id, r.target)?.id).filter(Boolean));
@@ -2847,7 +2847,7 @@ function fileChip(f) { // f: {n,p} from the server, plain name string from optim
    Every transcript message already carries its time (data-ts, used by While you were away). Each bubble shows
    it as a small time, with the date when the message is not from today (data-time, drawn by CSS so copy and find
    never pick it up), and a day divider
-   ("Today", "Yesterday", "Tue, Oct 6") sits before the first message of each day. Settings > Show message
+   ("Today", "Yesterday", "Tue, Oct 6") sits before the first message of each day. Settings → Conversations → Show message
    times hides both on this browser. Messages without a time (optimistic sends, steered echoes) show none. */
 const showTimes = () => readLocal('pc-times', true) !== false;
 const dayKey = ms => { const d = new Date(ms); return d.getFullYear() * 10000 + d.getMonth() * 100 + d.getDate(); };
@@ -2893,7 +2893,7 @@ function msgHTML(m) {
   }
   const parts = [];
   let tools = [];
-  // Tool calls are folded behind a one-line summary (Settings > Collapse tool calls, default on) so a
+  // Tool calls are folded behind a one-line summary (Settings → Conversations → Collapse steps, default on) so a
   // reply reads as prose; open the fold to see the Bash/Edit/Read ledger. Copy-message skips it either way.
   const flush = () => {
     if (tools.length) {
@@ -3185,7 +3185,7 @@ function withShell(colHtml) { // desktop: session rail + resize grip beside the 
   if (!railOpen()) return `<div class="split"><div class="chatcol"><nav id="open-sessions" class="open-sessions" aria-label="Open conversations"></nav>${colHtml}</div></div>`;
   return `<div class="split">
     <aside class="rail" style="width:${railW()}px"><a class="skip-chat" href="#${inputId}">${inputId==='first'?'Skip to task':inputId==='projects-main'?'Skip to projects':inputId==='documents-main'?'Skip to files':inputId==='tasks-main'?'Skip to tasks':inputId==='vault-main'?'Skip to the vault':inputId==='inbox-main'?'Skip to the inbox':'Skip to message'}</a>
-      <div class="railhead">${railSwitchHTML()}<div class="rail-actions"><button id="rail-filter-toggle" class="density-toggle" aria-expanded="true" aria-controls="rail-filter-controls" title="Collapse conversation filters">Filters ${IC.up1}</button>${Automation.on() ? `<button class="icon" id="railmore" aria-label="More: Pause all and automation" aria-haspopup="dialog">${IC.more}</button>` : ''}<button class="icon" id="railsettings" aria-label="App settings">${IC.cog}</button><button class="icon" id="railnew" aria-label="New conversation">${IC.plus}</button></div></div>
+      <div class="railhead">${railSwitchHTML()}<div class="rail-actions"><button id="rail-filter-toggle" class="density-toggle" aria-expanded="true" aria-controls="rail-filter-controls" title="Collapse conversation filters">Filters ${IC.up1}</button>${Automation.on() ? `<button class="icon" id="railmore" aria-label="More: Pause all and unattended work" aria-haspopup="dialog">${IC.more}</button>` : ''}<button class="icon" id="railsettings" aria-label="App settings">${IC.cog}</button><button class="icon" id="railnew" aria-label="New conversation">${IC.plus}</button></div></div>
       <div id="rail"></div>
     </aside>
     <div class="rail-resize-region" role="region" aria-label="Conversation list layout"><div class="railgrip" id="grip" role="separator" tabindex="0" aria-orientation="vertical" aria-valuemin="220" aria-valuemax="480" aria-valuenow="${railW()}" aria-label="Resize conversation list"></div></div>
@@ -3200,7 +3200,7 @@ function wireShell() {
   paintRail();
   paintRailBadges();
   document.querySelectorAll('[data-rail-view]').forEach(b => b.onclick = () => {
-    // 1.35: Settings → Files button can open the library straight away instead of listing files here.
+    // 1.35: Settings → Features → Files → Files button can open the library straight away instead of listing files here.
     if (b.dataset.railView === 'documents' && filesButtonOpens() !== 'rail') return openLibrary(filesButtonOpens());
     writeLocal('pc-rail-view', b.dataset.railView); document.querySelectorAll('[data-rail-view]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); paintRail(); });
   bindRailNavigation();
@@ -4733,7 +4733,7 @@ async function renderNew({ home = false, slot = '' } = {}) {
 const scriptsIn = new Promise(done => { if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', done, { once: true }); else done(); });
 async function route() {
   { const f = vaultFocusOf(location.hash); if (f) { history.replaceState(history.state, '', '#/vault'); vaultSetFocus(f); } } // 1.39: a request push opens the list at its Requests; 1.93: at one secret or one request
-  // Job keys: a request's push (/#/settings/jobs/request/<id>) opens Settings → Automation at that request, over the home view.
+  // Job keys: a request's push (/#/settings/jobs/request/<id>) opens Settings → Features → Job keys at that request, over the home view.
   const jobRequest = typeof JobKeys !== 'undefined' ? JobKeys.requestFromHash(location.hash) : null;
   if (jobRequest) history.replaceState(history.state, '', '#/');
   rememberViewNavigation(location.hash || '#/');

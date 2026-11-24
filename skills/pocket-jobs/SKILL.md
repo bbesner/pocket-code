@@ -38,7 +38,7 @@ is refused, and so is a terminal.
    agent), `--model`, `--effort`, `--per-hour n|off`, `--per-day n|off`, `--at-once n`, `--may-add-instructions`
    (the script may add instructions of its own; leave it off unless the job needs it), `--no-push`.
 4. It prints `pending <request>` and exits 6. **Tell the user** the job key waits for their Allow in **Settings →
-   Automation → Job keys**, where they can read and edit it, then **end your reply**. Don't wait in this turn.
+   Features → Job keys**, where they can read and edit it, then **end your reply**. Don't wait in this turn.
 5. Later, when the user says they answered, run `pocket-jobkey wait <request>`:
    - `Allowed. Key file: <path>` (exit 0), with the ready `pocket-run --key-file <path> --data-file <file>` line. If the
      user changed fields before allowing, it names them: tell the user and check the script still fits.
@@ -61,4 +61,4 @@ is refused, and so is a terminal.
 You can't read a key, list keys, change or turn off a key, rotate or delete one, propose a change to an existing key, or
 answer a proposal, yours included. One proposal per conversation waits at a time, and five per Pocket; each waits 24
 hours. A conversation that a job has run in can't propose a key at all: tell the user to ask in a conversation of
-their own. The user makes, changes and removes keys in Settings → Automation → Job keys.
+their own. The user makes, changes and removes keys in Settings → Features → Job keys.

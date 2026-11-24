@@ -136,5 +136,5 @@ from the next step; do not link the session again or track a duplicate.
 ## If Projects is off
 
 `pocket-board` exits with code 3 and says so. Tell the user that Projects is turned off and
-can be turned on in Pocket Code under **Settings → Projects, files, tasks & vault → Projects**. Do not
+can be turned on in Pocket Code under **Settings → Features → Projects**. Do not
 keep a project anywhere else instead.

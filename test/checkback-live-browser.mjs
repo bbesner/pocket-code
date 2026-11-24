@@ -15,6 +15,7 @@ import { spawn } from 'node:child_process';
 import { killStrays } from './stray-runners.mjs';
 import { createHmac, createECDH, randomBytes } from 'node:crypto';
 import puppeteer from 'puppeteer-core';
+import { showSetting } from './ui-controls.mjs';
 import webpush from 'web-push';
 
 const repo = path.resolve(import.meta.dirname, '..');
@@ -99,24 +100,32 @@ try {
   const chat = async () => { await p.goto(base + '/#/chat/' + e(convo)); await p.waitForSelector('#box'); await p.waitForSelector('#msgs .m-user'); };
   const card = id => `#msgs > [data-checkback="${id}"]`;
   const cardText = id => p.$eval(card(id) + ' .checkback-text', x => x.textContent).catch(() => null);
-  const automation = async () => { await p.evaluate(() => settingsSheet({ category: 'automation' })); await p.waitForSelector('[data-auto-group="checkbacks"] [data-auto-key="checkbacks"]'); };
+  // 1.124.9: the switch is a row of Settings → Features; the group (its settings, Reset, Cancel all) is its page under Features.
+  const SWITCH = '#s-checkbacks-switch [data-auto-key="checkbacks"]', FULL = '[data-auto-group="checkbacks"]:not(.automation-switch)';
+  const automation = async () => { await p.evaluate(() => settingsSheet({ category: 'features' })); await showSetting(p, SWITCH); };
+  const checkbackPage = async () => { await p.evaluate(() => settingsSheet({ category: 'f-checkbacks' })); await showSetting(p, FULL); };
   const closeSheet = async () => { await p.keyboard.press('Escape'); await p.waitForFunction(() => !document.querySelector('.sheet')); };
 
   console.log('Live: switched off, none of it shows');
   await homeList();
   assert.equal(await p.evaluate(() => window.pocketFeatures.checkbacks), false);
   await automation();
+  assert.equal(await p.$eval(SWITCH, x => x.getAttribute('aria-pressed')), 'false');
+  await closeSheet(); await checkbackPage();
   const served = (await call('/automation')).body;
-  assert.deepEqual(await p.$$eval('[data-auto-group]', x => x.map(g => g.dataset.autoGroup)), served.groups.map(g => g.key));
-  assert.equal(await p.$eval('[data-auto-group="checkbacks"]', x => x.classList.contains('automation-group-off')), true);
+  assert.deepEqual(await p.$$eval('[data-auto-group]:not(.automation-switch)', x => x.map(g => g.dataset.autoGroup)), served.groups.map(g => g.key));
+  assert.equal(await p.$eval(FULL, x => x.classList.contains('automation-group-off')), true);
   assert.ok(await p.$('[data-auto-group="pause"] [data-auto-key="runOverdue"]'), 'On Resume, run late check-backs, from the schema');
 
   console.log('Live: the switch turns it on, and the page follows without a reload');
-  await p.click('[data-auto-key="checkbacks"]');
-  await p.waitForFunction(() => document.querySelector('[data-auto-status="checkbacks"]')?.textContent === 'Saved.');
+  await closeSheet(); await automation();
+  await p.click(SWITCH);
+  await p.waitForFunction(s => document.querySelector(s)?.getAttribute('aria-pressed') === 'true', {}, SWITCH);
   assert.equal((await call('/me')).body.features.checkbacks, true);
   await p.waitForFunction(() => window.pocketFeatures.checkbacks === true);
-  // the spacing between overdue ones, out of range then in
+  assert.equal(await p.$eval('#s-checkbacks-switch .vault-field-error', x => x.textContent), '', 'no error beside the switch');
+  // the spacing between overdue ones, out of range then in (on the page under Features)
+  await showSetting(p, FULL + ' [data-auto-advanced]');
   await p.$eval('[data-auto-advanced="checkbacks"]', x => { x.open = true; });
   await p.$eval('[data-auto-key="spacingSec"]', x => { x.focus(); x.value = '900'; x.dispatchEvent(new Event('change')); });
   await p.waitForFunction(() => document.querySelector('#auto-checkbacks-spacingSec-err')?.textContent);
@@ -217,14 +226,14 @@ try {
 
   console.log('Live: Cancel all from Settings');
   const f2 = await ownerSets(convo, 'live set a second one', '+3h', 'Check the overnight sync');
-  await homeList(); await automation(); await p.waitForSelector('[data-checkbacks-waiting]');
+  await homeList(); await checkbackPage(); await showSetting(p, '[data-checkbacks-waiting]');
   assert.equal(await p.$eval('.automation-waiting-count', x => x.textContent), '2 waiting');
   await p.click('[data-checkbacks-cancel-all]'); await p.waitForSelector('.sheet [data-yes]');
   assert.equal(await p.$eval('.sheet:has([data-yes]) h2', x => x.textContent), 'Cancel 2 check-backs?');
   await p.click('.sheet [data-yes]');
   await p.waitForFunction(() => document.querySelector('#toast')?.textContent === 'Cancelled 2 check-backs.');
   assert.deepEqual([(await one(f1.id)).status, (await one(f2.id)).status], ['cancelled', 'cancelled']);
-  await p.waitForSelector('.settings-sheet [data-auto-group="checkbacks"]'); // back to Settings → Automation
+  await p.waitForSelector('.settings-sheet ' + FULL); // back to Settings → Features → Check-backs
   assert.equal(await p.$('[data-checkbacks-waiting]'), null, 'nothing waiting now');
   await closeSheet();
 
@@ -242,7 +251,7 @@ try {
 
   console.log('Live: switched off again, the cards, the clock and the group go');
   const g = await ownerSets(convo, 'live set one before off', '+1h', 'Check the backup');
-  await automation(); await p.click('[data-auto-key="checkbacks"]');
+  await automation(); await p.click(SWITCH);
   await p.waitForFunction(() => window.pocketFeatures.checkbacks === false);
   await closeSheet();
   assert.equal(await p.$('.checkback-clock'), null);

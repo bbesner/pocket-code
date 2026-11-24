@@ -227,7 +227,7 @@ const Branch = (() => {
 })();
 
 /* 1.102: Handoff. A button beside Branch (Conversation options on a phone) that asks the agent for the handoff card, and
-   a one-line offer under the latest finished reply once the conversation passes the size set in Settings (200K tokens
+   a one-line offer under the latest finished reply once the conversation passes the size set in Settings → Agents → Long conversations and helpers (200K tokens
    by default, sooner when Compact conversations would compact first). The offer waits for a break in the work: nothing
    running, nothing waiting on you, nothing typed. Not now hides it until the conversation has grown by that size again;
    a conversation that was already handed off is not offered again. The request is an ordinary message, so it queues

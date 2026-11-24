@@ -7,7 +7,7 @@
 //   pocket-jobkey wait <request> [--wait <seconds>] [--json]     wait for the owner's answer (default 300 seconds)
 //   pocket-jobkey status <request> [--json]                      the answer so far, at once
 // Only a reply the owner started can propose one. Nothing exists until the owner reads the whole instruction and taps
-// Allow in Settings → Automation → Job keys. On Allow it prints the key file's path, never the key.
+// Allow in Settings → Features → Job keys. On Allow it prints the key file's path, never the key.
 // Exit codes: 0 allowed · 6 waiting for the owner (run `wait <request>` later) · 7 denied or expired · 5 job keys are off
 // · 1 refused or failed. --workspace defaults to this conversation's folder, --engine to its agent.
 // Environment: POCKET_DATA_DIR and PORT as for the server (the server's .env is read for both); POCKET_URL overrides.
@@ -46,7 +46,7 @@ const KNOWN = { propose: ['name', 'instruction-file', 'workspace', 'engine', 'mo
 if (!KNOWN[cmd]) die(`Unknown command: ${cmd}. Run pocket-jobkey help.`);
 const stray = Object.keys(opts).filter(k => k !== '_' && !KNOWN[cmd].includes(k));
 if (stray.length) die(`${cmd} does not take --${stray.join(', --')}. Run pocket-jobkey help.`);
-if (!process.env.POCKET_RUNNER_TOKEN) die('pocket-jobkey works only inside a Pocket conversation, and this command is not running in one (no runner token: a terminal or code-server). The owner can make the key in Settings → Automation → Job keys.');
+if (!process.env.POCKET_RUNNER_TOKEN) die('pocket-jobkey works only inside a Pocket conversation, and this command is not running in one (no runner token: a terminal or code-server). The owner can make the key in Settings → Features → Job keys.');
 
 let token = '';
 try { token = fs.readFileSync(path.join(dataDir, 'cli-token'), 'utf8').trim(); } catch { die(`No CLI token at ${path.join(dataDir, 'cli-token')}. Is Pocket Code running from this checkout?`); }
@@ -57,7 +57,7 @@ async function call(p, body, waitS = 0) {
   catch (e) { die(`Pocket Code is not reachable at ${base}: ${e.name === 'TimeoutError' ? `no answer in ${secs} seconds` : e.cause?.code || e.message}`); }
   const data = await r.json().catch(() => ({}));
   if (r.ok) return data;
-  if (data.code === 'jobs_off') die('Job keys are switched off on this Pocket. The owner turns them on in Settings → Automation → Job keys.', EXIT.off);
+  if (data.code === 'jobs_off') die('Job keys are switched off on this Pocket. The owner turns them on in Settings → Features → Job keys.', EXIT.off);
   die(data.error || `${r.status} from ${p}`);
 }
 // A wait is waited in slices: one call is held at most SLICE seconds (Pocket holds one at most 240, and Node's fetch gives up
@@ -80,7 +80,7 @@ const limit = (v, flag) => { if (v === undefined) return undefined; if (v === 'o
 function finish(d) {
   if (opts.json) console.log(JSON.stringify(d, null, 1));
   if (d.status === 'pending') {
-    if (!opts.json) process.stderr.write(`pending ${d.request}\nThe owner was asked to allow the job key in Pocket Code. Nothing exists until they do. Tell the user it waits for their Allow in Settings → Automation → Job keys, where they can read the whole instruction, then end your reply. Continue later with: pocket-jobkey wait ${d.request}\n`);
+    if (!opts.json) process.stderr.write(`pending ${d.request}\nThe owner was asked to allow the job key in Pocket Code. Nothing exists until they do. Tell the user it waits for their Allow in Settings → Features → Job keys, where they can read the whole instruction, then end your reply. Continue later with: pocket-jobkey wait ${d.request}\n`);
     process.exit(EXIT.pending);
   }
   if (d.status === 'allowed') {

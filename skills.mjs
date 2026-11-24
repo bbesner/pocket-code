@@ -18,7 +18,7 @@ export const SKILLS = [
   { name: 'pocket-coord', feature: 'coordination', cli: 'coord', manual: 'coordination.md' }, // 1.99
   { name: 'pocket-checkback', feature: 'checkbacks', cli: 'checkback', manual: 'automation.md' }, // 1.119: only while check-backs are on
   { name: 'pocket-jobs', feature: 'jobs', cli: 'jobkey', manual: 'automation.md' }, // only while job keys are on: propose a key, the owner allows it
-  // 1.59: Gmail, Calendar and Drive through each agent's own connectors (Settings → Connectors). Always on; one file per agent.
+  // 1.59: Gmail, Calendar and Drive through each agent's own connectors (Settings → Accounts & sign-in → Connectors). Always on; one file per agent.
   { name: 'pocket-google', feature: null, files: { claude: 'SKILL.claude.md', codex: 'SKILL.codex.md' }, manual: 'google.md' },
 ];
 const BIN = { board: 'pocket-board', docs: 'pocket-docs', tasks: 'pocket-tasks', vault: 'pocket-vault', inbox: 'pocket-inbox', coord: 'pocket-coord', checkback: 'pocket-checkback', jobkey: 'pocket-jobkey' };
@@ -59,7 +59,7 @@ export function manualInstructions(src = SRC) {
 export function googleInstructions(provider, src = SRC) {
   const file = path.join(src, 'pocket-google', provider === 'codex' ? 'SKILL.codex.md' : 'SKILL.claude.md');
   const via = provider === 'codex' ? 'the Codex apps (Gmail, Google Calendar, Google Drive)' : 'the Claude connectors (Gmail, Google Calendar, Google Drive)';
-  return `For the user's email, calendar or Google Drive, use ${via} connected in Settings → Connectors; the pocket-google skill (\`${file}\`) has the full procedure. Check once whose Google account is connected. Write every email as a Gmail draft and show it first; send it when the user says so, and never refuse a send they ask for. Ask before sending calendar invitations to other people.`;
+  return `For the user's email, calendar or Google Drive, use ${via} connected in Settings → Accounts & sign-in → Connectors; the pocket-google skill (\`${file}\`) has the full procedure. Check once whose Google account is connected. Write every email as a Gmail draft and show it first; send it when the user says so, and never refuse a send they ask for. Ask before sending calendar invitations to other people.`;
 }
 
 // codexRoots: which of `roots` are Codex's; a skill with `files` installs that agent's own SKILL file.

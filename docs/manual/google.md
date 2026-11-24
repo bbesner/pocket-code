@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.124.5
+checked: 1.124.9
 sources: connectors.mjs, skills/pocket-google/, skills.mjs, public/workspace.js
 -->
 # Gmail, Calendar and Drive for agents
@@ -12,7 +12,7 @@ an agent's connector is connected, every new conversation with that agent can us
 
 ## Connect Gmail, Calendar and Drive
 
-Open **Settings → Agents & instance → Connectors** (in Assistant mode, **Settings → Accounts → Connectors**). The
+Open **Settings → Accounts & sign-in → Connectors**. The
 sheet has a section for **Claude Code** and one for **Codex**, each listing **Gmail**, **Google Calendar** and
 **Google Drive** with their state. Neither CLI can start a first connection, so the sheet links to the site where you
 make it; when you come back to Pocket it checks again by itself. **Refresh status** checks again on demand.
@@ -137,7 +137,7 @@ instruction line Pocket adds names the file on this server.
   `…google_drive_list_folder`).
 - **Identity, once per conversation.** Claude Code: Calendar `list_calendars` (the primary calendar's id is the
   address) or the sender of the newest `in:sent` thread. Codex: the app's `get_profile`. Stop if it is not the user.
-- **Not connected or tools missing.** Tell the user to open **Settings → Agents & instance → Connectors** and tap
+- **Not connected or tools missing.** Tell the user to open **Settings → Accounts & sign-in → Connectors** and tap
   **Connect** next to the service, signing in with the same account the agent uses. If Pocket says connectors are off
   on this server, say that instead; the Connectors screen cannot fix it.
 - **Prefer the connectors** over any other Google tool or skill on the server. Use another only when a connector is
@@ -149,7 +149,7 @@ instruction line Pocket adds names the file on this server.
 ## Troubleshooting
 
 **Claude Code shows "Connectors need a Claude subscription sign-in."** Claude Code here uses an API key or a cloud
-provider. Sign in with a Claude account in **Settings → Agents & instance → Accounts & instance**.
+provider. Sign in with a Claude account in **Settings → Accounts & sign-in → Claude and Codex accounts**.
 
 **Claude Code shows "Turned off on this server".** `disableClaudeAiConnectors` is `true` in `~/.claude/settings.json`
 or the managed settings named on screen, or `ENABLE_CLAUDEAI_MCP_SERVERS` is `0`, `false`, `no` or `off` in Pocket's environment.

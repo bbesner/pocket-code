@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.124.8
+checked: 1.124.9
 sources: vault.mjs, intake-page.mjs, public/intake/intake.css, public/vault.js, scripts/pocket-vault.mjs, skills/pocket-vault/SKILL.md, public/secret-detect.js, scripts/pocket-mcp-proxy.mjs
 -->
 # Vault
@@ -8,7 +8,7 @@ The Vault keeps API keys, tokens, logins and secure notes encrypted on the Pocke
 
 ## Turn it on
 
-1. Open **Settings → Projects, files, tasks & vault** and tap **Vault**.
+1. Open **Settings → Features** and tap the **Vault** switch.
 2. The first time, Pocket creates the Vault's encryption key, saves it to the `.env` file in the Pocket Code directory (mode `0600`) and opens the **Save your recovery key** sheet. Use **Copy** or **Download** and keep the key in your password manager, then tap **Done**.
 
 The recovery key is the only way to open a backup of `vault.enc` if the server or its `.env` is lost. **Download** saves a text file named `pocket-vault-recovery-key-<host>-<date>.txt` with one `POCKET_VAULT_KEY=…` line.
@@ -20,10 +20,10 @@ The **Vault** switch's description tells you its state:
 | Description | What it means |
 |---|---|
 | Off. Turning it on creates this install's encryption key… | No key and no store yet. Tapping it sets everything up. |
-| This Vault's key is missing on this server… | A `vault.enc` exists but no key is set. Use **Restore key…** (below the switch). |
+| This Vault's key is missing on this server… | A `vault.enc` exists but no key is set. Use **Restore key…** (on the Vault page, which the **›** beside the switch opens). |
 | Off. The Vault cannot be opened: … | A key is set but does not open the store. The switch stays disabled until the right key is in place. |
 
-In Assistant mode the **Vault** switch is under **Settings → Features**; the rest of the Vault's settings stay in Developer mode. When Assistant mode is locked, ask the person who runs the install.
+The **›** beside the switch opens the Vault page with the rest of the Vault's settings. In Assistant mode that page shows only **Restore key…**, when the key is missing; the other Vault settings stay in Developer mode. When Assistant mode is locked, ask the person who runs the install.
 
 ## Use it
 
@@ -95,7 +95,7 @@ Tap a secret to open its sheet. Each field shows as dots; **Show** fetches that 
 
 ### Choose how freely agents use secrets
 
-**Settings → Projects, files, tasks & vault → Vault → Agent access** sets the default for every secret:
+**Settings → Features → Vault → Agent access** sets the default for every secret:
 
 | Agent access | Behavior |
 |---|---|
@@ -109,7 +109,7 @@ Each secret can override the default with **Change who can use it** on its sheet
 
 When a command needs your approval, Pocket files a **request** and tells you three ways. Any one of them answers it:
 
-- **Push notification.** "Allow *name*?", with which conversation wants it and the command, and **Allow** and **Deny** buttons. **Allow** on the notification allows once; it never saves the command. Tapping the notification itself does not answer: it opens the Vault at that request. If an **Allow** or **Deny** from the notification cannot be recorded (the device was signed out, the Vault was locked, the device was offline, or the request had already ended), Pocket opens the request and says why, so you can answer it there. Turn these on per device in **Settings → Notifications & voice → Vault requests**.
+- **Push notification.** "Allow *name*?", with which conversation wants it and the command, and **Allow** and **Deny** buttons. **Allow** on the notification allows once; it never saves the command. Tapping the notification itself does not answer: it opens the Vault at that request. If an **Allow** or **Deny** from the notification cannot be recorded (the device was signed out, the Vault was locked, the device was offline, or the request had already ended), Pocket opens the request and says why, so you can answer it there. Turn these on per device in **Settings → Notifications → Vault requests**.
 - **The Vault view.** Each request is one sentence, such as *The agent in "Staging site" wants to use staging-wp for this command*, with the exact command, **Runs** and the full path of the program that will run (for `env node sync.mjs`, the `node` that `env` starts), **Variables** with each variable and the secret it gets (*`TOKEN` gets staging-wp*), the folder and when it asked. A note under it says when Pocket cannot check everything the command runs (see **What Always allow checks** below). **Allow once** is the orange button; **Deny** sits beside it, and **Always allow** between them when the secret allows it. A request that was already answered, expired or ended when the Vault locked says so when its notification is opened.
 - **The conversation.** The agent ends its reply with suggested replies such as *Allow billing-api for this command* and *Deny billing-api*. Tap one or type it. Pocket also accepts *Always allow billing-api for this command*, *approve*, *don't allow*, and a bare *Allow* or *Deny* when that conversation has exactly one request waiting. Only your own messages in the conversation that raised the request count, and the message is still delivered to the agent.
 
@@ -164,7 +164,7 @@ Commands you allowed always before 1.118 ask once more the next time they run, b
 
 By default the key in `.env` opens the Vault whenever Pocket Code runs. To require a passphrase instead:
 
-1. **Settings → Projects, files, tasks & vault → Vault → Protection → Set a passphrase**.
+1. **Settings → Features → Vault → Passphrase → Set a passphrase**.
 2. Enter a passphrase of at least 12 characters twice.
 
 From then on Pocket holds the passphrase-derived key in memory only, and the Vault is **locked** after a restart, after **Lock now**, and after the idle time you pick in **Lock after** (**Never**, **15 minutes**, **1 hour**, **8 hours**, **24 hours**; counted from the last time you or an agent used it). While locked, agents cannot use secrets, the rail and home chip show a lock, and the Vault view shows **Unlock**. When an agent hits a locked Vault you get one "The Vault is locked" push (at most one every ten minutes).
@@ -173,7 +173,7 @@ From then on Pocket holds the passphrase-derived key in memory only, and the Vau
 
 ### Export, import, rotate and restore the key
 
-All of these are under **Settings → Projects, files, tasks & vault → Vault**:
+All of these are under **Settings → Features → Vault**:
 
 - **Export…** downloads every secret, values included, as one `.pvault` file encrypted under a passphrase you type for it (at least 12 characters). Removed secrets and last-used details are left out.
 - **Import…** reads a `.pvault` file into this or another Pocket Code. Secrets whose names are new are added; names already here are listed and left alone.
@@ -183,7 +183,7 @@ All of these are under **Settings → Projects, files, tasks & vault → Vault**
 
 ### Catch secrets typed into messages
 
-**Settings → Projects, files, tasks & vault → Catch secrets in messages** (on by default, for the whole install) holds a message that looks like it contains a secret:
+**Settings → Features → Vault → Catch secrets in messages** (on by default, for the whole install) holds a message that looks like it contains a secret:
 
 - **On paste or drop** into a message box: Pocket holds the text and offers **Store in the Vault** (saves it under a suggested name and pastes `{{vault:name}}` instead), **Paste as is** or **Cancel**.
 - **On send**: the same check runs, with **Store and send**, **Send as is** and **Edit**. The server runs the check too, for new conversations, messages, side chats and branches, and refuses an unchecked message that carries a secret.
@@ -257,11 +257,11 @@ Each secret's sheet shows its last 20 events under **History**. The file records
 
 | Name | Where | Effect |
 |---|---|---|
-| **Vault** | Settings → Projects, files, tasks & vault | On or off for the install. Off by default. |
-| **Agent access** | Same, under Vault | Free rein, Ask once per command (default), Ask every time. |
-| **Lock after** | Same, under Protection (passphrase mode only) | Never (default), 15 minutes, 1 hour, 8 hours, 24 hours. |
-| **Catch secrets in messages** | Same | On by default. |
-| **Vault requests** | Settings → Notifications & voice | Whether this device gets request pushes. The *Allow a job key?* push ([Automation](automation.md#let-a-conversation-set-one-up)) follows it too. |
+| **Vault** | Settings → Features (the switch) | On or off for the install. Off by default. |
+| **Agent access** | Settings → Features → Vault | Free rein, Ask once per command (default), Ask every time. |
+| **Lock after** | Same, under Passphrase (passphrase mode only) | Never (default), 15 minutes, 1 hour, 8 hours, 24 hours. |
+| **Catch secrets in messages** | Same | On by default. Works even while the Vault is off. |
+| **Vault requests** | Settings → Notifications | Whether this device gets request pushes. The *Allow a job key?* push ([Automation](automation.md#let-a-conversation-set-one-up)) follows it too. |
 | `POCKET_VAULT_KEY` | `.env` | The server key. Pocket writes it; set it by hand only when there is no `.env` to write. |
 | `POCKET_VAULT_FILL_TOOLS` | Relay's environment | Tools the relay may type a value into. |
 | `POCKET_VAULT_PICTURE_TOOLS` | Relay's environment | More tools that make a picture, refused once a value has been typed, on top of `browser_take_screenshot`, `browser_pdf_save`, `screenshot` and the capture tools listed under **Screenshot lockout**. |
@@ -330,7 +330,7 @@ pocket-vault relink <name> | cancel <name>            a new link for a waiting r
 | Exit code | Meaning | What to do |
 |---|---|---|
 | child's code | The command ran | Read the scrubbed output. |
-| 3 | The Vault is off, locked, or cannot be opened | Tell the user in one line. Off: it is turned on in Settings → Projects, files, tasks & vault → Vault. Locked: they unlock it in the Vault view (they were already notified). Never ask for the passphrase. |
+| 3 | The Vault is off, locked, or cannot be opened | Tell the user in one line. Off: it is turned on in Settings → Features → Vault. Locked: they unlock it in the Vault view (they were already notified). Never ask for the passphrase. |
 | 4 | A request is waiting (`pending <id>`) | Say so in one line, end the reply offering `Allow <name> for this command` and `Deny <name>` as choices, then run `pocket-vault wait <id>`. If it prints `pending` again, do not loop. |
 | 5 | Denied, expired, an **Only you** secret, or no such name | Say so and stop. Do not look for another way to the value. |
 | 1 | Any other error (bad binding, unreachable server) | Read the message. |
@@ -366,7 +366,7 @@ Keep commands stable: an approved command is an exact match on program, argument
 | Unlock says "Too many tries. Wait an hour." | Ten wrong passphrases or **Restore key** keys in this signed-in session within an hour of the first, or 50 across all sessions | Wait, then try again. A right passphrase or key clears the count. |
 | Turning the Vault on fails: "This install has no .env file to keep the Vault key in" | `POCKET_ENV_FILE` is set to empty, so Pocket has nowhere to save a key | Set `POCKET_VAULT_KEY` yourself (`openssl rand -base64 32`) and restart. |
 | Tapping **Allow** on a notification opens the Vault with "Your Allow from the notification didn't go through" | The answer could not be recorded; the line says why (signed out, locked, offline, or the request had ended) | Answer the request on that card. Sign in again on the device if it says signed out. |
-| An agent's run answers `pending` and nothing arrives on the phone | Push is off on that device, or **Vault requests** is off for it | Answer in the Vault view or the conversation; turn on push in **Settings → Notifications & voice**. |
+| An agent's run answers `pending` and nothing arrives on the phone | Push is off on that device, or **Vault requests** is off for it | Answer in the Vault view or the conversation; turn on push in **Settings → Notifications**. |
 | `pocket-vault wait` says the request does not exist or has expired | More than 15 minutes passed, or Pocket restarted | Run the command again to file a new request. |
 | "That request was raised by another session" or "already used" | A request belongs to one conversation and serves one continuation | Run the command again from the conversation that needs it. |
 | "… changed since the owner was asked; ask again" | The secret, a field or a policy changed after the approval, or the file the message names changed between the request and the run | Run the command again. |

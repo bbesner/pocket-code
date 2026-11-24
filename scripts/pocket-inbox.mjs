@@ -57,7 +57,7 @@ async function call(p, body) {
   catch (e) { die(`Pocket Code is not reachable at ${base}: ${e.name === 'TimeoutError' ? 'no answer in 30 seconds' : e.cause?.code || e.message}`, 2); }
   const data = await r.json().catch(() => ({}));
   if (!r.ok) {
-    if (data.code === 'inbox_off') die('Inbox Watch is off for this Pocket Code. Turn it on in Settings → Projects, files, tasks & vault.');
+    if (data.code === 'inbox_off') die('Inbox Watch is off for this Pocket Code. Turn it on in Settings → Features.');
     die(data.error || `${r.status} from ${p}`, r.status === 401 ? 2 : 1);
   }
   return data;

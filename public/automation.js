@@ -1,4 +1,4 @@
-/* Pocket Code — 1.117: Pause all, the paused banner, origin labels and Settings → Automation.
+/* Pocket Code — 1.117: Pause all, the paused banner, origin labels and Settings → Unattended work.
    Server contract: GET/POST /api/pause, POST /api/resume, GET /api/automation, POST /api/automation/settings;
    /api/me carries paused and features.automation; /api/sessions carries `pause` (the banner's state); a list row carries
    lastOrigin/lastOriginRef. Loaded before app.js:
@@ -285,7 +285,7 @@ const Automation = (() => {
       ${s.offAllowed ? `<button type="button" class="chip automation-off" data-auto-off="${esc(s.key)}" aria-pressed="${off}" aria-label="No limit: ${esc(s.label)}">No limit</button>` : ''}
       ${noteHTML}${err}</div>`;
   }
-  function groupHTML(g, { switchHere = true, skip = [] } = {}) {
+  function groupHTML(g, { switchHere = true, skip = [], page = false } = {}) {
     const rows = s => s.map(x => settingRowHTML(g, x)).join('');
     // 1.119: a feature's group leads with its own switch (the setting named like the group); while it is off, the rest
     // of the group reads as inactive (still editable, so it can be set up before it is turned on).
@@ -298,7 +298,8 @@ const Automation = (() => {
     // follow under Advanced.
     // While Job keys are off, the group is the switch and its help, nothing else.
     const lead = g.key === 'jobs' && !off && typeof JobKeys !== 'undefined' ? JobKeys.listHTML() : '', bare = g.key === 'jobs' && off;
-    return `<section class="automation-group${off ? ' automation-group-off' : ''}" data-auto-group="${esc(g.key)}" aria-labelledby="auto-${esc(g.key)}-h">
+    // On its own page (Features › Check-backs, › Job keys) the page is the named region; a second one by the same name is noise.
+    return `<section class="automation-group${off ? ' automation-group-off' : ''}" data-auto-group="${esc(g.key)}"${page ? '' : ` aria-labelledby="auto-${esc(g.key)}-h"`}>
       <h3 class="vault-set-head" id="auto-${esc(g.key)}-h">${esc(g.title)}</h3>
       ${sw ? (switchHere ? settingRowHTML(g, sw) : '') + (bare ? (switchHere ? '' : `<p class="title-note automation-inactive-note">${esc(g.title)} are off. Turn them on in Features.</p>`) : lead + `<div class="automation-dependent" data-auto-dependent="${esc(g.key)}">${off ? `<p class="title-note automation-inactive-note">These apply when ${esc(sw.label)} is on.</p>` : ''}${body}</div>`) : body}
       ${bare ? '' : `<span class="vault-set-actions"><button type="button" class="chip" data-auto-reset="${esc(g.key)}">Reset to defaults</button></span>`}
@@ -328,7 +329,7 @@ const Automation = (() => {
     for (const g of groups) {
       const own = hostOf(g.key), sw = g.settings[0]?.key === g.key && g.settings[0].type === 'bool' ? g.settings[0] : null;
       const swHost = own && sw && hostOf(g.key + '-switch'), inTasks = IN_TASKS[g.key] && hostOf('tasks') ? [IN_TASKS[g.key]] : [];
-      const part = groupHTML(g, { switchHere: !swHost, skip: inTasks });
+      const part = groupHTML(g, { switchHere: !swHost, skip: inTasks, page: Boolean(own) });
       if (own) html[g.key] = part; else html.main += part;
       if (swHost) html[g.key + '-switch'] = `<section class="automation-group automation-switch" data-auto-group="${esc(g.key)}" aria-label="${esc(g.title)}">${settingRowHTML(g, sw)}</section>`;
       if (inTasks.length) { const s = g.settings.find(x => x.key === inTasks[0]); if (s) html.tasks = (html.tasks || '') + `<section class="automation-group automation-switch" data-auto-group="${esc(g.key)}" aria-label="${esc(s.label)}">${settingRowHTML(g, s)}</section>`; }
