@@ -792,7 +792,7 @@ function addVaultItemFromComposer({insert=true}={}){
 /* ---------- Settings: the recovery key (1.44: the server makes and saves the key itself) ---------- */
 const vaultToday=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
 function rotateVaultKey(){
- confirmSheet('Rotate the Vault key?','Pocket re-encrypts the Vault under a new key, saves it on this server and shows you the new recovery key. Backups made before now still need the old key, so keep it with them.','Rotate key',async()=>{
+ confirmSheet('Rotate the Vault key?','Use this if the key may have been seen. Pocket re-encrypts everything under a new key, saves it on this server and shows you the new recovery key to download. Backups made before now still need the old key, so keep it with them.','Rotate key',async()=>{
   try{const r=await vaultPost('/vault/rotate',{});vaultRecoverySheet(r.key,{note:'New key saved on the server. Save the new recovery key; backups made before now still need the old one.'});}
   catch(e){if(e.message==='login')return;if(!vaultLockedError(e))toast(e.message||'Could not rotate the key');else toast('The Vault is locked. Unlock it, then rotate the key.');}
  });
@@ -808,7 +808,7 @@ function vaultRecoverySheet(key,{note=''}={}){
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet vault-key-sheet';
  const fid='vk-'+(++vaultFieldSeq);
  sh.innerHTML=`<h2>Save your recovery key</h2>${note?`<p class="vault-key-note">${esc(note)}</p>`:''}
-  <p class="sheet-help">This key opens your Vault. Pocket keeps it on this server, but if the server or its settings are lost, a backup of the Vault can only be opened with it. Keep it in your password manager.</p>
+  <p class="sheet-help">This key decrypts your Vault. Keep it somewhere safe and off this server, such as your password manager: if the server’s key is lost, this is the only way back in.</p>
   <label class="vault-key-label" for="${fid}">Recovery key</label>
   <textarea class="vault-key" id="${fid}" readonly rows="2" spellcheck="false" autocapitalize="none" autocorrect="off" autocomplete="off"></textarea>
   <div class="vault-key-actions"><button class="chip" data-copy-key>${IC.copy}Copy</button><button class="chip" data-download-key>${VIC.download}Download</button><button class="primary" data-done>Done</button></div>`;

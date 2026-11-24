@@ -109,7 +109,7 @@ try {
   const served = (await call('/automation')).body;
   assert.deepEqual(await p.$$eval('[data-auto-group]', x => x.map(g => g.dataset.autoGroup)), served.groups.map(g => g.key));
   assert.equal(await p.$eval('[data-auto-group="checkbacks"]', x => x.classList.contains('automation-group-off')), true);
-  assert.ok(await p.$('[data-auto-group="pause"] [data-auto-key="runOverdue"]'), 'On Resume, run overdue check-backs, from the schema');
+  assert.ok(await p.$('[data-auto-group="pause"] [data-auto-key="runOverdue"]'), 'On Resume, run late check-backs, from the schema');
 
   console.log('Live: the switch turns it on, and the page follows without a reload');
   await p.click('[data-auto-key="checkbacks"]');

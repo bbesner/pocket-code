@@ -1,5 +1,5 @@
 // 1.117: unattended work foundation (docs/plans/unattended-work.md, Part 1).
-// What started a turn (its origin), the owner's Automation settings (Pause all and the limits on unattended work),
+// What started a turn (its origin), the owner's Unattended work settings (Pause all and the limits on unattended work),
 // the gate every unattended start passes through, the day's counts and the audit file. Pure where it can be: the
 // gate takes its state as an argument so it is unit-tested without a server (test/automation.test.mjs).
 import fs from 'node:fs';
@@ -27,43 +27,52 @@ export function originLabel(origin, ref) {
 // One group per feature; adding check-backs or job keys later is a new entry here, not new code. Each setting:
 // key, label, help, type ('choice' | 'bool' | 'number'), default, and for numbers min/max/step/unit/offAllowed/integer;
 // for choices the list. `env` names extra preset variables (POCKET_AUTOMATION_<NAME>) besides the one derived from the key.
-const pct = (key, label, dflt, env) => ({ key, label, type: 'number', default: dflt, min: 10, max: 100, step: 1, unit: '%', integer: true, offAllowed: true, env });
+const pct = (key, label, dflt, env, help) => ({ key, label, type: 'number', default: dflt, min: 10, max: 100, step: 1, unit: '%', integer: true, offAllowed: true, env, help });
 export const GROUPS = [
   {
     key: 'pause', title: 'Pause all', settings: [
       { key: 'ownMessages', label: 'Your own messages while paused', type: 'choice', default: 'run',
-        choices: [{ value: 'run', label: 'Run, with a banner' }, { value: 'blocked', label: 'Blocked until you resume' }] },
-      { key: 'inboxWatch', label: 'Pause all also pauses Inbox Watch', type: 'bool', default: true },
-      { key: 'backgroundJobs', label: 'Pause all also stops background jobs', type: 'bool', default: true,
-        help: 'Off leaves them running until one of them starts a reply. Pocket stops that reply, which ends the conversation\'s process and any other jobs in it.' },
-      { key: 'rearmRetries', label: 'On Resume, re-arm held usage-limit retries', type: 'bool', default: true,
-        help: 'Off: they stay held until you start them.' },
-      { key: 'runOverdue', label: 'On Resume, run overdue check-backs', type: 'bool', default: true, // 1.119
-        help: 'On: a check-back that fell due while paused runs if it is within the catch-up window. Off: it is marked missed.' },
-      { key: 'confirm', label: 'Show what will stop before pausing', type: 'bool', default: true,
-        help: 'Off: Pause all pauses on one tap.' },
+        choices: [{ value: 'run', label: 'Run, with a banner' }, { value: 'blocked', label: 'Blocked until you resume' }],
+        help: 'Whether a message you send yourself still runs while paused, with a banner reminding you, or waits until you resume.' },
+      { key: 'inboxWatch', label: 'Also pause Inbox Watch', type: 'bool', default: true,
+        help: 'Pause all also stops Inbox Watch\'s email checks, digests and look-aheads.' },
+      { key: 'backgroundJobs', label: 'Also stop background commands', type: 'bool', default: true,
+        help: 'Pause all also stops commands that agents left running in the background. Off: they keep running, but if one starts a reply, Pocket stops it.' },
+      { key: 'rearmRetries', label: 'On Resume, restart held retries', type: 'bool', default: true,
+        help: 'When a reply hits your plan\'s usage limit, Pocket retries it once the limit resets. On: those retries start again when you resume. Off: they wait until you start them.' },
+      { key: 'runOverdue', label: 'On Resume, run late check-backs', type: 'bool', default: true, // 1.119
+        help: 'A check-back that came due while paused runs when you resume, if it is within the catch-up window. Off: it is marked missed.' },
+      { key: 'confirm', label: 'Ask before pausing', type: 'bool', default: true,
+        help: 'Shows what will stop and asks you to confirm. Off: one tap pauses.' },
     ],
   },
   {
-    key: 'limits', title: 'Limits on unattended work', settings: [
-      pct('claudeWeekly', 'Plan ceiling, weekly (Claude Code)', 80, ['CLAUDE_WEEKLY_CEILING', 'WEEKLY_CEILING']),
-      pct('claudeFiveHour', 'Plan ceiling, 5-hour (Claude Code)', 90, ['CLAUDE_FIVE_HOUR_CEILING', 'FIVE_HOUR_CEILING']),
-      pct('codexWeekly', 'Plan ceiling, weekly (Codex)', 80, ['CODEX_WEEKLY_CEILING', 'WEEKLY_CEILING']),
-      pct('codexFiveHour', 'Plan ceiling, 5-hour (Codex)', 90, ['CODEX_FIVE_HOUR_CEILING', 'FIVE_HOUR_CEILING']),
+    key: 'limits', title: 'Limits', settings: [
       { key: 'dailyReplies', label: 'Unattended replies per day', type: 'number', default: 40, min: 1, max: 1000, step: 1, unit: '', integer: true, offAllowed: true,
-        help: 'Counted in your time zone. Check-back and job replies always count.' },
-      { key: 'countOwnerWork', label: 'Count queue drains, retries and coordination wakes toward the daily limit', type: 'bool', default: false,
-        help: 'Off: work you asked for yourself does not use up the daily limit or the OpenRouter spend per day.' },
-      { key: 'ceilingsHoldOwnerWork', label: 'Plan ceilings also hold queued messages, retries and coordination wakes', type: 'bool', default: false,
-        help: 'Off: the ceilings hold only check-backs and jobs.' },
-      { key: 'openrouterDaily', label: 'OpenRouter spend per day (unattended)', type: 'number', default: 5, min: 0.5, max: 500, step: 0.5, unit: '$', offAllowed: true },
+        help: 'The most replies that can run without you in a day, counted in your time zone. Check-backs and job runs always count.' },
       { key: 'longestReply', label: 'Longest unattended reply', type: 'number', default: 60, min: 5, max: 480, step: 5, unit: 'min', integer: true, offAllowed: true,
-        help: 'The one limit that stops a running reply: a check-back or job reply still running at this is stopped.' },
-      { key: 'countWaiting', label: 'Count time waiting on an approval or question toward the longest reply', type: 'bool', default: false },
-      { key: 'notice', label: 'Notice when a limit is reached', type: 'choice', default: 'push',
-        choices: [{ value: 'push', label: 'Push and Settings, once per reason per day' }, { value: 'settings', label: 'Settings only' }] },
+        help: 'A check-back or job reply still running after this many minutes is stopped. This is the only limit that stops a reply already running.' },
+      { key: 'openrouterDaily', label: 'OpenRouter spend per day', type: 'number', default: 5, min: 0.5, max: 500, step: 0.5, unit: '$', offAllowed: true,
+        help: 'The most unattended work can spend on OpenRouter in a day, in dollars.' },
+      pct('claudeWeekly', 'Claude plan, weekly: stop unattended work at', 80, ['CLAUDE_WEEKLY_CEILING', 'WEEKLY_CEILING'],
+        'Once your Claude plan\'s weekly usage passes this percentage, check-backs and jobs wait, so the rest is kept for you. Messages you send are never held.'),
+      pct('claudeFiveHour', 'Claude plan, 5-hour: stop unattended work at', 90, ['CLAUDE_FIVE_HOUR_CEILING', 'FIVE_HOUR_CEILING'],
+        'The same, for your Claude plan\'s 5-hour usage.'),
+      pct('codexWeekly', 'Codex plan, weekly: stop unattended work at', 80, ['CODEX_WEEKLY_CEILING', 'WEEKLY_CEILING'],
+        'The same, for your Codex plan\'s weekly usage.'),
+      pct('codexFiveHour', 'Codex plan, 5-hour: stop unattended work at', 90, ['CODEX_FIVE_HOUR_CEILING', 'FIVE_HOUR_CEILING'],
+        'The same, for your Codex plan\'s 5-hour usage.'),
+      { key: 'notice', label: 'Tell me when a limit is reached', type: 'choice', default: 'push',
+        choices: [{ value: 'push', label: 'Push and Usage page, once per reason a day' }, { value: 'settings', label: 'Usage page only' }],
+        help: 'When a limit holds work back, tell you by push and on the Usage page (once per reason a day), or only on the Usage page.' },
+      { key: 'countOwnerWork', label: 'Count my queued messages and retries toward the daily limits', type: 'bool', default: false, advanced: true,
+        help: 'Off: work you started yourself does not use up the daily reply count or OpenRouter spend. That covers messages you queued, usage-limit retries, and a conversation woken by another conversation.' },
+      { key: 'ceilingsHoldOwnerWork', label: 'Plan limits also hold my queued messages and retries', type: 'bool', default: false, advanced: true,
+        help: 'Off: the plan percentages hold back only check-backs and jobs.' },
+      { key: 'countWaiting', label: 'Count time waiting for me toward the longest reply', type: 'bool', default: false, advanced: true,
+        help: 'Off: time a reply spends waiting for your approval or answer does not count toward Longest unattended reply.' },
       { key: 'staleHours', label: 'Treat a plan reading older than this as stale', type: 'number', default: 6, min: 1, max: 24, step: 1, unit: 'h', integer: true, advanced: true,
-        help: 'A Claude reading this old does not hold work back; the reply that runs refreshes it.' },
+        help: 'Pocket learns your plan usage from each reply. A reading older than this many hours does not hold work back; the next reply refreshes it.' },
     ],
   },
   // 1.119: check-backs (Part 2). Off until the owner turns them on. The keys name the feature so the env presets
@@ -71,27 +80,36 @@ export const GROUPS = [
   {
     key: 'checkbacks', title: 'Check-backs', settings: [
       { key: 'checkbacks', label: 'Check-backs', type: 'bool', default: false,
-        help: 'A conversation you ask to check back takes one more turn at the time you asked for. Off: none is set or run; pending ones are kept.' },
+        help: 'Off: none can be set and none run. Waiting ones are kept.' },
       { key: 'checkbackAccess', label: 'Permissions for a check-back', type: 'choice', default: 'same',
         choices: [{ value: 'same', label: 'Same as the reply that set it' }, { value: 'review', label: 'Always Review actions' }],
-        help: 'Where Full access is turned off for this server, a check-back runs under Review actions whatever this says.' },
-      { key: 'checkbackClaude', label: 'Check-backs in Claude Code conversations', type: 'bool', default: true },
-      { key: 'checkbackCodex', label: 'Check-backs in Codex conversations', type: 'bool', default: true,
-        help: 'Codex can set one only under Full access: under Review actions its sandbox cannot reach Pocket.' },
-      { key: 'pushWhenMuted', label: 'Push the result when the conversation is muted', type: 'bool', default: true },
-      { key: 'showInTasks', label: 'Show check-backs in the Tasks list', type: 'bool', default: true },
-      { key: 'perConversation', label: 'Pending check-backs per conversation', type: 'number', default: 10, min: 1, max: 50, step: 1, unit: '', integer: true },
-      { key: 'perInstall', label: 'Pending check-backs on this install', type: 'number', default: 50, min: 1, max: 500, step: 1, unit: '', integer: true },
-      { key: 'chainLimit', label: 'Chain limit (check-backs set by check-backs)', type: 'number', default: 5, min: 0, max: 20, step: 1, unit: '', integer: true,
-        help: '0: a check-back can\'t set another.' },
-      { key: 'furthestHours', label: 'Furthest ahead', type: 'number', default: 2160, min: 1, max: 8760, step: 1, unit: 'h', integer: true,
-        help: 'In hours: 2,160 h is 90 days, 8,760 h is 365 days.' },
-      { key: 'soonestMin', label: 'Soonest', type: 'number', default: 1, min: 1, max: 60, step: 1, unit: 'min', integer: true },
-      { key: 'noteMax', label: 'Note length', type: 'number', default: 1000, min: 200, max: 4000, step: 50, unit: 'characters', integer: true },
-      { key: 'catchUpHours', label: 'Catch-up window after Pocket was down', type: 'number', default: 12, min: 0, max: 72, step: 1, unit: 'h', integer: true,
-        help: 'A check-back this late or less runs once, late, and says how late; one later than this is marked missed. 0: never run late.' },
-      { key: 'busyWaitMin', label: 'Wait for a busy conversation before marking missed', type: 'number', default: 60, min: 5, max: 480, step: 5, unit: 'min', integer: true, advanced: true },
-      { key: 'spacingSec', label: 'Spacing between overdue check-backs', type: 'number', default: 15, min: 0, max: 300, step: 1, unit: 's', integer: true, advanced: true },
+        help: '"Same as the reply that set it" keeps that conversation\'s setting. "Always Review actions" makes it stop for your approval before anything that changes files. Where Full access is turned off on this server, it always asks.' },
+      { key: 'checkbackClaude', label: 'In Claude Code conversations', type: 'bool', default: true,
+        help: 'Lets Claude Code conversations set check-backs.' },
+      { key: 'checkbackCodex', label: 'In Codex conversations', type: 'bool', default: true,
+        help: 'Lets Codex conversations set check-backs. Codex can only set one under Full access, because Review actions keeps it from reaching Pocket.' },
+      { key: 'pushWhenMuted', label: 'Push the result even when the conversation is muted', type: 'bool', default: true,
+        help: 'A muted conversation still notifies you when its check-back runs.' },
+      { key: 'showInTasks', label: 'Show check-backs in Tasks', type: 'bool', default: true,
+        help: 'Lists waiting check-backs in Tasks, where you can see and cancel them.' },
+      { key: 'perConversation', label: 'Waiting per conversation', type: 'number', default: 10, min: 1, max: 50, step: 1, unit: '', integer: true, advanced: true,
+        help: 'The most check-backs one conversation can have waiting.' },
+      { key: 'perInstall', label: 'Waiting in total', type: 'number', default: 50, min: 1, max: 500, step: 1, unit: '', integer: true, advanced: true,
+        help: 'The most check-backs waiting across all conversations.' },
+      { key: 'chainLimit', label: 'Check-backs one can set in a row', type: 'number', default: 5, min: 0, max: 20, step: 1, unit: '', integer: true, advanced: true,
+        help: 'Stops check-backs from setting more check-backs without end. 0: a check-back can\'t set another.' },
+      { key: 'furthestHours', label: 'Furthest ahead', type: 'number', default: 2160, min: 1, max: 8760, step: 1, unit: 'h', integer: true, advanced: true,
+        help: 'How far ahead a check-back can be set, in hours. 2,160 hours is 90 days.' },
+      { key: 'soonestMin', label: 'Soonest', type: 'number', default: 1, min: 1, max: 60, step: 1, unit: 'min', integer: true, advanced: true,
+        help: 'How soon a check-back can be set, in minutes.' },
+      { key: 'noteMax', label: 'Longest note', type: 'number', default: 1000, min: 200, max: 4000, step: 50, unit: 'characters', integer: true, advanced: true,
+        help: 'The most characters a check-back\'s note can have.' },
+      { key: 'catchUpHours', label: 'Catch-up window after Pocket was down', type: 'number', default: 12, min: 0, max: 72, step: 1, unit: 'h', integer: true, advanced: true,
+        help: 'If Pocket was down when a check-back came due, it still runs if it is no later than this many hours, and it says how late it is. Later ones are marked missed. 0: never run late.' },
+      { key: 'busyWaitMin', label: 'Wait for a busy conversation', type: 'number', default: 60, min: 5, max: 480, step: 5, unit: 'min', integer: true, advanced: true,
+        help: 'If the conversation is busy when a check-back comes due, how many minutes it waits before it is marked missed.' },
+      { key: 'spacingSec', label: 'Spacing between late check-backs', type: 'number', default: 15, min: 0, max: 300, step: 1, unit: 's', integer: true, advanced: true,
+        help: 'Seconds between late check-backs when several run after Pocket comes back, so they do not all start at once.' },
     ],
   },
   // Job keys (Part 3). Off until the owner turns them on. The access, instructions, per-key limits and push rows are the
@@ -99,28 +117,32 @@ export const GROUPS = [
   {
     key: 'jobs', title: 'Job keys', settings: [
       { key: 'jobs', label: 'Job keys', type: 'bool', default: false,
-        help: 'A program on this server starts a conversation with a key you created: your fixed instruction, folder and model, plus the data it sends. Off: every job call is refused; keys are kept.' },
-      { key: 'jobsInTasks', label: 'Show job keys in the Tasks list', type: 'bool', default: true,
-        help: 'A Jobs group in Tasks: each key, whether it is on, its last run, and the requests waiting for you. Changes stay here.' },
-      { key: 'jobAccess', label: 'Access for new keys', advanced: true, type: 'choice', default: 'ask',
+        help: 'Off: every call from a program is refused. Keys are kept.' },
+      { key: 'jobsInTasks', label: 'Show job keys in Tasks', type: 'bool', default: true,
+        help: 'Adds a Jobs group to Tasks: each key, whether it is on, its last run and any requests waiting for you.' },
+      { key: 'jobAccess', label: 'Access', type: 'choice', default: 'ask',
         choices: [{ value: 'ask', label: 'Ask me for every action' }, { value: 'full', label: 'Full access (only where this server allows it)' }],
-        help: 'Where Full access is turned off for this server, a job runs under Ask me for every action whatever its key says.' },
-      { key: 'jobAddInstructions', label: 'Job may add its own instructions (new keys)', advanced: true, type: 'bool', default: false,
-        help: 'Off: everything a job sends is treated as data.' },
-      { key: 'jobPerHour', label: 'Runs per hour, per key (new keys)', advanced: true, type: 'number', default: 6, min: 1, max: 120, step: 1, unit: '', integer: true, offAllowed: true },
-      { key: 'jobPerDay', label: 'Runs per day, per key (new keys)', advanced: true, type: 'number', default: 24, min: 1, max: 1000, step: 1, unit: '', integer: true, offAllowed: true,
-        help: 'The last 24 hours. Job replies also count toward the unattended replies per day.' },
-      { key: 'jobAtOnce', label: 'Runs at once, per key (new keys)', advanced: true, type: 'number', default: 1, min: 1, max: 5, step: 1, unit: '', integer: true,
-        help: 'A call while this many runs of the key are working is refused as busy.' },
+        help: '"Ask me for every action" stops for your approval. Full access runs without asking, where this server allows it.' },
+      { key: 'jobAddInstructions', label: 'Job may add its own instructions', type: 'bool', default: false,
+        help: 'Lets the program send instructions as well as data. Off: everything it sends is treated as data, so it can\'t change what the job does.' },
+      { key: 'jobPerHour', label: 'Runs per hour', type: 'number', default: 6, min: 1, max: 120, step: 1, unit: '', integer: true, offAllowed: true,
+        help: 'The most runs one key can start in an hour.' },
+      { key: 'jobPerDay', label: 'Runs per day', type: 'number', default: 24, min: 1, max: 1000, step: 1, unit: '', integer: true, offAllowed: true,
+        help: 'The most runs one key can start in 24 hours. These also count toward Unattended replies per day.' },
+      { key: 'jobAtOnce', label: 'Runs at once', type: 'number', default: 1, min: 1, max: 5, step: 1, unit: '', integer: true,
+        help: 'How many runs of one key can work at the same time. Another call is turned away as busy.' },
+      { key: 'jobPush', label: 'Push when a job finishes', type: 'bool', default: true,
+        help: 'Sends a push with the first line of the reply when a run finishes.' },
+      { key: 'jobPushRespectsMute', label: 'Job pushes respect the conversation\'s mute', advanced: true, type: 'bool', default: true,
+        help: 'A job whose conversation is muted does not push.' },
       { key: 'jobDataMax', label: 'Most data per run', advanced: true, type: 'number', default: 20000, min: 1000, max: 100000, step: 1000, unit: 'characters', integer: true,
-        help: 'Data and added instructions together. More is refused, not cut.' },
-      { key: 'jobWaitMax', label: 'Longest wait a job may ask for', advanced: true, type: 'number', default: 300, min: 30, max: 900, step: 10, unit: 's', integer: true },
+        help: 'The most text a program can send in one call, in characters. More is refused, not cut short.' },
+      { key: 'jobWaitMax', label: 'Longest wait a job may ask for', advanced: true, type: 'number', default: 300, min: 30, max: 900, step: 10, unit: 's', integer: true,
+        help: 'A program can wait for the reply before carrying on. This is the longest it may wait, in seconds.' },
       { key: 'jobRepeatDays', label: 'Ignore a repeated call for', advanced: true, type: 'number', default: 7, min: 1, max: 30, step: 1, unit: 'd', integer: true,
-        help: 'In days. A call that repeats a run id (--id) within this gets the first run back and starts nothing new.' },
-      { key: 'jobPush', label: 'Push when a job finishes (new keys)', advanced: true, type: 'bool', default: true },
-      { key: 'jobPushRespectsMute', label: 'Job pushes respect the conversation\'s mute', advanced: true, type: 'bool', default: true },
-      { key: 'jobKeyFolder', label: 'Where Pocket offers to save new keys', advanced: true, type: 'folder', default: '~/.config/pocket/jobs/',
-        help: 'A folder in your home folder. Key files are written readable only by you.' },
+        help: 'If a program sends the same run id again within this many days, it gets the first run\'s result back and nothing new starts. This prevents double runs.' },
+      { key: 'jobKeyFolder', label: 'Where new keys are saved', advanced: true, type: 'folder', default: '~/.config/pocket/jobs/',
+        help: 'The folder in your home folder where new key files go. Only you can read them.' },
     ],
   },
 ];
@@ -214,7 +236,7 @@ export function applySave(saved, body) {
   if (Object.keys(grp).length) next[g.key] = grp; else delete next[g.key];
   return { automation: next };
 }
-// What Settings → Automation shows: each setting with its effective value and where it came from, plus warnings.
+// What Settings → Unattended work shows: each setting with its effective value and where it came from, plus warnings.
 export function describe(saved, env = process.env) {
   const warnings = [];
   const groups = GROUPS.map(g => ({
@@ -353,7 +375,7 @@ export class AutomationState {
   }
   // 1.124.4: a failed write keeps the counts in memory (rolling them back would loosen the limits while Pocket runs,
   // and a throw would break a reply that has already started), but no longer silently: save() returns false, saveError
-  // holds when and why (the Automation page warns from it), and the log has one line for a run of failures and one when
+  // holds when and why (the Unattended work page warns from it), and the log has one line for a run of failures and one when
   // a save works again. A restart before then reads the last good save, so the day's counts can come back lower.
   save() {
     try { this.write(this.file, this.state); } catch (e) {

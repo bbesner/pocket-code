@@ -547,17 +547,21 @@ const Voice = (() => {
     return `<details class="settings-details" id="s-voice"><summary>Voice (beta)</summary>
       <div class="voice-settings">
         <p id="s-voice-state" role="status">Checking voice on the server…</p>
-        ${toggle('s-voice-mute', p.mute, 'Mute voice on this device', 'Nothing is spoken here: replies, announcements, approval prompts. The settings below are kept for when you unmute. Also in the composer, or say “mute”')}
-        ${toggle('s-voice-speak', p.speak, 'Speak replies', 'Read the reply aloud when a reply you asked for by voice finishes')}
+        ${toggle('s-voice-mute', p.mute, 'Mute voice on this device', 'Nothing is spoken here: no replies, announcements or approval questions. Your choices below are kept. You can also say “mute” or tap the speaker in the message box.')}
+        ${toggle('s-voice-speak', p.speak, 'Speak replies', 'When you ask something by voice, the reply is read aloud.')}
         <label class="voice-field">Spoken reply length<select id="s-voice-length">${LENGTH_CHOICES.map(([v, l]) => `<option value="${v}"${replyLength() === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
-        <p class="sub">Applies to replies and “read it”. Detailed skips code, tables and links, and stops after about three minutes. Say “read it all” for the whole reply at any length.</p>
-        ${toggle('s-voice-review', p.review, 'Review before sending', 'Put what you said in the message box instead of sending it')}
+        <p class="sub">How much of a reply is read aloud: one sentence, about two, or all of it. The full reply is always on screen. Detailed skips code, tables and links, and stops after about three minutes; say “read it all” for the whole reply at any length.</p>
+        ${toggle('s-voice-review', p.review, 'Review before sending', 'What you say goes into the message box for you to check, instead of being sent straight away.')}
         <label class="voice-field">Announce conversations<select id="s-voice-alerts">${ALERT_CHOICES.map(([v, l]) => `<option value="${v}"${p.alerts === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
-        <p class="sub">Says when any conversation finishes or needs you, while Pocket is open, in place of the chime. Muted conversations stay quiet.</p>
+        <p class="sub">Speaks up when another conversation finishes or needs you, with its name or its name and a one-line summary. Replaces the chime while Pocket is open. Muted conversations stay quiet.</p>
         <label class="voice-field">Hands-free: wait for my reply<select id="s-voice-wait">${WAIT_CHOICES.map(([v, l]) => `<option value="${v}"${Number(p.replyWait) === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+        <p class="sub">In hands-free mode, how long Pocket keeps listening for your answer before it stops.</p>
         <label class="voice-field">Voice<select id="s-voice-voice"></select></label>
+        <p class="sub">The voice that reads replies aloud.</p>
         <label class="voice-field">Names and terms to recognize<input id="s-voice-vocab" type="text" autocomplete="off" spellcheck="false" placeholder="MemStem, Northwind, Contoso" value="${esc(p.vocab)}"></label>
+        <p class="sub">Names, products and jargon the speech recognizer should expect, like customer names, separated by commas. Up to 300 characters.</p>
         <button class="chip" id="s-voice-test" type="button">Play a sample</button>
+        <p class="sub">Speaks a short line in the chosen voice.</p>
         <p class="sub">Tap the mic to send one message; it sends when you pause. Hold it for push-to-talk. Tap the headset for a hands-free conversation: each reply is spoken and the mic listens for your answer, until you end it or stay quiet. In hands-free, Pocket reads your instruction back and sends it only after you say “send it” or tap Send. Announcements never turn on the mic. Say “what’s it doing”, “stop”, “read it” or “what’s waiting on me” for quick answers, and “pause everything” for Pause all; “mute” and “unmute” switch spoken output on this device. Speech is processed on your Pocket server.</p>
         <p class="sub">Voice is in beta and still improving. Report problems under Bugs &amp; feature requests.</p>
       </div></details>`;

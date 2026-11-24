@@ -148,14 +148,14 @@ const JobKeys = (() => {
     paintBadges();
     resolveFocus();
   }
-  // The count while requests wait: on the Automation entry of Settings and on the Job keys heading (the app's badge).
+  // The count while requests wait: on Features and Job keys' › in Settings and on the Job keys heading (the app's badge).
   let knownCount = 0;
   function paintBadges(n) {
     if (Number.isFinite(n)) knownCount = n;
     else if (data && on()) knownCount = pendingCount();
     if (!on()) knownCount = 0;
     const label = `${knownCount} job key ${knownCount === 1 ? 'request' : 'requests'} waiting for you`;
-    for (const el of document.querySelectorAll('[data-settings-category="automation"], #auto-jobs-h')) {
+    for (const el of document.querySelectorAll('.settings-index [data-settings-category="features"], .feature-open[data-settings-category="f-jobs"], #auto-jobs-h')) {
       let b = el.querySelector(':scope > [data-job-requests-badge]');
       if (!b && !knownCount) continue;
       if (!b) { b = document.createElement('span'); b.className = 'badge job-requests-badge'; b.dataset.jobRequestsBadge = ''; const chevron = el.querySelector(':scope > svg'); el.insertBefore(b, chevron || null); }
@@ -183,10 +183,10 @@ const JobKeys = (() => {
       missing.focus({ preventScroll: true });
     }
   }
-  // The push link (/#/settings/jobs/request/<id>): Settings → Automation, the request's card in view and marked.
+  // The push link (/#/settings/jobs/request/<id>): Settings → Features → Job keys, the request's card in view and marked.
   function openRequest(id) {
     pendingFocus = String(id || '');
-    if (typeof settingsSheet === 'function') settingsSheet({ category: 'automation' });
+    if (typeof settingsSheet === 'function') settingsSheet({ category: 'f-jobs' });
   }
   const requestFromHash = h => { const m = /^#\/settings\/jobs\/request\/([^/?#]+)$/.exec(h || ''); return m ? decodeURIComponent(m[1]) : null; };
   // Allow or Deny, from the card or from Edit first. Returns the answer, or throws the server's refusal (after showing it).

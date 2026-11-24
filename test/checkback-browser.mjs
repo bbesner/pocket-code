@@ -123,7 +123,7 @@ export async function runCheckbackRegressions({p,base,out,repo,rows,conversation
  assert.equal(await p.$eval('[data-auto-group="checkbacks"] [data-auto-key]',e=>e.dataset.autoKey),'checkbacks','the switch comes first');
  assert.equal(await p.$eval('[data-auto-group="checkbacks"] [data-auto-key="perConversation"]',e=>e.disabled),false,'the rest can be set up before it is turned on');
  assert.equal(await p.$('[data-checkbacks-cancel-all]'),null,'no Cancel all while off');
- assert.ok(await p.$('[data-auto-key="runOverdue"]'),'On Resume, run overdue check-backs is in the Pause all group');
+ assert.ok(await p.$('[data-auto-key="runOverdue"]'),'On Resume, run late check-backs is in the Pause all group');
  assert.equal(await p.$eval('[data-auto-key="runOverdue"]',e=>e.closest('[data-auto-group]').dataset.autoGroup),'pause');
  await p.$eval('[data-auto-group="checkbacks"]',e=>e.scrollIntoView({block:'start'}));
  await shot('settings-off-1440-dark');await axeCheck(p,repo,'.settings-sheet');
@@ -151,7 +151,7 @@ export async function runCheckbackRegressions({p,base,out,repo,rows,conversation
  assert.equal(a.saved.checkbacks.perConversation,12);
  await setNumber('perConversation',99);
  await p.waitForFunction(()=>document.querySelector('#auto-checkbacks-perConversation-err')?.textContent);
- assert.match(await p.$eval('#auto-checkbacks-perConversation-err',e=>e.textContent),/^Pending check-backs per conversation must be 1 to 50/);
+ assert.match(await p.$eval('#auto-checkbacks-perConversation-err',e=>e.textContent),/^Waiting per conversation must be 1 to 50/);
  assert.equal(await p.$eval('[data-auto-key="perConversation"]',e=>e.value),'12');assert.equal(a.saved.checkbacks.perConversation,12);
  await shot('settings-error-1440-dark');
  await p.click('[data-auto-reset="checkbacks"]');

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {createRequire} from 'node:module';
 import {clickControl} from './ui-controls.mjs';
+import {modelPanel} from './model-panel.mjs';
 const require=createRequire(import.meta.url);
 export async function runCleanupRegressions({browser,base,rows,out}) {
  const context=await browser.createBrowserContext(),page=await context.newPage();page.setDefaultTimeout(8000);
@@ -34,9 +35,10 @@ export async function runCleanupRegressions({browser,base,rows,out}) {
   await fresh('#/new','#first');
   await check('New setup is labeled and preserves a draft at '+width,async()=>{
    await page.$eval('#first',e=>{e.value='';e.dispatchEvent(new Event('input'));});await page.type('#first','Do not lose this draft');assert.equal(await page.$eval('#new-setup',e=>e.open),false);
-   const text=await page.$eval('#task-context',e=>e.textContent);for(const label of ['Workspace','Agent','Permissions'])assert.ok(text.includes(label));
-   await page.click('#choose-workspace');await page.click('[data-a=codex]');await page.waitForFunction(()=>document.querySelector('#task-context').textContent.includes('Codex')&&CODEX_MODELS.length>1);
-   await clickControl(page,'#c-model');await page.waitForSelector('[data-v="gpt-6-sol"]');await page.click('[data-v="gpt-6-sol"]');
+   const text=await page.$eval('#task-context',e=>e.textContent);assert.ok(text.includes('Workspace'));
+   for(const label of ['Agent','Permissions'])assert.ok(!text.includes(label),'1.124.9: the agent is the model chip\'s, permissions their own chip');
+   const mp=modelPanel(page);await mp.agent('codex');await page.waitForFunction(()=>document.querySelector('#c-model').textContent.includes('Codex')&&CODEX_MODELS.length>1);
+   await mp.model('gpt-6-sol');
    assert.equal(await page.$eval('#first',e=>e.value),'Do not lose this draft');
    assert.equal(await page.$eval('#tbar',e=>Boolean(e.closest('#comp .toolbar-scroll'))),true,'1.58: model, reasoning and permissions use the conversation composer\'s toolbar');
    await page.click('#choose-workspace');await scan('new-'+width);

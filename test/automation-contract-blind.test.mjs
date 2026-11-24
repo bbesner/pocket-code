@@ -135,9 +135,9 @@ test('rangeText: Boolean, choice, folder, numbers', () => {
 
 test('checkValue: exact error messages from spec section 5', () => {
   assert.deepEqual(checkValue(S('dailyReplies'), 0), { error: 'Unattended replies per day must be 1 to 1,000, or No limit.' });
-  assert.deepEqual(checkValue(S('openrouterDaily'), 0.49), { error: 'OpenRouter spend per day (unattended) must be $0.50 to $500, or No limit.' });
+  assert.deepEqual(checkValue(S('openrouterDaily'), 0.49), { error: 'OpenRouter spend per day must be $0.50 to $500, or No limit.' });
   assert.deepEqual(checkValue(S('ownMessages'), 'Run'), { error: "Your own messages while paused must be 'run' or 'blocked'." });
-  assert.deepEqual(checkValue(S('jobKeyFolder'), 'a/b'), { error: 'Where Pocket offers to save new keys must be a folder in your home folder, written like ~/.config/pocket/jobs/.' });
+  assert.deepEqual(checkValue(S('jobKeyFolder'), 'a/b'), { error: 'Where new keys are saved must be a folder in your home folder, written like ~/.config/pocket/jobs/.' });
   const s = S('inboxWatch');
   assert.deepEqual(checkValue(s, 'true'), { error: s.label + ' must be On or Off.' });
   for (const k of ['staleHours', 'longestReply', 'jobKeyFolder']) {

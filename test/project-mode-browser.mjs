@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {clickControl} from './ui-controls.mjs';
+import {modelPanel} from './model-panel.mjs';
 
 const LINE='Conversations in this project start with the top model as lead. It plans, hands the work to cheaper models and checks the results.';
 const NONE='Needs a top model (Fable or GPT Astra) offered on this server.';
@@ -109,20 +110,19 @@ export async function runProjectModeRegressions({browser,base,rows,out,repo,sett
   assert.equal(await page.$eval('#new-mode',e=>e.hidden?'hidden':e.textContent),'Conductor');
   assert.equal(await page.evaluate(()=>document.getElementById('new-project').nextElementSibling.id),'new-mode','beside the project chip');
   assert.match(await page.$eval('#c-model',e=>e.textContent),/Fable 5\.1/,'New: Default names the lead');
-  assert.match(await page.$eval('#c-eff',e=>e.textContent),/High/,'New: Default effort is High');
+  assert.match(await page.$eval('#c-model',e=>e.textContent),/ · High$/,'New: Default effort is High');
   await shot('start-chips-1440');
   await clickControl(page,'#c-model');await page.waitForSelector('.sheet [data-v="default"]');
   assert.equal(await page.$eval('.sheet [data-v="default"] .sub',e=>e.textContent),"Fable 5.1 · this project's lead");
-  assert.equal(await page.$eval('.sheet .sheet-note',e=>e.textContent),'Default is the lead. Another model here runs in its place, still as Conductor.');await closeSheet();
-  await clickControl(page,'#c-eff');await page.waitForSelector('.sheet [data-v="default"]');
-  assert.equal(await page.$eval('.sheet [data-v="default"] .sub',e=>e.textContent),"High · this project's Conductor start");await closeSheet();
+  assert.equal(await page.$eval('.sheet .sheet-note',e=>e.textContent),'Default is the lead. Another model here runs in its place, still as Conductor.');
+  assert.match(await page.$eval('.model-sheet .mp-effort-note',e=>e.textContent),/^High · this project's Conductor start\./);await closeSheet();
   await clickControl(page,'#new-mode');await page.waitForSelector('.sheet [data-v="solo"]');
   assert.deepEqual(await page.$$eval('.sheet [data-v]',e=>e.map(o=>[o.dataset.v,o.classList.contains('sel'),o.querySelector('.sub').textContent])),
    [['conductor',true,'Fable 5.1 leads at high effort and hands out the work'],['solo',false,'Opus 5.5 does the work itself. For a small task.']]);
   await axe('.sheet');await shot('start-chip-sheet-1440');
   await clickControl(page,'.sheet [data-v="solo"]');await page.waitForFunction(()=>!document.querySelector('.scrim'));
   assert.equal(await page.$eval('#new-mode',e=>e.textContent),'Solo');
-  assert.match(await page.$eval('#c-model',e=>e.textContent),/Opus 5\.5/,'Solo: Default names its model');assert.match(await page.$eval('#c-eff',e=>e.textContent),/High/);
+  assert.match(await page.$eval('#c-model',e=>e.textContent),/Opus 5\.5/,'Solo: Default names its model');assert.match(await page.$eval('#c-model',e=>e.textContent),/ · High$/);
   assert.match(await page.$eval('#task-context',e=>e.textContent),/Start Solo/,'the setup summary follows the chip');
   await clickControl(page,'#new-mode');await page.waitForSelector('.sheet [data-v="conductor"]');await clickControl(page,'.sheet [data-v="conductor"]');await page.waitForFunction(()=>!document.querySelector('.scrim'));
   assert.match(await page.$eval('#c-model',e=>e.textContent),/Fable 5\.1/);
@@ -131,7 +131,7 @@ export async function runProjectModeRegressions({browser,base,rows,out,repo,sett
    [['conductor','true','ConductorFable 5.1 leads at high effort and hands out the work'],['solo','false','SoloOne model does the work itself. For a small task.']]);
   await axe('#new-setup');await noOverflow('new 1440');await page.$eval('#new-setup',e=>e.scrollIntoView({block:'start'}));await shot('start-1440');
   console.log('Project mode: Codex names its own lead; an agent without one starts as usual');
-  await clickControl(page,'[data-a="codex"]');assert.match(await page.$eval('#spick-lead',e=>e.textContent),/^GPT-6 Astra leads/);
+  await modelPanel(page).agent('codex');assert.match(await page.$eval('#spick-lead',e=>e.textContent),/^GPT-6 Astra leads/);
   assert.match(await page.$eval('#c-model',e=>e.textContent),/GPT-6 Astra/,'Codex: Default names its lead');
   // New reads the card's mode and the leads again from the board, so the server's answer (no Codex lead) wins over the tap.
   modes.conductor={claude:'Fable 5.1',codex:null};
@@ -143,9 +143,10 @@ export async function runProjectModeRegressions({browser,base,rows,out,repo,sett
   assert.doesNotMatch(await page.$eval('#c-model',e=>e.textContent),/Astra/,'and Default is the usual one');
   assert.doesNotMatch(await page.$eval('#task-context',e=>e.textContent),/Start/);
   await clickControl(page,'#choose-workspace');
-  if(await page.$eval('[data-a="acp"]',e=>!e.hidden)){await clickControl(page,'[data-a="acp"]');
+  const offered=await modelPanel(page).agents();await modelPanel(page).close();
+  if(offered.includes('acp')){await modelPanel(page).agent('acp');
    assert.equal(await page.$eval('#new-start-none',e=>e.textContent),'OpenRouter conversations start as usual. Conductor mode runs on Claude Code and Codex.','the engine reports projectMode false');}
-  await clickControl(page,'[data-a="claude"]');
+  await modelPanel(page).agent('claude');
   console.log('Project mode: Solo is sent as projectStart');
   await clickControl(page,'#spick [data-s="solo"]');assert.equal(await page.$eval('#spick [data-s="solo"]',e=>e.getAttribute('aria-checked')),'true');
   assert.match(await page.$eval('#task-context',e=>e.textContent),/Start Solo/);
@@ -158,9 +159,9 @@ export async function runProjectModeRegressions({browser,base,rows,out,repo,sett
   console.log('Project mode: a model and effort picked on that screen are sent');
   await card(WAREHOUSE);await clickControl(page,'.project-actions [data-start]');await page.waitForSelector('#new-start-mode:not([hidden])');
   await page.waitForFunction(()=>tb?.prefs.model==='default');
-  await clickControl(page,'#c-model');await page.waitForSelector('.sheet [data-v="default"]');
-  const picked=await page.$eval('.sheet [data-v]:not([data-v="default"])',e=>e.dataset.v);await clickControl(page,`.sheet [data-v="${picked}"]`);await page.waitForFunction(()=>!document.querySelector('.scrim'));
-  await clickControl(page,'#c-eff');await page.waitForSelector('.sheet [data-v="high"]');await clickControl(page,'.sheet [data-v="high"]');await page.waitForFunction(()=>!document.querySelector('.scrim'));
+  const mp=modelPanel(page);await mp.open();
+  const picked=await page.$eval('.model-sheet .mp-models [data-v]:not([data-v="default"])',e=>e.dataset.v);await mp.model(picked);
+  await mp.effort('high');
   started=null;await clickControl(page,'#start');await page.waitForFunction(()=>location.hash.startsWith('#/chat/'));
   assert.equal(started.model,picked);assert.equal(started.effort,'high');assert.equal(started.projectStart,'conductor');
 

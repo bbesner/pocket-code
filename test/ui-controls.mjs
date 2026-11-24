@@ -4,7 +4,7 @@ export async function clickControl(page, selector, options) {
  const section=await page.$eval(selector,e=>({category:e.closest('[data-settings-panel]')?.dataset.settingsPanel,setup:Boolean(e.closest('#new-setup')&&!e.closest('summary')&&!e.closest('#new-setup').open)})).catch(()=>null);
  if(section?.category){
   const hidden=await page.$eval(`[data-settings-panel="${section.category}"]`,e=>e.hidden);
-  if(hidden){if(await page.$eval('.settings-index',e=>e.hidden))await page.click('#settings-back');await page.click(`[data-settings-category="${section.category}"]`);}
+  if(hidden)await openSettingsPage(page,section.category);
  }
  if(section?.setup)await page.click('#choose-workspace');
  return page.click(selector,options);
@@ -23,4 +23,15 @@ export async function elementShot(handle, options={}) {
  const resizes=await handle.evaluate(()=>window.__shotResizes);
  if(resizes)throw new Error(`the element screenshot resized the page ${resizes} time(s)`);
  return shot;
+}
+
+// 1.124.9: open a Settings page from wherever the sheet is: back to the index, then the page (a feature page through
+// Features, by its ›).
+export async function openSettingsPage(page, key) {
+ const parent=await page.$eval(`[data-settings-panel="${key}"]`,e=>e.dataset.settingsParent||'');
+ if(!await page.$eval(`[data-settings-panel="${key}"]`,e=>e.hidden))return;
+ while(!await page.$eval('.settings-index',e=>!e.hidden))await page.click('#settings-back');
+ if(parent){await page.click(`.settings-index [data-settings-category="${parent}"]`);await page.waitForSelector(`[data-settings-panel="${parent}"]:not([hidden])`);}
+ await page.click(`[data-settings-panel] [data-settings-category="${key}"], .settings-index [data-settings-category="${key}"]`);
+ await page.waitForSelector(`[data-settings-panel="${key}"]:not([hidden])`);
 }

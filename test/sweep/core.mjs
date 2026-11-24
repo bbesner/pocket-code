@@ -72,8 +72,9 @@ open:async page=>{await page.click('#listmore');await wait(page,SHEET+' h2');}},
  // ---------- New conversation ----------
  {name:'new',route:'#/new',ready:'#first'},
  {name:'new-setup-open',route:'#/new',ready:'#first',open:async page=>{await page.click('#choose-workspace');await wait(page,'#apick');await wait(page,'#plist .row');}},
- {name:'new-agent-codex',route:'#/new',ready:'#first',open:async page=>{await page.click('#choose-workspace');await wait(page,'#apick [data-a="codex"]');await page.click('#apick [data-a="codex"]');await page.waitForSelector('#apick [data-a="codex"][aria-checked="true"]');}},
+ {name:'new-agent-codex',route:'#/new',ready:'#c-model',scope:SHEET,open:async page=>{await page.click('#c-model');await wait(page,'.model-sheet [data-agent="codex"]');await page.click('.model-sheet [data-agent="codex"]');await page.waitForSelector('.model-sheet [data-agent="codex"][aria-checked="true"]');}},
  {name:'new-model-picker',route:'#/new',ready:'#c-model',scope:SHEET,open:async page=>{await page.click('#c-model');await wait(page,SHEET+' .opt');}},
+ {name:'new-model-panel-recent',route:'#/new',ready:'#c-model',scope:SHEET,open:async page=>{await page.evaluate(()=>{localStorage.setItem('pc-recent-picks',JSON.stringify([{provider:'codex',model:'default',effort:'xhigh'},{provider:'claude',model:'default',effort:'high'}]));});await page.click('#c-model');await wait(page,'.model-sheet .opt');}},
  {name:'new-skills',route:'#/new',ready:'#choose-skill',scope:SHEET,open:async page=>{await page.click('#choose-skill');await wait(page,SHEET+' h2');await new Promise(r=>setTimeout(r,300));}},
  {name:'new-saved-prompts',route:'#/new',ready:'#first',modes:{prompts:{prompts:[{id:'p1',name:'Stock check',text:'Check incoming quantities before ordering.',cwd:'/workspaces/warehouse',provider:'claude'},{id:'p2',name:'Weekly supplier summary with a long name',text:'Summarize supplier changes this week.',cwd:'/workspaces/products',provider:'codex'}],recent:[{text:'Check incoming quantities before ordering',cwd:'/workspaces/products',provider:'codex',at:Date.now()-3600000}]}},
   open:async page=>{await page.waitForFunction(()=>document.querySelector('#starters:not([hidden]) .chip'));}},
@@ -144,6 +145,7 @@ open:async page=>{await page.click('#listmore');await wait(page,SHEET+' h2');}},
  {name:'composer-collapsed',route:chat(4),ready:'#composer-toggle',open:async page=>{await page.click('#composer-toggle');await page.waitForFunction(()=>document.querySelector('#composer-toggle').getAttribute('aria-expanded')==='false');}},
  {name:'composer-draft-long',route:chat(4),ready:'#box',open:async page=>{ // set the value: typing a newline presses Enter, which sends on a desktop
   await page.$eval('#box',b=>{b.value='Recount aisle 4 against the Friday delivery, then post the adjustment.\nInclude the two missing recorders.\nUse the reorder sheet in results.\nThen tell me what changed.';b.dispatchEvent(new Event('input',{bubbles:true}));});}},
+ {name:'chat-model-panel',route:chat(4),ready:'#c-model',scope:SHEET,open:async page=>{await page.click('#c-model');await wait(page,'.model-sheet .opt');}},
  {name:'usage-sheet',route:chat(4),ready:'#ctx-ring',scope:SHEET,open:async page=>{await page.click('#ctx-ring');await wait(page,'#usage-body');await new Promise(r=>setTimeout(r,300));}},
  {name:'plan-usage',route:chat(4),ready:'#box',scope:SHEET,open:async page=>{await page.evaluate(()=>openUsagePanel());await wait(page,'#usage-body');await new Promise(r=>setTimeout(r,300));}},
 

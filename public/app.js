@@ -376,6 +376,113 @@ function normalizeModelPick() {
   }
 }
 function tbLabel(list, v) { const option = list.find(option => option[0] === v); return option ? option[3] || option[1] : v || list[0][1]; }
+/* 1.124.9: one panel for the agent, the model and the effort (the owner, 2026-11-24). The agent was picked in New's setup
+   card and the model and effort in two chips, so a change of setup took six taps in two places. One chip now names all
+   three, and its panel holds Recent (the last setups you sent with), the agent (on New; a conversation keeps its own),
+   the effort and the model. Each agent remembers its own model and effort, so switching to Codex brings back your Codex. */
+const PICKS_KEY = 'pc-recent-picks', ENGINE_PICK = p => 'pc-engine-pick-' + p;
+const modelsOf = p => p === 'codex' ? CODEX_MODELS : p === 'acp' ? ACP_MODELS : p === 'antigravity' ? AGY_MODELS : MODELS;
+function recentPicks() {
+  try { const a = JSON.parse(localStorage.getItem(PICKS_KEY) || '[]'); return Array.isArray(a) ? a.filter(p => p && START_PROVIDERS.includes(p.provider) && typeof p.model === 'string' && typeof p.effort === 'string') : []; } catch { return []; }
+}
+const pickId = p => [p.provider, p.model, p.effort].join('|');
+function rememberPick(provider, model, effort) {
+  if (!START_PROVIDERS.includes(provider)) return;
+  const now = { provider, model: model || 'default', effort: effort || 'default' };
+  try { localStorage.setItem(PICKS_KEY, JSON.stringify([now, ...recentPicks().filter(p => pickId(p) !== pickId(now))].slice(0, 6))); } catch { }
+  saveEnginePick(provider, now);
+}
+function saveEnginePick(provider, { model, effort }) { try { localStorage.setItem(ENGINE_PICK(provider), JSON.stringify({ model: model || 'default', effort: effort || 'default' })); } catch { } }
+function enginePick(provider) { try { const p = JSON.parse(localStorage.getItem(ENGINE_PICK(provider)) || 'null'); return p && typeof p.model === 'string' ? p : null; } catch { return null; } }
+function pickModelName(provider, model) {
+  const row = modelsOf(provider).find(m => m[0] === model);
+  return model === 'default' ? (row?.[3] && row[3] !== 'Default' ? row[3] : 'Default model') : row ? row[3] || row[1] : modelLabel(model);
+}
+// What the chip says: the agent (on New, where it is chosen here), the model, and the effort unless it is plain Default.
+function pickSummary() {
+  const effort = noEffortChip() ? '' : tbLabel(effortList(), tb.prefs.effort);
+  return [tb.pickAgent ? ENGINE_LABELS[tb.provider] || 'Claude' : '', tbLabel(modelList(), tb.prefs.model), effort === 'Default' ? '' : effort].filter(Boolean);
+}
+function modelPanel() {
+  if (!tb) return;
+  const scrim = document.createElement('div'); scrim.className = 'scrim';
+  const sh = document.createElement('div'); sh.className = 'sheet model-sheet';
+  const onNew = Boolean(tb.pickAgent);
+  sh.innerHTML = `<h2>${onNew ? 'Agent, model and effort' : 'Model and effort'}</h2><div class="model-body">
+    <section class="model-recent" aria-labelledby="mp-recent-h" hidden><h3 class="settings-scope" id="mp-recent-h">Recent</h3><div class="mp-recent-list"></div></section>
+    <section aria-labelledby="mp-agent-h"><h3 class="settings-scope" id="mp-agent-h">Agent</h3><div class="model-pick-row mp-agents" role="radiogroup" aria-labelledby="mp-agent-h"></div><p class="sheet-help mp-agent-note"></p></section>
+    <section class="mp-effort" aria-labelledby="mp-effort-h"><h3 class="settings-scope" id="mp-effort-h">Effort</h3><div class="model-pick-row mp-efforts" role="radiogroup" aria-labelledby="mp-effort-h"></div><p class="sheet-help mp-effort-note"></p></section>
+    <section aria-labelledby="mp-model-h"><h3 class="settings-scope" id="mp-model-h">Model</h3><div class="mp-model-note"></div><div class="mp-models" role="radiogroup" aria-labelledby="mp-model-h"></div></section></div>
+    <div class="model-done-bar"><button class="primary model-done" type="button">Done</button></div>`;
+  const close = () => closeCurrentSheet?.();
+  scrim.onclick = close; sh.querySelector('.model-done').onclick = close;
+  const save = () => { setPrefs(tb.key, tb.prefs); saveEnginePick(tb.provider, tb.prefs); renderToolbar(); };
+  const radio = (on, attrs, label) => `<button type="button" role="radio" aria-checked="${on}" tabindex="${on ? 0 : -1}" ${attrs}>${esc(label)}</button>`;
+  const paintRecent = () => {
+    const box = sh.querySelector('.model-recent'), current = { provider: tb.provider, ...tb.prefs };
+    const list = recentPicks().filter(p => pickId(p) !== pickId(current) && (onNew ? tb.agents().includes(p.provider) : p.provider === tb.provider)).slice(0, 3);
+    box.hidden = !list.length;
+    box.querySelector('.mp-recent-list').innerHTML = list.map((p, i) => `<button class="opt" type="button" data-pick-recent="${i}">${IC.model}<span>${esc([ENGINE_LABELS[p.provider], pickModelName(p.provider, p.model), p.effort === 'default' ? 'Default effort' : EFFORT_NAMES[p.effort] || p.effort].join(' · '))}</span></button>`).join('');
+    box.querySelectorAll('[data-pick-recent]').forEach(b => b.onclick = () => {
+      const p = list[Number(b.dataset.pickRecent)];
+      if (onNew && p.provider !== tb.provider) tb.pickAgent(p.provider);
+      tb.prefs = { ...tb.prefs, model: p.model, effort: p.effort }; if (tb.leadHeld) tb.leadHeld = null;
+      save(); close();
+    });
+  };
+  const paintAgents = () => {
+    const row = sh.querySelector('.mp-agents'), note = sh.querySelector('.mp-agent-note');
+    row.hidden = !onNew;
+    note.textContent = onNew ? '' : `This conversation runs on ${ENGINE_LABELS[tb.provider] === 'Claude' ? 'Claude Code' : ENGINE_LABELS[tb.provider]}. To use another agent, start a new conversation.`;
+    note.hidden = onNew;
+    if (!onNew) return;
+    row.innerHTML = tb.agents().map(a => radio(a === tb.provider, `data-agent="${a}"`, a === 'claude' ? 'Claude Code' : ENGINE_LABELS[a])).join('');
+    row.querySelectorAll('[data-agent]').forEach(b => b.onclick = () => { if (b.dataset.agent === tb.provider) return; const had = row.contains(document.activeElement); tb.pickAgent(b.dataset.agent); paintAll(); if (had) row.querySelector('[aria-checked="true"]')?.focus(); });
+    bindRadioGroup(row);
+  };
+  const paintEffort = () => {
+    const box = sh.querySelector('.mp-effort'), row = sh.querySelector('.mp-efforts'), note = sh.querySelector('.mp-effort-note');
+    if (noEffortChip()) { row.innerHTML = ''; row.hidden = true; note.textContent = 'This model has no effort setting.'; return; }
+    const list = effortList(), cur = list.find(o => o[0] === tb.prefs.effort) || list[0];
+    row.hidden = false; box.hidden = false;
+    row.innerHTML = list.map(([v, label]) => radio(v === cur[0], `data-effort="${esc(v)}"`, v === 'default' ? 'Default' : label)).join('');
+    note.textContent = (cur[0] === 'default' ? cur[2] || "The model's own default" : cur[2] ? cur[1] + ': ' + cur[2] : cur[1]) + '. Effort is how much the model thinks before it answers; more is slower and uses more of your plan.';
+    row.querySelectorAll('[data-effort]').forEach(b => b.onclick = () => { tb.prefs.effort = b.dataset.effort; if (tb.leadHeld) delete tb.leadHeld.effort; const had = row.contains(document.activeElement); save(); paintEffort(); paintRecent(); if (had) row.querySelector('[aria-checked="true"]')?.focus(); });
+    bindRadioGroup(row);
+  };
+  let query = '';
+  const paintModels = () => {
+    const box = sh.querySelector('.mp-models'), list = modelList(), pm = projectModeNow(), note = sh.querySelector('.mp-model-note');
+    note.innerHTML = pm?.start === 'conductor' ? `<p class="sheet-help sheet-note">${esc(pm.pending ? CONDUCTOR_NEW_NOTE : CONDUCTOR_MODEL_NOTE)}</p>` : '';
+    const find = list.length > 12 ? `<div class="sheet-find"><div class="session-search">${IC.search}<input type="search" aria-label="Search models" placeholder="Search models" autocomplete="off" spellcheck="false" enterkeyhint="go"></div><p class="sheet-search-status" role="status"></p></div>` : '';
+    box.innerHTML = find + list.map(([v, label, sub]) => `<button class="opt ${v === tb.prefs.model ? 'sel' : ''}" type="button" role="radio" aria-checked="${v === tb.prefs.model}" data-v="${esc(v)}"><span class="dot"></span><span>${esc(label)}<span class="sub">${esc(sub || '')}</span></span></button>`).join('');
+    const opts = [...box.querySelectorAll('.opt')];
+    opts.forEach(b => b.onclick = () => {
+      tb.prefs.model = b.dataset.v; if (tb.leadHeld) delete tb.leadHeld.model; save();
+      opts.forEach(o => { const on = o === b; o.classList.toggle('sel', on); o.setAttribute('aria-checked', String(on)); });
+      paintEffort(); paintRecent(); // an OpenRouter or Antigravity model has its own levels
+    });
+    const input = box.querySelector('.sheet-find input');
+    if (!input) return;
+    const status = box.querySelector('.sheet-search-status'), hay = list.map(o => [o[0], o[1], o[2]].join(' ').toLowerCase());
+    input.value = query;
+    input.oninput = () => {
+      query = input.value; const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+      opts.forEach((b, i) => { b.hidden = !words.every(w => hay[i].includes(w)); });
+      const n = opts.filter(b => !b.hidden).length;
+      status.textContent = !words.length ? '' : n ? `${n} of ${opts.length} models` : `No models match “${query.trim()}”`;
+    };
+    input.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); opts.find(b => !b.hidden)?.click(); } else if (e.key === 'Escape' && input.value) { e.preventDefault(); e.stopPropagation(); input.value = ''; input.oninput(); } };
+    if (query) input.oninput();
+  };
+  const paintAll = () => { query = ''; paintRecent(); paintAgents(); paintEffort(); paintModels(); };
+  paintAll();
+  mountSheet(scrim, sh);
+  sh.focus({ preventScroll: true }); // the panel, not the model search: on a phone that would open the keyboard over Agent and Effort
+  // the models load after a switch of agent; repaint when they arrive, while the panel is open
+  sh._repaint = () => { if (sh.isConnected) { paintRecent(); paintEffort(); paintModels(); } };
+  sh.querySelector('.mp-models .opt.sel')?.scrollIntoView({ block: 'nearest' }); // inside the panel's own scroller
+}
 function renderToolbar() {
   const bar = $('#tbar'); if (!bar || !tb) return;
   const focusedControl=bar.contains(document.activeElement)?document.activeElement.id:null;
@@ -383,8 +490,7 @@ function renderToolbar() {
   $('#composer-actions #c-att')?.remove();
   bar.innerHTML = `
     ${tb.allowAttach ? `<button class="chip" id="c-att" aria-label="Attach files">${IC.clip}Attach</button>` : ''}
-    <button class="chip ${tb.prefs.model !== 'default' ? 'set' : ''}" id="c-model">${IC.model}${esc(tbLabel(modelList(), tb.prefs.model))}</button>
-    ${noEffortChip() ? '' : `<button class="chip ${tb.prefs.effort !== 'default' ? 'set' : ''}" id="c-eff">${IC.gauge}${esc(tbLabel(effortList(), tb.prefs.effort))}</button>`}
+    <button class="chip ${tb.prefs.model !== 'default' || tb.prefs.effort !== 'default' ? 'set' : ''}" id="c-model" aria-label="${esc((tb.pickAgent ? 'Agent, model and effort: ' : 'Model and effort: ') + pickSummary().join(', ') + '. Change')}">${IC.model}<span>${esc(pickSummary().join(' · '))}</span></button>
     <button class="chip" id="c-approval" title="Permissions for the next reply" aria-label="Permissions for the next reply: ${permissionLabel(nextApprovalMode())}"><span class="label-full">${permissionLabel(nextApprovalMode())}</span><span class="label-short" aria-hidden="true">${nextApprovalMode() === 'full' ? 'Full' : 'Review'}</span></button>
     ${engineHas(tb.provider,'planMode')?`<button class="chip ${tb.prefs.executionMode==='plan'?'set':''}" id="c-mode">${tb.prefs.executionMode==='plan'?'Plan first':'Work normally'}</button>`:''}
     ${tb.allowMute ? `<button class="chip ${chatMuted ? 'set' : ''}" id="c-mute" aria-label="Toggle notifications for this conversation">${chatMuted ? IC.bellOff : IC.bell}${chatMuted ? 'Muted' : 'Alerts'}</button>` : ''}${Voice.muteButtonHTML('chip')}${tb.allowMute ? '<button class="chip conversation-side" id="side-open" hidden>Side chat</button><button class="chip conversation-branch" id="branch-open" hidden>Branch</button><button class="chip conversation-handoff" id="handoff-open" hidden>Handoff</button><button class="chip conversation-project" id="project-open" hidden>Project</button><button class="chip conversation-mode" id="mode-open" hidden></button><button class="chip conversation-task" id="task-open" hidden>Add task</button>' : ''}`;
@@ -401,11 +507,7 @@ function renderToolbar() {
   if(att&&actions){att.className='icon composer-attach';att.innerHTML=IC.clip;actions.prepend(att);}
   if (att) att.onclick = () => sheet('Attach a file or screenshot',[['file','Choose files','Select from this device'],['paste','Paste screenshot','Use an image from your clipboard'],
     ...(vaultOn() ? [['vault','Store in the Vault','Save a key or password here instead of pasting it into the message']] : [])],null,v=>{if(v==='file')$('#fpick')?.click();else if(v==='vault')addVaultItemFromComposer();else pasteClipboardImage();}); // 1.39: the Vault option
-  $('#c-model').onclick = () => sheet('Model for this reply', modelList(), tb.prefs.model,
-    v => { tb.prefs.model = v; if (tb.leadHeld) delete tb.leadHeld.model; setPrefs(tb.key, tb.prefs); renderToolbar(); }, { search: modelList().length > 12 ? 'models' : '', note: projectModeNow()?.start === 'conductor' ? (projectModeNow().pending ? CONDUCTOR_NEW_NOTE : CONDUCTOR_MODEL_NOTE) : '' });
-  const eff = $('#c-eff'); // absent for an OpenRouter or Antigravity model that takes no reasoning-effort setting
-  if (eff) eff.onclick = () => sheet('Reasoning effort', effortList(), tb.prefs.effort,
-    v => { tb.prefs.effort = v; if (tb.leadHeld) delete tb.leadHeld.effort; setPrefs(tb.key, tb.prefs); renderToolbar(); });
+  $('#c-model').onclick = () => modelPanel();
   if (loadOutbox(tb.key)) {
     bar.querySelectorAll('button:not(#c-mute):not([data-voice-mute]):not(#project-open):not(#mode-open):not(#task-open):not(#side-open):not(#branch-open):not(#handoff-open)').forEach(b => { b.disabled = true; });
     if(att)att.disabled=true;
@@ -871,9 +973,9 @@ function modeControlsHTML() {
   const opt = (key, label) => `<button data-pocket-mode="${key}" aria-pressed="${(key === 'assistant') === on}"${locked ? ' aria-disabled="true"' : ''}>${label}</button>`;
   const help = locked
     ? 'Assistant mode is kept on by this server (POCKET_ASSISTANT_MODE=locked). Change it there to allow Developer mode.'
-    : 'Developer mode is the full workbench. Assistant mode opens on the message box, in plain words, with the developer controls out of sight.';
-  return `<section class="mode-settings" id="s-mode" aria-label="Mode">
-  <p class="chat-text-label">Mode</p>
+    : 'Developer mode shows every tool and setting. Assistant mode is the plain-words layout: it opens on the message box and hides the developer controls. Changes every device signed in to this Pocket.';
+  return `<section class="mode-settings" id="s-mode" aria-label="Layout">
+  <p class="chat-text-label">Layout</p>
   <div class="chat-text-controls mode-controls" role="group" aria-label="Choose Developer mode or Assistant mode">${opt('developer', 'Developer mode')}${opt('assistant', 'Assistant mode')}</div>
   <p class="chat-text-help">${help}</p>
  </section>`;
@@ -895,38 +997,40 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     ${chatTextControlsHTML()}
     ${accentControlsHTML()}
     ${modeControlsHTML()}
-    <button class="opt" id="s-environment">${IC.model}<span>Accounts & instance<span class="sub">Provider sign-ins and supported controls</span></span></button>
-    <button class="opt" id="s-connectors">${IC.globe}<span>Connectors<span class="sub">Gmail, Calendar and Drive for each agent</span></span></button>
-    <button class="opt" id="s-usage">${IC.gauge}<span>Plan usage<span class="sub">5-hour and weekly limits, extra-usage status</span></span></button>
+    <button class="opt" id="s-environment">${IC.model}<span>Claude and Codex accounts<span class="sub">Which Claude and Codex accounts this Pocket uses. Sign in to Claude, switch account, or stop every Claude reply at once</span></span></button>
+    <button class="opt" id="s-connectors">${IC.globe}<span>Connectors<span class="sub">Whether each agent can reach your Gmail, Calendar and Drive, with links to connect or manage them</span></span></button>
+    <button class="opt" id="s-usage">${IC.gauge}<span>Plan usage<span class="sub">Your Claude and Codex 5-hour and weekly usage, and extra-usage status. It updates when a reply runs, not live</span></span></button>
+    <button class="opt" id="s-usage-inbox" hidden>${IC.sliders}<span>Inbox Watch cost<span class="sub">What Inbox Watch spent each day for the last 7 days, in its settings</span></span></button>
     <div class="title-settings model-offer" id="s-models" role="group" aria-labelledby="s-models-h">
-      <p class="vault-set-head" id="s-models-h">Claude models in the picker</p>
+      <p class="vault-set-head" id="s-models-h">Models offered in the picker</p>
+      <p class="title-note" id="s-models-lead">Which Claude models people can pick when starting a conversation. Turn off any this Pocket shouldn't offer; at least one stays on. Models your organization blocks are marked.</p>
       <div class="model-offer-list" id="s-models-list" aria-busy="true">${CLAUDE_CATALOG.map(([id, label, sub]) => `<button class="opt" data-offer-model="${esc(id)}" aria-pressed="false" aria-disabled="true"><span class="dot"></span><span>${esc(label)}<span class="sub">${esc(sub)}</span></span></button>`).join('')}</div>
       <p class="title-note" id="s-models-note" role="status">Loading the model list…</p>
       <span class="vault-set-actions"><button class="chip" id="s-models-reset" hidden>Use the server's list</button></span></div>
     <div class="title-settings model-offer" id="s-context" role="group" aria-labelledby="s-context-h" aria-describedby="s-context-lead">
-      <p class="vault-set-head" id="s-context-h">Context and subagents</p>
-      <p class="title-note" id="s-context-lead">Each reply reads the whole conversation again, so long conversations use the most of your plan. Compacting summarizes the older part. Subagents can run on a cheaper model than the conversation.</p>
+      <p class="vault-set-head" id="s-context-h">Long conversations and helpers</p>
+      <p class="title-note" id="s-context-lead">Every reply re-reads the whole conversation, so long conversations use the most of your plan. Compacting replaces the older part with a summary; a handoff carries on in a fresh conversation with a short briefing. Helpers (subagents) are extra agents a conversation starts for side jobs like searching. A token is about three quarters of a word.</p>
       <label class="voice-field">Compact conversations<select id="s-context-limit" disabled><option value="agent">When the agent decides</option></select></label>
       <label class="voice-field">Offer a handoff<select id="s-context-handoff" disabled><option value="200000">After 200K tokens</option></select></label>
-      <label class="voice-field">Subagent model<select id="s-context-workers" disabled><option value="default">The agent’s own choice</option><option value="tier-down">One tier below the conversation’s model</option></select></label>
-      <label class="voice-field">Subagent effort<select id="s-context-effort" disabled><option value="">The agent’s own choice</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
+      <label class="voice-field">Helper model<select id="s-context-workers" disabled><option value="default">The agent’s own choice</option><option value="tier-down">One tier below the conversation’s model</option></select></label>
+      <label class="voice-field">Helper effort<select id="s-context-effort" disabled><option value="">The agent’s own choice</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
       <p class="title-note" id="s-context-note" role="status">Loading the context setting…</p></div>
     <div class="title-settings model-offer trusted-actions" id="s-trusted" role="group" aria-labelledby="s-trusted-h" aria-describedby="s-trusted-lead">
       <p class="vault-set-head" id="s-trusted-h">Actions that run without asking</p>
-      <p class="title-note" id="s-trusted-lead">In Review actions, every agent runs the read-only actions listed here without an approval card. Everything else still asks.</p>
+      <p class="title-note" id="s-trusted-lead">In Review actions, an agent asks before each action. The actions listed here run without asking. A listed command runs with any arguments, so list only commands that can't change anything. Edits and file writes always ask.</p>
       <ul class="trusted-list" id="s-trusted-list" aria-labelledby="s-trusted-h" aria-busy="true"></ul>
       <form class="trusted-add" id="s-trusted-form" novalidate>
         <label class="trusted-label" for="s-trusted-input">Add an action</label>
         <span class="trusted-add-row"><input id="s-trusted-input" type="text" maxlength="300" placeholder="Bash(command:*)" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="s-trusted-error s-trusted-hint" disabled><button class="chip" type="submit" id="s-trusted-add" disabled>Add</button></span>
         <p class="vault-field-error" id="s-trusted-error" role="alert"></p>
-        <p class="title-note" id="s-trusted-hint">Bash(command:*), Bash(exact command), mcp__server__tool, mcp__server__* or WebSearch. A listed command runs with any arguments, so list only ones that cannot change anything. Edit and Write always ask; Codex is not covered.</p>
+        <p class="title-note" id="s-trusted-hint">Bash(git status:*) for a command with any arguments, Bash(exact command) for one exact command, mcp__server__tool or mcp__server__* for a connector's tools, or WebSearch. Claude Code uses every rule; Codex, OpenRouter and Antigravity use the command rules.</p>
       </form>
       <p class="title-note" id="s-trusted-note" role="status">Loading the list…</p>
       <span class="vault-set-actions"><button class="chip" id="s-trusted-reset" hidden>Use the server's list</button></span></div>
     <div class="title-settings model-offer router-settings" id="s-router" role="group" aria-labelledby="s-router-h" aria-describedby="s-router-lead">
       <p class="vault-set-head" id="s-router-h">Automatic model choice</p>
       <p class="title-note" id="s-router-lead">In Assistant mode, a request typed from scratch goes to a small decision model that picks the lightest of four levels that will do it well. Each level runs the model and effort below. Saved prompts keep their own.</p>
-      <button class="opt" id="s-router-on" disabled aria-pressed="false"><span class="dot"></span><span>Choose the model for me<span class="sub" id="s-router-state">Loading…</span></span></button>
+      <button class="opt" id="s-router-on" disabled aria-pressed="false"><span class="dot"></span><span>Automatic model choice<span class="sub" id="s-router-state">Loading…</span></span></button>
       <label class="voice-field">Decision model<select id="s-router-provider" disabled><option value="jev">TypeSafe Jev, through OpenRouter</option><option value="openai">OpenAI Decisions API (GPT-6 Luna)</option></select></label>
       <form class="trusted-add" id="s-router-key-form" novalidate>
         <label class="trusted-label" for="s-router-key">Key</label>
@@ -937,33 +1041,34 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       <p class="title-note" id="s-router-note" role="status"></p>
       <span class="vault-set-actions"><button class="chip" id="s-router-reset" hidden>Use the server's settings</button></span></div>
     <div class="title-settings model-offer access-settings" id="s-access" role="group" aria-labelledby="s-access-h" aria-describedby="s-access-lead">
-      <p class="vault-set-head" id="s-access-h">One sign-in</p>
-      <p class="title-note" id="s-access-lead">Behind Cloudflare Access, Pocket can accept the Access sign-in instead of asking for its own password as well. It checks Cloudflare's signature, this application and the email, and signs the browser in for a day at most.</p>
+      <p class="vault-set-head" id="s-access-h">Sign in with Cloudflare Access</p>
+      <p class="title-note" id="s-access-lead">If Pocket sits behind Cloudflare Access, your Access login can sign you in to Pocket too, so you don't type Pocket's password as well. Pocket checks Cloudflare's signature, the application and your email. The sign-in lasts a day at most.</p>
       <p class="title-note" id="s-access-state" role="status">Loading…</p>
       <form class="access-form" id="s-access-form" novalidate>
-        <label class="voice-field">Team<input id="s-access-team" type="text" maxlength="63" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="the part before .cloudflareaccess.com" disabled></label>
-        <label class="voice-field">Audience tag<input id="s-access-aud" type="text" maxlength="128" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="from the Access application's Overview" disabled></label>
-        <label class="voice-field">Who may sign in this way<input id="s-access-emails" type="text" maxlength="2000" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="you@example.com, …" disabled></label>
+        <label class="voice-field">Team name<input id="s-access-team" type="text" maxlength="63" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="the part before .cloudflareaccess.com" disabled></label>
+        <label class="voice-field">Application audience (AUD) tag<input id="s-access-aud" type="text" maxlength="128" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="on the application's page in Cloudflare Zero Trust" disabled></label>
+        <label class="voice-field">Who may sign in this way<input id="s-access-emails" type="text" maxlength="2000" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="you@example.com, …" aria-describedby="s-access-emails-note" disabled></label>
+        <p class="title-note" id="s-access-emails-note">Email addresses, separated by commas. Anyone else still uses Pocket's password.</p>
         <p class="vault-field-error" id="s-access-error" role="alert"></p>
         <span class="vault-set-actions"><button class="chip" type="submit" id="s-access-save" disabled>Save</button><button class="chip" type="button" id="s-access-off" hidden>Turn off</button><button class="chip" type="button" id="s-access-reset" hidden>Use the server's values</button></span>
       </form></div>
     <div class="title-settings model-offer" id="s-signout" role="group" aria-labelledby="s-signout-h" aria-describedby="s-signout-lead">
       <p class="vault-set-head" id="s-signout-h">Sign out</p>
-      <p class="title-note" id="s-signout-lead">Sign out also turns off notifications on this browser. Sign out everywhere does both on every browser and phone, this one included; turn notifications on again where you still want them. Use it for a lost phone or a shared computer.</p>
+      <p class="title-note" id="s-signout-lead">Sign out signs this browser out and stops its notifications. Sign out everywhere signs out every browser and phone, this one included, and stops their notifications. Use it for a lost phone or a shared computer.</p>
       <p class="vault-field-error" id="s-signout-error" role="alert"></p>
       <span class="vault-set-actions"><button class="chip" type="button" id="s-signout-here">Sign out</button><button class="chip" type="button" id="s-signout-all">Sign out everywhere</button></span></div>
-    <button class="opt" id="s-keys">${IC.term}<span>Keyboard & workspace<span class="sub">Shortcuts and open-conversation tabs</span></span></button>
-    <button class="opt" id="s-chime" aria-pressed="${chimeOn}"><span class="dot ${chimeOn ? 'on' : ''}"></span><span>Completion chime<span class="sub">Two-note blip when a reply finishes on screen</span></span></button>
-    <button class="opt" id="s-tools" aria-pressed="${toolsCollapsed()}"><span class="dot ${toolsCollapsed() ? 'on' : ''}"></span><span>Collapse steps<span class="sub">Fold each run of steps behind a one-line summary</span></span></button>
-    <button class="opt" id="s-plain" aria-pressed="${plainSteps()}"><span class="dot ${plainSteps() ? 'on' : ''}"></span><span>Describe steps in plain words<span class="sub">“Saved Proposal.pdf” with the command or path beside it. Off shows the tool name and its raw detail</span></span></button>
-    <button class="opt" id="s-times" aria-pressed="${showTimes()}"><span class="dot ${showTimes() ? 'on' : ''}"></span><span>Show message times<span class="sub">A time on each message and a divider for each day</span></span></button>
+    <button class="opt" id="s-keys">${IC.term}<span>Keyboard shortcuts<span class="sub">Every shortcut, and what your tabs and filters remember on this device</span></span></button>
+    <button class="opt" id="s-chime" aria-pressed="${chimeOn}"><span class="dot ${chimeOn ? 'on' : ''}"></span><span>Completion chime<span class="sub">A short two-note sound when a reply finishes while Pocket is open on screen. Spoken announcements replace it when Voice announces conversations</span></span></button>
+    <button class="opt" id="s-tools" aria-pressed="${toolsCollapsed()}"><span class="dot ${toolsCollapsed() ? 'on' : ''}"></span><span>Collapse steps<span class="sub">Folds the steps an agent takes, like reading files or running commands, behind one summary line so the reply comes first. Tap the line to see them</span></span></button>
+    <button class="opt" id="s-plain" aria-pressed="${plainSteps()}"><span class="dot ${plainSteps() ? 'on' : ''}"></span><span>Describe steps in plain words<span class="sub">Writes each step as a sentence, like “Saved Proposal.pdf”, with the command beside it. Off shows the raw tool name and detail</span></span></button>
+    <button class="opt" id="s-times" aria-pressed="${showTimes()}"><span class="dot ${showTimes() ? 'on' : ''}"></span><span>Show message times<span class="sub">Puts the time on each message and a date line between days</span></span></button>
     <button class="opt" id="s-push" aria-pressed="false"><span class="dot"></span><span>Push to this device<span class="sub" id="s-push-state">Checking notification support…</span></span></button>
     <div class="title-settings push-kinds" id="s-push-kinds" role="group" aria-label="Which notifications this device gets">
-      <button class="opt" id="s-push-turns" disabled aria-pressed="false"><span class="dot"></span><span>Finished replies<span class="sub">When a conversation finishes a reply, unless it is muted</span></span></button>
-      <button class="opt" id="s-push-reminders" disabled aria-pressed="false"><span class="dot"></span><span>Due tasks and reminders<span class="sub">Once when each comes due. Tomorrow and Done on the notification answer without opening Pocket</span></span></button>
-      <button class="opt" id="s-push-vault" disabled aria-pressed="false"><span class="dot"></span><span>Vault requests<span class="sub">When an agent needs a secret, or wants to share or publish a file, and you have to allow it</span></span></button>
-      <button class="opt" id="s-push-alerts" disabled aria-pressed="false"><span class="dot"></span><span>Inbox alerts<span class="sub">An alert from Inbox Watch or another job on the server; urgent, like a due reminder</span></span></button>
-      <button class="opt" id="s-push-automation" disabled aria-pressed="false"><span class="dot"></span><span>Check-backs and job results<span class="sub">When a check-back has checked back or was missed, and when a limit holds unattended work</span></span></button>
+      <button class="opt" id="s-push-turns" disabled aria-pressed="false"><span class="dot"></span><span>Finished replies<span class="sub">A conversation finished a reply. Muted conversations never push</span></span></button>
+      <button class="opt" id="s-push-reminders" disabled aria-pressed="false"><span class="dot"></span><span>Due tasks and reminders<span class="sub">A task or reminder came due. Done and Tomorrow on the notification answer it without opening Pocket</span></span></button>
+      <button class="opt" id="s-push-vault" disabled aria-pressed="false"><span class="dot"></span><span>Vault requests<span class="sub">An agent is waiting for you to allow a stored password or key, or to share or publish a file</span></span></button>
+      <button class="opt" id="s-push-alerts" disabled aria-pressed="false"><span class="dot"></span><span>Inbox alerts<span class="sub">Inbox Watch, or another program on this server, flagged something that needs you. Which emails count is set in Features › Inbox Watch</span></span></button>
+      <button class="opt" id="s-push-automation" disabled aria-pressed="false"><span class="dot"></span><span>Check-backs and job results<span class="sub">A check-back ran or was missed, a job finished, or a limit held back unattended work. Muting and per-job choices are in Features › Check-backs and Features › Job keys</span></span></button>
     </div>
     <button class="opt" id="s-badge" aria-pressed="false"><span class="dot"></span><span>Count on the app icon<span class="sub" id="s-badge-state">How many tasks and reminders are due, on the installed app's icon</span></span></button>
     <button class="opt" id="s-ahead" disabled aria-pressed="false"><span class="dot"></span><span>Notice a day before<span class="sub" id="s-ahead-state">Loading the reminder setting…</span></span></button>
@@ -971,14 +1076,14 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       <p class="vault-field-error" id="s-email-err" role="alert"></p>
       <span class="vault-set-actions"><button class="chip" type="submit" id="s-email-save" disabled>Save</button><button class="chip" type="button" id="s-email-test" disabled>Send a test</button></span>
       <p class="title-note" id="s-email-note" role="status">Loading the email setting…</p></form></div>
-    <button class="opt" id="s-review-all" disabled aria-pressed="false"><span class="dot"></span><span>Mark all reviewed bar<span class="sub" id="s-review-all-state">Loading this setting…</span></span></button>
+    <button class="opt" id="s-review-all" disabled aria-pressed="false"><span class="dot"></span><span>Mark all reviewed button<span class="sub" id="s-review-all-state">Loading this setting…</span></span></button>
     <button class="opt" id="s-sync" disabled aria-pressed="false"><span class="dot"></span><span>Sync names with code-server<span class="sub" id="s-sync-state">Loading name-sync setting…</span></span></button>
     <button class="chip" id="s-sync-retry" hidden>Retry name-sync setting</button>
-    <button class="opt" id="s-titles" disabled aria-pressed="false"><span class="dot"></span><span>Generate short titles<span class="sub" id="s-titles-state">Loading the title setting…</span></span></button>
-    <button class="opt" id="s-live" disabled aria-pressed="false"><span class="dot"></span><span>Update titles as conversations progress<span class="sub" id="s-live-state">Loading the title setting…</span></span></button>
-    <button class="opt" id="s-away" disabled aria-pressed="false"><span class="dot"></span><span>Summarize what you missed<span class="sub" id="s-away-state">Loading the summary setting…</span></span></button>
+    <button class="opt" id="s-titles" disabled aria-pressed="false"><span class="dot"></span><span>Short titles<span class="sub" id="s-titles-state">Loading the title setting…</span></span></button>
+    <button class="opt" id="s-live" disabled aria-pressed="false"><span class="dot"></span><span>Keep titles up to date<span class="sub" id="s-live-state">Loading the title setting…</span></span></button>
+    <button class="opt" id="s-away" disabled aria-pressed="false"><span class="dot"></span><span>Catch-up summary<span class="sub" id="s-away-state">Loading the summary setting…</span></span></button>
     <div class="title-settings"><label class="voice-field">Model for titles and summaries<select id="s-title-model" disabled>
-      <option value="auto">Automatic: Claude first, then Codex</option><option value="claude">Claude · Haiku</option><option value="codex">Codex · GPT-6-Luna</option></select></label>
+      <option value="auto">Automatic: Claude, or Codex if Claude isn't signed in</option><option value="claude">Claude · Haiku</option><option value="codex">Codex · GPT-6-Luna</option></select></label>
       <p class="title-note" id="s-title-note" role="status"></p></div>
     ${Automation.settingsHTML()}
     ${assistantMode() ? `<div class="title-settings model-offer" id="s-features-lead"><p class="title-note" id="s-features-note" role="status">${featuresLocked() ? '' : 'Switch on what you want to use. Each one adds its own place beside your conversations.'}</p></div>` : ''}
@@ -997,18 +1102,20 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     <div class="title-settings vault-settings" id="s-vault-restore-wrap" hidden><span class="vault-set-actions"><button class="chip" id="s-vault-restore">${VIC.key}Restore key…</button></span></div>
     <div class="title-settings vault-settings" id="s-vault-more" hidden>
       <div class="vault-set"><label class="vault-set-head" for="s-vault-access">Agent access</label>
+        <p class="title-note" id="s-vault-access-lead">What happens when an agent wants a stored secret. Each item can override this.</p>
         <span class="voice-field"><select id="s-vault-access" aria-describedby="s-vault-access-note">${VAULT_ACCESS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></span>
         <p class="title-note" id="s-vault-access-note"></p></div>
-      <div class="vault-set" role="group" aria-labelledby="s-vault-prot-h"><p class="vault-set-head" id="s-vault-prot-h">Protection</p>
+      <div class="vault-set" role="group" aria-labelledby="s-vault-prot-h"><p class="vault-set-head" id="s-vault-prot-h">Passphrase</p>
+        <p class="title-note" id="s-vault-prot-lead">Adds a passphrase you type to unlock the Vault after a restart or a lock. Without one, the Vault opens with its key alone. The recovery key decrypts the Vault: keep it somewhere safe and off this server, because if the server’s key is lost it is the only way back in. Rotate key re-encrypts everything under a new key; use it if the key may have been seen, then download the new recovery key.</p>
         <p class="vault-mode" id="s-vault-mode"></p><p class="title-note" id="s-vault-mode-note"></p>
         <span class="vault-set-actions"><button class="chip" id="s-vault-setpass" hidden>Set a passphrase</button><button class="chip" id="s-vault-lock" hidden>${VIC.lock}Lock now</button><button class="chip" id="s-vault-unlock" hidden>Unlock…</button><button class="chip" id="s-vault-changepass" hidden>Change passphrase</button><button class="chip" id="s-vault-removepass" hidden>Remove passphrase</button><button class="chip" id="s-vault-recovery" hidden>${VIC.download}Download recovery key</button><button class="chip" id="s-vault-rotate" hidden>Rotate key</button></span>
         <label class="voice-field" id="s-vault-autolock-wrap" hidden>Lock after<select id="s-vault-autolock" aria-describedby="s-vault-autolock-note">${VAULT_LOCK_CHOICES.map(([m, l]) => `<option value="${m}">${l}</option>`).join('')}</select></label>
-        <p class="title-note" id="s-vault-autolock-note" hidden>Counted from the last time you or an agent used it. It always locks after a restart.</p></div>
+        <p class="title-note" id="s-vault-autolock-note" hidden>Locks the Vault after this long without anyone using it. It always locks after a restart.</p></div>
       <div class="vault-set" role="group" aria-labelledby="s-vault-backup-h"><p class="vault-set-head" id="s-vault-backup-h">Export and import</p>
-        <p class="title-note" id="s-vault-backup-note">One file with every item, encrypted with a passphrase you choose.</p>
+        <p class="title-note" id="s-vault-backup-note">Moves the whole Vault to or from one file, locked with a passphrase you choose.</p>
         <span class="vault-set-actions"><button class="chip" id="s-vault-export">Export…</button><button class="chip" id="s-vault-import">Import…</button></span></div>
       <p class="title-note vault-warning" id="s-vault-codex"></p></div>
-    <button class="opt" id="s-secrets" disabled aria-pressed="${secretGuard.on}"><span class="dot ${secretGuard.on ? 'on' : ''}"></span><span>Catch secrets in messages<span class="sub">Holds a key or password pasted or typed into a message and offers to store it in the Vault first</span></span></button>
+    <button class="opt" id="s-secrets" disabled aria-pressed="${secretGuard.on}"><span class="dot ${secretGuard.on ? 'on' : ''}"></span><span>Catch secrets in messages<span class="sub">If you paste or type a key or password into a message, Pocket holds the message and offers to store the secret in the Vault first, so it doesn't go to the agent. Works even while the Vault is off</span></span></button>
     ${Voice.settingsHTML()}
     <details class="settings-details" id="s-about"${about ? ' open' : ''}><summary>About & updates<span class="summary-meta" id="s-about-version"></span></summary>
       <div class="about" id="s-version-info"></div><p id="s-version-state" role="status">Checking for updates…</p>
@@ -1028,8 +1135,6 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
   organizeSettings(sh, {category: about ? 'help' : category, scrollTop});
   const paintFeaturesNote = () => { const n = sh.querySelector('#s-features-note'); if (n && featuresLocked()) n.textContent = featuresLockedNote(srv || window.pocketFeatures); };
   paintFeaturesNote();
-  sh.querySelector('#s-vault-more')?.after(sh.querySelector('#s-secrets')); // 1.42: under the Vault and its settings, shown whether or not the Vault is on
-  sh.querySelector('#s-vault')?.after(sh.querySelector('#s-vault-restore-wrap')); // 1.44: Restore key sits right under the Vault switch
   mountSheet(scrim, sh);
   if (about) sh.querySelector('#s-about').scrollIntoView({block:'start'});
   bindChatTextControls(sh);
@@ -1096,7 +1201,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     const btn = sh.querySelector('#s-push');
     btn.setAttribute('aria-pressed', String(Boolean(sub)));
     btn.querySelector('.dot').classList.toggle('on', Boolean(sub));
-    sh.querySelector('#s-push-state').textContent = !reg ? 'Unavailable. Reload the app or tap to retry.' : sub ? 'On. Notifications reach this device even when Pocket is closed; choose which below' : 'Off. Turn on for finished replies, due tasks and reminders, and Vault requests on this device';
+    sh.querySelector('#s-push-state').textContent = !reg ? 'Unavailable. Reload the app or tap to retry.' : sub ? 'On. Notifications reach this device even when Pocket is closed. Choose the kinds below' : 'Off. Turn it on to get finished replies, due tasks and reminders, Vault requests, Inbox alerts, and check-back and job results on this device, even when Pocket is closed. Turn it on separately on each device';
     if (sub) { try { pushPrefs = (await api('/push/prefs?endpoint=' + encodeURIComponent(sub.endpoint), { signal: AbortSignal.timeout(8000) })).prefs; } catch { pushPrefs = { kinds: { turns: true, reminders: true, vault: true, alerts: true, automation: true }, badge: true }; } }
     if (sh.isConnected) paintPushKinds();
   };
@@ -1109,7 +1214,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
   };
   // The icon count: supported in installed apps on most platforms; the server sends it with a reminder only to devices that want it.
   const badgeBtn = sh.querySelector('#s-badge'), badgeAble = 'setAppBadge' in navigator;
-  const paintBadgeSetting = () => { const on = badgeAble && (typeof iconBadgeOn === 'function' ? iconBadgeOn() : true); badgeBtn.disabled = !badgeAble; badgeBtn.setAttribute('aria-pressed', String(on)); badgeBtn.querySelector('.dot').classList.toggle('on', on); sh.querySelector('#s-badge-state').textContent = !badgeAble ? 'Not available in this browser. Installed apps on Android, iOS 16.4+, Windows and macOS show it' : on ? 'How many tasks and reminders are due, on the installed app\'s icon' : 'Off. The icon shows no count'; };
+  const paintBadgeSetting = () => { const on = badgeAble && (typeof iconBadgeOn === 'function' ? iconBadgeOn() : true); badgeBtn.disabled = !badgeAble; badgeBtn.setAttribute('aria-pressed', String(on)); badgeBtn.querySelector('.dot').classList.toggle('on', on); sh.querySelector('#s-badge-state').textContent = !badgeAble ? 'Not available in this browser. Installed apps on Android, iOS 16.4+, Windows and macOS show it' : on ? 'Shows how many tasks and reminders are due on the installed app\'s icon' : 'Off. The icon shows no count'; };
   paintBadgeSetting();
   badgeBtn.onclick = async () => {
     const on = !(typeof iconBadgeOn === 'function' ? iconBadgeOn() : true); writeLocal('pc-icon-badge', on); paintBadgeSetting(); if (typeof paintAppBadge === 'function') paintAppBadge();
@@ -1121,7 +1226,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     if (!srv) return;
     const ahead = sh.querySelector('#s-ahead'), on = Number(srv.remindAhead) === 24;
     ahead.disabled = false; ahead.setAttribute('aria-pressed', String(on)); ahead.querySelector('.dot').classList.toggle('on', on);
-    sh.querySelector('#s-ahead-state').textContent = on ? 'A second notice 24 hours before a dated task or reminder comes due, the same way as the due one' : 'Off. Each task or reminder is announced once, when it comes due';
+    sh.querySelector('#s-ahead-state').textContent = on ? 'A second notice 24 hours before a dated task or reminder comes due, sent the same way as the due one' : 'Off. Each task or reminder is announced once, when it comes due';
     const em = srv.email || {}, input = sh.querySelector('#s-email'), save = sh.querySelector('#s-email-save'), test = sh.querySelector('#s-email-test'), note = sh.querySelector('#s-email-note');
     input.disabled = save.disabled = !em.configured; test.disabled = !em.configured || !em.to;
     if (document.activeElement !== input) input.value = em.to || '';
@@ -1228,9 +1333,9 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     const r = srv?.router, cm = srv?.claudeModels; if (!r) return;
     const on = sh.querySelector('#s-router-on'), prov = sh.querySelector('#s-router-provider'), key = sh.querySelector('#s-router-key');
     // 1.81 (#175): Assistant mode shows only the switch, so its lead says what it does without levels or models.
-    sh.querySelector('#s-router-lead').textContent = assistantMode() ? 'A request typed from scratch gets as much effort as it needs: quick questions answer fast, bigger jobs get a stronger model. Saved prompts keep their own.' : 'In Assistant mode, a request typed from scratch goes to a small decision model that picks the lightest of four levels that will do it well. Each level runs the model and effort below. Saved prompts keep their own.';
+    sh.querySelector('#s-router-lead').textContent = assistantMode() ? 'A request typed from scratch gets as much effort as it needs: quick questions answer fast, bigger jobs get a stronger model. Saved prompts keep their own.' : 'A small, fast model reads each new request you type and picks the lightest of four levels that will do it well, so quick questions don\'t use your strongest model. Works in Assistant mode only. Each level runs the model and effort below; effort is how much the model thinks before answering. Saved prompts keep their own.';
     on.disabled = false; on.setAttribute('aria-pressed', String(r.enabled)); on.querySelector('.dot').classList.toggle('on', r.enabled);
-    sh.querySelector('#s-router-state').textContent = !r.enabled ? 'Off. Typed requests run on the default model' : r.active ? 'On in Assistant mode' : 'On, but it needs a key to work';
+    sh.querySelector('#s-router-state').textContent = !r.enabled ? 'Off. Picks the lightest model that will do each typed request well. Works in Assistant mode only' : r.active ? (assistantMode() ? 'On. Each typed request gets the lightest model that will do it well' : 'On. Works in Assistant mode only, so nothing changes in Developer mode') : 'On, but it needs a key to work';
     prov.disabled = false; prov.value = r.provider;
     key.disabled = false; sh.querySelector('#s-router-key-save').disabled = false;
     sh.querySelector('#s-router-key-remove').hidden = r.keySource !== 'settings';
@@ -1367,26 +1472,26 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     if (!t || !btn) return;
     btn.disabled = false; btn.setAttribute('aria-pressed', String(t.enabled)); btn.querySelector('.dot').classList.toggle('on', t.enabled);
     const name = p => p === 'codex' ? 'Codex · ' + (t.codex.label || t.models.codex) : 'Claude · ' + (t.claudeModelLabel || 'Haiku');
-    state.textContent = !t.enabled ? 'Off. Conversations named only by their first message show that message.'
-      : t.using ? 'On, using ' + name(t.using) + '. A rename always comes first.'
+    state.textContent = !t.enabled ? 'Off. A conversation is named after its first message. A name you set yourself always wins.'
+      : t.using ? 'On, using ' + name(t.using) + '. A model reads the start of each new conversation and gives it a short name. A name you set yourself always wins.'
       : 'On, but no signed-in Claude Code or Codex on this server can make titles.';
     for (const o of sel.options) if (o.value !== 'auto') { const a = t[o.value]; o.disabled = a.available === false; o.textContent = name(o.value) + (a.available === false ? ' (unavailable)' : ''); }
     // 1.29.1: living titles follow the generated-titles switch and the same helper model.
     const live = sh.querySelector('#s-live'), liveOn = t.live !== false, ago = ms => { const m = Math.round((Date.now() - ms) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
     live.disabled = !t.enabled; live.setAttribute('aria-pressed', String(liveOn && t.enabled)); live.querySelector('.dot').classList.toggle('on', liveOn && t.enabled);
-    sh.querySelector('#s-live-state').textContent = !t.enabled ? 'Needs Generate short titles.'
-      : !liveOn ? 'Off. A title is made once, from the opening request.'
-      : t.liveUsing ? 'After a reply, once a conversation has moved on, its title is checked and rewritten to say what it is about now. Renames are never touched.' + (t.lastLive ? ' Last update ' + ago(t.lastLive.at) + ': "' + t.lastLive.title + '".' : '')
+    sh.querySelector('#s-live-state').textContent = !t.enabled ? 'Needs Short titles.'
+      : !liveOn ? 'Off. A name is made once, from the opening request.'
+      : t.liveUsing ? 'When a conversation moves on to something new, its name is rewritten to match. Names you set yourself are never changed.' + (t.lastLive ? ' Last update ' + ago(t.lastLive.at) + ': "' + t.lastLive.title + '".' : '')
       : 'On, but no signed-in Claude Code or Codex on this server can check titles.';
     const away = sh.querySelector('#s-away'), awayOn = t.awaySummaries !== false;
     away.disabled = false; away.setAttribute('aria-pressed', String(awayOn)); away.querySelector('.dot').classList.toggle('on', awayOn);
     sh.querySelector('#s-away-state').textContent = !awayOn ? 'Off. Coming back to a conversation still marks where new work starts.'
-      : t.helper ? 'When you come back to a conversation, it opens at the end with a New since card and a short summary of the new work. A New since divider marks where it starts.'
+      : t.helper ? 'When you come back to a conversation that kept working, it opens at the new part with a short summary of what happened while you were away.'
       : 'On, but no signed-in Claude Code or Codex on this server can write summaries. The New since divider and card still show.';
     sel.value = t.choice; sel.disabled = !t.enabled && !awayOn;
     const chosen = t.choice === 'auto' ? null : t[t.choice];
     note.textContent = [chosen?.available === false ? chosen.reason : '',
-      (t.enabled || awayOn) && (t.helper || t.using) === 'codex' ? 'Each Codex call sends about 25k tokens of your plan; a Claude call about 400 for a title and a few thousand for a summary.' : '',
+      (t.enabled || awayOn) && (t.helper || t.using) === 'codex' ? 'Which model writes names and catch-up summaries. Codex uses far more of your plan per title, about 25,000 tokens; Claude uses about 400 for a title and a few thousand for a summary.' : '',
       t.last?.model ? 'Last title by ' + (t.last.provider === 'codex' ? (t.codex.label || t.last.model) : modelLabel(t.last.model)) + '.' : ''].filter(Boolean).join(' ');
   };
   const saveTitles = async patch => {
@@ -1407,7 +1512,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     const btn = sh.querySelector('#s-projects'); if (!btn || !srv) return;
     const on = Boolean(srv.projects);
     btn.disabled = false; btn.setAttribute('aria-pressed', String(on)); btn.querySelector('.dot').classList.toggle('on', on);
-    sh.querySelector('#s-projects-state').textContent = on ? 'On: tracked projects with steps and reminders, across your devices and agent conversations' : 'Off. Turn on to track projects, steps and reminders, here and from agent conversations';
+    sh.querySelector('#s-projects-state').textContent = on ? 'On: tracked projects with a summary, next steps, a checklist and reminders, kept current by your agent conversations' : 'Off. Turn on to track projects, steps and reminders, here and from agent conversations';
   };
   sh.querySelector('#s-projects').onclick = async e => {
     const btn = e.currentTarget; if (!srv) return; btn.disabled = true;
@@ -1425,7 +1530,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     const btn = sh.querySelector('#s-documents'); if (!btn || !srv) return;
     const on = Boolean(srv.documents);
     btn.disabled = false; btn.setAttribute('aria-pressed', String(on)); btn.querySelector('.dot').classList.toggle('on', on);
-    sh.querySelector('#s-documents-state').textContent = on ? 'On: a library of files from your work, with previews, sharing and links to conversations' : 'Off. Turn on to keep reports, PDFs and other files from conversations in a library you can view and share';
+    sh.querySelector('#s-documents-state').textContent = on ? 'On: a library of the reports, PDFs, sheets and pages your agents make. Private unless you share them' : 'Off. Turn on to keep reports, PDFs and other files from conversations in a library you can view and share';
 
     paintAutoKeepSetting();
   };
@@ -1434,7 +1539,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     const btn = sh.querySelector('#s-autokeep'); if (!btn || !srv) return;
     const forced = assistantMode(), on = Boolean(srv.documents) && (forced || Boolean(srv.autoKeepFiles));
     btn.disabled = !srv.documents || forced; btn.setAttribute('aria-pressed', String(on)); btn.querySelector('.dot').classList.toggle('on', on);
-    sh.querySelector('#s-autokeep-state').textContent = !srv.documents ? 'Needs Files on' : forced ? 'Always on in Assistant mode' : on ? 'On: a file a reply hands you (a PDF, deck, sheet, page) is kept in Files once, linked to its conversation' : 'Off. Keep a file from its card or from Results';
+    sh.querySelector('#s-autokeep-state').textContent = !srv.documents ? 'Needs Files on' : forced ? 'Always on in Assistant mode' : on ? 'On: when a reply hands you a file, such as a PDF, deck, sheet or page, it\'s saved to Files once and linked to its conversation' : 'Off. Keep a file from its card or from Results';
   };
   sh.querySelector('#s-autokeep').onclick = async e => {
     const btn = e.currentTarget; if (!srv || btn.disabled) return; btn.disabled = true;
@@ -1457,10 +1562,11 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     const btn = sh.querySelector('#s-inbox'); if (!btn || !srv) return;
     const on = Boolean(srv.inbox);
     btn.disabled = false; btn.setAttribute('aria-pressed', String(on)); btn.querySelector('.dot').classList.toggle('on', on);
-    sh.querySelector('#s-inbox-watch').hidden = !on;
+    sh.querySelector('#s-inbox-watch').hidden = !on; sh.querySelector('#s-usage-inbox').hidden = !on;
     sh.querySelector('#s-inbox-state').textContent = on ? 'On: alerts, digests and look-aheads from your inbox watcher, in one list; Resolved and Not useful reach the watcher' : 'Off. Turn on to keep what Inbox Watch sends in one list, with a way to tell it when an alert was not useful';
   };
   sh.querySelector('#s-inbox-watch').onclick = () => inboxWatchSheet(); // 1.70
+  sh.querySelector('#s-usage-inbox').onclick = () => inboxWatchSheet(); // 1.124.9: the cost table is in its settings
   sh.querySelector('#s-inbox').onclick = async e => {
     const btn = e.currentTarget; if (!srv) return; btn.disabled = true;
     try {
@@ -1476,7 +1582,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     const btn = sh.querySelector('#s-tasks'); if (!btn || !srv) return;
     const on = Boolean(srv.tasks);
     btn.disabled = false; btn.setAttribute('aria-pressed', String(on)); btn.querySelector('.dot').classList.toggle('on', on);
-    sh.querySelector('#s-tasks-state').textContent = on ? 'On: to-dos with an optional date and the context of the conversation they came from, across your devices and agents' : 'Off. Turn on to keep to-dos here and from agent conversations, with dates and conversation context';
+    sh.querySelector('#s-tasks-state').textContent = on ? 'On: a to-do list you and your agents add to, with due dates and reminders' : 'Off. Turn on to keep to-dos here and from agent conversations, with dates and conversation context';
   };
   sh.querySelector('#s-tasks').onclick = async e => {
     const btn = e.currentTarget; if (!srv) return; btn.disabled = true;
@@ -1493,7 +1599,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     const btn = sh.querySelector('#s-coordination'); if (!btn || !srv) return;
     const on = Boolean(srv.coordination);
     btn.disabled = false; btn.setAttribute('aria-pressed', String(on)); btn.querySelector('.dot').classList.toggle('on', on);
-    sh.querySelector('#s-coordination-state').textContent = on ? 'On: conversations can claim staging or a deploy, wait their turn, and show here who holds what' : 'Off. Turn on so conversations can claim staging or a deploy and wait their turn';
+    sh.querySelector('#s-coordination-state').textContent = on ? 'On: conversations can message each other and claim shared things, like a staging site, so two agents don\'t work on the same thing at once' : 'Off. Turn on so conversations can claim staging or a deploy and wait their turn';
   };
   const coordBtn = sh.querySelector('#s-coordination');
   if (coordBtn) coordBtn.onclick = async e => {
@@ -1511,8 +1617,8 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     const btn = sh.querySelector('#s-vault'); if (!btn || !srv) return;
     const on = Boolean(srv.vault), ready = srv.vaultReady !== false, create = srv.vaultCanCreateKey === true, needsKey = srv.vaultNeedsKey === true;
     btn.disabled = !on && (needsKey || (!ready && !create)); btn.setAttribute('aria-pressed', String(on)); btn.querySelector('.dot').classList.toggle('on', on);
-    sh.querySelector('#s-vault-state').textContent = needsKey ? "This Vault's key is missing on this server. Restore it from your recovery key."
-      : on ? 'On: keys and passwords agents use by name, kept out of the conversation. Every use is recorded'
+    sh.querySelector('#s-vault-state').textContent = needsKey ? "The Vault's key is missing on this server. Restore it from your recovery key or file."
+      : on ? 'On: passwords, API keys and logins kept encrypted. Agents use them by name without seeing them. Every use is recorded'
       : create ? "Off. Turning it on creates this install's encryption key; you'll be shown a recovery key to save."
       : ready ? 'Off. Turn on to keep keys and passwords that agents use by name, kept out of the conversation'
       : srv.vaultError && !/not set/i.test(srv.vaultError) ? 'Off. The Vault cannot be opened: ' + srv.vaultError
@@ -1603,6 +1709,8 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
   sh.querySelector('#s-title-model').onchange = e => saveTitles({ titleProvider: e.target.value });
   sh.querySelector('#s-away').onclick = () => { if (srv?.titles) saveTitles({ awaySummaries: srv.titles.awaySummaries === false }); };
   sh.querySelector('#s-live').onclick = () => { if (srv?.titles?.enabled) saveTitles({ liveTitles: srv.titles.live === false }); };
+  // 1.124.9: the line under the switch says what each state does (it used to say "follow" even when off)
+  const paintSyncState = () => { sh.querySelector('#s-sync-state').textContent = srv?.titleSync ? 'Keeps conversation names the same here and in Claude Code on code-server, so a rename in either place shows in both' : 'Off. Pocket and Claude Code on code-server each keep their own names'; };
   const loadSettings = async () => {
     const btn = sh.querySelector('#s-sync'), retry = sh.querySelector('#s-sync-retry');
     btn.disabled = true; retry.hidden = true;
@@ -1612,7 +1720,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       paintTitles(); paintNotifySettings(); paintModelOffer(); paintContext(); paintTrusted(); paintRouter(); paintAccess(); paintProjectsSetting(); paintDocumentsSetting(); paintTasksSetting(); paintCoordSetting(); paintInboxSetting(); paintVaultSetting(); paintSecretsSetting(); paintFeaturesNote();
       btn.disabled = false; btn.setAttribute('aria-pressed', String(Boolean(srv.titleSync)));
       btn.querySelector('.dot').classList.toggle('on', Boolean(srv.titleSync));
-      sh.querySelector('#s-sync-state').textContent = "Conversation names follow Claude Code's titles, and renames here show there too";
+      paintSyncState();
       paintReviewAll();
     } catch {
       if (sh.isConnected) { sh.querySelector('#s-sync-state').textContent = 'Could not load this setting.'; sh.querySelector('#s-review-all-state').textContent = 'Could not load this setting.'; sh.querySelector('#s-titles-state').textContent = 'Could not load this setting.'; sh.querySelector('#s-context-note').textContent = 'Could not load this setting.'; sh.querySelector('#s-models-note').textContent = 'Could not load the model list.'; sh.querySelector('#s-trusted-note').textContent = 'Could not load the list.'; retry.hidden = false; }
@@ -1623,7 +1731,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
   const paintReviewAll = () => {
     const b = sh.querySelector('#s-review-all'), on = srv.markAllReviewed !== false;
     b.disabled = false; b.setAttribute('aria-pressed', String(on)); b.querySelector('.dot').classList.toggle('on', on);
-    sh.querySelector('#s-review-all-state').textContent = on ? 'In Attention and New, one tap clears every waiting reply and failed reply' : 'Hidden. Mark as reviewed on a single conversation still works';
+    sh.querySelector('#s-review-all-state').textContent = on ? 'Adds a button to Attention and New that clears every waiting and failed reply in one tap' : 'Off. You mark conversations one at a time';
   };
   sh.querySelector('#s-review-all').onclick = async e => {
     const btn = e.currentTarget; if (!srv) return; btn.disabled = true;
@@ -1641,7 +1749,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     try {
       srv = await api('/settings', { method: 'POST', body: JSON.stringify({ titleSync: !srv.titleSync }), signal:AbortSignal.timeout(8000) });
       if (!sh.isConnected) return;
-      btn.querySelector('.dot').classList.toggle('on', Boolean(srv.titleSync)); btn.setAttribute('aria-pressed', String(Boolean(srv.titleSync)));
+      btn.querySelector('.dot').classList.toggle('on', Boolean(srv.titleSync)); btn.setAttribute('aria-pressed', String(Boolean(srv.titleSync))); paintSyncState();
       toast(srv.titleSync ? 'Conversation names now sync with code-server' : 'Name sync off. Pocket names stay local');
     } catch (err) { toast('Could not save: ' + err.message); }
     finally { btn.disabled = false; }
@@ -3670,8 +3778,9 @@ const SLASH_POCKET = [
   { name: 'branch', desc: 'Start a saved conversation that carries on from here', where: 'chat', working: true, ok: () => Boolean(chatId) && engineHas(providerOf(chatId), 'branch'), act: () => Branch.open(chatId) },
   { name: 'handoff', desc: 'Have the agent write a briefing and offer a fresh conversation', where: 'chat', ok: () => Boolean(chatId), act: () => Handoff.send(chatId) },
   { name: 'new', desc: 'Start a new conversation in this folder', where: 'chat', working: true, act: () => { writeLocal(newStartKeyOf(NEW_BASE), { cwd: slashCwd }); localStorage.setItem('pc-provider', START_PROVIDERS.includes(tb?.provider) ? tb.provider : 'claude'); location.hash = '#/new'; } },
-  { name: 'model', desc: 'Choose the model for the next reply', where: 'both', ok: () => $('#c-model'), act: () => $('#c-model')?.click() },
-  { name: 'effort', desc: 'Choose how much it thinks before answering', where: 'both', ok: () => $('#c-eff'), act: () => $('#c-eff')?.click() },
+  { name: 'model', desc: 'Choose the model for the next reply', where: 'both', ok: () => $('#c-model'), act: () => modelPanel() },
+  // 1.124.9: effort lives in the model panel; /effort opens it at the effort choices
+  { name: 'effort', desc: 'Choose how much it thinks before answering', where: 'both', ok: () => $('#c-model') && !noEffortChip(), act: () => { modelPanel(); document.querySelector('.model-sheet [data-effort][aria-checked="true"]')?.focus(); } },
   { name: 'usage', desc: 'See how much of your plan is used', where: 'both', working: true, act: () => openUsagePanel() },
 ];
 // 1.87: the Claude Code commands Codex has a counterpart for (the server runs them as Codex's own turns).
@@ -3909,7 +4018,7 @@ function paintDelivery(id = chatId) {
   } else el.textContent = notice || '';
   const box = $('#box'), send = $('#send');
   if (box) box.readOnly = Boolean(pending && !sending); // 1.124.5: open while sending, closed only while an unsent message waits for Retry
-  document.querySelectorAll('#c-att,#c-model,#c-eff,#attrow button,[data-mode]').forEach(b => { b.disabled = Boolean(pending); });
+  document.querySelectorAll('#c-att,#c-model,#attrow button,[data-mode]').forEach(b => { b.disabled = Boolean(pending); });
   if (send) { send.disabled = Boolean(pending); send.setAttribute('aria-label', pending ? 'Resolve pending delivery first' : 'Send'); }
 }
 function heldForJobsText(jobs = []) {
@@ -3933,6 +4042,7 @@ async function sendMsg(text, {allowSecrets = false, matches = null} = {}) {
   // input) queues it after the reply, where mode steer answered a 409 and left the message to be sent again.
   const opts = composerWorking ? (({model, effort, executionMode}) => ({mode:(sendModes.get(id)||defaultSendMode())==='queue'?'queue':'auto',approvalMode:nextApprovalMode(),model,effort,executionMode}))(turnOpts()) : turnOpts();
   if (allowSecrets) opts.allowSecrets = true; // the owner chose Send as is; a retry of this message carries it too
+  if (tb && !assistantMode()) rememberPick(tb.provider, tb.prefs.model, tb.prefs.effort); // 1.124.9: Recent in the model panel
   const pending = { text, opts, clientMessageId: crypto.randomUUID(),
     files: composerWorking ? [] : [...(tb?.attachments || [])], createdAt: Date.now() };
   try { saveDraft(id, text); saveOutbox(id, pending); }
@@ -4206,7 +4316,7 @@ async function renderNew({ home = false, slot = '' } = {}) {
       <div><label class="task-heading" for="first">What would you like done?</label><div class="starters" id="starters" hidden></div></div>
       <div class="task-actions" id="new-actions" hidden><button class="chip conversation-project linked" id="new-project" hidden></button><button class="chip conversation-mode" id="new-mode" hidden></button><button class="chip" id="new-track" hidden>${IC.plus}<span>Start a project</span></button></div>
       <details id="new-setup"><summary id="choose-workspace"><span class="task-context" id="task-context"></span><span class="setup-edit">Edit setup</span></summary><div class="setup-fields">
-      <div><span class="h" id="agenth">Agent</span><div class="projlist" id="apick" role="radiogroup" aria-labelledby="agenth">
+      <div><span class="h" id="agenth" hidden>Agent</span><div class="projlist" id="apick" role="radiogroup" aria-labelledby="agenth" hidden>
         <button class="row" role="radio" aria-checked="false" data-a="claude"><span class="dot"></span>${IC.term}<span class="p">Claude Code</span></button>
         <button class="row" role="radio" aria-checked="false" data-a="codex"><span class="dot"></span>${IC.term}<span class="p">Codex</span></button>
         <button class="row" role="radio" aria-checked="false" data-a="acp" hidden><span class="dot"></span>${IC.term}<span class="p">OpenRouter</span></button>
@@ -4356,6 +4466,12 @@ async function renderNew({ home = false, slot = '' } = {}) {
     if (agyState?.signedIn) toast('Antigravity is signed in.');
   };
   const pickAgent = a => {
+    // 1.124.9: each agent keeps its own model and effort, so a switch brings back that agent's last setup
+    if (tb.provider && tb.provider !== a && !tb.leadHeld && !loadOutbox(NK)) {
+      saveEnginePick(tb.provider, tb.prefs);
+      // an agent never picked before starts on its default model and keeps the effort, as before 1.124.9
+      const own = enginePick(a); tb.prefs = { ...tb.prefs, model: own?.model || 'default', effort: own ? own.effort || 'default' : tb.prefs.effort }; setPrefs(NK, tb.prefs);
+    }
     provider = a;
     if (slot) { if (startFrom) { startFrom.provider = a; writeLocal(SK, startFrom); } } else localStorage.setItem('pc-provider', a); // 1.112: a draft keeps its own agent
     ap.querySelectorAll('.row').forEach(x => {
@@ -4366,11 +4482,12 @@ async function renderNew({ home = false, slot = '' } = {}) {
     const fm = $('#first');
     if (fm) fm.placeholder = `What should ${ENGINE_LABELS[a] || 'Claude'} work on?`;
     renderToolbar();
-    loadModelsFor(a).then(renderToolbar);context();
+    loadModelsFor(a).then(() => { renderToolbar(); $('.model-sheet')?._repaint?.(); });context();
     agyNotice();
     paintStartMode(); // 1.106: the lead depends on the agent
   };
   ap.querySelectorAll('.row').forEach(r => r.onclick = () => pickAgent(r.dataset.a));
+  tb.pickAgent = pickAgent; tb.agents = () => [...ap.querySelectorAll('.row')].filter(r => !r.hidden).map(r => r.dataset.a); // 1.124.9: the model panel picks the agent
   pickAgent(provider);
   bindRadioGroup(ap);
   // The OpenRouter engine is opt-in; reveal its row only when the server reports it enabled.
@@ -4576,6 +4693,7 @@ async function renderNew({ home = false, slot = '' } = {}) {
       saveOutbox(NK, newPending);
       const { id, modelFallback, projectLinkError } = await api('/new', { method: 'POST', body: JSON.stringify({ ...newPending.payload, clientMessageId: newPending.clientMessageId, ...(newPending.allowSecrets ? { allowSecrets: true } : {}) }) });
       setPrefs(id,{model:modelFallback?'default':payload.model||'default',effort:payload.effort||'default',executionMode:payload.executionMode||'work',approvalMode:payload.approvalMode||approvalPolicy.defaultMode});
+      if (!modelFallback) rememberPick(payload.provider, payload.model, payload.effort); // 1.124.9: Recent in the model panel
       saveOutbox(NK, null);
       clearDraft(NK); localStorage.removeItem('pc-attachments-'+NK); localStorage.removeItem(SK); localStorage.removeItem(BK); if (tb?.key === NK) tb.attachments = [];
       try { localStorage.setItem('pc-lastproj', cwd); } catch { }

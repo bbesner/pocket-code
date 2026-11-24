@@ -2341,7 +2341,7 @@ html.pocket-paused .frame header.bar { padding-top: 10px; } /* the banner takes 
 .automation-label { font-size: 15px; color: var(--text); }
 .automation-input { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
 .automation-input:focus-within { outline: 2px solid var(--clay); outline-offset: 1px; }
-.automation-input input { width: 5.5em; min-height: 42px; border: 0; padding: 0; background: none; color: var(--text); font: inherit; font-size: 15px; font-variant-numeric: tabular-nums; text-align: right; }
+.automation-input input { width: 5.5em; min-height: 44px; border: 0; padding: 0; background: none; color: var(--text); font: inherit; font-size: 15px; font-variant-numeric: tabular-nums; text-align: right; }
 .automation-input input:focus-visible { outline: none; }
 .automation-input input:disabled { color: var(--dim); }
 .automation-input input::placeholder { color: var(--dim); }
@@ -2536,3 +2536,60 @@ a.job-run:hover { background: var(--raised); }
 .task-meta.due-label { color: var(--warn); } /* a due step on the card: .task-meta's dim came later and won */
 .session-group.settings-details { border-top: 0; margin-top: 0; } /* the group above already draws the rule: two lines 20px apart before Done, Removed and Trash */
 .coord-who a, .coord-why a, .task-facts a { display: inline-block; padding-block: 14px; margin-block: -14px; } /* a one-line link gets a 44px tap area without moving the line */
+
+/* ---------- 1.124.9: one panel for agent, model and effort ----------
+   Pinned Operate refinement: variance 2, motion 1, density 5; existing tokens and the Highlight colour control's
+   pattern (a bordered 44px button, the pick ringed in clay). No new colour. */
+.model-sheet section { margin-bottom: 4px; }
+.model-sheet .settings-scope { margin-top: 12px; }
+.model-pick-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 14px 4px; }
+.model-pick-row button { min-height: 44px; min-width: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 14.5px; }
+.model-pick-row button:hover { background: var(--raised); }
+.model-pick-row button[aria-checked="true"] { border-color: var(--clay); box-shadow: inset 0 0 0 1px var(--clay); color: var(--text); }
+.model-sheet .sheet-help { margin: 6px 14px 4px; font-size: 13.5px; }
+.model-sheet .sheet-help:empty { display: none; }
+.model-sheet .mp-recent-list .opt svg.i { width: 17px; height: 17px; color: var(--dim); flex: none; }
+.model-sheet .mp-recent-list .opt { font-size: 15.5px; }
+/* the rows scroll inside the panel and Done stays under them, so a long list never runs beneath it */
+.sheet.model-sheet { display: flex; flex-direction: column; overflow: hidden; padding-bottom: 0; }
+.model-sheet > .model-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin-inline: -10px; padding-inline: 10px; }
+.model-sheet .sheet-find { top: 0; }
+.model-done-bar { flex: none; margin: 0 -10px; padding: 10px 14px calc(12px + var(--sab)); background: var(--surface); border-top: 1px solid var(--line); }
+.model-done-bar .model-done { display: block; width: 100%; padding: 13px; font-size: 16px; }
+#c-model > span { max-width: 22em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 520px) { #c-model > span { max-width: 15em; } }
+
+/* 1.124.9: Settings, reorganized. Features lists each switch with a › to its own page; Search settings heads the index. */
+.features-list { display: flex; flex-direction: column; }
+.features-lead { margin: 0 14px 6px; }
+.feature-row { display: flex; align-items: stretch; gap: 4px; }
+.feature-row[hidden] { display: none; }
+.feature-row > :first-child { flex: 1; min-width: 0; }
+.feature-row > .automation-host .automation-switch { padding: 0; border-top: 0; }
+.feature-row > .automation-host .automation-row { padding: 0; }
+.feature-row > .automation-host .automation-row .opt.automation-bool { margin: 0; width: 100%; padding: 14px; font-size: 16.5px; }
+.feature-row > .automation-host > .opt { margin: 0; }
+.feature-open { flex: none; width: 48px; min-height: 44px; align-self: center; height: 48px; border-radius: 12px; color: var(--dim); }
+.feature-open > .i { transform: rotate(180deg); }
+.feature-open .job-requests-badge { position: absolute; margin: -18px 0 0 18px; }
+.feature-open { position: relative; }
+.model-offer > .feature-row #s-router-on, .features-list #s-router-on { margin: 0; padding: 14px; font-size: 16.5px; }
+.automation-host > .automation-group:first-child > .vault-set-head:first-child { display: none; } /* the page's own heading names it */
+#s-tasks-auto, #s-auto-usage { padding-top: 0; }
+#s-tasks-auto > .automation-switch { padding: 0; border-top: 0; }
+#s-tasks-auto .automation-row .opt.automation-bool { margin: 0; width: 100%; padding: 14px; font-size: 16.5px; }
+#s-auto-usage > .automation-usage { border-top: 0; }
+#s-auto-usage > .automation-usage > .vault-set-head:first-child { display: block; }
+.automation-lead { margin: 0 14px 8px; }
+.settings-details-page > summary { display: none; }
+.settings-details-page { border-top: 0; margin-top: 0; padding-top: 0; }
+.settings-search { margin: 0 0 8px; }
+.settings-find { position: static; margin: 0 0 4px; padding: 0; }
+.settings-results { display: flex; flex-direction: column; margin-top: 4px; }
+.settings-results .opt { min-height: 56px; }
+#s-search-none:empty { display: none; }
+#s-search-none { margin: 4px 14px 8px; }
+.settings-index > .mode-settings { margin-bottom: 8px; }
+.settings-index > .settings-scope:first-child { margin-top: 4px; }
+.settings-hit { outline: 2px solid var(--clay); outline-offset: 2px; border-radius: 12px; }
+.settings-sheet > .settings-unplaced { display: none !important; } /* rows this mode leaves out, and Inbox Watch's button (its › in Features opens it) */

@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {createRequire} from 'node:module';
+import {modelPanel} from './model-panel.mjs';
 const require=createRequire(import.meta.url);
 const axePath=require.resolve('axe-core/axe.min.js');
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
@@ -183,10 +184,13 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.equal(await page.evaluate(()=>document.activeElement.id),'first');
   });
   await check('Agent and workspace radio groups support arrows, Home/End and roving Tab',async()=>{
-   await clickControl(page,'#choose-workspace');await page.focus('[data-a=claude]');await page.keyboard.press('ArrowDown');
-   assert.equal(await page.$eval('[data-a=codex]',e=>e.getAttribute('aria-checked')),'true');
-   assert.equal(await page.$$eval('#apick [tabindex="0"]',es=>es.length),1);
-   await page.keyboard.press('Home');assert.equal(await page.$eval('[data-a=claude]',e=>e.getAttribute('aria-checked')),'true');
+   // 1.124.9: the agent is picked in the model panel
+   await clickControl(page,'#c-model');await page.waitForSelector('.model-sheet [data-agent=claude]');await page.focus('.model-sheet [data-agent=claude]');await page.keyboard.press('ArrowRight');
+   await page.waitForSelector('.model-sheet [data-agent=codex][aria-checked="true"]');
+   assert.equal(await page.$$eval('.model-sheet .mp-agents [tabindex="0"]',es=>es.length),1);
+   await page.focus('.model-sheet [data-agent=codex]');await page.keyboard.press('Home');await page.waitForSelector('.model-sheet [data-agent=claude][aria-checked="true"]');
+   await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.model-sheet'));
+   await clickControl(page,'#choose-workspace');
    await page.focus('#plist [role=radio]');await page.keyboard.press('End');
    assert.equal(await page.$$eval('#plist [role=radio]',es=>es.at(-1).getAttribute('aria-checked')),'true');
    await page.keyboard.press('ArrowDown');
@@ -513,7 +517,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.setViewport({width:390,height:844});await page.goto(base+'/#/new');await page.waitForSelector('#plist .row.sel');await page.waitForSelector('#micb:not([hidden])');
    await page.evaluate(()=>{clearDraft(NEW_KEY);const f=document.querySelector('#first');f.value='';f.dispatchEvent(new Event('input'));const p=JSON.parse(localStorage.getItem('pc-voice')||'{}');p.review=false;p.speak=true;localStorage.setItem('pc-voice',JSON.stringify(p));});
    // 1.58: the same controls as a conversation's composer, in the composer (an empty box shows the headset).
-   for(const sel of ['#composer-actions #c-att','#composer-actions #composer-toggle','#composer-actions #choose-skill','#composer-actions #save-prompt','#comp .toolbar-scroll #tbar #c-model','#comp #c-eff','#comp #c-approval','#comp #hfb','#comp #micb','#comp #first','#comp #start.send']){
+   for(const sel of ['#composer-actions #c-att','#composer-actions #composer-toggle','#composer-actions #choose-skill','#composer-actions #save-prompt','#comp .toolbar-scroll #tbar #c-model','#comp #c-approval','#comp #hfb','#comp #micb','#comp #first','#comp #start.send']){
     const r=await page.$eval(sel,e=>{const b=e.getBoundingClientRect();return {w:b.width,h:b.height,in:b.left>=0&&b.right<=innerWidth&&b.bottom<=innerHeight};});
     assert.ok(r.in&&r.h>=44||sel.endsWith('#first')&&r.in,sel+' '+JSON.stringify(r));
    }
@@ -557,6 +561,8 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    assert.equal(await page.$eval('.choice-rec',e=>e.textContent),'Merge and deployRecommended','the tag is in the accessible name');
    assert.ok(await page.$eval('.choice-rec',e=>{const s=getComputedStyle(e);return s.backgroundColor!==getComputedStyle(e.nextElementSibling).backgroundColor;}),'the recommended button is filled differently');
    assert.equal(await page.$eval('.choices',e=>e.closest('.m-asst')===[...document.querySelectorAll('#msgs .m-asst')].pop()),true,'under the latest reply');
+   // waits out the cards' entrance, which measured a fraction under 44px mid-way
+   await page.waitForFunction(()=>[...document.querySelectorAll('.choices button')].every(x=>{const r=x.getBoundingClientRect();return r.width>=44&&r.height>=44;}),{timeout:3000}).catch(()=>{});
    assert.ok(await page.$$eval('.choices button',b=>b.every(x=>{const r=x.getBoundingClientRect();return r.width>=44&&r.height>=44;})),'44px targets');
    assert.doesNotMatch(await page.$eval('#msgs',e=>e.textContent),/```|choices\n/,'the raw block never shows');
    await page.$eval('.choices',e=>e.scrollIntoView({block:'end'}));await pause(150);
@@ -1149,6 +1155,8 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    const target=rows[3].id,prose='Stock on hand covers the next three weeks for most products, but the outdoor camera line will run short before the incoming order lands, so we should move part of the recorder budget to cameras this month.';
    conversations.set(target,[{role:'user',text:'How does stock look?'},{role:'assistant',blocks:[{t:'text',text:prose+'\n\n- '+prose+'\n\n| Product | On hand | Incoming | Supplier reference | Notes |\n|---|---:|---:|---|---|\n| Outdoor camera | 24 | 12 | WAREHOUSE-LONG-REFERENCE-001 | '+prose+' |'}]}]);
    await page.setViewport({width:1440,height:900});await page.goto(base+'/#/chat/'+target);await page.waitForSelector('.m-asst .report-table');
+   const dump=await page.evaluate(()=>[...document.querySelectorAll('.m-asst :is(p,ul,ol,blockquote)')].find(e=>!e.closest('.report-table'))?'':'MSGS '+document.querySelectorAll('.m-asst').length+' '+[...document.querySelectorAll('.m-asst')].map(m=>(m.closest('[id]')?.id||'?')+':'+m.outerHTML.slice(0,600)).join(' ||| ')+' HASH '+location.hash+' HTML '+document.documentElement.className+' BODY '+document.body.className);
+   if(dump)console.log('MEASURE-DUMP',dump);
    const m=await page.evaluate(()=>{const p=[...document.querySelectorAll('.m-asst :is(p,ul,ol,blockquote)')].find(e=>!e.closest('.report-table')),t=document.querySelector('.report-table'),size=parseFloat(getComputedStyle(p).fontSize);
     const probe=document.createElement('div');probe.style.width='68ch';p.parentElement.append(probe);const limit=probe.getBoundingClientRect().width;probe.remove();
     const para=[...document.querySelectorAll('.m-asst p')].find(e=>e.textContent.length>150),range=document.createRange();range.selectNodeContents(para);
@@ -1469,11 +1477,11 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    const saved=getMode().prompts.prompts[0];
    assert.deepEqual([saved.name,saved.text,saved.cwd,saved.provider],['Stock check','Check stock levels and draft the reorder list','/workspaces/warehouse','claude']);
    // Change everything, then the chip puts it back.
-   await clickControl(page,'#apick [data-a="codex"]');await page.$eval('#first',e=>{e.value='Something else';e.dispatchEvent(new Event('input'));});
+   await modelPanel(page).agent('codex');await page.$eval('#first',e=>{e.value='Something else';e.dispatchEvent(new Event('input'));});
    assert.equal(await page.$eval('.starter',e=>e.getAttribute('aria-pressed')),'false','editing the text lets go of the chip');
    await clickControl(page,'.starter');
    const form=await page.evaluate(()=>({text:document.getElementById('first').value,agent:document.querySelector('#apick .row.sel')?.dataset.a,ws:document.querySelector('#plist .row.sel')?.dataset.p,ctx:document.getElementById('task-context').textContent}));
-   assert.deepEqual(form,{text:'Check stock levels and draft the reorder list',agent:'claude',ws:'/workspaces/warehouse',ctx:'Workspace warehouseAgent Claude Code · Test agent · default reasoningPermissions Full access'});
+   assert.deepEqual(form,{text:'Check stock levels and draft the reorder list',agent:'claude',ws:'/workspaces/warehouse',ctx:'Workspace warehouse'});
    await scan('saved-prompts-mobile');await page.screenshot({path:path.join(out,'saved-prompts-mobile.png')});
    // Recent fills from a start made on another device (Codex, products).
    await clickControl(page,'#starters .recent-starts > summary');await clickControl(page,'[data-recent="0"]');
@@ -2192,7 +2200,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.setViewport({width:1440,height:900});const settings=settingsState();
    settings.vault=true;await page.goto(base+'/#/vault');await page.evaluate(()=>fetch('/api/vault/reset',{method:'POST'}));
    const KEY=vaultFixture.key;Object.assign(settings,{vault:false,vaultReady:false,vaultCanCreateKey:true,vaultNeedsKey:false});
-   const HELP='This key opens your Vault. Pocket keeps it on this server, but if the server or its settings are lost, a backup of the Vault can only be opened with it. Keep it in your password manager.';
+   const HELP='This key decrypts your Vault. Keep it somewhere safe and off this server, such as your password manager: if the server’s key is lost, this is the only way back in.';
    const posts=[];const onReq=r=>{const u=new URL(r.url());if(r.method()==='POST'&&/^\/api\/(settings|vault\/(recovery-key|rotate|restore-key))$/.test(u.pathname))posts.push({path:u.pathname,body:JSON.parse(r.postData()||'{}')});};page.on('request',onReq);
    const last=p=>posts.filter(x=>x.path===p).at(-1);
    const dl=path.join(out,'recovery-files');fs.rmSync(dl,{recursive:true,force:true});fs.mkdirSync(dl,{recursive:true});
@@ -3242,7 +3250,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
      await clickControl(page,'#inbox-watch');await page.waitForSelector('.watch-sheet #w-save');
      await page.waitForFunction(()=>[...document.querySelectorAll('.watch-sheet')].every(e=>e.getAnimations({subtree:true}).every(a=>a.playState==='finished')));
      assert.match(await page.$eval('#w-status',e=>e.textContent),/^Checking every 5 minutes now\. Last check .*Using the watcher’s config file\.$/);
-     assert.deepEqual(await page.$$eval('.watch-sheet .vault-set-head',h=>h.map(x=>x.textContent)),['Your rules','Push notifications','Your list in Gmail','What it reads','Schedule','Quiet hours and summaries','Keep the Inbox tidy','Models','First pass','Cost, last 7 days']);
+     assert.deepEqual(await page.$$eval('.watch-sheet .vault-set-head',h=>h.map(x=>x.textContent)),['Your rules','Push notifications','Your list in Gmail','What it reads','Schedule','Quiet hours and summaries','Keep the Inbox tidy','Models','Skip routine mail first','Cost, last 7 days']);
      assert.equal(await page.$eval('#w-digest',e=>e.options[0].textContent),'Off','1.95: the morning digest can be off');assert.match(await page.$eval('#w-quiet-note',e=>e.textContent),/wait for the morning digest/);
      await page.select('#w-digest','off');assert.match(await page.$eval('#w-quiet-note',e=>e.textContent),/arrive one by one when quiet hours end/,'the note follows the choice');
      await page.select('#w-digest','8');

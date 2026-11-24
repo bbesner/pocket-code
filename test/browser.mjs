@@ -820,7 +820,7 @@ try{
  await p.reload({waitUntil:'domcontentloaded'});await p.waitForSelector('#box');
  assert.equal(await p.$eval('#composer-toggle',e=>e.getAttribute('aria-expanded')),'false');
  assert.match(await p.$eval('#attrow',e=>e.textContent),/fixture.txt/);
- await clickControl(p,'#composer-toggle');await clickControl(p,'#c-model');await p.waitForSelector('[data-v="test"]');await clickControl(p,'[data-v="test"]');
+ await clickControl(p,'#composer-toggle');await clickControl(p,'#c-model');await p.waitForSelector('[data-v="test"]');await clickControl(p,'[data-v="test"]');await clickControl(p,'.model-sheet .model-done');await p.waitForFunction(()=>!document.querySelector('.model-sheet'));
  assert.equal(await p.$$eval('#c-att',es=>es.length),1);
  await p.evaluate(()=>{tb.attachments=[];renderToolbar();stashAttachments();});
  // Chat text scales independently of application chrome and keeps its value on reload.

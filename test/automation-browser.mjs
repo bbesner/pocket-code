@@ -96,7 +96,7 @@ export async function runAutomationRegressions({p,base,out,repo,rows,settings,sc
  // --- Settings → Automation renders the server's groups; a category in both modes ---
  await openAutomation();
  assert.deepEqual(await p.$$eval('[data-auto-group]',e=>e.map(x=>x.dataset.autoGroup)),['pause','limits','checkbacks','jobs']); // 1.119; job keys (test/jobkeys-browser.mjs): Check-backs (test/checkback-browser.mjs)
- assert.deepEqual(await p.$$eval('[data-auto-group] > h3',e=>e.map(x=>x.textContent)),['Pause all','Limits on unattended work','Check-backs','Job keys']);
+ assert.deepEqual(await p.$$eval('[data-auto-group] > h3',e=>e.map(x=>x.textContent)),['Pause all','Limits','Check-backs','Job keys']);
  assert.match(await p.$eval('#s-automation [data-pause-toggle]',e=>e.textContent),/^Pause allRunning normally\./);
  assert.equal(await p.$eval('[data-auto-advanced="limits"]',e=>e.open),false,'Advanced starts collapsed');
  assert.equal(await p.$eval(input('staleHours'),e=>e.checkVisibility()),false,'an advanced setting is under Advanced');
@@ -117,7 +117,7 @@ export async function runAutomationRegressions({p,base,out,repo,rows,settings,sc
  // A value out of range: the server's message beside the field, the old value back, nothing saved.
  await setNumber('claudeWeekly',150);
  await p.waitForFunction(()=>document.querySelector('#auto-limits-claudeWeekly-err')?.textContent);
- assert.equal(await p.$eval('#auto-limits-claudeWeekly-err',e=>e.textContent),'Plan ceiling, weekly (Claude Code) must be 10% to 100%, or No limit.');
+ assert.equal(await p.$eval('#auto-limits-claudeWeekly-err',e=>e.textContent),'Claude plan, weekly: stop unattended work at must be 10% to 100%, or No limit.');
  assert.equal(await p.$eval(input('claudeWeekly'),e=>e.value),'70');assert.equal(await p.$eval(input('claudeWeekly'),e=>e.getAttribute('aria-invalid')),'true');
  assert.equal(f.saved.limits.claudeWeekly,70);
  await shot('settings-error-1440-dark');

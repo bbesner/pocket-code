@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {createRequire} from 'node:module';
+import {modelPanel} from './model-panel.mjs';
 
 const require = createRequire(import.meta.url);
 
@@ -17,14 +18,9 @@ export async function runModelSelectionRegressions({browser, base, rows, out, re
   await page.waitForSelector('#first');
   await page.waitForFunction(() => document.querySelector('#plist [data-p]'));
  };
- const selectAgent = async provider => {
-  await page.$eval('#new-setup', element => { element.open = true; });
-  await page.click(`[data-a="${provider}"]`);
- };
- const pickModel = async model => {
-  await page.locator('#c-model').click();
-  await page.locator(`[data-v="${model}"]`).click();
- };
+ const mp = modelPanel(page); // 1.124.9: agent, model and effort in one panel
+ const selectAgent = provider => mp.agent(provider);
+ const pickModel = model => mp.model(model);
  const scan = async label => {
   const axeScript = await page.addScriptTag({path:require.resolve('axe-core/axe.min.js')});
   await axeScript.evaluate(element => element.remove());
@@ -65,13 +61,13 @@ export async function runModelSelectionRegressions({browser, base, rows, out, re
    }
    // 1.81: Ultra is offered where Codex lists it for the model (the fixture's Sol, and Default, which is Sol), not on Astra, never for Claude;
    // a saved Ultra goes back to Default on a model without it
-   const effortValues = async () => { await page.locator('#c-eff').click(); const v = await page.$$eval('.sheet [data-v]', e => e.map(x => x.dataset.v)); await page.keyboard.press('Escape'); await page.waitForFunction(() => !document.querySelector('.sheet')); return v; };
+   const effortValues = async () => { const v = await mp.efforts(); await mp.close(); return v; };
    assert.deepEqual(await effortValues(), ['default', 'max', 'xhigh', 'high', 'medium', 'low'], 'Astra: the five levels');
    await pickModel('gpt-6-sol');
    assert.deepEqual(await effortValues(), ['default', 'ultra', 'max', 'xhigh', 'high', 'medium', 'low'], 'Sol: Ultra above Max');
-   await page.locator('#c-eff').click();await page.locator('[data-v="ultra"]').click();
+   await mp.effort('ultra');
    assert.equal(await page.evaluate(() => turnOpts().effort), 'ultra');
-   assert.equal(await page.$eval('#c-eff', e => e.textContent.trim()), 'Ultra');
+   assert.equal(await mp.chip(), 'Codex · GPT-6 Sol · Ultra');
    await pickModel('default');
    assert.deepEqual((await effortValues())[1], 'ultra', 'Default runs the Pocket default model, Sol, so Ultra stays');
    await pickModel('gpt-6-astra');
@@ -84,9 +80,9 @@ export async function runModelSelectionRegressions({browser, base, rows, out, re
    await page.waitForSelector('#first');
    assert.equal(await page.evaluate(() => tb.prefs.model), 'gpt-6-sol', 'reopening New preserves a valid Codex choice');
    await selectAgent('claude');
-   assert.equal(await page.evaluate(() => tb.prefs.model), 'default');
+   assert.equal(await page.evaluate(() => tb.prefs.model), 'claude-opus-5-5[1m]', '1.124.9: Claude Code brings back its own last model');
    await selectAgent('codex');
-   await pickModel('gpt-6-sol');
+   assert.equal(await page.evaluate(() => tb.prefs.model), 'gpt-6-sol', 'and Codex its own');
    await page.type('#first', 'Check the selected model');
    await page.type('#cpath', '/workspaces/warehouse');
    await scan('model-selection-' + width);
@@ -106,13 +102,13 @@ export async function runModelSelectionRegressions({browser, base, rows, out, re
   }
   // 1.52: a Claude model the picker does not offer is never sent; the session goes back to Default.
   await page.evaluate(() => { tb.prefs.model = 'custom-model-not-in-menu'; renderToolbar(); });
-  assert.equal(await page.$eval('#c-model', element => element.textContent), 'Test agent');
+  assert.match(await mp.chip(), /^Test agent( · |$)/);
   assert.equal(await page.evaluate(() => turnOpts().model), undefined);
   // Codex models come from Codex itself, so an id the menu does not list is still passed through.
   await page.goto(base + '/#/chat/' + codexId);
   await page.waitForFunction(id => tb?.key === id && document.querySelector('#box'), {}, codexId);
   await page.evaluate(() => { tb.prefs.model = 'custom-model-not-in-menu'; renderToolbar(); });
-  assert.equal(await page.$eval('#c-model', element => element.textContent), 'custom-model-not-in-menu');
+  assert.match(await mp.chip(), /^custom-model-not-in-menu( · |$)/);
   assert.equal(await page.evaluate(() => turnOpts().model), 'custom-model-not-in-menu');
   assert.deepEqual(errors, []);
   fs.writeFileSync(path.join(out, 'model-selection-scans.json'), JSON.stringify(scans, null, 2));

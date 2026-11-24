@@ -213,7 +213,7 @@ test('Blocked own messages, coordination wakes while paused, and the Automation 
     for (const [k, v] of Object.entries(values)) { const x = r.body.groups.find(g => g.key === group).settings.find(y => y.key === k); assert.deepEqual([x.value, x.saved], [v, true], k); }
   }
   a = (await s.call('/automation')).body;
-  assert.ok(a.warnings.some(w => w === 'Plan ceiling, 5-hour (Claude Code) has no limit.'));
+  assert.ok(a.warnings.some(w => w === 'Claude plan, 5-hour: stop unattended work at has no limit.'));
   const bad = await s.call('/automation/settings', { group: 'limits', values: { dailyReplies: 9, longestReply: 2 } });
   assert.equal(bad.status, 400); assert.match(bad.body.error, /Longest unattended reply must be 5 min to 480 min, or No limit\./);
   assert.equal((await s.call('/automation')).body.groups[1].settings.find(x => x.key === 'dailyReplies').value, 2, 'nothing saved');
