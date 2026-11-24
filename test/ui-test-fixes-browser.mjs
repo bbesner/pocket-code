@@ -125,6 +125,16 @@ export async function runUiTestFixes({browser,base,rows,out,settingsState=()=>({
   assert.match(head.name,/^Conversations · \d+ running/,'the button keeps its full name');assert.match(head.text,/^Conversations · \d+ running/);
  });
 
+ // 1.124.8 (the owner's answer to the UI test's question 2): Assistant mode's home list draws running clay and ready green,
+ // as the list row, the tab mark and the header do; it had them the other way round.
+ await check('Assistant home: a running conversation is clay and a ready one green, as everywhere else',COVER,async page=>{
+  await page.goto(base+'/#/');await page.waitForFunction(()=>getComputedStyle(document.documentElement).getPropertyValue('--clay').trim());
+  const c=await page.evaluate(()=>{const tint=v=>{const i=document.createElement('i');i.style.color=v;document.body.append(i);const x=getComputedStyle(i).color;i.remove();return x;};
+   const dot=k=>{const a=document.createElement('a');a.className='home-row state-'+k;a.innerHTML='<span class="home-dot"></span>';document.body.append(a);const x=getComputedStyle(a.firstChild).backgroundColor;a.remove();return x;};
+   return {running:dot('running'),ready:dot('ready'),clay:tint('var(--clay)'),ok:tint('var(--ok)')};});
+  assert.equal(c.running,c.clay,'running is clay');assert.equal(c.ready,c.ok,'ready is green');
+ });
+
  await check('On a 344px phone New conversation keeps Start on the icon row',COVER,async page=>{
   await page.goto(base+'/#/new');await page.waitForSelector('#first');await page.waitForSelector('#start');
   const tops=await page.evaluate(()=>{const top=s=>{const e=document.querySelector(s);return e&&e.getBoundingClientRect().width?Math.round(e.getBoundingClientRect().top+e.getBoundingClientRect().height/2):null;};return {start:top('#start'),attach:top('#comp .composer-actions .icon')};});

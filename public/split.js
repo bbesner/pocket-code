@@ -113,7 +113,31 @@ function openBeside(id,before){
 function closePane(key){
  splitPanes=splitPanes.filter(p=>p.key!==key);saveSplit();paintSplit();
  // the pane's own New-session draft, attachments, choices, retry state and project start (1.124.3) go with it
- for(const k of ['pc-draft-','pc-attachments-','pc-prefs-','pc-outbox-','pc-new-start-'])try{localStorage.removeItem(k+'new-pane-'+key);}catch{}
+ // 1.124.8: and its briefing, which was left behind
+ for(const k of ['pc-draft-','pc-attachments-','pc-prefs-','pc-outbox-','pc-new-start-','pc-new-briefing-'])try{localStorage.removeItem(k+'new-pane-'+key);}catch{}
+}
+// What a New draft holds that a close would lose: its text, attachments or a start still being delivered ('' when none).
+function heldNew(b){try{const d=localStorage.getItem('pc-draft-'+b)||'',a=localStorage.getItem('pc-attachments-'+b)||'[]',o=localStorage.getItem('pc-outbox-'+b);return d.trim()||a!=='[]'||o!=null?[d,a,o].join('\n'):'';}catch{return '';}}
+// A New pane's draft, attachments, choices, retry state and project start move to the main window's New (1.124.3).
+function moveNewToMain(paneKey){
+ for(const [from,to] of [...['pc-draft-','pc-attachments-','pc-prefs-','pc-outbox-','pc-new-briefing-'].map(k=>[k+'new-pane-'+paneKey,k+'new']),[newStartKeyOf('new-pane-'+paneKey),newStartKeyOf('new')]])try{const v=localStorage.getItem(from);if(v!=null)localStorage.setItem(to,v);localStorage.removeItem(from);}catch{}
+}
+// 1.124.8: X on a New pane keeps what was typed there (the owner's answer to the UI test's question 1). It moves to New
+// conversation in the main window, and the toast opens it. When the main window's New holds a different draft of its own,
+// one would overwrite the other, so the owner chooses: keep this pane open, or discard what it holds.
+function closePaneFromX(p){
+ const b='new-pane-'+p.key,beside=p.id?'':heldNew(b);
+ if(!beside)return closePane(p.key);
+ const mine=heldNew('new');
+ if(!mine||mine===beside){
+  moveNewToMain(p.key);closePane(p.key);
+  if(!chatId&&NEW_KEY===NEW_BASE&&document.getElementById('first'))route(); // main shows New: show the draft it now holds
+  return toast('What you typed is kept in New conversation.',{action:'Open',onAction:()=>{location.hash='#/new';}});
+ }
+ sheet('This pane has text you have not sent',[
+  ['keep','Keep the pane open','New conversation already holds a different draft, so this one stays here'],
+  ['discard','Discard it and close','The text and attachments in this pane are deleted'],
+ ],null,v=>{if(v==='discard')closePane(p.key);});
 }
 // Close the MAIN conversation (never available inside a pane — panes use pane-close).
 // Closing never deletes or hides the session; it only asks the server to end its live
@@ -125,11 +149,10 @@ function promoteFirstPane(){
  const p=splitPanes[0];
  // 1.124.3: a New pane is not promoted over the main window's own unsent New (a draft, attachments or a start still being
  // delivered) that differs from it; main shows its New and the pane stays beside with its own, so neither is lost.
- const held=b=>{const d=localStorage.getItem('pc-draft-'+b)||'',a=localStorage.getItem('pc-attachments-'+b)||'[]',o=localStorage.getItem('pc-outbox-'+b);return d.trim()||a!=='[]'||o!=null?[d,a,o].join('\n'):'';};
- try{if(!p.id){const mine=held('new'),beside=held('new-pane-'+p.key);if(mine&&beside&&mine!==beside)return false;}}catch{}
+ if(!p.id){const mine=heldNew('new'),beside=heldNew('new-pane-'+p.key);if(mine&&beside&&mine!==beside)return false;}
  splitPanes=splitPanes.filter(x=>x.key!==p.key);saveSplit();
  // a New-session pane becoming main brings its draft, attachments, choices, retry state and project start (1.124.3)
- if(!p.id)for(const [from,to] of [...['pc-draft-','pc-attachments-','pc-prefs-','pc-outbox-'].map(k=>[k+'new-pane-'+p.key,k+'new']),[newStartKeyOf('new-pane-'+p.key),newStartKeyOf('new')]])try{const v=localStorage.getItem(from);if(v!=null)localStorage.setItem(to,v);localStorage.removeItem(from);}catch{}
+ if(!p.id)moveNewToMain(p.key);
  location.hash=p.id?tabHref(p.id):'#/new';
  paintSplit();
  return true;
@@ -215,7 +238,7 @@ if(PANE){
   const section=frame?.closest('.split-pane'),p=section&&splitPanes.find(x=>x.key===section.dataset.key);if(!p)return;
   const {pocketPane:type,id,title}=e.data;
   if(type==='route'&&typeof id==='string'&&validPane({key:p.key,id})){p.id=id;saveSplit();frame.title='Conversation beside: '+(typeof title==='string'?title:sessionTitle(id));}
-  if(type==='close')closePane(p.key);
+  if(type==='close')closePaneFromX(p);
   // 1.111: the Complete card tapped inside a pane. The pane did the closing (reviewed, process released); here its
   // pane and tab go, and Undo puts the conversation back beside the main one.
   if(type==='done'&&typeof id==='string'&&validPane({key:p.key,id})){

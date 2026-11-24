@@ -1947,9 +1947,9 @@ html.assistant .assistant-home .recent-starts { display: none; } /* the home's o
 .home-row:hover, .home-row:focus-visible { background: var(--raised); }
 .home-dot { width: 8px; height: 8px; border-radius: 50%; background: transparent; }
 .home-row.state-input .home-dot { background: var(--warn); }
-.home-row.state-running .home-dot { background: var(--ok); }
+.home-row.state-running .home-dot { background: var(--clay); } /* 1.124.8: running is clay and ready green, as in the list row, the tab mark and the header */
 .home-row.state-failed .home-dot { background: var(--err); }
-.home-row.state-ready .home-dot { background: var(--clay); }
+.home-row.state-ready .home-dot { background: var(--ok); }
 .home-title { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .home-when { font-size: 13.5px; color: var(--dim); white-space: nowrap; }
 .home-state { color: var(--text); }

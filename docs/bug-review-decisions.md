@@ -182,10 +182,25 @@ Changed by ruling in 1.124.4, where the blind test asked for something no fix sh
   rotation itself is not made two-phase.
 - update DIV-7: a job whose script never took its lock reads as not started after two minutes, not at once.
 
-Open, for the owner to decide (not settled):
+Answered by the owner on 2026-11-24 (1.124.8):
 
-- Should unattended starts be held while the day's counts cannot be saved? Today they run, with the warning.
-- Should a restart go ahead when `/api/health` does not answer during an update? Today: three tries, then yes, logged.
-- Should the usage-limit push say when the automatic continuation will not survive a restart?
-- Should a picture taken in a browser session before any Vault value was typed be allowed to delay a fill at all, or
-  should the fill be refused at once? Today the fill waits up to 30 seconds.
+- Should unattended starts be held while the day's counts cannot be saved? **No, keep as built.** They run, with the
+  warning: the counts are kept in memory, so the limits still hold until a restart, and holding would also stop
+  check-backs the owner asked for. Losing the counts takes a failed save and a restart together.
+- Should a restart go ahead when `/api/health` does not answer during an update? **Yes, keep as built** (three tries,
+  then restart, logged). A daemon that cannot answer its own health check is not helped by waiting.
+- Should the usage-limit push say when the automatic continuation will not survive a restart? **Yes, changed in
+  1.124.8.** `limitPushText` adds that a restart before then cancels it, for a retry whose marker could not be written.
+- Should a picture taken before any Vault value was typed be allowed to delay a fill, or should the fill be refused at
+  once? **Keep the wait** (up to 30 seconds). A screenshot normally answers in a second or two, so the wait is rarely
+  seen, and a refusal would only make the agent call again.
+
+## The UI/UX test's questions at 1.124.5 — answered 2026-11-24
+
+The three questions the UI/UX test (#298) left for the owner, answered in 1.124.8:
+
+| Question | Answer |
+|---|---|
+| X on a New pane drops its unsent text. Keep it as a draft, ask, or leave? | Keep it. It moves to the main window's New conversation (`closePaneFromX` in `public/split.js`); when that holds a different draft, Pocket asks (keep the pane open, or discard). `closePane` itself still discards, for the programmatic closes. |
+| Assistant mode's home list draws running green and ready clay. Swap? | Swap. Running is clay and ready green, as everywhere else. |
+| `browser_storage_state` after a Vault fill: allow, or refuse like a screenshot? | Refuse, with the other cookie and storage reads (`STORAGE_TOOLS` in `scripts/pocket-mcp-proxy.mjs`). After a login they hold the session it opened. |

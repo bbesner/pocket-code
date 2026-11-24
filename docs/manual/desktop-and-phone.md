@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.121.0
+checked: 1.124.8
 sources: public/split.js, public/workspace.js, public/tips.js, public/sidechat.js, docs/session-focus.md
 -->
 # Desktop and phone
@@ -120,7 +120,7 @@ If the window narrows below 1280 px, the open panel turns into a sheet and keeps
 |---|---|
 | X on a tab | Removes the tab. The conversation and its work continue. |
 | X on a conversation pane | Closes the view. The conversation continues on the server. |
-| X on an unstarted New conversation pane | Discards that pane's draft, attachments, choices and retry state. |
+| X on an unstarted New conversation pane | Keeps what you typed (1.124.8): the draft, attachments and choices move to **New conversation** in the main window, and the toast's **Open** shows them. If New conversation already holds a different draft, Pocket asks instead: **Keep the pane open**, or **Discard it and close**. A pane with nothing typed just closes. |
 | **Conversation options → Close conversation process** | Ends the main conversation's server process. If a reply or background job is running, choose **Keep it running in the background** or **Stop the reply**. The first pane becomes the main view (bringing a New conversation pane's draft with it), else New conversation opens. A New conversation pane stays beside when the main window's own New conversation still holds a different unsent draft; that one opens instead, so neither is lost. |
 | The **Complete** card under a reply, or the tick on a **Complete** row | Closes a finished conversation: reviewed on every device, its tab or pane closed, its server process ended. **Undo** for ten seconds. See [Close a finished conversation](conversation.md#close-a-finished-conversation-the-complete-card). |
 | **Stop** while a reply runs | Interrupts the reply and pauses the follow-up queue. |
@@ -260,7 +260,8 @@ or off and choose what they get:
 
 A finished-reply notification is titled with the conversation and says what happened: **Ready ·
 $0.07 · 14s** (cost and time; only **Ready** in Assistant mode and for Codex), **Something went
-wrong. Tap to see what happened**, **Stopped**, or **Usage limit reached. Picks up again at …**.
+wrong. Tap to see what happened**, **Stopped**, or **Usage limit reached. Picks up again at …**. If Pocket could not save that continuation, the
+notification adds that a restart before then cancels it, so send a message to carry on (1.124.8).
 Tapping it opens the conversation.
 
 A conversation that is open in a browser when its reply finishes sends no push; the chime plays there

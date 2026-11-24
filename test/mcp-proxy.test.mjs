@@ -91,6 +91,11 @@ test('MCP proxy: placeholders are filled from the Vault on the way in, scrubbed 
   assert.equal(r.result.isError,true);assert.match(r.result.content[0].text,/browser_snapshot was not run: a Vault value was typed into this browser session, so nothing from it is saved to a file/);
   assert.equal(fs.existsSync(path.join(dir,'after.md')),false,'no unscrubbed copy of the page on disk');
   r=await rpc('tools/call',{name:'browser_snapshot',arguments:{}});assert.equal(r.result.content[0].text,'### Snapshot\n- textbox "Password": {{vault:portal.password}}');
+  // 1.124.8: nor are the browser's cookies and site storage read: after a login they hold the session it opened.
+  for(const name of ['browser_storage_state','browser_cookie_list','browser_cookie_get','browser_localstorage_get','browser_sessionstorage_list']){
+   r=await rpc('tools/call',{name,arguments:{}});
+   assert.equal(r.result.isError,true,name);assert.match(r.result.content[0].text,new RegExp(name+' was not run: a Vault value was typed into this browser session, so its cookies and site storage are not read'));
+  }
   // 1.73.5: a number spelling the value is scrubbed.
   r=await rpc('tools/call',{name:'type',arguments:{text:'{{vault:pin}}'}});assert.equal(lastTyped().text,'48213907');
   r=await rpc('tools/call',{name:'peek',arguments:{}});assert.equal(r.result.structuredContent.asNumber,'{{vault:pin}}');assert.equal(r.result.structuredContent.value,'{{vault:pin}}');

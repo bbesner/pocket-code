@@ -43,6 +43,11 @@ const FILL_TOOLS = [...new Set((process.env.POCKET_VAULT_FILL_TOOLS || 'browser_
 // screenshot to a file or hand back the page as base64), video, tracing (its snapshots hold field values) and annotate.
 const CAPTURE_TOOLS = ['browser_run_code_unsafe', 'browser_start_video', 'browser_stop_video', 'browser_start_tracing', 'browser_stop_tracing', 'browser_annotate'];
 const PICTURE_TOOLS = [...new Set(['browser_take_screenshot', 'browser_pdf_save', 'screenshot', ...CAPTURE_TOOLS, ...(process.env.POCKET_VAULT_PICTURE_TOOLS || '').split(',').map(s => s.trim()).filter(Boolean)])];
+// 1.124.8: the tools that read the browser's cookies and site storage, refused once a value has been typed (the owner's answer
+// to the UI test's question 3). They never hold the typed value, which the relay would scrub, but after a login they hold the
+// session it opened, and a session cookie signs anyone in until it expires. Writing or clearing storage stays allowed.
+// POCKET_VAULT_STORAGE_TOOLS (comma-separated) adds a server's own; it never removes one.
+const STORAGE_TOOLS = [...new Set(['browser_storage_state', 'browser_cookie_list', 'browser_cookie_get', 'browser_localstorage_list', 'browser_localstorage_get', 'browser_sessionstorage_list', 'browser_sessionstorage_get', ...(process.env.POCKET_VAULT_STORAGE_TOOLS || '').split(',').map(s => s.trim()).filter(Boolean)])];
 // 1.124.4: the browser tool runs calls side by side, so a picture (or a call that saves to a file) sent before the first fill
 // and still running when the value is typed could hold it. A fill waits this many seconds for such calls to answer, then is
 // refused with nothing typed.
@@ -154,6 +159,7 @@ function handle(msg, settled = false) {
   // so the checks below are made once that fill has settled. Every other call still overtakes a waiting fill.
   if (!settled && !filled && fillsQueued && savesPicture(tool, msg.params.arguments)) { chain = chain.then(() => { try { handle(msg, true); } catch (e) { toolError(msg.id, `The relay could not run ${tool}: ${e.message}`); } }); return; }
   if (filled && PICTURE_TOOLS.includes(tool)) return toolError(msg.id, `Pocket: ${tool} was not taken: a Vault value was typed into this browser session, so no screenshot, PDF or other picture of it is made for the rest of the session (a value cannot be scrubbed out of a picture, and the browser tool would save it to a file). Use text snapshots instead.`);
+  if (filled && STORAGE_TOOLS.includes(tool)) return toolError(msg.id, `Pocket: ${tool} was not run: a Vault value was typed into this browser session, so its cookies and site storage are not read for the rest of the session (after a login they hold the session it opened, which signs anyone in). Use text snapshots of the page instead.`);
   // 1.124.3: the relay scrubs what comes back here, never a file the server writes. Playwright MCP saves a snapshot, an
   // evaluate result, console or network logs to `filename` when it is given, so after a fill no call may name one.
   if (filled && msg.params.arguments && typeof msg.params.arguments === 'object' && 'filename' in msg.params.arguments) return toolError(msg.id, `Pocket: ${tool} was not run: a Vault value was typed into this browser session, so nothing from it is saved to a file for the rest of the session (a file cannot be scrubbed; what comes back here is). Call it again without filename.`);

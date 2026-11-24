@@ -318,6 +318,39 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     assert.equal(await pane.$eval('#first',e=>e.value),'Beside draft, also unsent.','and keeps its own draft');
    }finally{await clearNewKeys();}
   });
+  // 1.124.8: X on a New pane keeps what was typed there (the owner's answer to the UI test's question 1).
+  await check('New beside (1.124.8): X on a New pane moves its unsent text to New conversation, and the toast opens it',async()=>{
+   await page.setViewport({width:1440,height:900});await openChat(idle);await clearNewKeys();
+   try{
+    const pane=await newBeside();
+    await pane.type('#first','Typed beside, then the pane was closed.');
+    await page.waitForFunction(()=>localStorage.getItem('pc-draft-new-pane-'+splitPanes[0].key)==='Typed beside, then the pane was closed.');
+    await pane.click('#pane-close');
+    await page.waitForFunction(()=>!splitPanes.length&&!document.querySelector('#panes iframe'));
+    assert.equal(await page.evaluate(()=>localStorage.getItem('pc-draft-new')),'Typed beside, then the pane was closed.','the text is New conversation\'s draft now');
+    assert.equal(await page.$eval('#toast',e=>e.textContent.includes('What you typed is kept in New conversation.')),true);
+    await page.click('#toast button');await page.waitForFunction(()=>location.hash==='#/new'&&document.querySelector('#first'));
+    assert.equal(await page.$eval('#first',e=>e.value),'Typed beside, then the pane was closed.','Open shows it');
+   }finally{await clearNewKeys();}
+  });
+  await check('New beside (1.124.8): X on a New pane asks when New conversation holds a different draft, and Keep loses neither',async()=>{
+   await page.setViewport({width:1440,height:900});await openChat(idle);
+   await clearNewKeys();await page.evaluate(()=>saveDraft(NEW_BASE,'Main window draft, never sent.'));
+   try{
+    const pane=await newBeside();
+    await pane.type('#first','Beside draft, also unsent.');
+    await page.waitForFunction(()=>localStorage.getItem('pc-draft-new-pane-'+splitPanes[0].key)==='Beside draft, also unsent.');
+    await pane.click('#pane-close');await page.waitForSelector('.sheet .opt[data-v="keep"]');
+    assert.equal(await page.$eval('.sheet h2',e=>e.textContent),'This pane has text you have not sent');
+    await page.click('.sheet .opt[data-v="keep"]');
+    assert.equal(await page.evaluate(()=>splitPanes.length),1,'Keep leaves the pane open');
+    assert.equal(await pane.$eval('#first',e=>e.value),'Beside draft, also unsent.');
+    await pane.click('#pane-close');await page.waitForSelector('.sheet .opt[data-v="discard"]');await page.click('.sheet .opt[data-v="discard"]');
+    await page.waitForFunction(()=>!splitPanes.length);
+    assert.equal(await page.evaluate(()=>localStorage.getItem('pc-draft-new')),'Main window draft, never sent.','the main window\'s draft is untouched');
+    assert.deepEqual(await page.evaluate(()=>Object.keys(localStorage).filter(k=>k.includes('new-pane-'))),[],'Discard drops the pane\'s draft');
+   }finally{await clearNewKeys();}
+  });
   await page.setViewport({width:390,height:844});await chat();
   await check('Toolbar overflow offers working controls and preserves draft',async()=>{
    await page.waitForSelector('.toolbar-next:not([hidden])');

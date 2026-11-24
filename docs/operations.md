@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.124.0
+checked: 1.124.8
 sources: checkbacks.mjs, job-keys.mjs, automation.mjs, cli-updates.mjs, cli-update-worker.mjs, self-update.mjs, scripts/pocket-self-update.sh, ecosystem.config.cjs, environment.mjs, pipes.mjs, codex.mjs, sidechat.mjs, skills.mjs, vault.mjs, scripts/pocket-mcp-proxy.mjs, scripts/pocket-run.mjs
 -->
 # Operations, upgrades and recovery
@@ -730,7 +730,9 @@ make a picture (`browser_take_screenshot`, `browser_pdf_save`, `screenshot`, and
 `POCKET_VAULT_PICTURE_TOOLS`) are refused from then on and never reach the server (1.124.2), because Playwright MCP saves
 each picture to a file and names it in its reply. So are the tools that capture the page another way (1.124.5):
 `browser_run_code_unsafe`, `browser_start_video`, `browser_stop_video`, `browser_start_tracing`, `browser_stop_tracing`
-and `browser_annotate`. `browser_evaluate` and text snapshots still run. A picture or `filename` call sent while a fill waits is held until
+and `browser_annotate`. So are the reads of cookies and site storage (1.124.8): `browser_storage_state`, the
+`browser_cookie_list`/`_get`, `browser_localstorage_list`/`_get` and `browser_sessionstorage_list`/`_get` tools, and any
+tool in `POCKET_VAULT_STORAGE_TOOLS`, since after a login they hold its session. `browser_evaluate` and text snapshots still run. A picture or `filename` call sent while a fill waits is held until
 the fill settles, and a fill waits up to `POCKET_VAULT_PICTURE_WAIT` seconds (default 30) for one sent before it to
 answer, then is refused with nothing typed (1.124.4). A server that closes its input is stopped (SIGTERM, then SIGKILL
 after five seconds) and the relay exits non-zero (1.124.4).
