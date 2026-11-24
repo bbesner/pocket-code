@@ -151,6 +151,17 @@ test('A retry whose marker cannot be written is still armed and runs, and the lo
   assert.equal((await s.idle(id)).state?.label, 'Response ready', 'the retry\'s reply finished');
 });
 
+// 1.124.8 (the owner's answer to the bug review's question 3): when the marker could not be saved, the limit push says a
+// restart before the reset cancels the continuation. limitPushText is read out of server.mjs, as detectRateLimit is above.
+test('The usage-limit push says when the automatic continuation would not survive a restart', () => {
+  const text = (unsaved, held, rearm = true) => new Function('retryUnsaved', 'heldRetries', 'fmtOwnerTime', 'autoValues', fnSource('limitPushText') + '\nreturn limitPushText;')(
+    new Set(unsaved ? ['s1'] : []), new Set(held ? ['s1'] : []), () => '3:00 PM EST', () => ({ rearmRetries: rearm }))('Usage limit reached', 's1', 0);
+  assert.equal(text(false, false), 'Usage limit reached. Picks up again at 3:00 PM EST', 'a saved retry reads as before');
+  assert.equal(text(true, false), 'Usage limit reached. Picks up again at 3:00 PM EST. Pocket could not save this, so a restart before then cancels it; send a message to carry on');
+  assert.equal(text(true, true), 'Usage limit reached. The retry is held until you resume. Pocket could not save this, so a restart before then cancels it; send a message to carry on');
+  assert.equal(text(true, true, false), 'Usage limit reached. The retry is held; send a message to carry on', 'a held retry that never re-arms already says to send a message');
+});
+
 test('End to end: the real limit result waits for the reset it names, the queue holds, Pocket closes the idle process meanwhile, and the retry still carries the conversation on', { timeout: 120_000 }, async t => {
   // The reset is the next whole hour (UTC), as the CLI words it; a negative buffer brings the retry to 30 s from now, so
   // the process's idle close (17 s after the reply, past the old 15 s grace) and its exit bookkeeping come first.

@@ -141,7 +141,8 @@ the typing and form-filling tools only (`browser_type`, `browser_fill_form`); a 
 or `browser_navigate` that names one is refused. Once a value has been typed, screenshots and
 other pictures from that browser are unavailable for the rest of the session: Pocket cannot
 scrub a value out of a picture, so it returns a note in its place. Use `browser_snapshot` (text)
-to see the page, without `filename`: after a fill, a call that saves to a file is refused. This only works when the browser tool runs through Pocket's relay
+to see the page, without `filename`: after a fill, a call that saves to a file is refused, and so is
+reading the browser's cookies or storage (`browser_storage_state`, `browser_cookie_get` and the like). This only works when the browser tool runs through Pocket's relay
 (`pocket-mcp-proxy`); if the placeholder comes back literally typed into the page, the relay is
 not in place: stop and tell the owner.
 

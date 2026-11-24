@@ -3,6 +3,37 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.124.8] — 2026-11-24 · build 230
+
+The owner's answers to the seven questions the bug review (1.124.4) and the UI/UX test (1.124.5) left open. Four change
+something; three keep the behaviour as built, with the reasons recorded in `docs/bug-review-decisions.md`.
+
+- **X on a New pane keeps what you typed.** Closing an unstarted New conversation pane in split view threw away its
+  draft, attachments and choices without asking. Now X moves them to New conversation in the main window and the toast's
+  **Open** shows them (`closePaneFromX` in `public/split.js`). If New conversation already holds a different draft, one
+  would overwrite the other, so Pocket asks: **Keep the pane open** or **Discard it and close**. A pane with nothing
+  typed closes as before. `closePane`, used by the programmatic closes, still discards, and now also drops the pane's
+  briefing key, which it used to leave behind.
+- **Assistant mode's home list uses the app's status colours.** A running conversation's dot was green and a ready one
+  clay, the reverse of the list row, the tab mark and the header. Running is clay and ready green now.
+- **After a Vault fill, the browser's cookies and storage are not read.** The relay refuses `browser_storage_state`,
+  `browser_cookie_list`, `browser_cookie_get`, `browser_localstorage_list`, `browser_localstorage_get`,
+  `browser_sessionstorage_list` and `browser_sessionstorage_get` once a value has been typed, plus any tool named in
+  the new `POCKET_VAULT_STORAGE_TOOLS`. They never held the typed value, which the relay scrubs, but after a login they
+  hold the session it opened, and a session cookie signs anyone in until it expires. Setting or clearing storage still
+  works.
+- **The usage-limit notification says when a restart would cancel the continuation.** When the retry's marker could not
+  be written (1.124.4 only logged it), the push now ends *Pocket could not save this, so a restart before then cancels
+  it; send a message to carry on*, for an armed retry and for a held one that Resume would re-arm.
+- **Kept as built, by the owner's answer:** unattended starts still run, with the warning, when the day's counts cannot
+  be saved; an update still restarts when `/api/health` does not answer three tries; a fill still waits up to 30 s for
+  a picture sent before it.
+- **Tests:** `test/ui-regressions.mjs` *New beside (1.124.8)* (X moves the draft and Open shows it; X asks when New
+  holds another draft, Keep loses neither, Discard drops the pane's keys); `test/ui-test-fixes-browser.mjs` *Assistant
+  home* (the dot colours); `test/mcp-proxy.test.mjs` (the seven reads refused after a fill);
+  `test/claude-limit.test.mjs` (the push wording, saved and unsaved, armed and held).
+- **Migration:** none. **Rollback to 1.124.7:** nothing to undo.
+
 ## [1.124.7] — 2026-11-23 · build 229
 
 One fix, found by a test that failed once in CI, and a longer wait in one browser test.
