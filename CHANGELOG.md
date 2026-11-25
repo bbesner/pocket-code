@@ -31,6 +31,10 @@ when it was made, so sending it to a second person meant making a new link, whic
   - A store with another key cannot open it.
   - Trash and Private drop it.
   - A link made without a key reports `link_not_kept`.
+  - In the browser (`test/ui-regressions.mjs`, Documents 1.30), the Share sheet shows a kept link's same address again.
+  - **Copy link** is in the toolbar and copies that address, or opens the sheet with it.
+  - **Make a new link** gives a different address.
+  - The browser fixture now keeps links, as the server does.
 - **Migration:** none; existing records are read as before. **Rollback to 1.124.9:** links made on 1.124.10 keep working
   (their hash is unchanged); 1.124.9 ignores the sealed field and shows them as it did before.
 
