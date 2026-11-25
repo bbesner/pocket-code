@@ -96,6 +96,10 @@ try {
   };
   const scan = async (name, sel) => {
     await sleep(400);
+    // 1.124.10: a request card eases its background over .9s after a theme change (app.css .vault-request), and fourWays
+    // ends by switching back to dark. On a loaded CI runner axe measured mid-fade (#a99e93 on a half-way #3e3c3b, 4.17:1)
+    // and failed main on 07f2dd0, so the scan waits for running transitions to finish before measuring.
+    for (let i = 0; i < 60 && await p.evaluate(() => document.getAnimations().some(a => a instanceof CSSTransition && a.playState === 'running')); i++) await sleep(50);
     if (!await p.evaluate(() => typeof axe !== 'undefined')) await p.addScriptTag({ path: path.join(repo, 'node_modules/axe-core/axe.min.js') });
     assert.deepEqual(await p.evaluate(async s => (await axe.run(s)).violations.map(v => ({ id: v.id, nodes: v.nodes.map(n => [n.target, n.any?.[0]?.message || '']) })), sel), [], 'axe: ' + name);
     if (!process.env.POCKET_DESIGN_SCANNER) return;
