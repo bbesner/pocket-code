@@ -3,6 +3,41 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.124.10] — 2026-11-25 · build 232
+
+One change, contributed in #296: **Copy link for a file already shared by link.** Before this, a link's address was shown once,
+when it was made, so sending it to a second person meant making a new link, which cut off the first.
+
+- **What changed.** Pocket now keeps a link's token in two forms: a hash, as since 1.118, and the token itself sealed with
+  AES-256-GCM. The key is derived from `POCKET_SECRET` (`linkKeyFrom` in `documents.mjs`, an HMAC with its own label), and
+  the seal is bound to the record's id. A file shared by link has **Copy link** on its row, card, toolbar and in File options,
+  and its Share sheet shows the address again.
+- **Who can read it.** Only the signed-in owner, from Pocket's own page: the new `POST /api/documents/:id/link` (cookie and
+  same origin, answered `no-store`). The CLI token cannot, so an agent still gets a link's address only in the answer that
+  made it. The sealed token is never in a listing or a record's view, and moving a file to the trash or making it private
+  drops it.
+- **What this gives up.** This partly reverses 1.118's PC-05, under which only a hash was stored. Someone who has both
+  `documents.json` and `.env` can now recover the addresses of open links. The owner chose it on 2026-11-24. `SECURITY.md`
+  says so.
+- **Older links.** Links made before this release, or before `POCKET_SECRET` changed, keep working, but Pocket has only
+  their hash: they show no **Copy link**, and their Share sheet says so. Making a new link gives one that can be copied.
+- **Merged with 1.124.2–1.124.9.** The store now takes both `log` (1.124.2) and `linkKey`. `shareSheet` takes
+  `{again, focus, asked}`: the 1.124.5 focus return, plus `asked` from #296 so a kept link is fetched once. The "Link made"
+  toast no longer says the address is shown once.
+- **Docs.** `docs/manual/files.md` (from #296), `docs/manual/features.md`, `README.md` and `SECURITY.md`.
+- **Tests.** `test/documents.test.mjs` checks the following:
+  - The token is sealed and opens again.
+  - It is not in the view.
+  - A store with another key cannot open it.
+  - Trash and Private drop it.
+  - A link made without a key reports `link_not_kept`.
+  - In the browser (`test/ui-regressions.mjs`, Documents 1.30), the Share sheet shows a kept link's same address again.
+  - **Copy link** is in the toolbar and copies that address, or opens the sheet with it.
+  - **Make a new link** gives a different address.
+  - The browser fixture now keeps links, as the server does.
+- **Migration:** none; existing records are read as before. **Rollback to 1.124.9:** links made on 1.124.10 keep working
+  (their hash is unchanged); 1.124.9 ignores the sealed field and shows them as it did before.
+
 ## [1.124.9] — 2026-11-24 · build 231
 
 Settings, reorganized, and one place to choose the agent, model and effort. People found Settings hard to follow:

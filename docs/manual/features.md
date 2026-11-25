@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.124.9
+checked: 1.124.10
 sources: server.mjs, public/app.js, public/workspace.js, public/sw.js, public/manifest.webmanifest, router.mjs, access.mjs, engines.mjs, codex.mjs, acp.mjs, automation.mjs, checkbacks.mjs, job-keys.mjs, vault.mjs, inbox.mjs, inbox-runner.mjs, projects.mjs, project-mode.mjs, documents.mjs, tasks.mjs, coordination.mjs, skills.mjs, approvals.mjs, trusted.mjs, sidechat.mjs, voice.mjs, usage.mjs, self-update.mjs, cli-updates.mjs, scripts/pocket-init.mjs
 -->
 # Feature reference
@@ -253,13 +253,13 @@ The rail's head switches between **Chats** and whichever of **Projects**, **File
 
 **What it is.** A library of the reports, PDFs, images, spreadsheets, Markdown and HTML pages your agents make, private unless you share them. (Named Documents before 1.34; the internal names still say documents.)
 
-**How it works.** Files are stored in `POCKET_DOCUMENTS_DIR` (default `<data dir>/documents`, mode `0600`), with records in `documents.json`. Agents add files with `pocket-docs add`; replies can also be kept automatically. Every file starts **Private**. **Share** makes an unguessable `/share/<token>` link or a public `/files/<file name>` address; the link is shown once and only a hash is kept. An agent cannot share or publish: it asks, and an **Allow** or **Deny** card appears at the top of Files (an unanswered request ends after 15 minutes). **Remove** moves a file to a 30-day trash; only you can delete for good. HTML renders sandboxed with scripts off, and previews are made with Chrome, `pdftoppm` or ImageMagick when present (`POCKET_CHROME`, `POCKET_PDFTOPPM`, `POCKET_CONVERT`).
+**How it works.** Files are stored in `POCKET_DOCUMENTS_DIR` (default `<data dir>/documents`, mode `0600`), with records in `documents.json`. Agents add files with `pocket-docs add`; replies can also be kept automatically. Every file starts **Private**. **Share** makes an unguessable `/share/<token>` link or a public `/files/<file name>` address; only a hash of the link and the link sealed with a key from `POCKET_SECRET` are kept, so you (signed in, never an agent) can **Copy link** again later. An agent cannot share or publish: it asks, and an **Allow** or **Deny** card appears at the top of Files (an unanswered request ends after 15 minutes). **Remove** moves a file to a 30-day trash; only you can delete for good. HTML renders sandboxed with scripts off, and previews are made with Chrome, `pdftoppm` or ImageMagick when present (`POCKET_CHROME`, `POCKET_PDFTOPPM`, `POCKET_CONVERT`).
 
 **Where to control it.** **Settings → Features → Files** and its **›** page: **Keep files from replies** (all devices), **Files button** and **Open files and links** (this device).
 
 **Agents' interface.** `pocket-docs` (`add`, `list`, `show`, `share`, `set`, `wait`, `trash`, `restore`; no delete); skill `pocket-files`. Run from the working directory; the file must be under the server user's home.
 
-**Limits and gotchas.** 5,000 files, 30 MB each. When Files is off nothing is served, including public and share links. Share links made before 1.118 keep working but cannot be shown again.
+**Limits and gotchas.** 5,000 files, 30 MB each. When Files is off nothing is served, including public and share links. Share links made before 1.124.10 keep working but cannot be shown again; neither can links made before `POCKET_SECRET` changed.
 
 **More.** [Share a file](files.md#share-a-file), [When an agent asks to share](files.md#when-an-agent-asks-to-share), [Rename, remove and restore](files.md#rename-remove-and-restore), [Where files live](files.md#where-files-live).
 

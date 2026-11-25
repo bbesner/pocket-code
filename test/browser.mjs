@@ -15,7 +15,7 @@ import {createHash} from 'node:crypto';
 import {runUIRegressions} from './ui-regressions.mjs';
 import {captureDocs} from './docs-screenshots.mjs';
 import {ProjectStore} from '../projects.mjs';
-import {DocumentStore,mimeOf} from '../documents.mjs';
+import {DocumentStore,linkKeyFrom,mimeOf} from '../documents.mjs';
 import {TaskStore} from '../tasks.mjs';
 import {InboxStore} from '../inbox.mjs'; // 1.69
 import {VaultStore,newKey,parseKey} from '../vault.mjs';
@@ -77,7 +77,7 @@ const docsDir=path.join(out,'documents');fs.mkdirSync(docsDir,{recursive:true});
 fs.writeFileSync(path.join(docsDir,'ops-dashboard.html'),'<!doctype html><html><head><title>Ops dashboard</title></head><body style="font-family:sans-serif;padding:24px"><h1>Ops dashboard</h1><p id="probe">probing…</p><script>try{document.getElementById("probe").textContent=(parent.document?"REACHED PARENT":"isolated");}catch(e){document.getElementById("probe").textContent="isolated: "+e.name}</script></body></html>');
 fs.writeFileSync(path.join(docsDir,'weekly-summary.md'),'# Weekly summary\n\nStock counts are **reconciled**.\n\n- Aisle 4 recounted\n- Adjustment posted\n');
 fs.writeFileSync(path.join(docsDir,'count-sheet.csv'),'Aisle,On hand,Incoming\n1,24,12\n4,8,4\n');
-const docStore=new DocumentStore(docsDir,path.join(out,'documents.json'));
+const docStore=new DocumentStore(docsDir,path.join(out,'documents.json'),{linkKey:linkKeyFrom('browser-fixture-secret')}); // 1.124.10: links are kept, as the server keeps them
 const seedDocs=()=>{for(const f of fs.readdirSync(docsDir))if(!['ops-dashboard.html','weekly-summary.md','count-sheet.csv'].includes(f))fs.rmSync(path.join(docsDir,f),{recursive:true,force:true}); // a previous run's kept or uploaded files
  docStore.documents.length=0;docStore.scan();const md=docStore.documents.find(d=>d.file==='weekly-summary.md');if(md){md.project='warehouse-stock-report';md.session=rows[0].id;docStore.save();}};
 seedDocs();
@@ -378,6 +378,9 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/documents/bulk'&&req.method==='POST'){let raw='';for await(const c of req)raw+=c;const b=JSON.parse(raw||'{}');try{return json(docStore.bulk(b.action,b.ids));}catch(e){return json({error:e.message},e.status||400);}}
   if(url.pathname==='/api/documents/trash/empty'&&req.method==='POST')return json(docStore.emptyTrash());
   // 1.32: a fixed picture for HTML documents, nothing for the other kinds (the card shows the kind).
+  // 1.124.10 (#296): Copy link reads a kept link's address again, as server.mjs answers it.
+  const lk=/^\/api\/documents\/([0-9a-f]{12})\/link$/.exec(url.pathname);
+  if(lk&&req.method==='POST'){try{return json(docStore.shareLink(lk[1]));}catch(e){return json({error:e.message,...(e.code?{code:e.code}:{})},e.status||400);}}
   const th=/^\/api\/documents\/([0-9a-f]{12})\/thumb$/.exec(url.pathname);
   if(th){const r=docStore.documents.find(d=>d.id===th[1]);if(!r||r.kind!=='html'){res.writeHead(404);res.end();return;}res.writeHead(200,{'content-type':'image/png','cache-control':'private, max-age=86400'});res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEklEQVR4nGP4b2pqysBgamoKAB4zA9HwpVv4AAAAAElFTkSuQmCC','base64'));return;}
   const m=/^\/api\/documents\/([0-9a-f]{12})(\/raw)?$/.exec(url.pathname);

@@ -334,10 +334,16 @@ the following.
 **File visibility.** Each file in Files is one of three kinds, and new files are private.
 - *Private*: opened only behind Pocket's login.
 - *Link*: opened at `/share/<token>` by anyone who has the address. The token is
-  unguessable and the link can carry an expiry. Since 1.118 only a hash of the token is
-  kept: the address is handed out once, in the answer that made it, and neither the
-  library nor `documents.json` can show it again. A lost address is replaced with a new
-  link, which stops the old one. A `documents.json` written before 1.118 also held each
+  unguessable and the link can carry an expiry. Since 1.118 the token is never stored in
+  the clear: `documents.json` keeps a hash of it, and since 1.124.10 also the token sealed
+  with AES-256-GCM under a key derived from `POCKET_SECRET` (HMAC-SHA-256 with a label of
+  its own), bound to the record's id. The sealed token is never in a listing or a record's
+  view. Only the signed-in owner can read it back (**Copy link**, `POST /api/documents/:id/link`,
+  cookie plus same origin, answered `no-store`); the CLI token cannot, so an agent gets a
+  link's address only in the answer that made it. Someone who has both `documents.json`
+  and `.env` can therefore recover open link addresses; before 1.124.10 they could not.
+  Changing `POCKET_SECRET` leaves links working but Pocket can no longer show those made
+  before the change. A lost address is replaced with a new link, which stops the old one. A `documents.json` written before 1.118 also held each
   address in plain text; the first start of 1.118 removes those (keeping each hash, or making
   it from the address when it was missing) and writes the file back, so links already handed
   out keep working. Copies of the old file in backups still hold the addresses: revoke or

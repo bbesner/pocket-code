@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.124.9
+checked: 1.124.10
 sources: context-policy.mjs, automation.mjs, job-keys.mjs, cli-updates.mjs, self-update.mjs, scripts/pocket-self-update.sh, public/cli-updates.js, public/app.js, public/workspace.js, public/theme.js, public/voice.js, server.mjs, router.mjs, access.mjs
 -->
 # Settings

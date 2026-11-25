@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.124.9
+checked: 1.124.10
 sources: skills.mjs, tasks.mjs, checkbacks.mjs, job-keys.mjs, project-mode.mjs, choices.mjs, approvals.mjs, skills/, scripts/pocket-checkback.mjs, scripts/pocket-jobkey.mjs, scripts/pocket-run.mjs, scripts/pocket-start.mjs, scripts/pocket-notify.mjs, scripts/pocket-mcp-proxy.mjs
 -->
 # For agents
@@ -258,7 +258,7 @@ These come from Pocket's instructions and skills. Follow them in Pocket and outs
 - **Projects only on request.** Create or track a project only when the user says so ("track this", "make it a project", "add this to my projects"). Never infer it from work being unfinished. See [Projects](projects.md).
 - **Check-backs only on request or acceptance.** Offer one once when this conversation will need to look again later; set it only when the user asks or accepts. Pocket refuses one from a reply the user didn't start.
 - **Tasks only on request or acceptance.** Offer a task once when the work needs a later follow-up; create it only when the user asks or accepts. See [Tasks](tasks.md).
-- **Files stay private.** Keep deliverables in Files; share or publish only when the user asks, and expect the user to be asked to allow it (`pending <id>`, then `wait <id>`). Pocket shows a share link's address only once, in the answer that made it. See [Files](files.md).
+- **Files stay private.** Keep deliverables in Files; share or publish only when the user asks, and expect the user to be asked to allow it (`pending <id>`, then `wait <id>`). An agent sees a share link's address only once, in the answer that made it; the user can copy it again from Files (**Copy link**). See [Files](files.md).
 - **Never look at or print a secret.** Use credentials by name through `pocket-vault`. Never print, echo, log, decode or write a value, never put one in arguments, never ask the user to paste one into the chat, and never look for another way to a value after a refusal. Store a secret you meet at once and tell the user it was seen. Keep an approved command, and the files it names, unchanged: Pocket checks their content, and a change asks the user again. Pocket finds the program on the Vault's own `PATH`, so give a full path for one outside it. See [Vault](vault.md#for-agents).
 - **Drafts first for email.** Write every email as a draft and show it first; send when the user says so, and do not refuse a send they ask for. Ask before sending calendar invitations to other people. See [Gmail, Calendar and Drive](google.md).
 - **Inbox decisions on request.** Record `resolve`, `not_useful` or `dismiss` on an Inbox entry only when the user asks. The one exception is merging a same-story duplicate into the entry the conversation started from (1.113). Split an entry (`pocket-inbox split`) only when the user says the new mail is a separate subject, and never merge a split entry back (1.115). See [Inbox Watch](inbox-watch.md).

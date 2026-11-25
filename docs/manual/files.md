@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.124.9
+checked: 1.124.10
 sources: documents.mjs, public/documents.js, scripts/pocket-docs.mjs, skills/pocket-files/SKILL.md, thumbnails.mjs
 -->
 # Files
@@ -88,9 +88,11 @@ Every file starts **Private**. Click **Share** (in the toolbar or the file's opt
 | **Anyone with the link** | Anyone who has the link. | `/share/<token>`: an unguessable address. |
 | **Public** | Anyone. | `/files/<file name>`: a fixed address by file name. |
 
-When you make a link, the sheet shows its address once, with **Copy**. Copy it then: Pocket keeps only a fingerprint (a hash) of the address, so it cannot show it again. Afterwards the sheet says a link is open and when it expires, with **Make a new link** and **Revoke link**. **Make a new link** shows a new address once and the old one stops working at once; **Revoke link** makes the file private. **Expires** sets **Never**, **In 7 days** or **In 30 days**. Switching away from **Anyone with the link** also ends the old link; switching back makes a new one. Public files have **Copy link** in the toolbar, the options and on their row or card, since their address is fixed.
+When you make a link, the sheet shows its address, with **Copy**. You can get the same address again later, so the people you already sent it to keep their access: a file shared by link has **Copy link** in the toolbar, the options and on its row or card, and its Share sheet shows the address again, with **Make a new link** and **Revoke link**. **Make a new link** gives a new address and the old one stops working at once; **Revoke link** makes the file private. **Expires** sets **Never**, **In 7 days** or **In 30 days**. Switching away from **Anyone with the link** also ends the old link; switching back makes a new one. Public files have **Copy link** in the same places, since their address is fixed.
 
-Links made before 1.118 keep working after the upgrade, but their addresses are no longer stored, so Pocket cannot show them; use the address you sent, or make a new link.
+Pocket keeps a link's address encrypted with a key made from `POCKET_SECRET`, beside a fingerprint (a hash) of it, and shows it only to you, signed in, on Pocket's own page. It is not in the library listing, and an agent cannot read it: `pocket-docs` prints a link's address only when the link is made. Changing `POCKET_SECRET` leaves links working but Pocket can no longer show the ones made before the change.
+
+A link made before Pocket kept addresses still works, but Pocket has only its fingerprint and cannot show it: it has no **Copy link**, and its Share sheet says so. Use the address you sent, or make a new link.
 
 ### When an agent asks to share
 
@@ -127,7 +129,7 @@ Only you can delete a file for good. An agent can move a file to the trash or re
 | What | Where |
 |---|---|
 | The files | `POCKET_DOCUMENTS_DIR`, default `<data dir>/documents`. Stored with mode `0600`. |
-| Records (title, kind, visibility, project, conversation, a hash of the share link) | `documents.json` in `POCKET_DATA_DIR`, which defaults to the Pocket Code directory. |
+| Records (title, kind, visibility, project, conversation, a hash of the share link and the link's address, encrypted) | `documents.json` in `POCKET_DATA_DIR`, which defaults to the Pocket Code directory. |
 | Trash | `.trash/` inside the files folder, as `<id>-<file name>`. |
 | Preview pictures | `.thumbs/` inside the files folder. |
 
@@ -203,7 +205,7 @@ The file you `add` must be inside the home directory of the user Pocket runs as 
 |---|---|
 | `add <path> [--title "…"] [--project <id>] [--session <id>] [--visibility private\|link\|public] [--wait <s>]` | Copies the file into the library as private. With `--visibility link` or `public` it then asks the user (see above); once allowed, a link's address is printed, once. `--project` must name an existing project. `--session` is a Claude session id, or `cx:<id>` for Codex. |
 | `list [--project <id>] [--q text] [--json]` | Files, newest first: id, visibility, kind, title, project, stored name and date. `--q` matches the title and stored file name. Prints how many are in the trash. |
-| `show <id> [--json]` | One file, from the library or the trash, with its public address when it is public. For a link it says a link is open and when it expires, not the address: Pocket keeps only a hash of it. |
+| `show <id> [--json]` | One file, from the library or the trash, with its public address when it is public. For a link it says a link is open and when it expires, not the address: only the signed-in owner can read that again, with **Copy link** in Files. |
 | `share <id> [--expires <n>d\|none] [--wait <s>]` | Asks the user to make the file link-visible, or to give an already shared file a new link (the old one stops working, and the command says so). Once allowed, prints the address, once. `--expires` takes a number of days followed by `d` (`7d`, `30d`), or `none`. Without it, a new link has no expiry and a renewed link keeps its old expiry. |
 | `set <id> [--title "…"] [--project <id>] [--visibility private\|link\|public] [--expires <n>d\|none] [--wait <s>]` | Changes the title, project, visibility or link expiry, and prints the file. Making it private or its link shorter-lived happens at once; `link`, `public` or a later expiry asks the user first, and setting `link` prints the new address once allowed. `--project` must be the id of an existing project (`pocket-board status --all` lists them); an empty `--project ""` removes the project. |
 | `wait <request-id> [--wait <s>]` | Continues a share or publish the user was asked to allow: prints the result once allowed (a link's address included), `pending <id>` again if they have not answered yet. Only the conversation (or terminal) that asked can continue it, once. |
@@ -251,7 +253,7 @@ pocket-docs set 9c1e5b7d4e8f --visibility private
 | A row says **(file missing)** | The stored file was deleted or moved on the server. Its links return 404. | Put the file back in the folder under the same name, or remove the record. |
 | No preview pictures | The server has no tool for that kind, or the tool failed. | Install Chrome or Chromium, poppler or ImageMagick, or point `POCKET_CHROME`, `POCKET_PDFTOPPM` or `POCKET_CONVERT` at it. Failures are in the server log. |
 | A share link stopped working | The file was made private, given a new link, removed, its link expired, or Files was turned off. | Share it again. |
-| Pocket does not show a link you made earlier | Pocket keeps only a hash of a share link's address, so it shows it once, when it is made (since 1.118). | Use the address you copied or sent, or **Make a new link** (the old one stops working). |
+| A file shared by link has no **Copy link** | The link was made before Pocket kept link addresses, or `POCKET_SECRET` changed since, so Pocket has only its fingerprint. | Use the address you copied or sent, or **Make a new link** (the old one stops working). Links made from now on can be copied again. |
 | An agent says its share is `pending` | Sharing or publishing waits for your **Allow**. | Answer the card at the top of Files, or the notification. |
 | **Allow** says the file changed | The file's content, name or sharing changed after the agent asked, so nothing was shared. | Ask the agent to ask again if you still want it shared. |
 | A share request is refused: *That file is not a regular file inside the library* | The stored file was replaced by a link or something other than a plain file, so Pocket will not share it. | Put the real file back in the library's folder, or keep it again with `pocket-docs add`. |

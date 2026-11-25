@@ -47,9 +47,23 @@ const KIND_GROUPS=[['html','HTML reports'],['pdf','PDFs'],['image','Images'],['t
 const visWord={private:'Private',link:'Link',public:'Public'};
 const visLong={private:'Private',link:'Anyone with the link',public:'Public'};
 const docRawUrl=(d,download)=>'/api/documents/'+encodeURIComponent(d.id)+'/raw'+(download?'?download=1':'');
-// 1.118 (PC-05): only a public file has an address to copy later. A link's address is shown once, when it is made: the
-// server keeps a hash of it, so the library can say a link exists and when it expires, and offer a new one.
+// 1.118 (PC-05): a public file's address is in its record. A link's address never is: the server keeps a hash of it, and
+// (Copy link) the token sealed, which it opens for the signed-in owner on request.
 const docShareUrl=d=>d.visibility==='public'&&d.url?location.origin+d.url:'';
+// Copy link: a link Pocket kept (share.kept) can be copied again. Its address is not in the snapshot; the owner's page asks
+// the server for it when Copy link is pressed. A link made before links were kept has no Copy link.
+const docCanCopy=d=>Boolean(docShareUrl(d))||(d.visibility==='link'&&d.share?.kept===true);
+async function docLinkToken(id,quiet){
+ try{return (await api('/documents/'+encodeURIComponent(id)+'/link',{method:'POST',body:'{}'})).token||null;}
+ catch(e){if(!quiet)toast(e.message||'Could not get the link');return null;}
+}
+// If the browser refuses the clipboard after the request (some do), the share sheet opens with the address to copy by hand.
+async function docCopyLink(d,btn){
+ const pub=docShareUrl(d);if(pub)return copyLink(pub,btn);
+ const token=await docLinkToken(d.id);if(!token)return false;
+ if(await copyLink(location.origin+'/share/'+token,btn,true))return true;
+ shareSheet(d.id,token);return false;
+}
 const docAppUrl=d=>location.origin+'/#/documents/'+d.id; // the in-app address: needs the Pocket login
 const fmtSize=n=>n>=1048576?(n/1048576).toFixed(1)+' MB':n>=1024?Math.round(n/1024)+' KB':n+' B';
 const docViewTitle=id=>id==='documents'?'Files':docById(id.slice(10))?.title||'File';
@@ -58,13 +72,13 @@ const docSessionName=d=>d.session?(typeof sessionName==='function'?sessionName(d
 const docWhere=d=>[...new Set([docProjectName(d),docSessionName(d)].filter(Boolean))].join(' · ');
 // Search covers the title, file name, project, session, kind and visibility words.
 const docSearchText=d=>[d.title,d.file,docWhere(d),KIND_WORD[d.kind],d.kind,visLong[d.visibility]].join(' ').toLowerCase();
-async function copyLink(url,btn){
+async function copyLink(url,btn,quiet){
  try{
   if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(url);
   else{const ta=document.createElement('textarea');ta.value=url;document.body.append(ta);ta.select();document.execCommand('copy');ta.remove();}
   if(btn&&btn.isConnected){const was=btn.innerHTML;btn.innerHTML=IC.tick+(btn.classList.contains('chip')?'Copied':'');btn.classList.add('ok');setTimeout(()=>{if(btn.isConnected){btn.innerHTML=was;btn.classList.remove('ok');}},1400);}
-  toast('Link copied');
- }catch{toast('Copy failed');}
+  toast('Link copied');return true;
+ }catch{if(!quiet)toast('Copy failed');return false;}
 }
 
 /* ---------- the two views ---------- */
@@ -112,7 +126,7 @@ function paintDocumentsView(){
 // opt.pick (the library in select mode): the row is a label for its checkbox, with no links or options.
 const docPickBox=d=>`<input type="checkbox" class="doc-pick-box" data-pick="${esc(d.id)}" ${docPicked?.has(d.id)?'checked':''}>`;
 function docRowHTML(d,opt){
- const where=docWhere(d),url=docShareUrl(d),pick=opt?.pick===true,on=pick&&docPicked.has(d.id);
+ const where=docWhere(d),url=docCanCopy(d),pick=opt?.pick===true,on=pick&&docPicked.has(d.id);
  if(pick)return `<div class="session-item document-item doc-pickable ${on?'picked':''}" data-item="${esc(d.id)}">
   <label class="row">${docPickBox(d)}<span class="body"><span class="title"><span class="doc-kind">${KIND_WORD[d.kind]||'FILE'}</span>${esc(d.title)}${d.missing?' <span class="due-label">(file missing)</span>':''}</span>
    <span class="meta">${esc(where||d.file)}</span>
@@ -121,11 +135,11 @@ function docRowHTML(d,opt){
   <a class="row" href="${viewHref('documents/'+d.id)}" data-document="${esc(d.id)}"><span class="body"><span class="title"><span class="doc-kind">${KIND_WORD[d.kind]||'FILE'}</span>${esc(d.title)}${d.missing?' <span class="due-label">(file missing)</span>':''}</span>
    <span class="meta">${esc(where||d.file)}</span>
    <span class="session-status"><span class="doc-vis vis-${esc(d.visibility)}">${visWord[d.visibility]}</span><span>${esc(rel(Date.parse(d.added)))}</span>${d.addedBy==='session'||d.session?'<span aria-hidden="true">·</span><span>from a conversation</span>':''}</span></span></a>
-  ${url?`<button class="session-more icon" data-copy-link="${esc(d.id)}" aria-label="Copy the ${visWord[d.visibility].toLowerCase()} link for ${esc(d.title)}" title="Copy link">${IC.link}</button>`:''}
+  ${url?`<button class="session-more icon" data-copy-link="${esc(d.id)}" aria-label="Copy the ${d.visibility==='link'?'share':'public'} link for ${esc(d.title)}" title="Copy link">${IC.link}</button>`:''}
   <button class="session-more icon" data-document-more="${esc(d.id)}" aria-label="Options for ${esc(d.title)}">${IC.more}</button></div>`;
 }
 function docCardHTML(d,opt){
- const where=docWhere(d),url=docShareUrl(d),pic=Boolean(docsSnap.thumbs?.[d.kind])&&!d.missing,pick=opt?.pick===true;
+ const where=docWhere(d),url=docCanCopy(d),pic=Boolean(docsSnap.thumbs?.[d.kind])&&!d.missing,pick=opt?.pick===true;
  if(pick)return `<div class="doc-card doc-pickable ${docPicked.has(d.id)?'picked':''}" data-item="${esc(d.id)}">
   <label class="doc-card-link"><span class="doc-thumb" data-kind="${esc(d.kind)}">${pic?`<img src="/api/documents/${esc(d.id)}/thumb" alt="" loading="lazy" decoding="async">`:''}<span class="doc-thumb-kind"><span class="doc-kind">${KIND_WORD[d.kind]||'FILE'}</span></span><span class="doc-card-pick">${docPickBox(d)}</span></span>
    <span class="doc-card-body"><span class="doc-card-title">${esc(d.title)}${d.missing?' <span class="due-label">(file missing)</span>':''}</span><span class="doc-card-meta">${esc(where||d.file)}</span>
@@ -134,7 +148,7 @@ function docCardHTML(d,opt){
   <a class="doc-card-link" href="${viewHref('documents/'+d.id)}" data-document="${esc(d.id)}"><span class="doc-thumb" data-kind="${esc(d.kind)}">${pic?`<img src="/api/documents/${esc(d.id)}/thumb" alt="" loading="lazy" decoding="async">`:''}<span class="doc-thumb-kind"><span class="doc-kind">${KIND_WORD[d.kind]||'FILE'}</span></span></span>
    <span class="doc-card-body"><span class="doc-card-title">${esc(d.title)}${d.missing?' <span class="due-label">(file missing)</span>':''}</span><span class="doc-card-meta">${esc(where||d.file)}</span>
    <span class="session-status"><span class="doc-vis vis-${esc(d.visibility)}">${visWord[d.visibility]}</span><span>${esc(rel(Date.parse(d.added)))}</span></span></span></a>
-  <span class="doc-card-actions">${url?`<button class="session-more icon" data-copy-link="${esc(d.id)}" aria-label="Copy the ${visWord[d.visibility].toLowerCase()} link for ${esc(d.title)}" title="Copy link">${IC.link}</button>`:''}<button class="session-more icon" data-document-more="${esc(d.id)}" aria-label="Options for ${esc(d.title)}">${IC.more}</button></span></div>`;
+  <span class="doc-card-actions">${url?`<button class="session-more icon" data-copy-link="${esc(d.id)}" aria-label="Copy the ${d.visibility==='link'?'share':'public'} link for ${esc(d.title)}" title="Copy link">${IC.link}</button>`:''}<button class="session-more icon" data-document-more="${esc(d.id)}" aria-label="Options for ${esc(d.title)}">${IC.more}</button></span></div>`;
 }
 const docShownRows=()=>{const q=docQuery.trim().toLowerCase();return docsSnap.documents.filter(d=>(!docFilterProject||d.project===docFilterProject)&&(!docFilterVis||d.visibility===docFilterVis)&&(!docFilterKind||KIND_GROUP[d.kind]===docFilterKind)&&(!q||docSearchText(d).includes(q)));};
 // The selection is only ever files that are shown: a filter or search drops the rest, so Remove never reaches a file out of sight.
@@ -214,7 +228,7 @@ function libraryHTML(){
 }
 function bindDocRows(root){
  root.querySelectorAll('[data-document-more]').forEach(b=>b.onclick=()=>documentOptions(b.dataset.documentMore));
- root.querySelectorAll('[data-copy-link]').forEach(b=>b.onclick=()=>{const d=docById(b.dataset.copyLink);if(d)copyLink(docShareUrl(d),b);});
+ root.querySelectorAll('[data-copy-link]').forEach(b=>b.onclick=()=>{const d=docById(b.dataset.copyLink);if(d)docCopyLink(d,b);});
  root.querySelectorAll('a[data-document]').forEach(a=>a.onclick=e=>{const id='documents/'+a.dataset.document;openViewPreferred(id,'pc-documents-open',e,isWide()&&docView!==id);});
 }
 function bindLibrary(main){
@@ -261,7 +275,7 @@ async function uploadDocuments(files){
  if(added){toast(added===1?'File added':added+' files added');paintDocumentsView();}
 }
 function docToolsHTML(d){
- const raw=docRawUrl(d),dl=docRawUrl(d,true),url=docShareUrl(d);
+ const raw=docRawUrl(d),dl=docRawUrl(d,true),url=docCanCopy(d);
  return `<div class="doc-tools"><a class="chip" href="${esc(raw)}" target="_blank" rel="noopener noreferrer">${IC.globe}Open in your viewer</a><a class="chip" href="${esc(dl)}" download="${esc(d.file)}">${IC.down}Download</a><button class="chip ${d.visibility!=='private'?'set':''}" data-share>${IC.share}${d.visibility==='private'?'Share':visWord[d.visibility]+' · Share'}</button>${url?`<button class="chip" data-copy-link="${esc(d.id)}">${IC.link}Copy link</button>`:''}${typeof projectsOn==='function'&&projectsOn()?`<button class="chip" data-project>${IC.folder}${d.project?esc(docProjectName(d)):'Project'}</button>`:''}${d.session?`<a class="chip" href="#/chat/${esc(d.session)}">${IC.term}Conversation</a>`:''}</div>`;
 }
 function documentHTML(d){
@@ -277,7 +291,7 @@ function documentHTML(d){
 }
 function bindDocTools(main,d){
  main.querySelector('[data-share]').onclick=()=>shareSheet(d.id);
- main.querySelector('[data-copy-link]')?.addEventListener('click',e=>copyLink(docShareUrl(d),e.currentTarget));
+ main.querySelector('[data-copy-link]')?.addEventListener('click',e=>docCopyLink(d,e.currentTarget));
  main.querySelector('[data-project]')?.addEventListener('click',()=>docProjectSheet(d.id));
 }
 function bindDocument(main,d){
@@ -304,7 +318,7 @@ function tableHTML(src,sep){
 /* ---------- sheets ---------- */
 function documentOptions(id){
  const d=docById(id);if(!d)return;
- const here=docView==='documents/'+id,url=docShareUrl(d),shared=d.visibility!=='private';
+ const here=docView==='documents/'+id,url=docCanCopy(d),shared=d.visibility!=='private';
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet document-options';
  sh.innerHTML=`<h2>File options</h2><p class="sheet-name">${esc(d.title)}</p><p class="sheet-help">${esc([KIND_WORD[d.kind],fmtSize(d.size),d.file].join(' · '))}</p>
   ${d.trashedAt?`<button class="opt" data-restore>${IC.up}<span>Restore<span class="sub">Back to the library; links stay off until you share it again</span></span></button><button class="opt doc-danger" data-destroy>${IC.x}<span>Delete forever<span class="sub">Deletes the file and its preview from the server now</span></span></button>`:
@@ -327,34 +341,39 @@ function documentOptions(id){
  sh.querySelector('[data-window]')?.addEventListener('click',()=>{close();openInWindow('documents/'+id);});
  sh.querySelector('[data-restore]')?.addEventListener('click',()=>{close();docAct(id,{action:'restore'},'Restored');});
  sh.querySelector('[data-destroy]')?.addEventListener('click',()=>{close();confirmSheet('Delete this file forever?','It is deleted from the server now, with its preview, and the space is freed. This cannot be undone.','Delete forever',async()=>{const r=await docBulk('/documents/bulk',{action:'delete',ids:[id]},()=>'Deleted forever');if(r?.done.length&&docView==='documents/'+id)location.hash=viewHref('documents');});});
- sh.querySelector('[data-copy-link]')?.addEventListener('click',()=>{close();copyLink(url);});
+ sh.querySelector('[data-copy-link]')?.addEventListener('click',()=>{close();docCopyLink(d);});
  sh.querySelector('[data-share]')?.addEventListener('click',()=>{close();shareSheet(id);});
  sh.querySelector('[data-project]')?.addEventListener('click',()=>{close();docProjectSheet(id);});
  sh.querySelector('[data-rename]')?.addEventListener('click',()=>{close();textSheet('Rename file',d.title,200,title=>docAct(id,{title},'Renamed'));});
  sh.querySelector('[data-trash]')?.addEventListener('click',()=>{close();confirmSheet('Remove this file?',`It moves to the trash for ${docsSnap?.limits?.trashDays||30} days and any share or public link stops working. Restore it from the library's Trash.`,'Remove',async()=>{const r=await docAct(id,{action:'trash'},'Moved to the trash');if(r&&docView==='documents/'+id)location.hash=viewHref('documents');});});
  mountSheet(scrim,sh);
 }
-// 1.118 (PC-05): `fresh` is the token of a link this device has just made; its address is shown this once, with Copy. A link
-// made earlier shows only that it is open and when it expires, with Make a new link (the old one stops) and Revoke link.
+// 1.118 (PC-05): `fresh` is the token of a link this device has just made, or (Copy link, 1.124.10) of a kept link the server
+// has just handed the owner: its address is shown with Copy. A link Pocket did not keep (made before links were kept) shows
+// only that it is open and when it expires, with Make a new link (the old one stops) and Revoke link. `asked` says the kept
+// address was already asked for, so the sheet does not ask again.
 // 1.124.5: a change in the sheet repaints the file's tools and opens the sheet again, so the button that opened it is
 // gone. `again` says so: the new sheet returns focus to the file's current Share button (or its row's options), and
 // `focus` names the control inside the new sheet to land on.
 const shareOpener=id=>document.querySelector('main [data-share]')||[...document.querySelectorAll(`[data-item="${CSS.escape(id)}"] button`)].at(-1)||undefined;
-function shareSheet(id,fresh,{again=false,focus=''}={}){
+function shareSheet(id,fresh,{again=false,focus='',asked=false}={}){
  const d=docById(id);if(!d)return;
+ if(d.visibility==='link'&&!fresh&&!asked&&d.share?.kept){docLinkToken(id,true).then(t=>shareSheet(id,t,{again,focus,asked:true}));return;}
  const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet share-sheet';
  const link=d.visibility==='link',made=link&&fresh?location.origin+'/share/'+fresh:'';
  const url=link?made:docShareUrl(d)||docAppUrl(d);
  const expires=d.share?.expiresAt?new Date(d.share.expiresAt).toLocaleString('en-US',{dateStyle:'medium',timeStyle:'short'}):'';
  const until=expires?'Expires '+expires+'.':'No expiry.';
  const note=d.visibility==='private'?'This address opens the file in Pocket Code after signing in. Choose Anyone with the link or Public to give it to someone else.'
-  :link?(made?`${until} Copy it now: Pocket keeps only a fingerprint of the link, so it can’t show it again. A new link stops this one working.`
+  :link?(made?(d.share?.kept?`${until} Anyone who has this address can open the file. You can copy it again here later. A new link stops this one working.`
+    :`${until} Copy it now: Pocket keeps only a fingerprint of the link, so it can’t show it again. A new link stops this one working.`)
+   :d.share?.kept?`A link to this file is open. ${until} Its address could not be loaded just now; close this and try again.`
    :`A link to this file is open. ${until} Pocket keeps only a fingerprint of it, so it can’t show the address again. If you no longer have it, make a new link; the old one stops working.`)
   :'A fixed address by file name. Anyone who has it can open the file.';
  sh.innerHTML=`<h2>Share</h2><p class="sheet-name">${esc(d.title)}</p>
   <div role="radiogroup" aria-label="Who can open it">
   <button class="opt ${d.visibility==='private'?'sel':''}" role="radio" aria-checked="${d.visibility==='private'}" data-v="private"><span class="dot"></span><span>Private<span class="sub">Only after signing in to Pocket Code</span></span></button>
-  <button class="opt ${link?'sel':''}" role="radio" aria-checked="${link}" data-v="link"><span class="dot"></span><span>Anyone with the link<span class="sub">An unguessable address, shown once; you can set an expiry or make a new link</span></span></button>
+  <button class="opt ${link?'sel':''}" role="radio" aria-checked="${link}" data-v="link"><span class="dot"></span><span>Anyone with the link<span class="sub">An unguessable address; you can set an expiry or make a new link</span></span></button>
   <button class="opt ${d.visibility==='public'?'sel':''}" role="radio" aria-checked="${d.visibility==='public'}" data-v="public"><span class="dot"></span><span>Public<span class="sub">At a fixed address by file name, for anyone</span></span></button>
   </div>
   ${url?`<div class="share-url"><input readonly value="${esc(url)}" aria-label="${d.visibility==='private'?'Address in Pocket Code':'Share URL'}" id="share-url"><button class="chip" data-copy-share>${IC.copy}Copy</button></div>`:''}
@@ -362,7 +381,7 @@ function shareSheet(id,fresh,{again=false,focus=''}={}){
   <p class="sheet-help share-note" role="status">${esc(note)}</p>`;
  const close=()=>closeCurrentSheet?.();
  bindRadioGroup(sh.querySelector('[role="radiogroup"]'));
- sh.querySelectorAll('[data-v]').forEach(b=>b.onclick=async()=>{if(b.dataset.v===d.visibility)return;close();const r=await docAct(id,{visibility:b.dataset.v},b.dataset.v==='private'?'Private now; links no longer work':b.dataset.v==='link'?'Link made. Copy it now: it is shown once':'Public now');if(r&&r.visibility!=='private')shareSheet(id,r.token,{again:true});else shareOpener(id)?.focus();});
+ sh.querySelectorAll('[data-v]').forEach(b=>b.onclick=async()=>{if(b.dataset.v===d.visibility)return;close();const r=await docAct(id,{visibility:b.dataset.v},b.dataset.v==='private'?'Private now; links no longer work':b.dataset.v==='link'?'Link made':'Public now');if(r&&r.visibility!=='private')shareSheet(id,r.token,{again:true});else shareOpener(id)?.focus();});
  const input=sh.querySelector('#share-url');if(input){input.onfocus=()=>input.select();sh.querySelector('[data-copy-share]').onclick=e=>copyLink(url,e.currentTarget);}
  const expiry=sh.querySelector('#share-expiry');if(expiry){expiry.value=d.share?.expiresAt?(Math.abs(Date.parse(d.share.expiresAt)-Date.now()-7*86400000)<86400000?'7':'30'):'';expiry.onchange=async()=>{close();await docAct(id,{expiresAt:expiry.value?new Date(Date.now()+Number(expiry.value)*86400000).toISOString():null},'Expiry set');shareSheet(id,fresh,{again:true,focus:'#share-expiry'});};}
  sh.querySelector('[data-reshare]')?.addEventListener('click',async()=>{close();const r=await docAct(id,{action:'reshare'},'New link made; the old one no longer works');if(r)shareSheet(id,r.token,{again:true});else shareOpener(id)?.focus();});
