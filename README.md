@@ -21,7 +21,7 @@ assistant (email, quotes, documents) and never want to see the machinery. And it
 **Inbox Watch**, which reads your Gmail on the schedule you set and puts in Pocket's Inbox only
 what actually needs you, keeping that list tidy as things get handled.
 
-This checkout documents **1.124.9 / build 231**. See the [changelog](CHANGELOG.md) for
+This checkout documents **1.124.10 / build 232**. See the [changelog](CHANGELOG.md) for
 release status and [GitHub Releases](https://github.com/bbesner/pocket-code/releases)
 for published versions. An unreleased changelog entry is a candidate, not a release.
 
@@ -260,8 +260,8 @@ device, and when you open them, so an item an agent adds shows up without a relo
   work directly. See [Conductor mode](docs/manual/projects.md#conductor-mode).
 - **Files** keeps the reports, dashboards and spreadsheets that came out of the work, in a
   grid or a list. HTML renders sandboxed; PDFs, images, Markdown and CSV render in place.
-  Files are private until you share one by link or publicly; a link's address is shown once,
-  when you make it, and an agent's share or publish waits for your Allow; removed files wait 30 days
+  Files are private until you share one by link or publicly; you can copy a link's address
+  again later (agents get it only when it is made), and an agent's share or publish waits for your Allow; removed files wait 30 days
   in the trash, and **Select** removes several at once; **Delete forever** and **Empty trash**
   free the space now. Keep a file from a session's Results, upload one, or let agents keep
   deliverables. See [Files](docs/manual/files.md).
