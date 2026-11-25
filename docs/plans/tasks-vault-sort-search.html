@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tasks and Vault: sort and search (design for review)</title>
+<style>
+:root{
+ --bg:#131110;--surface:#1D1A18;--raised:#272322;--line:#2E2A27;
+ --text:#EDE7E0;--dim:#A99E93;--faint:#aa9c91;
+ --clay:#D97757;--clay-deep:#3A241C;--ok:#7FB069;--err:#E87568;--warn:#D9A94E;
+ --accent-blue:#709FF8;--accent-purple:#BEABFF;
+}
+.light{
+ --bg:#FAF8F5;--surface:#F2EEE8;--raised:#E8E2DA;--line:#CFC5B9;
+ --text:#28221E;--dim:#61564D;--faint:#695E55;
+ --clay:#9B3F23;--clay-deep:#F4E3DA;--ok:#37622A;--err:#A52F26;--warn:#805B13;
+ --accent-blue:#245CC0;--accent-purple:#6740AC;
+}
+*{box-sizing:border-box}
+html{background:var(--bg);color:var(--text);font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{margin:0;padding:32px 20px 80px}
+.doc{max-width:920px;margin:0 auto}
+h1{font-size:24px;font-weight:650;margin:0 0 6px}
+.lede{color:var(--dim);margin:0 0 28px;max-width:64ch}
+h2{font-size:18px;font-weight:650;margin:40px 0 10px;padding-top:18px;border-top:1px solid var(--line)}
+h3{font-size:15px;font-weight:650;margin:22px 0 6px}
+p,li{max-width:64ch}
+ul,ol{padding-left:22px}
+li{margin:4px 0}
+strong{font-weight:600}
+code{font:13px ui-monospace,"Cascadia Mono",Menlo,monospace;color:var(--dim)}
+table{border-collapse:collapse;width:100%;margin:10px 0 4px;font-size:14px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--dim);font-weight:600;font-size:13px}
+td.now{color:var(--dim)}
+.tag{display:inline-block;padding:0 7px;border:1px solid var(--line);border-radius:999px;color:var(--dim);font-size:12px;line-height:18px;margin-left:6px}
+.tag.new{border-color:var(--clay);color:var(--clay)}
+.decide{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 18px;margin:14px 0}
+.decide h3{margin-top:4px}
+.rec{color:var(--clay);font-weight:600}
+.caption{color:var(--dim);font-size:13px;margin:8px 0 0}
+
+/* ---- mock shell, built from the app's own tokens and row anatomy ---- */
+.mocks{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start;margin:16px 0}
+.frame{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--bg);flex:none}
+.frame .label{font-size:12px;color:var(--faint);padding:8px 12px;border-bottom:1px solid var(--line);background:var(--surface)}
+.rail{width:300px;background:var(--surface)}
+.page{width:560px}
+.phone{width:360px}
+.seg{display:flex;gap:2px;padding:10px 10px 6px;font-size:12.5px;color:var(--dim);white-space:nowrap;align-items:center}
+.seg span{padding:4px 8px;border-radius:8px}
+.seg span.on{background:var(--raised);color:var(--text)}
+.seg .ft{margin-left:auto;font-size:12px;border:1px solid var(--line);border-radius:8px;padding:3px 8px}
+.actions{display:flex;gap:8px;padding:8px 12px;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--dim);border:1px solid var(--line);border-radius:999px;padding:4px 12px;background:var(--bg);min-height:32px}
+.chip.set{color:var(--clay);border-color:var(--clay-deep)}
+.chip b{font-weight:600;color:var(--text)}
+.tools{display:flex;gap:8px;align-items:center;padding:4px 12px 10px;flex-wrap:wrap}
+.tools .search{flex:1 1 180px}
+h1,h2,h3{text-wrap:balance}
+p,li{text-wrap:pretty}
+.search{display:flex;align-items:center;gap:8px;flex:1;min-width:0;min-height:36px;padding:0 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--faint);font-size:14px}
+.search.typed{color:var(--text)}
+.search .x{margin-left:auto;color:var(--dim)}
+.iconbtn{width:36px;height:36px;flex:none;display:flex;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:10px;color:var(--dim);background:var(--bg)}
+.select{display:inline-flex;align-items:center;gap:8px;min-height:36px;padding:0 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font-size:13.5px;color:var(--text);white-space:nowrap}
+.select small{color:var(--dim);font-size:12.5px}
+svg.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.summary{font-size:12px;color:var(--dim);padding:0 12px 6px;display:flex;gap:8px}
+.summary a{color:var(--clay);margin-left:auto;text-decoration:none}
+.grp{display:flex;gap:8px;align-items:center;padding:12px 14px 6px;font-size:14px;font-weight:650}
+.grp span{color:var(--dim);font-weight:400}
+.item{display:flex;align-items:flex-start;border-bottom:1px solid var(--line)}
+.item .lead{width:36px;flex:none;display:flex;justify-content:center;padding-top:13px;color:var(--dim)}
+.item .body{flex:1;min-width:0;padding:10px 6px 11px 0}
+.item .t{font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.page .item .t,.phone .item .t{white-space:normal}
+.item .s{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;font-size:12.5px;color:var(--dim);align-items:center}
+.item .more{width:32px;flex:none;padding-top:10px;color:var(--faint);text-align:center}
+.due-label{color:var(--warn)}
+.item.finished .t{color:var(--dim);text-decoration:line-through;text-decoration-color:var(--line)}
+.item.finished .lead{color:var(--ok)}
+.item mark{background:color-mix(in srgb,var(--clay) 28%,transparent);color:var(--text);border-radius:2px}
+/* who can use it: a dot and its word, first fact on the line */
+.who{display:inline-flex;align-items:center;gap:5px;font-weight:550}
+.who::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor;flex:none}
+.who.free{color:var(--warn)} .who.once{color:var(--accent-blue)} .who.every{color:var(--accent-purple)} .who.owner{color:var(--ok)}
+.who.owner::before{border-radius:2px}
+.dotsep{opacity:.6}
+.donelink{display:block;padding:10px 14px;font-size:13px;color:var(--dim)}
+.sheet{width:340px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:10px 0 12px}
+.sheet .sh{margin:4px 14px 8px;font-size:13px;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.03em}
+.opt{display:flex;gap:12px;align-items:flex-start;padding:10px 14px;font-size:14.5px}
+.opt.sel{background:var(--raised)}
+.opt .dot{width:18px;height:18px;border-radius:50%;border:2px solid var(--faint);flex:none;margin-top:2px}
+.opt.sel .dot{border-color:var(--clay);background:var(--clay);box-shadow:inset 0 0 0 3px var(--surface)}
+.opt .sub{display:block;font-size:12.5px;color:var(--faint);margin-top:1px}
+.sheet .foot{margin:8px 14px 0;padding-top:10px;border-top:1px solid var(--line);font-size:13px;color:var(--dim)}
+.sheet .foot b{color:var(--text);font-weight:600}
+.filters{display:flex;gap:6px;flex-wrap:wrap;padding:0 12px 10px}
+.bar{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.bar .h{margin:0;font-size:16px;font-weight:650}
+.bar .h small{color:var(--dim);font-size:12.5px;font-weight:400;margin-left:6px}
+.legend{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:12px 0}
+.legend > div{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+.legend p{margin:4px 0;font-size:13.5px}
+.light-wrap{background:var(--bg);color:var(--text)}
+@media(max-width:700px){.legend{grid-template-columns:1fr}.page{width:100%}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+ <symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></symbol>
+ <symbol id="sort" viewBox="0 0 24 24"><path d="M7 4v16M4 7l3-3 3 3M17 20V4M14 17l3 3 3-3"/></symbol>
+ <symbol id="filter" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></symbol>
+ <symbol id="check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></symbol>
+ <symbol id="key" viewBox="0 0 24 24"><circle cx="8" cy="14" r="4"/><path d="m11 11 8-8M16 6l2 2"/></symbol>
+ <symbol id="user" viewBox="0 0 24 24"><circle cx="12" cy="9" r="3.5"/><path d="M5 20c1.5-3.5 4-5 7-5s5.5 1.5 7 5"/></symbol>
+ <symbol id="more" viewBox="0 0 24 24"><circle cx="12" cy="6" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="18" r="1"/></symbol>
+ <symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+</svg>
+<div class="doc">
+
+<h1>Tasks and Vault: sort and search</h1>
+<p class="lede">Design for review, from Damon's two requests. Nothing is built yet. It covers sorting and searching both lists, in the left column and on the full page, a default order you choose, sorting the Vault by who can use a secret, and a colour for who can use it on each Vault row. The decisions I need from you are at the end.</p>
+
+<h2>What the lists do today</h2>
+<table>
+ <tr><th></th><th>Tasks</th><th>Vault</th></tr>
+ <tr><td><strong>Default order</strong></td><td><strong>Due first.</strong> Dated tasks and project reminders, soonest first, so overdue ones lead. Then undated tasks, newest first. <strong>Done</strong> is collapsed at the bottom, most recently finished first.</td><td><strong>Newest first</strong>, by the date the secret was stored.</td></tr>
+ <tr><td><strong>Change the order</strong></td><td>Fixed; it can't be changed.</td><td>Full page only: <strong>Order</strong> switches to A–Z. Kept on that device only.</td></tr>
+ <tr><td><strong>Search</strong></td><td>There is no search.</td><td>Full page only: name, kind, tags, website and the conversation that stored it. Every word must match.</td></tr>
+ <tr><td><strong>Left column</strong></td><td>Add task, All, the first 40 open items. No search, no order.</td><td>Ask someone, Add, All, the first 60 secrets, newest first. No search, no order.</td></tr>
+ <tr><td><strong>Who can use it</strong></td><td>n/a</td><td>Plain grey text in the row's fact line (for example "Free rein"), after the website and tags, so in the left column it is often cut off.</td></tr>
+</table>
+<p>Your install today has 97 tasks (22 open, across 9 workspaces) and 219 secrets. Every one of the 219 is <strong>Free rein</strong>, because that is the Vault default and no secret has its own setting. That matters for the colour design below.</p>
+
+<h2>The proposal in one paragraph</h2>
+<p>Both lists get the same toolbar: a <strong>search box</strong> and a <strong>Sort</strong> control, plus a <strong>Filter</strong> control on the Vault. In the left column it is one compact row (search box plus a sort icon), and it folds away under the column's existing <strong>Filters</strong> toggle, the same one the conversation list already uses. On a phone there is no left column; the full-screen list gets the full toolbar, so nothing has to be removed. The order you pick is remembered on the server and becomes the list's default on every device. Settings shows the same choice. Vault rows lead their fact line with a coloured dot and the who-can-use-it words.</p>
+
+<h2>Sort options</h2>
+<h3>Tasks</h3>
+<table>
+ <tr><th>Order</th><th>What it does</th></tr>
+ <tr><td><strong>Due first</strong> <span class="tag">default today</span></td><td class="now">As today. Dated items soonest first, then undated, newest first.</td></tr>
+ <tr><td><strong>Newest added</strong></td><td>Most recently created first. Good for "what did the agent just add".</td></tr>
+ <tr><td><strong>Oldest added</strong></td><td>Oldest first. For clearing out stale to-dos.</td></tr>
+ <tr><td><strong>A–Z</strong></td><td>By the task's text.</td></tr>
+ <tr><td><strong>Workspace</strong></td><td>Grouped under a heading per workspace (pocket-claude, techpro-ai-team …), due first inside each group. Tasks with no workspace go last under "No workspace".</td></tr>
+</table>
+<p>Project reminders have a due time but no "added" date. In <strong>Due first</strong> they sit among the tasks as they do now. In the other orders they gather in a <strong>Project reminders</strong> group at the end of To do, soonest first. <strong>Done</strong> always stays most recently finished first; the sort applies to To do.</p>
+
+<h3>Vault</h3>
+<table>
+ <tr><th>Order</th><th>What it does</th></tr>
+ <tr><td><strong>Newest first</strong> <span class="tag">default today</span></td><td class="now">As today.</td></tr>
+ <tr><td><strong>A–Z</strong></td><td class="now">As today, by name.</td></tr>
+ <tr><td><strong>Who can use it</strong> <span class="tag new">new</span></td><td>Grouped, least protected first: <span class="who free">Free rein</span>, <span class="who once">Asks once per command</span>, <span class="who every">Asks every time</span>, <span class="who owner">Only you</span>. Each group has a heading with its count; A–Z inside. Putting Free rein first makes it an audit view: these are what agents can use without asking you.</td></tr>
+ <tr><td><strong>Recently used</strong> <span class="tag new">new</span></td><td>By the last time an agent used it; never-used last.</td></tr>
+ <tr><td><strong>Kind</strong> <span class="tag new">new</span></td><td>Grouped: Logins, API keys, Tokens, Credentials, Notes. A–Z inside.</td></tr>
+ <tr><td><strong>Expiring soonest</strong> <span class="tag new">new</span></td><td>Secrets with an expiry date, soonest (or already expired) first; the rest after, A–Z.</td></tr>
+</table>
+
+<h2>Search</h2>
+<ul>
+ <li><strong>Same rule in both lists, and the same as the Vault today:</strong> narrows as you type, case doesn't matter, and with several words every word must match. <kbd>Esc</kbd> clears it. The matching words are highlighted in the row.</li>
+ <li><strong>Tasks searches</strong> the task text, its context, the conversation it came from, its workspace, and the project name for a reminder. It also searches <strong>Done</strong>: when a finished task matches, the Done section opens on its own so the match is visible.</li>
+ <li><strong>Vault searches</strong> what it does today, plus the who-can-use-it words, so typing <code>only you</code> or <code>free rein</code> works. Values are never searched and never leave the server for this.</li>
+ <li><strong>The left column searches the whole list</strong>, not just the 40 or 60 rows it shows. A line under the box says how many match, with <strong>Clear</strong>.</li>
+ <li><strong>Vault filters</strong> answer Damon's "searched in different ways". A <strong>Filter</strong> chip opens a sheet with two groups: <strong>Who can use it</strong> (the four settings) and <strong>Kind</strong>. Filters combine with the search words. While one is on, the chip reads e.g. "Filter · Only you" in clay. Filters reset when you leave the Vault; the sort does not.</li>
+</ul>
+
+<h2>Choosing the default order</h2>
+<p><strong>Whatever order you pick in the list is the order it opens in next time, on every device.</strong> The same setting appears in <strong>Settings → Features → Tasks ›</strong> and <strong>Vault ›</strong> as <strong>Default order</strong>, so it can be found and set there too. The list's subtitle always names the current order ("To do, due first", "Secrets, by who can use it"), so it is never a mystery why the list looks the way it does.</p>
+<p>Today the Vault's A–Z choice is saved on each device. It moves to the server; the first device to load the new version hands over its saved choice if the server has none yet.</p>
+
+<h2>Who can use it, in colour</h2>
+<p>Each Vault row starts its fact line with a small dot and the words, in the colour of the setting. The words stay, so the colour is never the only signal, and it moves to the front of the line so the left column doesn't cut it off.</p>
+<div class="legend">
+ <div>
+  <p><span class="who free">Free rein</span> <span style="color:var(--dim)">amber: agents use it without asking</span></p>
+  <p><span class="who once">Asks once per command</span> <span style="color:var(--dim)">blue</span></p>
+  <p><span class="who every">Asks every time</span> <span style="color:var(--dim)">purple</span></p>
+  <p><span class="who owner">Only you</span> <span style="color:var(--dim)">green, square mark: agents can't use it</span></p>
+  <p class="caption">Dark theme</p>
+ </div>
+ <div class="light light-wrap">
+  <p><span class="who free">Free rein</span></p>
+  <p><span class="who once">Asks once per command</span></p>
+  <p><span class="who every">Asks every time</span></p>
+  <p><span class="who owner">Only you</span></p>
+  <p class="caption">Light theme</p>
+ </div>
+</div>
+<p>All four colours are already in Pocket's palette and pass contrast in both themes. Amber goes on the least protected setting because amber already means "look at this" in Pocket. Clay is left alone: in Pocket it means "a tap sends something".</p>
+<p><strong>On your install</strong> all 219 rows will show an amber Free rein dot until secrets are given their own settings. That is accurate, and it is why the dot is small and not a filled badge: 219 amber badges would turn the list into a wall. A filled pill is the alternative if you want it louder (question 3 below).</p>
+
+<h2>Mockups</h2>
+<p class="caption">Static, drawn with Pocket's own colours and row layout. Desktop left column first, then the full page, then a phone.</p>
+
+<div class="mocks">
+ <div class="frame rail">
+  <div class="label">Left column · Tasks · searching</div>
+  <div class="seg"><span>Conversations</span><span class="on">Tasks</span><span>Vault</span><span class="ft">Filters ⌃</span></div>
+  <div class="actions"><span class="chip"><svg class="i"><use href="#plus"/></svg>Add task</span><span class="chip">All</span></div>
+  <div class="tools"><div class="search typed"><svg class="i"><use href="#search"/></svg>zoho<span class="x">✕</span></div><div class="iconbtn" title="Sort: Due first"><svg class="i"><use href="#sort"/></svg></div></div>
+  <div class="summary"><span>3 of 97 match, 1 done</span><a href="#">Clear</a></div>
+  <div class="item"><div class="lead"><svg class="i"><use href="#check"/></svg></div><div class="body"><div class="t">Check the <mark>Zoho</mark> estimate payment terms…</div><div class="s"><span class="due-label">Due today 3:00 PM</span><span class="dotsep">·</span><span>Quotes cleanup</span></div></div><div class="more"><svg class="i"><use href="#more"/></svg></div></div>
+  <div class="item"><div class="lead"><svg class="i"><use href="#check"/></svg></div><div class="body"><div class="t">Recheck <mark>Zoho</mark> ticket broker drafts</div><div class="s"><span>Mon Dec 1</span><span class="dotsep">·</span><span>Codex ticket agent</span></div></div><div class="more"><svg class="i"><use href="#more"/></svg></div></div>
+  <div class="item finished"><div class="lead"><svg class="i"><use href="#check"/></svg></div><div class="body"><div class="t">Rotate the <mark>Zoho</mark> refresh token</div><div class="s"><span>Done Nov 18</span></div></div><div class="more"><svg class="i"><use href="#more"/></svg></div></div>
+ </div>
+
+ <div class="frame rail">
+  <div class="label">Left column · Vault · by who can use it</div>
+  <div class="seg"><span>Conversations</span><span>Tasks</span><span class="on">Vault</span><span class="ft">Filters ⌃</span></div>
+  <div class="actions"><span class="chip">Ask someone</span><span class="chip"><svg class="i"><use href="#plus"/></svg>Add</span><span class="chip">All</span></div>
+  <div class="tools"><div class="search"><svg class="i"><use href="#search"/></svg>Search secrets</div><div class="iconbtn" title="Sort: Who can use it"><svg class="i"><use href="#sort"/></svg></div></div>
+  <div class="grp"><span class="who free" style="font-weight:650">Free rein</span><span>216</span></div>
+  <div class="item"><div class="lead"><svg class="i"><use href="#user"/></svg></div><div class="body"><div class="t">aberdeen-lpr-nvr</div><div class="s"><span class="who free">Free rein</span><span class="dotsep">·</span><span>192.168.2.80</span></div></div><div class="more"><svg class="i"><use href="#more"/></svg></div></div>
+  <div class="item"><div class="lead"><svg class="i"><use href="#key"/></svg></div><div class="body"><div class="t">openrouter-main</div><div class="s"><span class="who free">Free rein</span><span class="dotsep">·</span><span>Used 2h ago</span></div></div><div class="more"><svg class="i"><use href="#more"/></svg></div></div>
+  <div class="grp"><span class="who every" style="font-weight:650">Asks every time</span><span>2</span></div>
+  <div class="item"><div class="lead"><svg class="i"><use href="#user"/></svg></div><div class="body"><div class="t">authorize-net-live</div><div class="s"><span class="who every">Asks every time</span><span class="dotsep">·</span><span>authorize.net</span></div></div><div class="more"><svg class="i"><use href="#more"/></svg></div></div>
+  <div class="grp"><span class="who owner" style="font-weight:650">Only you</span><span>1</span></div>
+  <div class="item"><div class="lead"><svg class="i"><use href="#key"/></svg></div><div class="body"><div class="t">aws-root</div><div class="s"><span class="who owner">Only you</span></div></div><div class="more"><svg class="i"><use href="#more"/></svg></div></div>
+ </div>
+
+ <div class="sheet">
+  <h3 class="sh">Sort the Vault</h3>
+  <div class="opt"><span class="dot"></span><span>Newest first<span class="sub">By the date it was stored</span></span></div>
+  <div class="opt"><span class="dot"></span><span>A–Z</span></div>
+  <div class="opt sel"><span class="dot"></span><span>Who can use it<span class="sub">Free rein first, Only you last</span></span></div>
+  <div class="opt"><span class="dot"></span><span>Recently used</span></div>
+  <div class="opt"><span class="dot"></span><span>Kind<span class="sub">Logins, API keys, tokens, credentials, notes</span></span></div>
+  <div class="opt"><span class="dot"></span><span>Expiring soonest</span></div>
+  <p class="foot">The Vault opens in this order on every device. Also in <b>Settings → Features → Vault</b>.</p>
+ </div>
+</div>
+<p class="caption">The sort icon opens this sheet in the left column. The Filters toggle at the top folds the search row away when you want the column bare. The mock rows on the left use names in the style of your Vault; the Asks every time and Only you groups are illustrative.</p>
+
+<div class="mocks">
+ <div class="frame page">
+  <div class="label">Full page · Vault · filtered to logins</div>
+  <div class="bar"><div class="h">Vault<small>Secrets, newest first</small></div></div>
+  <div class="tools" style="padding-top:12px"><div class="search typed"><svg class="i"><use href="#search"/></svg>nvr<span class="x">✕</span></div>
+   <span class="select"><small>Sort</small>Newest first ▾</span>
+   <span class="chip set" style="min-height:36px"><svg class="i"><use href="#filter"/></svg>Filter · Login</span></div>
+  <div class="summary"><span>2 of 219 match</span><a href="#">Clear search and filter</a></div>
+  <div class="grp">Secrets <span>2</span></div>
+  <div class="item"><div class="lead"><svg class="i"><use href="#user"/></svg></div><div class="body"><div class="t">aberdeen-lpr-<mark>nvr</mark></div><div class="s"><span class="who free">Free rein</span><span class="dotsep">·</span><span>192.168.2.80</span><span class="dotsep">·</span><span>aberdeen, amcs, <mark>nvr</mark></span></div></div><div class="more"><svg class="i"><use href="#more"/></svg></div></div>
+  <div class="item"><div class="lead"><svg class="i"><use href="#user"/></svg></div><div class="body"><div class="t">woodfield-<mark>nvr</mark>-admin</div><div class="s"><span class="who once">Asks once per command</span><span class="dotsep">·</span><span>Used yesterday</span></div></div><div class="more"><svg class="i"><use href="#more"/></svg></div></div>
+ </div>
+
+ <div class="sheet">
+  <h3 class="sh">Filter the Vault</h3>
+  <p style="margin:4px 14px 2px;font-size:13px;color:var(--dim)">Who can use it</p>
+  <div class="filters"><span class="chip"><span class="who free">Free rein</span></span><span class="chip"><span class="who once">Asks once</span></span><span class="chip"><span class="who every">Asks every time</span></span><span class="chip"><span class="who owner">Only you</span></span></div>
+  <p style="margin:4px 14px 2px;font-size:13px;color:var(--dim)">Kind</p>
+  <div class="filters"><span class="chip set">Login</span><span class="chip">API key</span><span class="chip">Token</span><span class="chip">Credentials</span><span class="chip">Note</span></div>
+  <p class="foot">Pick any number in each group. Filters clear when you leave the Vault.</p>
+ </div>
+</div>
+
+<div class="mocks">
+ <div class="frame page">
+  <div class="label">Full page · Tasks · by workspace</div>
+  <div class="bar"><div class="h">Tasks<small>To do, by workspace</small></div><span class="chip" style="margin-left:auto"><svg class="i"><use href="#plus"/></svg>Add task</span></div>
+  <div class="tools" style="padding-top:12px"><div class="search"><svg class="i"><use href="#search"/></svg>Search tasks</div><span class="select"><small>Sort</small>Workspace ▾</span></div>
+  <div class="grp">pocket-claude <span>5 · 1 due</span></div>
+  <div class="item"><div class="lead"><svg class="i"><use href="#check"/></svg></div><div class="body"><div class="t">Test the Vault Allow notification on Damon's install</div><div class="s"><span class="due-label">Due today 4:00 PM</span><span class="dotsep">·</span><span>Vault feedback</span><span class="dotsep">·</span><span>With context</span></div></div><div class="more"><svg class="i"><use href="#more"/></svg></div></div>
+  <div class="grp">techpro-ai-team <span>3</span></div>
+  <div class="item"><div class="lead"><svg class="i"><use href="#check"/></svg></div><div class="body"><div class="t">Review the CRM shadow log before go-live</div><div class="s"><span>Mon Dec 1</span><span class="dotsep">·</span><span>Codex CRM shadow</span></div></div><div class="more"><svg class="i"><use href="#more"/></svg></div></div>
+ </div>
+
+ <div class="frame phone">
+  <div class="label">Phone · Vault (no left column)</div>
+  <div class="bar"><div class="h">Vault<small>by who can use it</small></div></div>
+  <div class="tools" style="padding-top:12px"><div class="search" style="min-height:44px"><svg class="i"><use href="#search"/></svg>Search secrets</div></div>
+  <div class="tools" style="padding-top:0"><span class="select" style="min-height:44px;flex:1"><small>Sort</small>Who can use it ▾</span><span class="chip" style="min-height:44px"><svg class="i"><use href="#filter"/></svg>Filter</span></div>
+  <div class="grp"><span class="who free" style="font-weight:650">Free rein</span><span>216</span></div>
+  <div class="item"><div class="lead"><svg class="i"><use href="#user"/></svg></div><div class="body"><div class="t">addison-camera-admin</div><div class="s"><span class="who free">Free rein</span></div></div><div class="more"><svg class="i"><use href="#more"/></svg></div></div>
+  <div class="item"><div class="lead"><svg class="i"><use href="#key"/></svg></div><div class="body"><div class="t">agent-seat-amatthews-pocket</div><div class="s"><span class="who free">Free rein</span><span class="dotsep">·</span><span>pocket-amatthews…</span></div></div><div class="more"><svg class="i"><use href="#more"/></svg></div></div>
+ </div>
+</div>
+<p class="caption">On a phone the search takes the full width and Sort and Filter share the row under it, at 44px touch size. The left-column question doesn't arise there: phones open these lists full screen.</p>
+
+<h2>Decisions for you</h2>
+<div class="decide">
+ <h3>1. One order setting, or a separate default?</h3>
+ <p><span class="rec">Recommended:</span> one. Picking an order in the list makes it the default, and Settings shows the same value. The alternative: Settings holds a fixed default, the list's Sort is only for now and resets when you reopen the list. That gives two controls that can disagree.</p>
+</div>
+<div class="decide">
+ <h3>2. Same order on every device, or per device?</h3>
+ <p><span class="rec">Recommended:</span> every device (saved on the server). The Vault's current A–Z choice is per device; it would move over.</p>
+</div>
+<div class="decide">
+ <h3>3. How loud is the who-can-use-it colour?</h3>
+ <p><span class="rec">Recommended:</span> the small dot and coloured words, as in the mockups. The alternative is a filled pill, like the clay "New" mark, which is louder, but with 219 Free rein secrets every row would carry one.</p>
+</div>
+<div class="decide">
+ <h3>4. Order of the who-can-use-it groups</h3>
+ <p><span class="rec">Recommended:</span> least protected first (Free rein at the top), so the sort works as an audit. The alternative is most protected first.</p>
+</div>
+
+<h2>Build notes</h2>
+<ul>
+ <li><strong>Files:</strong> <code>public/tasks.js</code> (order, search, toolbar for the list and rail), <code>public/vault.js</code> (new orders, filter sheet, who-can-use-it mark, rail toolbar), <code>public/app.css</code>, the rail's Filters toggle in <code>public/app.js</code> (today it only shows for Conversations), the server settings for the two default orders, and Settings → Features pages.</li>
+ <li><strong>Existing parts only:</strong> search box, select, chips and sheets all exist already.</li>
+ <li><strong>Docs:</strong> <code>docs/manual/tasks.md</code>, <code>docs/manual/vault.md</code>, <code>docs/manual/settings.md</code>, CHANGELOG and DESIGN.md.</li>
+ <li><strong>Tests:</strong> unit tests for each order and the search matcher, including reminders and Done; browser tests for the rail toolbar, filter sheet and phone layout, plus the existing layout sweep in both themes.</li>
+ <li><strong>Release:</strong> feature branch and PR, then roll out to the installs after your go.</li>
+</ul>
+
+</div>
+</body>
+</html>

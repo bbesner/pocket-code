@@ -92,6 +92,11 @@ test('HTTP: push preferences per device, the notification settings, and due and 
   assert.equal((await call('/settings',{notifyEmail:'nope'})).status,400);
   assert.equal((await call('/settings',{remindAhead:25})).body.remindAhead,24,'only 0 or 24');
   assert.equal((await call('/settings',{remindAhead:0})).body.remindAhead,0);
+  // 1.125: one order per list, kept for every device; an unknown order is refused, and the lists say which applies.
+  assert.equal((await call('/tasks')).body.order,'due','Due first until one is picked');
+  assert.equal((await call('/settings',{tasksOrder:'workspace'})).body.tasksOrder,'workspace');assert.equal((await call('/tasks')).body.order,'workspace');
+  for(const bad of [{tasksOrder:'random'},{tasksOrder:null},{vaultOrder:'due'},{vaultOrder:''}]){const r=await call('/settings',bad);assert.equal(r.status,400,JSON.stringify(bad));assert.equal(r.body.code,'bad_order');}
+  assert.equal((await call('/settings',{vaultOrder:'who'})).body.vaultOrder,'who');assert.equal((await call('/settings')).body.tasksOrder,'workspace','a refused change leaves the saved one');
   assert.equal((await call('/tasks')).body.email,true,'the list says email is on');assert.equal((await call('/board')).body.email,true);
   // The owner's address is learned from a signed-in request through the proxy, never from loopback, and env wins.
   assert.equal((await call('/me')).status,200);assert.equal((await call('/settings')).body.email.base,'','loopback is not a public address');

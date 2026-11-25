@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.124.9
+checked: 1.125.0
 sources: public/split.js, public/workspace.js, public/tips.js, public/sidechat.js, docs/session-focus.md
 -->
 # Desktop and phone
@@ -33,7 +33,7 @@ Its head holds:
   **Inbox** carry a count (due reminders and tasks, Vault requests waiting, unread Inbox items) on
   every view.
 - **Filters**, which folds the conversation filters away (the applied ones stay named, with **Clear
-  filters**).
+  filters**). On **Tasks** and **Vault** it folds their search box and sort button.
 - **More** (**⋯**, labelled *More: Pause all and unattended work*), which opens **Pause all** (it reads **Resume** while Pocket is
   paused) and **Unattended work settings** ([Automation](automation.md#pause-all)). With **More** present, **Filters** shows as an icon
   only; its name is still its label.

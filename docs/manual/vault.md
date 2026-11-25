@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.124.9
+checked: 1.125.0
 sources: vault.mjs, intake-page.mjs, public/intake/intake.css, public/vault.js, scripts/pocket-vault.mjs, skills/pocket-vault/SKILL.md, public/secret-detect.js, scripts/pocket-mcp-proxy.mjs
 -->
 # Vault
@@ -31,9 +31,12 @@ Open the Vault from the rail's **Vault** entry, the **Vault** chip on the home s
 
 ### Find a secret
 
-- **Order.** The list is **Newest first** by default; switch **Order** to **A–Z** to sort by name. The choice is kept on each device.
+- **Who can use it, at a glance.** Every secret's line starts with who can use it, as a small coloured dot and words: amber for **Free rein**, blue for **Asks once per command**, purple for **Asks every time**, green (a square dot) for **Only you**. A secret that follows the Vault default shows what that default means for it now.
+- **Sort.** The list is **Newest first** by default. **Sort** also offers **A–Z**, **Who can use it** (least protected first: Free rein, then Asks once per command, Asks every time and Only you, each under its own heading), **Recently used**, **Kind** (Logins, API keys, Tokens, Credentials, Secure notes, each under a heading) and **Expiring soonest** (secrets with no expiry last). The order you pick is the order the Vault opens in next time, on every device; **Settings → Features → Vault ›** shows the same choice as **Default order**. A device that kept **A–Z** before 1.125 hands it to the server once, unless an order was already chosen.
 - **New.** A secret stored in the last 24 hours carries a **New** mark, and its line says when and in which conversation it was added.
-- **Search.** **Search secrets** narrows the list as you type. It matches the name, the kind, tags, the website and the conversation that stored it; with several words, all must match.
+- **Search.** **Search secrets** narrows the list as you type. It matches the name, the kind, tags, the website, the conversation that stored it and the words for who can use it, so *free rein* or *only you* finds those secrets. With several words, all must match; matched words are marked. **Esc** clears the box.
+- **Filter.** **Filter** opens a sheet with two groups, **Who can use it** and **Kind**, each choice with how many secrets it holds. Pick any number in each group: a secret shows when it matches one choice in every group you used. The button then names the filter, a line under the toolbar repeats it with **Clear**, and the count reads *2 of 5*. The filter clears when you leave the Vault.
+- **In the rail.** The Vault segment has the same search box and a sort button that opens the order choices; the rail's **Filters** toggle folds them away. While you search, the rail lists every match. **Filter** is on the full page only.
 - **Links.** `#/vault/item/<name>` opens the Vault with that secret's sheet open and its row marked. When an agent stores a secret from a conversation, the conversation shows a card for it under the next reply; tap it to open the secret. Agents link a secret the same way in their replies.
 
 ### Add a secret
@@ -259,6 +262,7 @@ Each secret's sheet shows its last 20 events under **History**. The file records
 |---|---|---|
 | **Vault** | Settings → Features (the switch) | On or off for the install. Off by default. |
 | **Agent access** | Settings → Features → Vault | Free rein, Ask once per command (default), Ask every time. |
+| **Default order** | Settings → Features → Vault | The order the list opens in, on every device (`vaultOrder`: `new`, `name`, `who`, `used`, `kind` or `expiry`; default `new`). Picking an order in the list changes it too. |
 | **Lock after** | Same, under Passphrase (passphrase mode only) | Never (default), 15 minutes, 1 hour, 8 hours, 24 hours. |
 | **Catch secrets in messages** | Same | On by default. Works even while the Vault is off. |
 | **Vault requests** | Settings → Notifications | Whether this device gets request pushes. The *Allow a job key?* push ([Automation](automation.md#let-a-conversation-set-one-up)) follows it too. |

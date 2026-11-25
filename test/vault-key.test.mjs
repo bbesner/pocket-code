@@ -50,6 +50,9 @@ test('HTTP: the Vault creates its key on first switch-on, survives a restart, ro
   await stop();await start();
   st=(await call('/settings')).body;assert.equal(st.vault,true);assert.equal(st.vaultReady,true);assert.equal(st.vaultCanCreateKey,false);
   assert.equal((await call('/vault')).body.items[0].name,'zeta-books');
+  // 1.125: the list names its order; orderChosen says whether the owner picked one (a device's old A–Z moves up only if not).
+  let v=(await call('/vault')).body;assert.equal(v.order,'new');assert.equal(v.orderChosen,false);
+  assert.equal((await call('/settings',{vaultOrder:'who'})).status,200);v=(await call('/vault')).body;assert.equal(v.order,'who');assert.equal(v.orderChosen,true);
   // Rotation saves the new key itself and leaves no previous key behind; the store opens only with the new one.
   const rot=await call('/vault/rotate',{});assert.equal(rot.status,200);assert.equal(rot.body.saved,true);
   env=fs.readFileSync(envFile,'utf8');assert.equal(keyLine(env),rot.body.key);assert.doesNotMatch(env,/POCKET_VAULT_KEY_PREVIOUS/);

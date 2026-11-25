@@ -1472,3 +1472,36 @@ itself is the only thing that must never be left on the page.
 - **Feature off.** None of **Waiting for you**, the key list, the sheets, the run lists or the line in a conversation
   exists; only the settings group with its switch and help (so it can be turned on), the Pause all row and the push
   switch remain. The keys are kept.
+
+## Sort and search for Tasks and the Vault (1.125)
+
+Pinned Operate refinement (design-studio → impeccable): VARIANCE 2, MOTION 1, DENSITY 7; existing tokens, rows, chips,
+sheets and settings rows, no new colour, font or component style. Read: the owner (and Damon, who asked) has long lists
+and wants to find one item fast, to see the list in the order that suits them, and to see which secrets agents can use
+freely without opening each one. Design doc: `docs/plans/tasks-vault-sort-search.html`.
+
+- **One order per list, on the server.** `tasksOrder` and `vaultOrder` in `pocket-settings.json`. Picking an order in a
+  list makes it the default; **Settings → Features → Tasks › / Vault › → Default order** shows the same value. There is
+  no separate "default" and "current" order, because two controls for one idea is the confusion we were asked to remove.
+  The page header names the order (*To do, due first*; *Secrets, by who can use it*).
+- **Full page.** A toolbar above the list: the search box (`.session-search` in `.documents-tools.list-tools`), a
+  **Sort** select in `.voice-field`, and on the Vault a **Filter** chip. Bottom-aligned, so the labelled select lines up
+  with the box and the chip. On a phone the toolbar wraps and every control is 44px tall.
+- **Rail.** One compact row (`.rail-list-tools`): the search box and a 36px square sort button (44px on touch) that opens
+  the existing `sheet()` with the order choices and a note saying the order applies on every device and lives in
+  Settings. The rail's **Filters** toggle folds the row away (its label becomes *search and sort* off the Chats view).
+  Under the box, while searching, the conversation filters' summary line: *N of M match* and **Clear**. The Vault filter
+  is full-page only: the rail is too narrow for a second sheet's worth of state.
+- **Search.** Every word must match, case-insensitive. Matched words are wrapped in `<mark>` with a clay wash and the text
+  colour (never clay text, which means "a tap sends"). Typing never loses focus: search repaints only the rows, and full
+  rebuilds restore focus and caret. Esc clears. Search is not saved.
+- **Grouped orders.** Tasks by workspace, Vault by who can use it and by kind get `h3.list-group-head` headings with a
+  `--dim` count. Groups that a search empties are hidden.
+- **Who can use it, on the row.** A small dot plus words, first in the row's facts line (`.vault-who.who-<policy>`), not a
+  filled pill: the words carry the meaning and the dot lets the eye scan. Existing tokens only: Free rein `--warn` amber
+  (it "needs you" to notice it), Asks once per command `--accent-blue`, Asks every time `--accent-purple`, Only you
+  `--ok` green with a square dot so it reads without colour. Sorting by who can use it lists the least protected first:
+  Free rein, Asks once, Asks every time, Only you. On an install where every secret is Free rein, every dot is amber;
+  that is the honest state, and the small dot keeps it from shouting.
+- **Filter sheet.** `.opt` toggle rows (`aria-pressed`, the existing `.dot.on`) in two groups, **Who can use it** and
+  **Kind**, each with its count; **Clear filter** and a primary **Done**. Changes apply live behind the sheet.

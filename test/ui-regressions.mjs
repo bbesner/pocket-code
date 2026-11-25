@@ -1,4 +1,4 @@
-import {clickControl,elementShot,openSettingsPage} from './ui-controls.mjs';
+import {clickControl,elementShot,openSettingsPage,showSetting} from './ui-controls.mjs';
 // Browser regressions for the 1.7 audit. Uses the existing synthetic API server;
 // no real credentials, transcripts, providers or production processes are involved.
 import assert from 'node:assert/strict';
@@ -1575,7 +1575,10 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await clickControl(page,'#chatmore');await page.waitForSelector('#so-task');await page.keyboard.press('Escape');
    await clickControl(page,'[data-rail-view="tasks"]');await page.waitForSelector('#rail .rail-tasks .task-item');
    assert.deepEqual(await page.$$eval('#rail .rail-project-actions .chip',els=>els.map(e=>e.textContent.trim())),['Add task','All']);
-   assert.equal(await page.$eval('#rail-filter-toggle',e=>e.hidden),true,'session filters hide with the task list');
+   // 1.125: the rail's Filters toggle stays, folding the task list's search and sort.
+   assert.equal(await page.$eval('#rail-filter-toggle',e=>e.hidden),false,'the toggle folds the task search and sort');
+   assert.match(await page.$eval('#rail-filter-toggle',e=>e.getAttribute('aria-label')||e.textContent),/search and sort/);
+   assert.ok(await page.$('#rail #rail-task-query')&&await page.$('#rail #rail-task-sort'),'the rail has a search box and a sort button');
    await elementShot(await page.$('aside.rail'),{path:path.join(out,'rail-tasks.png')});
    await clickControl(page,'[data-rail-view="sessions"]');await page.waitForSelector('#rail .session-panel');
    await clickControl(page,'#splitb');await page.waitForSelector('.sheet [data-v="tasks"]');await page.keyboard.press('Escape');
@@ -1728,10 +1731,11 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
     return {text:c.querySelector('h3').textContent.replace(/\s+/g,' ').trim(),allow:a?.dataset.answer,allowText:a?.textContent,deny:c.querySelector('.vault-deny')?.dataset.answer,bg:getComputedStyle(a).backgroundColor,clay,h:a.getBoundingClientRect().height};});
    assert.equal(ask.text,'The agent in “Warehouse stock report” wants to use zeta-books for this command');
    assert.equal(ask.allow,'once');assert.equal(ask.allowText,'Allow once');assert.equal(ask.deny,'deny');assert.equal(ask.bg,ask.clay,'Allow is the brand orange');assert.ok(ask.h>=44,'Allow is a full-size button');
-   // Order: A–Z on request, remembered on the device; the search narrows the list by name, kind or tag.
+   // Order: A–Z on request, saved on the server for every device (1.125; it was per device); the search narrows the list by name, kind or tag.
    const shownNames=()=>page.$$eval('#vault-main .vault-secrets .vault-item:not([hidden]) [data-vault-open] .title',e=>e.map(x=>x.textContent));
    await page.select('#vault-order','name');await page.waitForFunction(()=>document.querySelector('#vault-main .vault-secrets .vault-item .title')?.textContent==='acme-oauth');
-   assert.deepEqual(await shownNames(),['acme-oauth','bank-recovery','square-hooks','vendor-portal','zeta-books']);assert.equal(await page.evaluate(()=>localStorage.getItem('pc-vault-order')),'name');
+   assert.deepEqual(await shownNames(),['acme-oauth','bank-recovery','square-hooks','vendor-portal','zeta-books']);for(let i=0;i<30&&settings.vaultOrder!=='name';i++)await sleep(100);assert.equal(settings.vaultOrder,'name','the order is saved for every device');
+   assert.equal(await page.$eval('#vtag',e=>e.textContent),'Secrets, A–Z','the header names the order');
    await page.select('#vault-order','new');await page.waitForFunction(()=>document.querySelector('#vault-main .vault-secrets .vault-item .title')?.textContent==='square-hooks');
    const query=async q=>{await page.$eval('#vault-query',(e,q)=>{e.value=q;e.dispatchEvent(new Event('input',{bubbles:true}));},q);};
    await query('billing');assert.deepEqual(await shownNames(),['zeta-books'],'a tag matches');assert.equal(await page.$eval('[data-vault-count]',e=>e.textContent),'1 of 5');
@@ -1826,6 +1830,110 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    const fresh=await page.evaluate(()=>{const r=[...document.querySelectorAll('#vault-main .vault-secrets .vault-item')][0];return {name:r?.querySelector('[data-vault-open] .title')?.textContent,mark:r?.querySelector('.vault-new')?.textContent,facts:r?.textContent.replace(/\s+/g,' ')};});
    assert.equal(fresh.name,'staging-wp','the newest is on top');assert.equal(fresh.mark,'New');assert.match(fresh.facts,/Added .* in Warehouse stock report/);
    await page.setViewport({width:1440,height:900});settings.vault=false;
+  });
+  await check('Sort and search (1.125): Tasks and Vault orders saved for every device, search with marks, the Vault filter and who-can-use-it colours, the rail row, Settings and the phone',async()=>{
+   await page.setViewport({width:1440,height:900});const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+   const settings=settingsState();settings.tasks=true;settings.vault=true;settings.vaultReady=true;delete settings.tasksOrder;delete settings.vaultOrder;
+   await page.evaluate(()=>Promise.all([fetch('/api/tasks/reset',{method:'POST'}),fetch('/api/vault/reset',{method:'POST'})]));
+   await page.goto(base+'/#/tasks');await page.reload();await page.waitForSelector('#tk-order');
+   // Tasks: the default is Due first, and the header says so.
+   assert.equal(await page.$eval('#tk-order',e=>e.value),'due');assert.equal(await page.$eval('#ktag',e=>e.textContent),'To do, due first');
+   const taskTitles=()=>page.$$eval('#tk-list .project-group:not(details) .task-item .title',l=>l.map(e=>e.textContent));
+   assert.deepEqual((await taskTitles()).filter(t=>!/forklift/.test(t)).slice(0,3),['Send the aisle 4 recount to purchasing','Chase the revised camera quote','Read the Lumacam firmware notes'],'due first, undated last');
+   // A–Z, saved on the server.
+   await page.select('#tk-order','name');await page.waitForFunction(()=>document.querySelector('#ktag')?.textContent==='To do, A–Z');
+   for(let i=0;i<30&&settings.tasksOrder!=='name';i++)await sleep(100);assert.equal(settings.tasksOrder,'name','the order is saved for every device');
+   const az=await taskTitles();assert.deepEqual(az.slice().sort((a,b)=>a.localeCompare(b)),az,'A–Z');
+   // Workspace: a heading per workspace, No workspace last.
+   await page.select('#tk-order','workspace');await page.waitForSelector('#tk-list .list-group-head');
+   const heads=await page.$$eval('#tk-list .list-group-head',l=>l.map(e=>e.firstChild.textContent.trim()));
+   assert.ok(heads.includes('No workspace'),'undirected tasks gather under No workspace');assert.equal(heads.filter(h=>h!=='Project reminders').at(-1),'No workspace','No workspace is last');
+   // Search: every word must match, the words are marked, the cursor stays, Done opens when a done task matches, Esc clears.
+   await page.focus('#tk-query');await page.keyboard.type('camera quote');await page.waitForFunction(()=>document.querySelectorAll('#tk-list .project-group:not(details) .task-item').length===1);
+   assert.deepEqual(await page.$$eval('#tk-list .task-item mark',l=>l.map(e=>e.textContent.toLowerCase())),['camera','quote']);
+   assert.equal(await page.evaluate(()=>document.activeElement?.id),'tk-query','typing keeps the cursor in the box');
+   await page.$eval('#tk-query',e=>{e.value='forklift';e.dispatchEvent(new Event('input',{bubbles:true}));});await page.waitForSelector('#tk-list details[open] .task-item');
+   await page.$eval('#tk-query',e=>{e.value='nothing like this';e.dispatchEvent(new Event('input',{bubbles:true}));});
+   await page.waitForFunction(()=>/No tasks match “nothing like this”\./.test(document.querySelector('#tk-list')?.textContent||''));
+   await page.focus('#tk-query');await page.keyboard.press('Escape');assert.equal(await page.$eval('#tk-query',e=>e.value),'');
+   await page.waitForFunction(()=>document.querySelectorAll('#tk-list .task-item').length>=3);
+   await scan('list-sort-tasks-desktop');await page.screenshot({path:path.join(out,'list-sort-tasks-desktop.png')});
+   // The rail: one compact row, a count line with Clear, and the sort sheet that saves the same setting.
+   await clickControl(page,'[data-rail-view="tasks"]');await page.waitForSelector('#rail #rail-task-query');
+   await page.focus('#rail-task-query');await page.keyboard.type('aisle');await page.waitForFunction(()=>document.querySelectorAll('#rail .rail-task-rows .task-item').length===1);
+   assert.match(await page.$eval('#rail .list-summary span',e=>e.textContent),/^1 of \d+ match$/);
+   assert.equal(await page.evaluate(()=>document.activeElement?.id),'rail-task-query');
+   await clickControl(page,'#rail-task-clear');await page.waitForFunction(()=>document.querySelectorAll('#rail .rail-task-rows .task-item').length>=3&&document.querySelector('#rail .list-summary').hidden);
+   const railRow=await page.$eval('#rail .rail-list-tools',e=>{const r=e.querySelector('.session-search').getBoundingClientRect(),k=[...e.children].map(c=>c.getBoundingClientRect().top);return {h:r.height,one:Math.max(...k)-Math.min(...k)<2};});
+   assert.ok(railRow.one,'search and sort share one row');assert.ok(railRow.h<=44,`the rail search box stays compact (${railRow.h}px)`);
+   assert.match(await page.$eval('#rail-task-sort',e=>e.getAttribute('aria-label')),/^Sort: Workspace\. Change the order$/);
+   await clickControl(page,'#rail-task-sort');await page.waitForSelector('.sheet .opt[data-v="due"]');
+   assert.match(await page.$eval('.sheet .sheet-note',e=>e.textContent),/on every device.*Settings → Features → Tasks/);
+   await clickControl(page,'.sheet .opt[data-v="due"]');for(let i=0;i<30&&settings.tasksOrder!=='due';i++)await sleep(100);assert.equal(settings.tasksOrder,'due');
+   await page.waitForFunction(()=>document.querySelector('#tk-order')?.value==='due','the page follows the rail');
+   await elementShot(await page.$('aside.rail'),{path:path.join(out,'list-sort-rail-tasks.png')});
+   // The toggle folds the row away.
+   await clickControl(page,'#rail-filter-toggle');assert.equal(await page.$eval('#rail-filter-controls',e=>e.hidden),true);await clickControl(page,'#rail-filter-toggle');
+   await clickControl(page,'[data-rail-view="sessions"]');await page.waitForSelector('#rail .session-panel');
+   // The Vault: a device that had A–Z hands it to the server once.
+   await page.goto(base+'/#/vault');await page.evaluate(()=>localStorage.setItem('pc-vault-order','name'));await page.reload();await page.waitForSelector('#vault-order');
+   for(let i=0;i<30&&settings.vaultOrder!=='name';i++)await sleep(100);assert.equal(settings.vaultOrder,'name','the old per-device order moved to the server');
+   await page.waitForFunction(()=>localStorage.getItem('pc-vault-order')===null);assert.equal(await page.$eval('#vault-order',e=>e.value),'name');
+   // Who can use it: least protected first, a heading per group, and the coloured mark on every row.
+   await page.select('#vault-order','who');await page.waitForSelector('#vault-main .vault-group .list-group-head');
+   for(let i=0;i<30&&settings.vaultOrder!=='who';i++)await sleep(100);assert.equal(settings.vaultOrder,'who');
+   assert.equal(await page.$eval('#vtag',e=>e.textContent),'Secrets, by who can use it');
+   const who=await page.evaluate(()=>[...document.querySelectorAll('#vault-main .vault-group')].map(g=>({head:g.querySelector('.list-group-head').firstChild.textContent.trim(),names:[...g.querySelectorAll('.vault-item [data-vault-open] .title')].map(e=>e.textContent),marks:[...g.querySelectorAll('.vault-item .vault-who')].map(e=>e.className)})));
+   assert.deepEqual(who.map(g=>g.head),['Free rein','Asks once per command','Only you']);
+   assert.deepEqual(who.map(g=>g.names),[['vendor-portal'],['acme-oauth','square-hooks','zeta-books'],['bank-recovery']]);
+   assert.ok(who.every(g=>g.marks.length===g.names.length),'every row carries its mark');
+   const dots=await page.evaluate(()=>{const c=s=>{const p=document.createElement('i');p.style.color=s;document.body.append(p);const v=getComputedStyle(p).color;p.remove();return v;};
+    const dot=cls=>getComputedStyle(document.querySelector('#vault-main .vault-item .vault-who.'+cls),'::before').backgroundColor;return {auto:[dot('who-auto'),c('var(--warn)')],ask:[dot('who-ask'),c('var(--accent-blue)')],owner:[dot('who-owner'),c('var(--ok)')]};});
+   for(const [k,[got,want]] of Object.entries(dots))assert.equal(got,want,`the ${k} dot uses its colour`);
+   assert.equal(await page.$eval('#vault-main .vault-item .vault-who.who-auto',e=>e.textContent.trim()),'Free rein','words beside the dot');
+   await scan('list-sort-vault-who-desktop');await page.screenshot({path:path.join(out,'list-sort-vault-who-desktop.png')});
+   // Search by who can use it.
+   const shown=()=>page.$$eval('#vault-main .vault-secrets .vault-item:not([hidden]) [data-vault-open] .title',l=>l.map(e=>e.textContent));
+   await page.$eval('#vault-query',e=>{e.value='free rein';e.dispatchEvent(new Event('input',{bubbles:true}));});assert.deepEqual(await shown(),['vendor-portal'],'the words of who can use it match');
+   assert.equal(await page.$$eval('#vault-main .vault-group',l=>l.filter(g=>!g.hidden).length),1,'empty groups hide');
+   await page.$eval('#vault-query',e=>{e.value='';e.dispatchEvent(new Event('input',{bubbles:true}));});
+   // The filter: Who and Kind, the chip names it, the summary line clears it.
+   await clickControl(page,'#vault-filter');await page.waitForSelector('.vault-filter-sheet');
+   assert.match(await page.$eval('.vault-filter-sheet [data-f="ask"] .sub',e=>e.textContent),/^3 secrets$/);
+   await clickControl(page,'.vault-filter-sheet [data-f="ask"]');assert.deepEqual(await shown(),['acme-oauth','square-hooks','zeta-books']);
+   await clickControl(page,'.vault-filter-sheet [data-f="api_key"]');assert.deepEqual(await shown(),['square-hooks','zeta-books'],'both groups apply');
+   await scan('list-filter-sheet');await clickControl(page,'.vault-filter-sheet [data-f-done]');await page.waitForFunction(()=>!document.querySelector('.vault-filter-sheet'));
+   assert.match(await page.$eval('#vault-filter',e=>e.textContent),/Filter · /);assert.equal(await page.$eval('#vault-filter',e=>e.classList.contains('set')),true);
+   assert.equal(await page.$eval('[data-vault-count]',e=>e.textContent),'2 of 5');
+   await clickControl(page,'#vault-clear');assert.equal((await shown()).length,5,'Clear shows every secret');
+   // The rail: search marks matches.
+   await clickControl(page,'[data-rail-view="vault"]');await page.waitForSelector('#rail #rail-vault-query');
+   await page.focus('#rail-vault-query');await page.keyboard.type('portal');
+   await page.waitForFunction(()=>document.querySelectorAll('#rail .rail-vault-rows .vault-item').length===1);
+   assert.equal(await page.$eval('#rail .rail-vault-rows .vault-item mark',e=>e.textContent),'portal');
+   assert.equal(await page.evaluate(()=>document.activeElement?.id),'rail-vault-query');
+   await clickControl(page,'#rail-vault-sort');await page.waitForSelector('.sheet .opt[data-v="new"]');await clickControl(page,'.sheet .opt[data-v="new"]');
+   for(let i=0;i<30&&settings.vaultOrder!=='new';i++)await sleep(100);assert.equal(settings.vaultOrder,'new');
+   await elementShot(await page.$('aside.rail'),{path:path.join(out,'list-sort-rail-vault.png')});
+   await page.$eval('#rail-vault-query',e=>{e.value='';e.dispatchEvent(new Event('input',{bubbles:true}));});
+   await clickControl(page,'[data-rail-view="sessions"]');await page.waitForSelector('#rail .session-panel');
+   // Settings shows the same two values and changes them.
+   await showSetting(page,'#s-tasks-order');assert.equal(await page.$eval('#s-tasks-order',e=>e.value),'due');
+   await page.select('#s-tasks-order','old');for(let i=0;i<30&&settings.tasksOrder!=='old';i++)await sleep(100);assert.equal(settings.tasksOrder,'old');
+   await showSetting(page,'#s-vault-order');assert.equal(await page.$eval('#s-vault-order',e=>e.value),'new');
+   await page.select('#s-vault-order','kind');for(let i=0;i<30&&settings.vaultOrder!=='kind';i++)await sleep(100);assert.equal(settings.vaultOrder,'kind');
+   await scan('list-order-settings');await page.keyboard.press('Escape');
+   await page.waitForFunction(()=>document.querySelector('#vault-order')?.value==='kind');
+   assert.deepEqual(await page.$$eval('#vault-main .vault-group .list-group-head',l=>l.map(e=>e.firstChild.textContent.trim())),['Logins','API keys','Credentials','Secure notes']);
+   // The phone: no rail, the full-screen lists carry both controls and nothing overflows.
+   await page.setViewport({width:390,height:844,isMobile:true,hasTouch:true});
+   for(const [hash,sel] of [['#/tasks','#tk-query'],['#/vault','#vault-query']]){
+    await page.goto(base+'/'+hash);await page.reload();await page.waitForSelector(sel);
+    const fit=await page.evaluate(()=>({over:document.documentElement.scrollWidth-innerWidth,small:[...document.querySelectorAll('.list-tools input, .list-tools select, .list-tools button, .vault-tools button')].filter(e=>e.getClientRects().length&&e.getBoundingClientRect().height<44).map(e=>e.id||e.className)}));
+    assert.ok(fit.over<=0,hash+' does not scroll sideways');assert.deepEqual(fit.small,[],hash+' controls are 44px tall on touch');
+    await scan('list-sort-phone-'+hash.slice(2));await page.screenshot({path:path.join(out,'list-sort-phone-'+hash.slice(2)+'.png')});
+   }
+   await page.setViewport({width:1440,height:900});delete settings.tasksOrder;delete settings.vaultOrder;settings.tasks=false;settings.vault=false;
   });
   await check('Vault custom fields (1.39.1): Credentials and custom fields in the sheet, the editor adds them, an edit removes one, a bad name is refused inline',async()=>{
    await page.setViewport({width:1440,height:900});const settings=settingsState();settings.vault=true;settings.vaultReady=true;
@@ -2995,7 +3103,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
      await page.setViewport({width:w,height:h});await page.goto(base+'/#/');await open();await features();
      assert.equal(await page.$eval('.sheet h2',e=>e.textContent.trim()),'Features');
      assert.deepEqual(await page.$$eval('#s-features-list > *',es=>es.filter(e=>e.getClientRects().length).map(e=>e.id||e.dataset.feature)),['s-features-lead','f-projects','f-files','f-tasks','inbox','f-vault','f-checkbacks','f-jobs','f-router'],'the lead, the switches, then Automatic model choice, in that order at '+w);
-     assert.deepEqual(await page.$$eval('#s-features-list .feature-open',es=>es.filter(e=>e.getClientRects().length).map(e=>e.dataset.settingsCategory)),['f-tasks','f-checkbacks','f-jobs'],'a › only where its page has something in Assistant mode (1.124.9)');
+     assert.deepEqual(await page.$$eval('#s-features-list .feature-open',es=>es.filter(e=>e.getClientRects().length).map(e=>e.dataset.settingsCategory)),['f-tasks','f-vault','f-checkbacks','f-jobs'],'a › only where its page has something in Assistant mode (1.124.9; 1.125: the Vault page holds Default order)');
      assert.equal(await page.$eval('#s-features-note',e=>e.textContent),'Switch on what you want to use. Each one adds its own place beside your conversations.');
      assert.equal(await shown('.feature-open[data-settings-category=inbox]'),false,'no › for Inbox Watch while it is off');assert.equal(await shown('#s-trusted'),false,'only Automatic model choice comes along, not the rest of Agents & instance');
      for(const t of ['light','dark']){await theme(t);await scan(`assistant-features-${w}-${t}`);await page.screenshot({path:path.join(out,`assistant-features-${w}-${t}.png`)});}

@@ -1698,7 +1698,6 @@ header.bar .chat-statebar { border: 0; background: none; padding: 0; order: 10; 
 .vault-notice:focus { outline: none; }
 /* Finding a secret: search and order over the list, a New mark for a day, and a short highlight on the row a link opened. */
 .vault-tools { padding-top: 0; }
-.vault-order { flex: 0 1 170px; }
 .vault-secrets .vault-item[hidden] { display: none; }
 .vault-new { display: inline-block; margin-left: 8px; padding: 0 7px; border: 1px solid var(--clay); border-radius: 999px; color: var(--clay); font-size: 11.5px; font-weight: 650; line-height: 18px; vertical-align: 1px; }
 .vault-item, .vault-request { transition: background-color .9s ease-out, box-shadow .9s ease-out; }
@@ -2593,3 +2592,39 @@ a.job-run:hover { background: var(--raised); }
 .settings-index > .settings-scope:first-child { margin-top: 4px; }
 .settings-hit { outline: 2px solid var(--clay); outline-offset: 2px; border-radius: 12px; }
 .settings-sheet > .settings-unplaced { display: none !important; } /* rows this mode leaves out, and Inbox Watch's button (its › in Features opens it) */
+
+/* 1.125: sort and search for Tasks and the Vault (listtools.js). The rail gets one compact row, a search box and a sort
+   button, folded by the rail's Filters toggle; the full page gets the search box, a Sort select and, in the Vault, a Filter
+   chip. Who can use a secret leads its row's facts as a dot and its words: amber Free rein (agents use it without asking),
+   blue Asks once per command, purple Asks every time, green Only you (square). Colours are existing tokens; clay stays for
+   "a tap sends". Matched search words get the same wash as Find in conversation. */
+.list-tools { align-items: flex-end; } /* the Sort label sits above its select; search and Filter line up with the select */
+.list-order { flex: 0 1 190px; }
+.list-filter { min-height: 44px; max-width: 100%; }
+.list-filter > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-list-tools { display: flex; align-items: center; gap: 8px; padding: 6px 14px 8px; }
+.rail-list-tools[hidden] { display: none; }
+.rail-list-tools .session-search { flex: 1; min-width: 0; margin: 0; min-height: 44px; padding: 0 10px; gap: 8px; background: var(--bg); }
+.rail-list-tools .session-search input { padding: 8px 0; font-size: 14.5px; }
+.list-sort { flex: none; width: 44px; height: 44px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 10px; color: var(--dim); background: var(--bg); }
+.list-sort:hover { color: var(--text); }
+@media (pointer: fine) {
+  .rail-list-tools .session-search { min-height: 36px; }
+  .list-sort { width: 36px; height: 36px; }
+}
+.list-summary { padding: 0 14px 4px; }
+.vault-tools ~ .list-summary { padding: 0 18px 4px; font-size: 13px; }
+.list-group-head { display: flex; align-items: center; gap: 8px; margin: 0; padding: 14px 18px 6px; font-size: 14px; font-weight: 650; color: var(--text); }
+.list-group-head > span:last-child { color: var(--dim); font-weight: 400; }
+.rail-projects .list-group-head { padding: 12px 14px 4px; font-size: 13.5px; }
+.vault-group[hidden] { display: none; }
+.session-item mark { background: color-mix(in srgb, var(--clay) 28%, transparent); color: var(--text); border-radius: 3px; }
+.vault-who { display: inline-flex; align-items: center; gap: 5px; font-weight: 550; }
+.vault-who::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.vault-who.who-auto { color: var(--warn); }
+.vault-who.who-ask { color: var(--accent-blue); }
+.vault-who.who-every { color: var(--accent-purple); }
+.vault-who.who-owner { color: var(--ok); }
+.vault-who.who-owner::before { border-radius: 2px; }
+.list-filter-head { margin: 0; padding: 12px 14px 4px; font-size: 13px; font-weight: 600; color: var(--dim); }
+.vault-filter-sheet > .primary { margin-top: 10px; }

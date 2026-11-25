@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.124.10
+checked: 1.125.0
 sources: context-policy.mjs, automation.mjs, job-keys.mjs, cli-updates.mjs, self-update.mjs, scripts/pocket-self-update.sh, public/cli-updates.js, public/app.js, public/workspace.js, public/theme.js, public/voice.js, server.mjs, router.mjs, access.mjs
 -->
 # Settings
@@ -305,11 +305,12 @@ Developer mode only.
 
 ### Tasks page
 
-All your devices. Both rows are about what Tasks lists from other features, and each applies only
-while its feature is on.
+All your devices. The two **Show** rows are about what Tasks lists from other features, and each
+applies only while its feature is on.
 
 | Control | What it does | Default | Stored |
 |---|---|---|---|
+| **Default order** | The order Tasks opens in: **Due first**, **Newest added**, **Oldest added**, **A–Z** or **Workspace**. Picking an order in the list changes this too. See [Sort and search](tasks.md#sort-and-search) | **Due first** | Server (`tasksOrder`) |
 | **Show check-backs in Tasks** | Lists waiting check-backs in Tasks, where you can see and cancel them | On | Server (`automation`) |
 | **Show job keys in Tasks** | Adds a **Jobs** group to Tasks: each key, whether it is on, its last run and any requests waiting for you | On | Server (`automation`) |
 
@@ -327,6 +328,7 @@ Pocket's own description of each row is on the sheet.
 | Control | What it does | Default | Stored |
 |---|---|---|---|
 | **Restore key…** (only when the key is missing) | The Vault's key is missing on this server. Restore it from your recovery key or file | | |
+| **Default order** (Vault on) | The order the Vault's secrets open in: **Newest first**, **A–Z**, **Who can use it**, **Recently used**, **Kind** or **Expiring soonest**. Picking an order in the list changes this too. See [Find a secret](vault.md#find-a-secret) | **Newest first** | Server (`vaultOrder`) |
 | **Agent access** (Developer mode, Vault on) | What happens when an agent wants a stored secret: **Free rein** uses it, **Ask once per command** has you allow each new command once, **Ask every time** has you allow every use. Each item can override this | **Ask once per command** | Server |
 | **Passphrase** (Developer mode, Vault on) | Adds a passphrase you type to unlock the Vault after a restart or a lock. Without one, the Vault opens with its key alone. **Set a passphrase**, **Change passphrase**, **Remove passphrase**, **Lock now**, **Unlock…**, **Download recovery key** and **Rotate key** are here | Server key | Server |
 | **Lock after** (with a passphrase) | Locks the Vault after this long without anyone using it: **Never**, 15 minutes, 1 hour, 8 hours or 24 hours. It always locks after a restart | **Never** | Server |

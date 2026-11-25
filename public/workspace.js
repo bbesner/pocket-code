@@ -191,7 +191,8 @@ function paintWorkspaceDensity(){
  reportWorkspaceChrome();
  const toggle=document.getElementById('rail-filter-toggle'),controls=document.getElementById('rail-filter-controls');
  if(toggle){
-  const label=(railFiltersCollapsed?'Expand':'Collapse')+' conversation filters';
+  const what=typeof railView==='function'&&railView()!=='sessions'?'search and sort':'conversation filters'; // 1.125
+  const label=(railFiltersCollapsed?'Expand':'Collapse')+' '+what;
   toggle.setAttribute('aria-expanded',String(!railFiltersCollapsed));toggle.setAttribute('aria-label',label);toggle.title=label;
   toggle.innerHTML='Filters '+(railFiltersCollapsed?IC.down1:IC.up1);
  }
@@ -835,8 +836,8 @@ function organizeSettings(sh, {category='',scrollTop=0}={}) {
   ['help','Help & updates',am?'Version and what’s new':'Keyboard shortcuts, version, what’s new and feedback',[['',['!#s-keys','#s-about','#s-notes','!#s-feedback']]]],
   ['f-projects','Projects','',[[DEVICE,['!^#s-projects-open']]],'features'],
   ['f-files','Files','',[[ALL,['!#s-autokeep']],[DEVICE,['!^#s-files-button','!^#s-documents-open']]],'features'],
-  ['f-tasks','Tasks','',[[ALL,['#s-tasks-auto']]],'features'],
-  ['f-vault','Vault','',[[ALL,['#s-vault-restore-wrap','!#s-vault-more','!#s-secrets']]],'features'],
+  ['f-tasks','Tasks','',[[ALL,['#s-tasks-order-wrap','#s-tasks-auto']]],'features'],
+  ['f-vault','Vault','',[[ALL,['#s-vault-restore-wrap','#s-vault-order-wrap','!#s-vault-more','!#s-secrets']]],'features'],
   ['f-checkbacks','Check-backs','',[[ALL,['#s-checkbacks-auto']]],'features'],
   ['f-jobs','Job keys','',[[ALL,['#s-jobs-auto']]],'features'],
   ['f-router','Automatic model choice','',[[ALL,['!#s-router']]],'features'],
