@@ -11,7 +11,7 @@ const taskById=id=>tasksSnap?.tasks.find(t=>t.id===id)||null;
 async function loadTasks(force){
  if(!force&&tasksSnap&&Date.now()-tasksAt<4000)return tasksSnap;
  if(tasksLoading)return tasksLoading;
- tasksLoading=api('/tasks',{signal:AbortSignal.timeout(8000)}).then(s=>{tasksSnap=s;tasksAt=Date.now();return s;}).finally(()=>{tasksLoading=null;});
+ tasksLoading=api('/tasks',{signal:AbortSignal.timeout(8000)}).then(s=>{if(tasksSnap?.orderPending)s.order=tasksSnap.order;tasksSnap=s;tasksAt=Date.now();return s;}).finally(()=>{tasksLoading=null;});
  return tasksLoading;
 }
 // Keep the local list in the server's order: open tasks due first then newest, finished ones last.
@@ -72,46 +72,104 @@ const tasksPainted=new WeakMap(); // 1.119: the list's HTML as last written
 function paintTasksView(){
  const main=$('#tasks-main');if(!main||!tasksSnap||!taskView)return;
  const html=taskListHTML();
+ const tag=$('#ktag');if(tag)tag.textContent=taskOrderTag(); // 1.125: the header names the order
  if(tasksPainted.get(main)!==html||main.querySelector('button:disabled')){ // 1.119: a refresh that changes nothing leaves the rows alone
-  main.innerHTML=html;tasksPainted.set(main,html);
-  bindTaskRows(main);
+  ListTools.keepFocus(main,()=>{main.innerHTML=html;});tasksPainted.set(main,html);
+  bindTaskBody(main);
   bindKeptAside(main,tasksSnap,paintTasksView); // 1.124.5
-  if(typeof CheckBacks!=='undefined')CheckBacks.bindTasks(main);
-  if(typeof JobKeys!=='undefined')JobKeys.bindTasks(main);
   main.querySelector('#tk-add')?.addEventListener('click',()=>taskEditor(null));
+  ListTools.bindSearch(main.querySelector('#tk-query'),v=>{ // 1.125: repaint the list under the box, not the box
+   taskQuery=v;const list=main.querySelector('#tk-list');if(!list)return;
+   list.innerHTML=taskBodyHTML();bindTaskBody(list);tasksPainted.set(main,taskListHTML());
+  });
+  const order=main.querySelector('#tk-order');if(order)order.onchange=()=>setTaskOrder(order.value);
  }
  paintTaskBadges();
  if(typeof paintOpenSessions==='function')paintOpenSessions();
 }
-function taskRowHTML(t){
- const where=t.session?esc(t.sessionTitle||sessionName(t.session)):'';
+// ws (1.125): the search words, marked in the row's text and its conversation.
+function taskRowHTML(t,ws=[]){
+ const where=t.session?ListTools.mark(t.sessionTitle||sessionName(t.session),ws):'';
  const facts=[t.dueAt?`<span class="${t.due?'due-label':''}">${esc(taskWhen(t))}</span>`:'',where?`<span>${where}</span>`:'',t.summary?'<span>With context</span>':''].filter(Boolean).join('<span aria-hidden="true">·</span>');
  return `<div class="session-item task-item ${t.done?'finished':''} ${t.due?'due':''}" data-item="${esc(t.id)}">
   <button class="task-check" data-task-check="${esc(t.id)}" aria-label="${t.done?'Reopen':'Mark done'}: ${esc(t.text)}" aria-pressed="${t.done}">${t.done?IC.tick:IC.task}</button>
-  <button class="row" data-task-open="${esc(t.id)}"><span class="body"><span class="title">${esc(t.text)}</span>${facts?`<span class="session-status">${facts}</span>`:''}</span></button>
+  <button class="row" data-task-open="${esc(t.id)}"><span class="body"><span class="title">${ListTools.mark(t.text,ws)}</span>${facts?`<span class="session-status">${facts}</span>`:''}</span></button>
   <button class="session-more icon" data-task-more="${esc(t.id)}" aria-label="Options for ${esc(t.text)}">${IC.more}</button></div>`;
 }
 // A project reminder in the list (1.50): the hourglass opens its options (Remind later, Dismiss), the row opens the card.
-function reminderRowHTML(r){
- const facts=[`<span class="${r.due?'due-label':''}">${r.due?'Due ':''}${esc(fmtDue(r.dueAt))}</span>`,`<span>${esc(r.projectName)}</span>`,r.taskText&&r.taskText!==r.label?`<span>${esc(r.taskText)}</span>`:''].filter(Boolean).join('<span aria-hidden="true">·</span>');
+function reminderRowHTML(r,ws=[]){
+ const facts=[`<span class="${r.due?'due-label':''}">${r.due?'Due ':''}${esc(fmtDue(r.dueAt))}</span>`,`<span>${ListTools.mark(r.projectName,ws)}</span>`,r.taskText&&r.taskText!==r.label?`<span>${ListTools.mark(r.taskText,ws)}</span>`:''].filter(Boolean).join('<span aria-hidden="true">·</span>');
  return `<div class="session-item task-item reminder-item ${r.due?'due':''}" data-item="${esc(r.id)}">
   <button class="task-check" data-reminder-more="${esc(r.project)}/${esc(r.id)}" aria-label="Reminder options: ${esc(r.label)}">${IC.hourglass}</button>
-  <a class="row" href="${viewHref('projects/'+r.project)}" data-reminder-open="${esc(r.project)}"><span class="body"><span class="title">${esc(r.label)}</span><span class="session-status">${facts}</span></span></a>
+  <a class="row" href="${viewHref('projects/'+r.project)}" data-reminder-open="${esc(r.project)}"><span class="body"><span class="title">${ListTools.mark(r.label,ws)}</span><span class="session-status">${facts}</span></span></a>
   <button class="session-more icon" data-reminder-more="${esc(r.project)}/${esc(r.id)}" aria-label="Options for reminder ${esc(r.label)}">${IC.more}</button></div>`;
 }
-// Open tasks and project reminders in one order: everything with a time, soonest first (so the due ones lead), then the undated tasks.
-function openRows(){
- const open=tasksSnap.tasks.filter(t=>!t.done),dated=open.filter(t=>t.dueAt).map(t=>({at:Date.parse(t.dueAt),html:taskRowHTML(t)})),rems=dueReminders().map(r=>({at:Date.parse(r.dueAt),html:reminderRowHTML(r)}));
- return [...dated,...rems].sort((a,b)=>a.at-b.at).map(x=>x.html).concat(open.filter(t=>!t.dueAt).map(taskRowHTML));
+
+/* ---------- order and search (1.125, Damon's request; listtools.js) ---------- */
+// [value, label, what it does, the words in the header after "To do, "]. The first is the default.
+const TASK_ORDERS=[['due','Due first','Dated tasks and reminders soonest first, then undated ones, newest first','due first'],
+ ['new','Newest added','The task added most recently first','newest first'],['old','Oldest added','The oldest task first','oldest first'],
+ ['name','A–Z','By the task’s text','A–Z'],['workspace','Workspace','Grouped by workspace, due first in each','by workspace']];
+const taskOrder=()=>TASK_ORDERS.some(([v])=>v===tasksSnap?.order)?tasksSnap.order:'due';
+const taskOrderTag=()=>'To do, '+TASK_ORDERS.find(([v])=>v===taskOrder())[3];
+let taskQuery='',railTaskQuery=''; // the full page's search and the rail's, each its own
+async function setTaskOrder(v){
+ if(!tasksSnap||!TASK_ORDERS.some(([o])=>o===v))return;
+ const was=tasksSnap.order;tasksSnap.order=v;tasksSnap.orderPending=true;paintTasksView();paintRailTasks(); // a refresh while it saves keeps it
+ const ok=await ListTools.saveOrder('tasksOrder',v);if(tasksSnap){tasksSnap.orderPending=false;if(!ok){tasksSnap.order=was;paintTasksView();paintRailTasks();}}
+}
+// What a search looks through: a task's text, its context, its conversation and its workspace; a reminder's name, project and step.
+const taskSearchText=t=>[t.text,t.summary||'',t.session?t.sessionTitle||sessionName(t.session):'',t.directory?projName(t.directory):''].join(' ').toLowerCase();
+const reminderSearchText=r=>[r.label,r.projectName||'',r.taskText||''].join(' ').toLowerCase();
+const byDue=(a,b)=>(a.dueAt&&b.dueAt)?Date.parse(a.dueAt)-Date.parse(b.dueAt):a.dueAt?-1:b.dueAt?1:Date.parse(b.created)-Date.parse(a.created);
+const byText=(a,b)=>a.localeCompare(b,undefined,{sensitivity:'base',numeric:true});
+// To do in the chosen order, as groups: [{head, due, rows}] (head '' for an unheaded run). Due first keeps 1.50's one
+// timeline of tasks and project reminders; the other orders sort the tasks and gather reminders, which have no "added"
+// date, in a Project reminders group after them, soonest first.
+function todoGroups(ws=[]){
+ const open=tasksSnap.tasks.filter(t=>!t.done&&(!ws.length||ListTools.matches(taskSearchText(t),ws)));
+ const rems=dueReminders().filter(r=>!ws.length||ListTools.matches(reminderSearchText(r),ws));
+ const row=t=>taskRowHTML(t,ws),o=taskOrder();
+ if(o==='due'){
+  const dated=open.filter(t=>t.dueAt).map(t=>({at:Date.parse(t.dueAt),html:row(t)})),rs=rems.map(r=>({at:Date.parse(r.dueAt),html:reminderRowHTML(r,ws)}));
+  const rows=[...dated,...rs].sort((a,b)=>a.at-b.at).map(x=>x.html).concat(open.filter(t=>!t.dueAt).sort(byDue).map(row));
+  return rows.length?[{head:'',due:0,rows}]:[];
+ }
+ const remGroup=rems.length?[{head:'Project reminders',due:rems.filter(r=>r.due).length,rows:rems.slice().sort((a,b)=>Date.parse(a.dueAt)-Date.parse(b.dueAt)).map(r=>reminderRowHTML(r,ws))}]:[];
+ if(o==='workspace'){
+  const by=new Map();for(const t of open){const k=t.directory?projName(t.directory):'';if(!by.has(k))by.set(k,[]);by.get(k).push(t);}
+  const keys=[...by.keys()].sort((a,b)=>!a?1:!b?-1:byText(a,b)); // No workspace last
+  return keys.map(k=>({head:k||'No workspace',due:by.get(k).filter(t=>t.due).length,rows:by.get(k).sort(byDue).map(row)})).concat(remGroup);
+ }
+ const cmp=o==='new'?(a,b)=>Date.parse(b.created)-Date.parse(a.created):o==='old'?(a,b)=>Date.parse(a.created)-Date.parse(b.created):(a,b)=>byText(a.text,b.text);
+ return (open.length?[{head:'',due:0,rows:open.sort(cmp).map(row)}]:[]).concat(remGroup);
+}
+const groupHeadHTML=g=>g.head?`<h3 class="list-group-head">${esc(g.head)} <span>${g.rows.length}${g.due?` · ${g.due} due`:''}</span></h3>`:'';
+const groupsHTML=groups=>groups.map(g=>groupHeadHTML(g)+g.rows.join('')).join('');
+const doneMatches=ws=>tasksSnap.tasks.filter(t=>t.done&&(!ws.length||ListTools.matches(taskSearchText(t),ws)));
+// Open tasks and project reminders in one order (kept for callers from before 1.125): the rows of every group.
+function openRows(){return todoGroups().flatMap(g=>g.rows);}
+// The page's list under its toolbar; a search repaints only this, so typing never rebuilds the box under the cursor.
+function taskBodyHTML(){
+ const ws=ListTools.words(taskQuery),groups=todoGroups(ws),count=groups.reduce((n,g)=>n+g.rows.length,0),done=doneMatches(ws),due=dueTotal();
+ const withProjects=typeof projectsOn==='function'&&projectsOn();
+ const checkbacks=ws.length?'':(typeof CheckBacks!=='undefined'?CheckBacks.tasksHTML(tasksSnap):'')+(typeof JobKeys!=='undefined'?JobKeys.tasksHTML(tasksSnap):''); // 1.119: read-only, between the to-dos and Done (1.124: then the Jobs group); not while searching
+ if(ws.length&&!count&&!done.length)return `<p class="sheet-help project-empty" role="status">No tasks match “${esc(taskQuery.trim())}”.</p>`;
+ const any=count||done.length||tasksSnap.tasks.length||dueReminders().length;
+ if(!any)return `<p class="sheet-help project-empty">No tasks yet. Add one here, from a conversation's Add task chip, or by telling an agent "create a task to …". A task can carry a date and the context of the conversation it came from, and Start opens a new conversation with it.${withProjects?' Project reminders appear here too, when a project has one.':''}</p>${checkbacks}`;
+ return `${count?`<section class="session-group project-group"><h2>To do <span>${count}${!ws.length&&due?` · ${due} due`:''}</span></h2>${groupsHTML(groups)}</section>`:ws.length?'':'<p class="sheet-help project-empty">Nothing to do. Add a task here, or from a conversation with Add task.</p>'}
+  ${checkbacks}${done.length?`<details class="session-group project-group settings-details"${ws.length?' open':''}><summary><h2>Done <span>${done.length}</span></h2></summary>${done.map(t=>taskRowHTML(t,ws)).join('')}</details>`:''}`;
 }
 function taskListHTML(){
- const open=tasksSnap.tasks.filter(t=>!t.done),done=tasksSnap.tasks.filter(t=>t.done),rems=dueReminders(),due=dueTotal(),count=open.length+rems.length;
- const withProjects=typeof projectsOn==='function'&&projectsOn();
- const checkbacks=(typeof CheckBacks!=='undefined'?CheckBacks.tasksHTML(tasksSnap):'')+(typeof JobKeys!=='undefined'?JobKeys.tasksHTML(tasksSnap):''); // 1.119: read-only, between the to-dos and Done (1.124: then the Jobs group)
+ const has=tasksSnap.tasks.length||dueReminders().length;
  return keptAsideHTML(tasksSnap.keptAside)+`<div class="session-home-head"><h2>Tasks</h2><span class="project-head-actions"><button class="chip" id="tk-add">${IC.plus}Add task</button></span></div>
-  ${count||done.length?`${count?`<section class="session-group project-group"><h2>To do <span>${count}${due?` · ${due} due`:''}</span></h2>${openRows().join('')}</section>`:'<p class="sheet-help project-empty">Nothing to do. Add a task here, or from a conversation with Add task.</p>'}
-   ${checkbacks}${done.length?`<details class="session-group project-group settings-details"><summary><h2>Done <span>${done.length}</span></h2></summary>${done.map(taskRowHTML).join('')}</details>`:''}`
-  :`<p class="sheet-help project-empty">No tasks yet. Add one here, from a conversation's Add task chip, or by telling an agent "create a task to …". A task can carry a date and the context of the conversation it came from, and Start opens a new conversation with it.${withProjects?' Project reminders appear here too, when a project has one.':''}</p>${checkbacks}`}`;
+  ${has?`<div class="documents-tools list-tools">${ListTools.searchHTML({id:'tk-query',label:'Search tasks by text, context, conversation or workspace',placeholder:'Search tasks',value:taskQuery})}${ListTools.selectHTML({id:'tk-order',choices:TASK_ORDERS,value:taskOrder()})}</div>`:''}
+  <div id="tk-list">${taskBodyHTML()}</div>`;
+}
+function bindTaskBody(root){
+ bindTaskRows(root);
+ if(typeof CheckBacks!=='undefined')CheckBacks.bindTasks(root);
+ if(typeof JobKeys!=='undefined')JobKeys.bindTasks(root);
 }
 function bindTaskRows(root){
  root.querySelectorAll('[data-task-check]').forEach(b=>b.onclick=()=>{const t=taskById(b.dataset.taskCheck);if(t)taskAct({action:'update',task:t.id,expected_revision:t.revision,done:!t.done},t.done?'Task reopened':'Task done');});
@@ -233,21 +291,51 @@ function paintChatTask(){
 }
 
 /* ---------- rail, home chip, badges, tabs ---------- */
+// The rail's rows: up to 40 open items in the chosen order; while searching, every match, finished ones after.
+function railTaskRowsHTML(){
+ const ws=ListTools.words(railTaskQuery),groups=todoGroups(ws);
+ if(ws.length){
+  const done=doneMatches(ws),open=groupsHTML(groups);
+  return open||done.length?open+done.map(t=>taskRowHTML(t,ws)).join(''):`<p class="sheet-help">No tasks match “${esc(railTaskQuery.trim())}”.</p>`;
+ }
+ let left=40;const shown=[];
+ for(const g of groups){if(left<=0)break;const rows=g.rows.slice(0,left);left-=rows.length;shown.push({...g,rows});}
+ const done=tasksSnap.tasks.filter(t=>t.done).length;
+ return (shown.length?groupsHTML(shown):'<p class="sheet-help">Nothing to do. Add a task, or ask an agent to create one.</p>')
+  +(done?`<a class="rail-done-link" href="${viewHref('tasks')}" data-view-link>${done} done</a>`:'');
+}
+function railTaskSummary(){
+ const ws=ListTools.words(railTaskQuery);if(!ws.length)return '';
+ const n=todoGroups(ws).reduce((k,g)=>k+g.rows.length,0),d=doneMatches(ws).length,total=tasksSnap.tasks.length+dueReminders().length;
+ return `${n+d} of ${total} match${d?`, ${d} done`:''}`;
+}
 function railTasksHTML(){
  if(!tasksSnap)return '<p class="sheet-help">Loading tasks…</p>';
- const open=tasksSnap.tasks.filter(t=>!t.done),done=tasksSnap.tasks.length-open.length,rows=openRows();
+ const has=tasksSnap.tasks.length||dueReminders().length;
  return `<div class="rail-projects rail-tasks"><div class="rail-project-actions"><button class="chip" id="rail-task-add">${IC.plus}Add task</button><a class="chip" href="${viewHref('tasks')}" data-view-link>All</a></div>
-  ${rows.length?rows.slice(0,40).join(''):'<p class="sheet-help">Nothing to do. Add a task, or ask an agent to create one.</p>'}
-  ${done?`<a class="rail-done-link" href="${viewHref('tasks')}" data-view-link>${done} done</a>`:''}</div>`;
+  ${has?`<div class="rail-list-tools" id="rail-filter-controls">${ListTools.searchHTML({id:'rail-task-query',label:'Search tasks',placeholder:'Search tasks',value:railTaskQuery})}${ListTools.sortButtonHTML({id:'rail-task-sort',choices:TASK_ORDERS,value:taskOrder()})}</div>
+  ${ListTools.summaryHTML({text:railTaskSummary(),clearId:'rail-task-clear'})}`:''}
+  <div class="rail-task-rows">${railTaskRowsHTML()}</div></div>`;
 }
 let railTasksPainted='';
 function paintRailTasks(){
  const el=document.getElementById('rail');if(!el||railView()!=='tasks')return;
  const html=railTasksHTML();
  if(html!==railTasksPainted||!el.querySelector('.rail-tasks')){ // 1.50: a refresh that changes nothing leaves the rows alone
-  railTasksPainted=html;el.innerHTML=html;
+  railTasksPainted=html;ListTools.keepFocus(el,()=>{el.innerHTML=html;});
   el.querySelector('#rail-task-add')?.addEventListener('click',()=>taskEditor(null));
   bindTaskRows(el);
+  // 1.125: search repaints the rows and the count line only; the sort button opens the order sheet.
+  const search=v=>{
+   railTaskQuery=v;const rows=el.querySelector('.rail-task-rows'),sum=el.querySelector('.list-summary');
+   if(rows){rows.innerHTML=railTaskRowsHTML();bindTaskRows(rows);}
+   if(sum){const t=railTaskSummary();sum.hidden=!t;sum.querySelector('span').textContent=t;}
+   railTasksPainted=railTasksHTML();
+  };
+  ListTools.bindSearch(el.querySelector('#rail-task-query'),search);
+  el.querySelector('#rail-task-clear')?.addEventListener('click',()=>{const q=el.querySelector('#rail-task-query');if(q){q.value='';q.focus();}search('');});
+  el.querySelector('#rail-task-sort')?.addEventListener('click',()=>ListTools.pickOrder({title:'Sort tasks',where:'Tasks',choices:TASK_ORDERS,value:taskOrder(),onPick:setTaskOrder}));
+  if(typeof paintWorkspaceDensity==='function')paintWorkspaceDensity(); // the Filters toggle folds the search row
  }
  if(!tasksSnap||Date.now()-tasksAt>4000)loadTasks(true).then(()=>{paintRailTasks();paintTaskBadges();}).catch(()=>{const r=document.getElementById('rail');if(!tasksSnap&&r&&railView()==='tasks')r.innerHTML='<p class="sheet-help">Tasks could not load.</p>';});else paintTaskBadges();
 }

@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.124.10
+checked: 1.125.0
 sources: server.mjs, public/app.js, public/workspace.js, public/sw.js, public/manifest.webmanifest, router.mjs, access.mjs, engines.mjs, codex.mjs, acp.mjs, automation.mjs, checkbacks.mjs, job-keys.mjs, vault.mjs, inbox.mjs, inbox-runner.mjs, projects.mjs, project-mode.mjs, documents.mjs, tasks.mjs, coordination.mjs, skills.mjs, approvals.mjs, trusted.mjs, sidechat.mjs, voice.mjs, usage.mjs, self-update.mjs, cli-updates.mjs, scripts/pocket-init.mjs
 -->
 # Feature reference
@@ -269,7 +269,9 @@ The rail's head switches between **Chats** and whichever of **Projects**, **File
 
 **How it works.** Tasks live in `tasks.json`. You add one with **Add task**, from a conversation (with an optional summary written by the helper model), or by asking an agent. A dated task is announced once when it comes due, by push (with **Tomorrow** and **Done** actions), email and the reminder hook. **Start** opens a new conversation in the task's workspace with the task and its context already written. Times you pick are saved as exact moments in your device's zone; an agent's time without an offset is read in the owner's zone (browser, then `POCKET_TZ`, then the server).
 
-**Where to control it.** **Settings → Features → Tasks** and its **›** page (**Show check-backs in Tasks**, **Show job keys in Tasks**). **Settings → Notifications** for the due notices.
+The list can be searched and sorted (due first, newest or oldest added, A–Z, workspace), in the rail and on the full page; the order is kept for every device.
+
+**Where to control it.** **Settings → Features → Tasks** and its **›** page (**Default order**, **Show check-backs in Tasks**, **Show job keys in Tasks**). **Settings → Notifications** for the due notices.
 
 **Agents' interface.** `pocket-tasks` (`add`, `list`, `show`, `done`, `reopen`, `edit`, `remove`); skill `pocket-tasks`. Agents create a task only when asked or when you accept an offer.
 
@@ -388,7 +390,9 @@ A conversation can **ask** for a key (`pocket-jobkey propose`): the request wait
 
 **How it works.** The store is `vault.enc`, encrypted with AES-256-GCM under a key that Pocket creates when you switch the Vault on, saves to `.env` as `POCKET_VAULT_KEY` (mode `0600`) and shows once as a recovery key. The daemon reads the key at start and removes it from its own environment, so no agent or child process sees it. An agent runs `pocket-vault run` with a secret named in the command; Pocket runs it with the value in the environment and returns the output with the value replaced by `{{vault:name}}`. Each secret is governed by **Agent access**: **Free rein**, **Ask once per command** (the default) or **Ask every time**, with a per-secret override down to **Only you**. An approval card carries **Allow once**, **Always allow** and **Deny**; vault requests also push to your phone with those buttons. For browser logins, a relay (`scripts/pocket-mcp-proxy.mjs`) types `{{vault:name.field}}` into a Playwright MCP fill tool and blocks screenshots after a fill. **Ask someone** creates a one-time intake link (`/intake/<token>`, 1, 3 or 7 days) so an outside person can send a credential straight into the Vault. An optional **passphrase** with **Lock after** adds a second lock. **Export** and **Import** move the whole Vault in a file locked with a passphrase you choose. A **secret check** holds a message that looks like it contains a credential and offers to store it.
 
-**Where to control it.** **Settings → Features → Vault** (switch) and its **›** page (**Agent access**, **Passphrase**, **Lock after**, **Export and import**, **Rotate key**, **Download recovery key**, **Restore key…**, **Catch secrets in messages**). Turning the Vault on or off closes idle agent processes. Intake pages are branded with `POCKET_INTAKE_ORG`, `POCKET_INTAKE_ACCENT` and `POCKET_INTAKE_LOGO`.
+The list can be searched, sorted (including by who can use it, least protected first) and filtered by who can use it and kind; each row shows who can use it as a coloured dot and words.
+
+**Where to control it.** **Settings → Features → Vault** (switch) and its **›** page (**Default order**, **Agent access**, **Passphrase**, **Lock after**, **Export and import**, **Rotate key**, **Download recovery key**, **Restore key…**, **Catch secrets in messages**). Turning the Vault on or off closes idle agent processes. Intake pages are branded with `POCKET_INTAKE_ORG`, `POCKET_INTAKE_ACCENT` and `POCKET_INTAKE_LOGO`.
 
 **Agents' interface.** `pocket-vault` (`run`, `put`, `request`, and others); skill `pocket-vault`; `{{vault:name.field}}` in browser fill tools.
 

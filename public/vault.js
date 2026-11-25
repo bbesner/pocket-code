@@ -67,13 +67,59 @@ const vaultViewTitle=()=>'Vault';
 let vaultQuery='',vaultFocusMem=null,vaultNotice='';
 const vaultMissed=new Map(); // request id -> why the notification's answer did not land; shown on its card until answered
 const VAULT_NEW_MS=24*3600e3,VAULT_FOCUS_KEY='pc-vault-focus',VAULT_FOCUS_TTL=5*60e3,VAULT_ORDER_KEY='pc-vault-order';
-const vaultOrder=()=>{try{return localStorage.getItem(VAULT_ORDER_KEY)==='name'?'name':'new';}catch{return 'new';}};
-function vaultSetOrder(v){try{localStorage.setItem(VAULT_ORDER_KEY,v==='name'?'name':'new');}catch{}}
+/* 1.125 (Damon's request): six orders, kept on the server (vaultOrder) so the Vault opens in the one picked, on every
+   device; a Filter for who can use a secret and its kind on the full page; search in the rail; and who can use each
+   secret shown first on its row, as a coloured dot and its words. Until 1.125 the order was A–Z or Newest first, kept
+   per device in localStorage: the first device to load 1.125 hands its A–Z over, once, if the server has no order yet. */
+const VAULT_ORDERS=[['new','Newest first','By the date it was stored','newest first'],['name','A–Z','By name','A–Z'],
+ ['who','Who can use it','Free rein first, Only you last','by who can use it'],['used','Recently used','The last one an agent used first; never used last','recently used first'],
+ ['kind','Kind','Logins, API keys, tokens, credentials, notes','by kind'],['expiry','Expiring soonest','Expired and expiring first; the rest by name','expiring first']];
+const vaultOrder=()=>VAULT_ORDERS.some(([v])=>v===vaultSnap?.order)?vaultSnap.order:'new';
+const vaultOrderTag=()=>'Secrets, '+VAULT_ORDERS.find(([v])=>v===vaultOrder())[3];
+async function vaultSetOrder(v){
+ if(!vaultSnap||!VAULT_ORDERS.some(([o])=>o===v))return;
+ const was=vaultSnap.order;vaultSnap.order=v;vaultSnap.orderChosen=true;vaultSnap.orderPending=true;repaintVault(); // a refresh while it saves keeps it
+ const ok=await ListTools.saveOrder('vaultOrder',v);if(vaultSnap){vaultSnap.orderPending=false;if(!ok){vaultSnap.order=was;repaintVault();}}
+ if(ok)try{localStorage.removeItem(VAULT_ORDER_KEY);}catch{}
+}
+function vaultAdoptDeviceOrder(){ // the old per-device A–Z, handed to the server once
+ let old='';try{old=localStorage.getItem(VAULT_ORDER_KEY)||'';}catch{}
+ if(!old||!vaultSnap||vaultSnap.orderChosen)return;
+ try{localStorage.removeItem(VAULT_ORDER_KEY);}catch{}
+ if(old==='name')vaultSetOrder('name');
+}
+// Least protected first, so this order doubles as an audit of what agents may use without asking.
+const VAULT_WHO_ORDER=['auto','ask','every','owner'],VAULT_KIND_ORDER=['login','api_key','token','credentials','note'];
+const vaultByName=(a,b)=>a.name.localeCompare(b.name,undefined,{sensitivity:'base',numeric:true});
+const vaultNewest=items=>items.map((i,n)=>[i,n]).sort(([a,x],[b,y])=>(vaultTime(b.created)||0)-(vaultTime(a.created)||0)||y-x).map(([i])=>i);
 // Newest first: created is to the second, so two stored in the same second keep the store's order (it appends), later first.
-const vaultSorted=items=>items.map((i,n)=>[i,n]).sort(vaultOrder()==='name'?([a],[b])=>a.name.localeCompare(b.name):([a,x],[b,y])=>(vaultTime(b.created)||0)-(vaultTime(a.created)||0)||y-x).map(([i])=>i);
+function vaultSorted(items){
+ const o=vaultOrder(),list=items.slice();
+ if(o==='new')return vaultNewest(list);
+ if(o==='used')return list.sort((a,b)=>(vaultTime(b.lastUsedAt)||0)-(vaultTime(a.lastUsedAt)||0)||vaultByName(a,b));
+ if(o==='expiry')return list.sort((a,b)=>(a.expiresAt?vaultTime(a.expiresAt):Infinity)-(b.expiresAt?vaultTime(b.expiresAt):Infinity)||vaultByName(a,b));
+ if(o==='who')return list.sort((a,b)=>VAULT_WHO_ORDER.indexOf(vaultEff(a))-VAULT_WHO_ORDER.indexOf(vaultEff(b))||vaultByName(a,b));
+ if(o==='kind')return list.sort((a,b)=>VAULT_KIND_ORDER.indexOf(a.kind)-VAULT_KIND_ORDER.indexOf(b.kind)||vaultByName(a,b));
+ return list.sort(vaultByName);
+}
+// The grouped orders put a heading over each run: [{key, label, cls, items}]; the others one unheaded group.
+function vaultGroups(items){
+ const o=vaultOrder(),sorted=vaultSorted(items);
+ if(o!=='who'&&o!=='kind')return [{key:'',label:'',cls:'',items:sorted}];
+ const keyOf=o==='who'?vaultEff:i=>i.kind,groups=new Map();
+ for(const i of sorted){const k=keyOf(i);if(!groups.has(k))groups.set(k,[]);groups.get(k).push(i);}
+ return [...groups].map(([k,its])=>o==='who'?{key:k,label:VAULT_POLICY_WORD[k]||k,cls:'vault-who who-'+k,items:its}:{key:k,label:VAULT_KIND_PLURAL[k]||VAULT_KIND_WORD[k]||'Secrets',cls:'',items:its});
+}
+const VAULT_KIND_PLURAL={login:'Logins',api_key:'API keys',token:'Tokens',credentials:'Credentials',note:'Secure notes'};
 const vaultIsNew=i=>Date.now()-(vaultTime(i.created)||0)<VAULT_NEW_MS;
-const vaultSearchText=i=>[i.name,VAULT_KIND_WORD[i.kind]||'',...(i.tags||[]),vaultHost(i.url),i.addedIn?.sessionTitle||''].join(' ').toLowerCase();
-const vaultMatches=(i,q)=>q.split(/\s+/).filter(Boolean).every(w=>vaultSearchText(i).includes(w));
+// Who can use it is searchable in both wordings ("Asks every time" on the row, "Ask every time" in the editor).
+const vaultSearchText=i=>[i.name,VAULT_KIND_WORD[i.kind]||'',...(i.tags||[]),vaultHost(i.url),i.addedIn?.sessionTitle||'',vaultPolicyWord(i),VAULT_POLICY[vaultEff(i)]?.[0]||''].join(' ').toLowerCase();
+const vaultMatches=(i,q)=>ListTools.matches(vaultSearchText(i),ListTools.words(q));
+// The Filter on the full page: who can use it and kind, any number of each; empty means everything. Cleared when the Vault is opened.
+let vaultFilter={who:new Set(),kind:new Set()},vaultRailQuery='';
+const vaultFiltered=i=>(!vaultFilter.who.size||vaultFilter.who.has(vaultEff(i)))&&(!vaultFilter.kind.size||vaultFilter.kind.has(i.kind));
+const vaultFilterCount=()=>vaultFilter.who.size+vaultFilter.kind.size;
+const vaultFilterWords=()=>[...[...vaultFilter.who].map(w=>VAULT_POLICY_WORD[w]),...[...vaultFilter.kind].map(k=>VAULT_KIND_WORD[k])].join(', ');
 const vaultItemHref=name=>location.origin+'/#/vault/item/'+encodeURIComponent(name);
 // #/vault/item/<name>, #/vault/request/<id>[?missed=<why>&tap=allow|deny] (a notification answer that did not land), #/vault/requests.
 function vaultFocusOf(hash){
@@ -132,12 +178,47 @@ function vaultApplyFocus(f){
  vaultPainted='';paintVaultView();
  const n=main.querySelector('.vault-notice');if(n){n.scrollIntoView({block:'nearest'});n.focus({preventScroll:true});}
 }
-// The search box filters rows in place, so typing never rebuilds the list under the cursor.
+// The search box and the Filter hide rows in place, so typing never rebuilds the list under the cursor. 1.125: the matched
+// words are marked (a row is redrawn only when the words change), a group whose rows are all hidden hides its heading, and
+// the line under the toolbar names the Filter with a Clear.
 function vaultApplyQuery(root){
- const q=vaultQuery.trim().toLowerCase(),rows=[...root.querySelectorAll('.vault-secrets .vault-item')];let n=0;
- for(const row of rows){const i=vaultItemById(row.dataset.item),hit=!q||(Boolean(i)&&vaultMatches(i,q));row.hidden=!hit;if(hit)n++;}
- const count=root.querySelector('[data-vault-count]');if(count)count.textContent=q?`${n} of ${rows.length}`:String(rows.length);
- const none=root.querySelector('[data-vault-none]');if(none){none.hidden=!q||n>0;none.textContent=q&&!n?`No secrets match “${vaultQuery.trim()}”.`:'';}
+ const ws=ListTools.words(vaultQuery),key=ws.join(' '),rows=[...root.querySelectorAll('.vault-secrets .vault-item')],filters=vaultFilterCount();let n=0;
+ for(const row of rows){
+  const i=vaultItemById(row.dataset.item),hit=Boolean(i)&&vaultFiltered(i)&&(!ws.length||ListTools.matches(vaultSearchText(i),ws));
+  row.hidden=!hit;if(!hit)continue;n++;
+  if((row.dataset.marked||'')!==key){row.dataset.marked=key;const t=row.querySelector('.vault-name'),st=row.querySelector('.session-status');if(t)t.innerHTML=ListTools.mark(i.name,ws);if(st)st.innerHTML=vaultFactsHTML(i,ws);}
+ }
+ root.querySelectorAll('.vault-secrets .vault-group').forEach(g=>{const shown=g.querySelectorAll('.vault-item:not([hidden])').length;g.hidden=!shown;const c=g.querySelector('[data-group-count]');if(c)c.textContent=String(shown);});
+ const count=root.querySelector('[data-vault-count]');if(count)count.textContent=ws.length||filters?`${n} of ${rows.length}`:String(rows.length);
+ const none=root.querySelector('[data-vault-none]');if(none){none.hidden=!(ws.length||filters)||n>0;none.textContent=n?'':ws.length?`No secrets match “${vaultQuery.trim()}”${filters?' with this filter':''}.`:'No secrets match this filter.';}
+ const chip=root.querySelector('#vault-filter');if(chip){chip.classList.toggle('set',filters>0);chip.querySelector('span').textContent=filters?'Filter · '+vaultFilterWords():'Filter';chip.setAttribute('aria-label',filters?'Filter: '+vaultFilterWords()+'. Change the filter':'Filter by who can use it or kind');}
+ const sum=root.querySelector('.vault-tools ~ .list-summary');if(sum){sum.hidden=!filters;sum.querySelector('span').textContent=filters?'Filter: '+vaultFilterWords():'';}
+}
+const vaultFilterChipHTML=()=>`<button class="chip list-filter" id="vault-filter" aria-haspopup="dialog" aria-label="Filter by who can use it or kind">${IC.sliders}<span>Filter</span></button>`;
+// Grouped orders get a heading per group (the who-can-use-it heading in its colour); the list stays one section, so
+// links and the search find a row wherever it is.
+function vaultGroupsHTML(items,ws=[]){
+ return vaultGroups(items).map(g=>g.label?`<div class="vault-group" data-vault-group="${esc(g.key)}"><h3 class="list-group-head"><span class="${esc(g.cls)}">${esc(g.label)}</span> <span data-group-count>${g.items.length}</span></h3>${g.items.map(i=>vaultRowHTML(i,ws)).join('')}</div>`:g.items.map(i=>vaultRowHTML(i,ws)).join('')).join('');
+}
+// The Filter sheet: any number of who-can-use-it settings and kinds, each with how many secrets it has; the list follows
+// each tap. Done closes it; Clear filter empties it.
+function vaultFilterSheet(){
+ const main=$('#vault-main');if(!vaultSnap)return;
+ const items=vaultSnap.items,countOf=(g,v)=>items.filter(i=>g==='who'?vaultEff(i)===v:i.kind===v).length;
+ const opt=(g,v,label,cls)=>{const on=vaultFilter[g].has(v),n=countOf(g,v);return `<button class="opt" data-f-group="${g}" data-f="${esc(v)}" aria-pressed="${on}"><span class="dot ${on?'on':''}"></span><span><span class="${cls}">${esc(label)}</span><span class="sub">${n} secret${n===1?'':'s'}</span></span></button>`;};
+ const scrim=document.createElement('div');scrim.className='scrim';const sh=document.createElement('div');sh.className='sheet vault-filter-sheet';
+ sh.innerHTML=`<h2>Filter the Vault</h2><p class="sheet-help">Pick any number in each group. The filter clears when you leave the Vault.</p>
+  <h3 class="list-filter-head">Who can use it</h3>${VAULT_WHO_ORDER.map(w=>opt('who',w,VAULT_POLICY_WORD[w],'vault-who who-'+w)).join('')}
+  <h3 class="list-filter-head">Kind</h3>${VAULT_KIND_ORDER.map(k=>opt('kind',k,VAULT_KIND_PLURAL[k],'')).join('')}
+  <button class="opt" data-f-clear>${IC.x}<span>Clear filter</span></button><button class="primary" data-f-done>Done</button>`;
+ const apply=()=>{if(main)vaultApplyQuery(main);};
+ sh.querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{
+  const set=vaultFilter[b.dataset.fGroup],v=b.dataset.f,on=!set.has(v);on?set.add(v):set.delete(v);
+  b.setAttribute('aria-pressed',String(on));b.querySelector('.dot').classList.toggle('on',on);apply();
+ });
+ sh.querySelector('[data-f-clear]').onclick=()=>{vaultFilter.who.clear();vaultFilter.kind.clear();sh.querySelectorAll('[data-f]').forEach(b=>{b.setAttribute('aria-pressed','false');b.querySelector('.dot').classList.remove('on');});apply();};
+ sh.querySelector('[data-f-done]').onclick=()=>closeCurrentSheet?.();
+ mountSheet(scrim,sh);
 }
 // 1.40: passphrase mode. A locked Vault answers GET /api/vault with ready:false, locked:true and every other route 423.
 const vaultIsLocked=()=>Boolean(vaultSnap&&vaultSnap.ready===false&&vaultSnap.locked);
@@ -164,7 +245,7 @@ async function vaultPost(path,body,{blob=false}={}){
 async function loadVault(force){
  if(!force&&vaultSnap&&Date.now()-vaultAt<4000)return vaultSnap;
  if(vaultLoading)return vaultLoading;
- vaultLoading=api('/vault',{cache:'no-store',signal:AbortSignal.timeout(8000)}).then(s=>{s.items=s.items||[];s.trash=s.trash||[];s.requests=s.requests||[];vaultSnap=s;vaultAt=Date.now();return s;}).finally(()=>{vaultLoading=null;});
+ vaultLoading=api('/vault',{cache:'no-store',signal:AbortSignal.timeout(8000)}).then(s=>{s.items=s.items||[];s.trash=s.trash||[];s.requests=s.requests||[];if(vaultSnap?.orderPending)s.order=vaultSnap.order;vaultSnap=s;vaultAt=Date.now();vaultAdoptDeviceOrder();return s;}).finally(()=>{vaultLoading=null;});
  return vaultLoading;
 }
 // Keep the local list in name order, removed items in the Removed section, newest removal first.
@@ -205,7 +286,8 @@ async function vaultAct(body,done){
 /* ---------- the list view ---------- */
 async function renderVault(view){
  Voice.onLeave?.();
- vaultView=view;vaultPainted='';vaultNotice='';if(typeof boardView!=='undefined')boardView=null;if(typeof docView!=='undefined')docView=null;if(typeof taskView!=='undefined')taskView=null;
+ vaultView=view;vaultPainted='';vaultNotice='';vaultFilter={who:new Set(),kind:new Set()}; // 1.125: the Filter lasts while the Vault is open
+if(typeof boardView!=='undefined')boardView=null;if(typeof docView!=='undefined')docView=null;if(typeof taskView!=='undefined')taskView=null;
  const col=`<header class="bar">
    ${PANE?`<button class="icon" id="pane-main" aria-label="Make this the main view">${IC.swap}</button>`:SOLO?'':`<button class="icon" id="back" aria-label="Back">${IC.back}</button><button class="icon desk" id="railtog" aria-label="Show or hide the conversation list">${IC.panel}</button>`}
    <h1><span class="one" id="vtitle">Vault</span><span class="tag" id="vtag">Secrets agents use by name</span></h1>
@@ -233,6 +315,7 @@ function paintVaultView(){
  // The 30-second refresh must not rebuild the list under a finger or a focused button when nothing changed.
  if(vaultIsLocked()){document.querySelectorAll('.vault-field[data-shown]').forEach(vaultHideValue);vaultLoadLockInfo();} // a value shown before the lock goes
  const key=JSON.stringify([vaultSnap.ready,vaultSnap.locked,vaultSnap.access,vaultIsLocked()?vaultAutoLock:0,vaultSnap.items,vaultSnap.trash,vaultRequests(),vaultSnap.intakes||[],vaultOrder(),vaultNotice,[...vaultMissed]]);
+ const tag=$('#vtag');if(tag)tag.textContent=vaultIsLocked()||vaultSnap.ready===false?'Secrets agents use by name':vaultOrderTag(); // 1.125: the header names the order
  if(key===vaultPainted&&main.querySelector('.vault-list-head'))return paintVaultBadges();
  const had=document.activeElement&&main.contains(document.activeElement),focusKey=had?vaultFocusKey(document.activeElement):null;
  const caret=document.activeElement?.id==='vault-query'?document.activeElement.selectionStart:null;
@@ -244,25 +327,29 @@ function paintVaultView(){
  main.querySelector('#vt-add')?.addEventListener('click',()=>vaultEditor(null));
  main.querySelector('#vt-ask')?.addEventListener('click',()=>vaultAskSheet());
  main.querySelector('#vt-unlock')?.addEventListener('click',()=>vaultUnlockSheet());
- const q=main.querySelector('#vault-query');if(q)q.oninput=()=>{vaultQuery=q.value;vaultApplyQuery(main);};
- const order=main.querySelector('#vault-order');if(order)order.onchange=()=>{vaultSetOrder(order.value);repaintVault();};
+ ListTools.bindSearch(main.querySelector('#vault-query'),v=>{vaultQuery=v;vaultApplyQuery(main);}); // 1.125: Esc clears it
+ const order=main.querySelector('#vault-order');if(order)order.onchange=()=>vaultSetOrder(order.value);
+ main.querySelector('#vault-filter')?.addEventListener('click',vaultFilterSheet);
+ main.querySelector('#vault-clear')?.addEventListener('click',()=>{vaultFilter.who.clear();vaultFilter.kind.clear();vaultApplyQuery(main);main.querySelector('#vault-filter')?.focus();});
  vaultApplyQuery(main);
  if(had){const el=(focusKey&&main.querySelector(focusKey))||main;el.focus({preventScroll:true});if(caret!==null&&el.id==='vault-query')try{el.setSelectionRange(caret,caret);}catch{}} // a control that is gone leaves the focus on the list
  paintVaultBadges();
  if(typeof paintOpenSessions==='function')paintOpenSessions();
 }
 // The kind is drawn as an icon; screen readers get the word instead.
-function vaultFactsHTML(i){
+// 1.125: who can use it leads the line, as a coloured dot and its words, so a narrow rail never cuts it off; ws marks a search.
+const vaultWhoHTML=(i,ws=[])=>`<span class="vault-who who-${esc(vaultEff(i))}">${ListTools.mark(vaultPolicyWord(i),ws)}</span>`;
+function vaultFactsHTML(i,ws=[]){
  const host=vaultHost(i.url),tags=(i.tags||[]).join(', ');
- const facts=[vaultIsNew(i)?`<span>Added ${esc(rel(vaultTime(i.created)))}${i.addedIn?.sessionTitle?' in '+esc(i.addedIn.sessionTitle):''}</span>`:'',host?`<span>${esc(host)}</span>`:'',tags?`<span>${esc(tags)}</span>`:'',`<span>${esc(vaultPolicyWord(i))}</span>`,
+ const facts=[vaultWhoHTML(i,ws),vaultIsNew(i)?`<span>Added ${esc(rel(vaultTime(i.created)))}${i.addedIn?.sessionTitle?' in '+ListTools.mark(i.addedIn.sessionTitle,ws):''}</span>`:'',host?`<span>${ListTools.mark(host,ws)}</span>`:'',tags?`<span>${ListTools.mark(tags,ws)}</span>`:'',
   i.lastUsedAt?`<span>Used ${esc(rel(vaultTime(i.lastUsedAt)))}</span>`:'',
   i.expiresAt?`<span class="${i.expiring||vaultExpired(i)?'due-label':''}">${vaultExpired(i)?'Expired':'Expires'} ${esc(vaultDate(i.expiresAt))}</span>`:''].filter(Boolean);
  return `<span class="vault-sr">${esc(VAULT_KIND_WORD[i.kind]||'Secret')}, </span>`+facts.join('<span aria-hidden="true">·</span>');
 }
-function vaultRowHTML(i){
+function vaultRowHTML(i,ws=[]){
  return `<div class="session-item vault-item ${i.expiring||vaultExpired(i)?'due':''}" data-item="${esc(i.id)}">
   <span class="vault-kind" aria-hidden="true">${vaultKindIcon(i.kind)}</span>
-  <button class="row" data-vault-open="${esc(i.id)}"><span class="body"><span class="title vault-name">${esc(i.name)}</span>${vaultIsNew(i)?'<span class="vault-new">New</span>':''}<span class="session-status">${vaultFactsHTML(i)}</span></span></button>
+  <button class="row" data-vault-open="${esc(i.id)}"><span class="body"><span class="title vault-name">${ListTools.mark(i.name,ws)}</span>${vaultIsNew(i)?'<span class="vault-new">New</span>':''}<span class="session-status">${vaultFactsHTML(i,ws)}</span></span></button>
   <button class="session-more icon" data-vault-more="${esc(i.id)}" aria-label="Options for ${esc(i.name)}">${IC.more}</button></div>`;
 }
 function vaultTrashRowHTML(i){
@@ -445,9 +532,10 @@ function vaultListHTML(){
   ${reqs.length?`<section class="session-group project-group vault-requests" id="vault-requests"><h2 tabindex="-1">Requests <span>${reqs.length} waiting</span></h2><p class="sheet-help vault-requests-help">An agent wants to run a command with a secret.${reqs.some(r=>r.allowAlways!==false)?' Always allow remembers this exact command and folder for that secret, its variables, and the content of the program and files it names: if any of them changes, you are asked again.':''}</p>${reqs.map(r=>vaultRequestHTML(r)).join('')}</section>`:''}
   ${vaultNotice?`<p class="vault-notice" role="status" tabindex="-1">${esc(vaultNotice)}</p>`:''}
   ${vaultIntakesHTML()}
-  ${items.length?`<div class="documents-tools vault-tools"><div class="session-search">${IC.search}<input type="search" id="vault-query" placeholder="Search secrets" aria-label="Search secrets by name, kind, tag or website" value="${esc(vaultQuery)}" autocomplete="off" spellcheck="false" enterkeyhint="search"></div>
-   <label class="voice-field vault-order">Order<select id="vault-order"><option value="new"${vaultOrder()==='new'?' selected':''}>Newest first</option><option value="name"${vaultOrder()==='name'?' selected':''}>A–Z</option></select></label></div>
-   <section class="session-group project-group vault-secrets"><h2>Secrets <span data-vault-count>${items.length}</span></h2>${vaultSorted(items).map(vaultRowHTML).join('')}<p class="sheet-help project-empty" data-vault-none role="status" hidden></p></section>`
+  ${items.length?`<div class="documents-tools vault-tools list-tools">${ListTools.searchHTML({id:'vault-query',label:'Search secrets by name, kind, tag, website or who can use it',placeholder:'Search secrets',value:vaultQuery})}
+   ${ListTools.selectHTML({id:'vault-order',choices:VAULT_ORDERS,value:vaultOrder()})}${vaultFilterChipHTML()}</div>
+   ${ListTools.summaryHTML({text:'',clearId:'vault-clear'})}
+   <section class="session-group project-group vault-secrets"><h2>Secrets <span data-vault-count>${items.length}</span></h2>${vaultGroupsHTML(items)}<p class="sheet-help project-empty" data-vault-none role="status" hidden></p></section>`
    :'<p class="sheet-help project-empty">No secrets yet. Add one here, or from a conversation with Store in the Vault. Agents use them by name; in normal use the value stays out of the conversation.</p>'}
   ${trash.length?`<details class="session-group project-group settings-details"><summary><h2>Removed <span>${trash.length}</span></h2></summary><p class="sheet-help vault-requests-help">Kept for 30 days, then deleted. A removed name can't be reused until then.</p>${trash.map(vaultTrashRowHTML).join('')}</details>`:''}`;
 }
@@ -990,22 +1078,46 @@ function vaultImportSheet(){
 }
 
 /* ---------- rail, home chip, badges, tabs ---------- */
+// 1.125: the rail's search row (folded by the Filters toggle), up to 60 secrets in the chosen order, and while searching every match.
+function railVaultRowsHTML(){
+ const ws=ListTools.words(vaultRailQuery),items=vaultSnap.items;
+ if(!items.length)return '<p class="sheet-help">No secrets yet. Add one, or use Store in the Vault in a conversation.</p>';
+ if(ws.length){const hits=items.filter(i=>ListTools.matches(vaultSearchText(i),ws));return hits.length?vaultGroupsHTML(hits,ws):`<p class="sheet-help">No secrets match “${esc(vaultRailQuery.trim())}”.</p>`;}
+ return vaultGroupsHTML(vaultSorted(items).slice(0,60));
+}
+function railVaultSummary(){const ws=ListTools.words(vaultRailQuery);return ws.length?`${vaultSnap.items.filter(i=>ListTools.matches(vaultSearchText(i),ws)).length} of ${vaultSnap.items.length} match`:'';}
 function railVaultHTML(){
  if(!vaultSnap)return '<p class="sheet-help">Loading the Vault…</p>';
  if(vaultIsLocked())return `<div class="rail-projects rail-vault">${vaultLockedHTML('rail')}</div>`;
  const reqs=vaultRequests();
  return `<div class="rail-projects rail-vault"><div class="rail-project-actions"><button class="chip" id="rail-vault-ask" title="Send someone a one-time link to type a secret into">${VIC.link}Ask someone</button><button class="chip" id="rail-vault-add" aria-label="Add secret" title="Add secret">${IC.plus}Add</button><a class="chip" href="${viewHref('vault')}" data-view-link>All</a></div>
   ${reqs.length?`<section class="vault-requests" aria-label="Requests waiting">${reqs.map(r=>vaultRequestHTML(r,'rail')).join('')}</section>`:''}
-  ${vaultSnap.items.length?vaultSorted(vaultSnap.items).slice(0,60).map(vaultRowHTML).join(''):'<p class="sheet-help">No secrets yet. Add one, or use Store in the Vault in a conversation.</p>'}
+  ${vaultSnap.items.length?`<div class="rail-list-tools" id="rail-filter-controls">${ListTools.searchHTML({id:'rail-vault-query',label:'Search secrets',placeholder:'Search secrets',value:vaultRailQuery})}${ListTools.sortButtonHTML({id:'rail-vault-sort',choices:VAULT_ORDERS,value:vaultOrder()})}</div>
+  ${ListTools.summaryHTML({text:railVaultSummary(),clearId:'rail-vault-clear'})}`:''}
+  <div class="rail-vault-rows">${railVaultRowsHTML()}</div>
   ${vaultSnap.trash.length?`<a class="rail-done-link" href="${viewHref('vault')}" data-view-link>${vaultSnap.trash.length} removed</a>`:''}</div>`;
 }
+let railVaultPainted='';
 function paintRailVault(){
  const el=document.getElementById('rail');if(!el||railView()!=='vault')return;
- el.innerHTML=railVaultHTML();
- el.querySelector('#rail-vault-ask')?.addEventListener('click',()=>vaultAskSheet());
- el.querySelector('#rail-vault-add')?.addEventListener('click',()=>vaultEditor(null));
- el.querySelector('#rail-vault-unlock')?.addEventListener('click',()=>vaultUnlockSheet());
- bindVaultRows(el);
+ const html=railVaultHTML();
+ if(html!==railVaultPainted||!el.querySelector('.rail-vault')||el.querySelector('.rail-vault button:disabled')){ // 1.125: a refresh that changes nothing leaves the rail alone, so typing in its search is not interrupted
+  railVaultPainted=html;ListTools.keepFocus(el,()=>{el.innerHTML=html;});
+  el.querySelector('#rail-vault-ask')?.addEventListener('click',()=>vaultAskSheet());
+  el.querySelector('#rail-vault-add')?.addEventListener('click',()=>vaultEditor(null));
+  el.querySelector('#rail-vault-unlock')?.addEventListener('click',()=>vaultUnlockSheet());
+  bindVaultRows(el);
+  const search=v=>{
+   vaultRailQuery=v;const rows=el.querySelector('.rail-vault-rows'),sum=el.querySelector('.list-summary');
+   if(rows){rows.innerHTML=railVaultRowsHTML();bindVaultRows(rows);}
+   if(sum){const t=railVaultSummary();sum.hidden=!t;sum.querySelector('span').textContent=t;}
+   railVaultPainted=railVaultHTML();
+  };
+  ListTools.bindSearch(el.querySelector('#rail-vault-query'),search);
+  el.querySelector('#rail-vault-clear')?.addEventListener('click',()=>{const q=el.querySelector('#rail-vault-query');if(q){q.value='';q.focus();}search('');});
+  el.querySelector('#rail-vault-sort')?.addEventListener('click',()=>ListTools.pickOrder({title:'Sort the Vault',where:'Vault',choices:VAULT_ORDERS,value:vaultOrder(),onPick:vaultSetOrder}));
+  if(typeof paintWorkspaceDensity==='function')paintWorkspaceDensity(); // the Filters toggle folds the search row
+ }
  if(!vaultSnap)loadVault().then(()=>{paintRailVault();paintVaultBadges();}).catch(()=>{const r=document.getElementById('rail');if(r&&railView()==='vault')r.innerHTML='<p class="sheet-help">The Vault could not load.</p>';});else paintVaultBadges();
 }
 // While locked, the rail's Vault segment and the home chip carry a lock; screen readers hear "Vault, locked".

@@ -3,6 +3,36 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.125.0] — 2026-11-25 · build 233
+
+**Sort and search for Tasks and the Vault**, requested by Damon. Design doc: `docs/plans/tasks-vault-sort-search.html`.
+
+- **One order per list, kept on the server.** New settings `tasksOrder` (`due`, `new`, `old`, `name`, `workspace`;
+  default `due`) and `vaultOrder` (`new`, `name`, `who`, `used`, `kind`, `expiry`; default `new`). `POST /api/settings`
+  refuses any other value with 400 `bad_order`. `GET /api/tasks` returns `order`; `GET /api/vault` returns `order` and
+  `orderChosen`. Picking an order in a list saves it, so the list opens that way on every device, and **Settings →
+  Features → Tasks › / Vault › → Default order** shows and changes the same value.
+- **Migration.** The Vault's per-device A–Z (`pc-vault-order` in localStorage, 1.93) is handed to the server once, only
+  when no order was chosen yet, then removed.
+- **Tasks.** Search and Sort above the full list; a search box and sort button in the rail. Orders: Due first (1.50's
+  one timeline of tasks and project reminders), Newest added, Oldest added, A–Z, Workspace (headed groups, No workspace
+  last). In the other orders, project reminders gather in a Project reminders group. Search matches text, conversation
+  title, workspace and briefing; matches are marked; Done opens when a finished task matches; Check-backs and Jobs hide
+  while searching.
+- **Vault.** Orders: Newest first, A–Z, Who can use it (Free rein → Asks once → Asks every time → Only you, headed),
+  Recently used, Kind (headed), Expiring soonest. Search adds the words for who can use it. A **Filter** sheet narrows by
+  who can use it and kind, with a summary line and Clear. Every row now shows who can use it first in its facts line, as a
+  coloured dot and words (amber, blue, purple, green square), from existing tokens.
+- **Rail.** The **Filters** toggle now shows on Tasks and Vault too, folding their search row.
+- **Code.** New `public/listtools.js` (search box, sort select and button, marking, focus keeping, saving the order),
+  shared by `tasks.js` and `vault.js`.
+- **Docs.** `docs/manual/tasks.md` (new **Sort and search**), `vault.md` (**Find a secret**), `settings.md`,
+  `features.md`, `desktop-and-phone.md`; DESIGN.md section 1.125.
+- **Tests.** `test/notify.test.mjs` (the task order, refusals, `order` in the list), `test/vault-key.test.mjs` (`order`
+  and `orderChosen`), and the browser check *Sort and search (1.125)*: every Tasks order, search with marks and focus,
+  the rail row and sort sheet, the migration, who-can-use-it groups and dot colours, the Filter sheet, Settings, and the
+  phone layout, with accessibility scans.
+
 ## [1.124.10] — 2026-11-25 · build 232
 
 One change, contributed in #296: **Copy link for a file already shared by link.** Before this, a link's address was shown once,

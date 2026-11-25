@@ -1,6 +1,6 @@
 <!-- manual
-checked: 1.124.9
-sources: tasks.mjs, checkbacks.mjs, job-keys.mjs, public/tasks.js, public/jobs.js, scripts/pocket-tasks.mjs, scripts/owner-zone.mjs, skills/pocket-tasks/SKILL.md
+checked: 1.125.0
+sources: tasks.mjs, checkbacks.mjs, job-keys.mjs, public/tasks.js, public/listtools.js, public/jobs.js, scripts/pocket-tasks.mjs, scripts/owner-zone.mjs, skills/pocket-tasks/SKILL.md
 -->
 # Tasks
 
@@ -21,15 +21,33 @@ When Assistant mode is locked, ask the person who runs the install. The **›** 
 
 ### Open the list
 
-- On a computer, use the **Tasks** segment in the rail. It shows **Add task**, **All**, up to 40 open items and a link to the finished ones.
+- On a computer, use the **Tasks** segment in the rail. It shows **Add task**, **All**, a search box with a sort button, up to 40 open items and a link to the finished ones. The rail's **Filters** toggle folds the search row away.
 - On a phone, use the **Tasks** chip on the conversation list.
 - The full list is at `#/tasks`. It opens like a conversation: as a tab, beside a conversation, in a window of its own, or full screen on a phone.
 
-**To do** lists open tasks: dated ones first, soonest first, then undated ones, newest first. Finished tasks collapse under **Done**, most recently finished first. The check button on each row marks a task done or reopens it.
+**To do** lists open tasks in the order you chose (see **Sort and search** below). The default, **Due first**, lists dated ones first, soonest first, then undated ones, newest first. Finished tasks collapse under **Done**, most recently finished first. The check button on each row marks a task done or reopens it.
 
 With [Projects](projects.md) on as well, open project reminders appear in **To do** among the dated tasks, in time order. A reminder row names the reminder, its project and its step; it opens the project card, and its hourglass or **⋯** offers **Remind later** and **Dismiss**.
 
 The **Tasks** segment, the phone chip and the tab show how many items are due, counting due tasks and due project reminders together. The installed app's icon shows the same count unless you turn off **Settings → Notifications → Count on the app icon** on that device.
+
+### Sort and search
+
+The full list has **Search tasks** and **Sort** above it. In the rail, the sort button beside the search box opens the same choices. On a phone, the full-screen list has both.
+
+| Sort | Order |
+|---|---|
+| **Due first** (default) | Dated tasks and project reminders in one timeline, soonest first, then undated tasks, newest first. |
+| **Newest added** | The most recently added task first. |
+| **Oldest added** | The task waiting longest first. |
+| **A–Z** | By the task's text. |
+| **Workspace** | A heading per workspace, with how many it holds and how many are due; tasks without a workspace come last under **No workspace**. |
+
+In every order except **Due first**, project reminders gather in a **Project reminders** group after the tasks, soonest first.
+
+The order you pick is the order Tasks opens in next time, on every device. **Settings → Features → Tasks ›** shows the same choice as **Default order**, and changing either changes both. The header under **Tasks** names the order, for example *To do, due first*.
+
+**Search tasks** narrows the list as you type. It matches the task's text, its conversation's title, its workspace and its briefing. With several words, all must match; case does not matter. The matched words are marked in each row. While you search, finished tasks that match show under **Done**, opened, and the **Check-backs** and **Jobs** groups are hidden. In the rail, a line under the box says how many match, with **Clear**. **Esc** in the box clears it. The search is not saved: it clears when you leave the list.
 
 ### Check-backs in the list
 
@@ -122,6 +140,7 @@ Click a task to open its sheet: the text, the date, the conversation it came fro
 | Setting or variable | Effect |
 |---|---|
 | **Settings → Features → Tasks** | Turns Tasks on for the instance (`tasks` in `pocket-settings.json`). |
+| **Settings → Features → Tasks → Default order** | The order Tasks opens in, on every device (`tasksOrder`: `due`, `new`, `old`, `name` or `workspace`; default `due`). Picking an order in the list changes it too. |
 | **Settings → Features → Tasks → Show check-backs in Tasks** | Shows the read-only **Check-backs** group in the list (on by default, and only while check-backs are on). |
 | **Settings → Features → Tasks → Show job keys in Tasks** | Shows the read-only **Jobs** group in the list (on by default, and only while job keys are on). |
 | **Settings → Notifications → Notice a day before** | A second notice 24 hours before each dated task. |

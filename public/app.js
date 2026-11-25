@@ -1095,10 +1095,12 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     <div class="title-settings"><label class="voice-field">Open files and links<select id="s-documents-open"><option value="tab">As a tab, like a conversation</option><option value="beside">Beside the conversation (from a pane: a new pane to its left)</option><option value="window">In a new browser window</option></select></label><p class="title-note">A link in a conversation to one of your files, projects or conversations opens the same way. A link to an outside website opens in your browser.</p></div>
     <button class="opt" id="s-autokeep" disabled aria-pressed="false"><span class="dot"></span><span>Keep files from replies<span class="sub" id="s-autokeep-state">Loading…</span></span></button>
     <button class="opt" id="s-tasks" disabled aria-pressed="false"><span class="dot"></span><span>Tasks<span class="sub" id="s-tasks-state">Loading the Tasks setting…</span></span></button>
+    <div class="title-settings" id="s-tasks-order-wrap"><label class="voice-field">Default order<select id="s-tasks-order" aria-describedby="s-tasks-order-note">${TASK_ORDERS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></label><p class="title-note" id="s-tasks-order-note">How the Tasks list is sorted when it opens, on every device. Picking an order in the list changes this too.</p></div>
     ${assistantMode() ? '' : '<button class="opt" id="s-coordination" disabled aria-pressed="false"><span class="dot"></span><span>Coordination<span class="sub" id="s-coordination-state">Loading the Coordination setting…</span></span></button>'}
     <button class="opt" id="s-inbox" disabled aria-pressed="false"><span class="dot"></span><span>Inbox Watch<span class="sub" id="s-inbox-state">Loading the Inbox setting…</span></span></button>
     <button class="opt" id="s-inbox-watch" hidden>${IC.sliders}<span>${assistantMode() ? 'Inbox Watch schedule' : 'Schedule, models and cost'}<span class="sub">${assistantMode() ? 'When it checks your mail, quiet hours, the digest and look-ahead' : 'When Inbox Watch checks your mail, which models judge it, what it cost each day'}</span></span></button>
     <button class="opt" id="s-vault" disabled aria-pressed="false"><span class="dot"></span><span>Vault<span class="sub" id="s-vault-state">Loading the Vault setting…</span></span></button>
+    <div class="title-settings" id="s-vault-order-wrap"><label class="voice-field">Default order<select id="s-vault-order" aria-describedby="s-vault-order-note">${VAULT_ORDERS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></label><p class="title-note" id="s-vault-order-note">How the Vault's secrets are sorted when it opens, on every device. Picking an order in the list changes this too.</p></div>
     <div class="title-settings vault-settings" id="s-vault-restore-wrap" hidden><span class="vault-set-actions"><button class="chip" id="s-vault-restore">${VIC.key}Restore key…</button></span></div>
     <div class="title-settings vault-settings" id="s-vault-more" hidden>
       <div class="vault-set"><label class="vault-set-head" for="s-vault-access">Agent access</label>
@@ -1584,6 +1586,26 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     btn.disabled = false; btn.setAttribute('aria-pressed', String(on)); btn.querySelector('.dot').classList.toggle('on', on);
     sh.querySelector('#s-tasks-state').textContent = on ? 'On: a to-do list you and your agents add to, with due dates and reminders' : 'Off. Turn on to keep to-dos here and from agent conversations, with dates and conversation context';
   };
+  // 1.125: the order each list opens in, on every device; the lists' own Sort saves the same setting.
+  const paintOrderSettings = () => {
+    if (!srv) return;
+    const t = sh.querySelector('#s-tasks-order'), v = sh.querySelector('#s-vault-order');
+    if (t) t.value = TASK_ORDERS.some(([o]) => o === srv.tasksOrder) ? srv.tasksOrder : 'due';
+    if (v) v.value = VAULT_ORDERS.some(([o]) => o === srv.vaultOrder) ? srv.vaultOrder : 'new';
+  };
+  for (const [sel, key, words, snap] of [['#s-tasks-order', 'tasksOrder', 'Tasks', () => tasksSnap], ['#s-vault-order', 'vaultOrder', 'The Vault', () => vaultSnap]]) {
+    const el = sh.querySelector(sel); if (!el) continue;
+    el.onchange = async () => {
+      const was = srv?.[key] ?? null, value = el.value; el.disabled = true;
+      try {
+        srv = await api('/settings', { method: 'POST', body: JSON.stringify({ [key]: value }), signal: AbortSignal.timeout(8000) });
+        const list = snap(); if (list) { list.order = value; if (key === 'vaultOrder') list.orderChosen = true; }
+        if (key === 'tasksOrder') { paintTasksView(); paintRailTasks(); } else repaintVault();
+        toast(words + ' default order: ' + (key === 'tasksOrder' ? TASK_ORDERS : VAULT_ORDERS).find(([o]) => o === value)[1]);
+      } catch (err) { el.value = was || (key === 'tasksOrder' ? 'due' : 'new'); if (err.message !== 'login') toast('Could not save: ' + (err.message || 'error')); }
+      finally { el.disabled = false; }
+    };
+  }
   sh.querySelector('#s-tasks').onclick = async e => {
     const btn = e.currentTarget; if (!srv) return; btn.disabled = true;
     try {
@@ -1717,7 +1739,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     try {
       srv = await api('/settings', {signal:AbortSignal.timeout(8000)});
       if (!sh.isConnected) return;
-      paintTitles(); paintNotifySettings(); paintModelOffer(); paintContext(); paintTrusted(); paintRouter(); paintAccess(); paintProjectsSetting(); paintDocumentsSetting(); paintTasksSetting(); paintCoordSetting(); paintInboxSetting(); paintVaultSetting(); paintSecretsSetting(); paintFeaturesNote();
+      paintTitles(); paintNotifySettings(); paintModelOffer(); paintContext(); paintTrusted(); paintRouter(); paintAccess(); paintProjectsSetting(); paintDocumentsSetting(); paintTasksSetting(); paintOrderSettings(); paintCoordSetting(); paintInboxSetting(); paintVaultSetting(); paintSecretsSetting(); paintFeaturesNote();
       btn.disabled = false; btn.setAttribute('aria-pressed', String(Boolean(srv.titleSync)));
       btn.querySelector('.dot').classList.toggle('on', Boolean(srv.titleSync));
       paintSyncState();
@@ -3233,7 +3255,8 @@ function paintRailBadges() {
 }
 async function paintRail() {
   const el = $('#rail'); if (!el) return;
-  const ft = $('#rail-filter-toggle'); if (ft) ft.hidden = railView() !== 'sessions';
+  const ft = $('#rail-filter-toggle'); if (ft) ft.hidden = !['sessions', 'tasks', 'vault'].includes(railView()); // 1.125: it folds the Tasks and Vault search row too
+  if (ft) paintWorkspaceDensity(); // its label names what it folds
   if (railView() === 'projects') { if (!el.querySelector('.rail-board')) el.innerHTML = ''; paintRailProjects(); return; } // 1.77.3: .rail-board is the project list alone; .rail-projects is also the Tasks, Vault and Inbox lists' styling class
   if (railView() === 'documents') { if (!el.querySelector('.rail-documents')) el.innerHTML = ''; paintRailDocuments(); return; }
   if (railView() === 'tasks') { if (!el.querySelector('.rail-tasks')) el.innerHTML = ''; paintRailTasks(); return; } // 1.36
