@@ -30,6 +30,11 @@ export async function runInboxNewsRegressions({browser,base,rows,out,settings,re
  const tabLabel=()=>page.evaluate(id=>document.querySelector(`.open-session[data-tab="${id}"] .tab-state`)?.getAttribute('aria-label')||'',sid);
  const sentSince=(n,re)=>received.slice(n).find(b=>typeof b.text==='string'&&re.test(b.text));
  const until=async(fn,what,tries=80)=>{for(let i=0;i<tries&&!await fn();i++)await new Promise(r=>setTimeout(r,50));assert.ok(await fn(),what);};
+ // 1.124.10: a send is done for the page when the server's answer arrives and the outbox is cleared, not when the server
+ // has the message. A step that reloads the page before then leaves the send pending (Delivery was not confirmed, with
+ // Retry), and the next Bring it in rightly refuses with "Wait for your last message to send". On a loaded CI runner that
+ // failed "the choice on the sheet sent the news" (caught on diag/inbox-news-ci), so each send settles before a reload.
+ const settled=what=>until(()=>page.evaluate(id=>!localStorage.getItem('pc-outbox-'+id),sid),what,300);
  const prevInbox=settings.inbox;
  try{
   settings.inbox=true;
@@ -82,6 +87,7 @@ export async function runInboxNewsRegressions({browser,base,rows,out,settings,re
   await until(()=>inboxCaughtUp.at(-1)?.id===entry.id,'caught-up told');
   assert.deepEqual(inboxCaughtUp.at(-1),{session:sid,id:entry.id,upTo:entry.newsN});
   assert.deepEqual(inboxStore.newsFor(sid),[],'caught up on the server');
+  await settled('the Bring it in send finished');
   conversations.set(sid,[...kept]);
 
   console.log('Inbox news: the entry sheet offers the three ways on, before anything is sent');
@@ -106,6 +112,7 @@ export async function runInboxNewsRegressions({browser,base,rows,out,settings,re
   // always enough on a loaded CI runner (1.124.7), so this step waits up to 15 s.
   await until(()=>sentSince(before,/^New on this Inbox story since this conversation started \("Harbor gate: fixed"\)/),'the choice on the sheet sent the news',300);
   await until(()=>inboxStore.newsFor(sid).length===0,'and the conversation is caught up',300);
+  await settled('the Continue send finished');
   conversations.set(sid,[...kept]);
 
   console.log('Inbox news: hand-off from the sheet asks the conversation for a briefing with the new mail in it');
@@ -120,6 +127,7 @@ export async function runInboxNewsRegressions({browser,base,rows,out,settings,re
   assert.match(ask,/Update, 2:14 PM EST: Harbor gate: tech on site at 2 pm\n/);
   assert.match(ask,/Do not work on this here\. Hand this off: write a briefing for a new conversation to pick up from here, with this new mail as the first thing it deals with, and give me the handoff card\.$/);
   await until(()=>inboxStore.newsFor(sid).length===0,'the mail is in its context, so it is not offered again');
+  await settled('the hand-off send finished');
   conversations.set(sid,[...kept]);
   // the conversation that continues it takes its place on the entry (the server calls linkHandoff when the card starts)
   inboxStore.linkHandoff(sid,'22222222-2222-4222-8222-222222222222');
