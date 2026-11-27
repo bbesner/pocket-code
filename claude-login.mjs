@@ -9,8 +9,12 @@ export function loginUrl(output) {
   for (const match of output.matchAll(/https:\/\/[^\s<>"']+(?=[\s<>"'])/g)) {
     try {
       const url = new URL(match[0]);
+      if (url.username || url.password || url.port) continue;
+      // Claude Code 2.1.330 prints a compact authorization link instead of named OAuth parameters.
+      if (url.origin === 'https://claude.ai' && url.pathname === '/oauth/authorize'
+        && /^\?z-[A-Za-z0-9_-]{43}$/.test(url.search) && !url.hash) return url.href;
       if (['claude.ai','claude.com'].includes(url.hostname) && ['/oauth/authorize','/cai/oauth/authorize'].includes(url.pathname)
-        && !url.username && !url.password && !url.port && url.searchParams.get('state') && url.searchParams.get('code_challenge')) return url.href;
+        && url.searchParams.get('state') && url.searchParams.get('code_challenge')) return url.href;
     } catch {}
   }
   return null;

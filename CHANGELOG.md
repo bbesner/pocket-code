@@ -3,6 +3,10 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.125.1] — 2026-11-27 · build 234
+
+Claude Code account switching works with the shorter sign-in link introduced in Claude Code 2.1.330. Get sign-in link now shows Open Claude sign-in and Copy link. Earlier Claude Code versions still work.
+
 ## [1.125.0] — 2026-11-25 · build 233
 
 **Sort and search for Tasks and the Vault**, requested by Damon. Design doc: `docs/plans/tasks-vault-sort-search.html`.
