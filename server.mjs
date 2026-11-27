@@ -69,6 +69,7 @@ import { CliUpdates } from './cli-updates.mjs';
 import { SelfUpdate } from './self-update.mjs';
 import { parseEnv } from './env-file.mjs';
 import { pushShape, vaultPushCommand, allowNote } from './push-text.mjs'; // 1.125.3: when a push may carry Allow
+import * as apush from './approval-push.mjs'; // 1.126: action approvals answered from the notification (docs/plans/notification-approvals.md)
 import * as auto from './automation.mjs'; // 1.117: unattended work (`automation` is the titles helper above)
 import { JobKeyStore, NAME_RE as JOB_NAME_RE, KEY_RE as JOB_KEY_RE, RUN_RE as JOB_RUN_RE, ENGINES as JOB_ENGINES, jobTitle, jobMessage, keyView as jobKeyView, runView as jobRunView, writeKeyFile, removeKeyFile, isKeyFile, hashSecret as hashJobKey, canonKeyFile, REQUEST_RE as JOB_REQUEST_RE, PROPOSAL as JOB_PROPOSAL, PROPOSAL_FIELDS as JOB_PROPOSAL_FIELDS } from './job-keys.mjs';
 import { CheckbackStore, checkbackInstructions, parseCheckbackWhen, rangeError as checkbackRangeError, checkbackMessage, firstLine as replyFirstLine, view as checkbackView, lateText } from './checkbacks.mjs'; // 1.119
@@ -410,7 +411,7 @@ else log('push disabled: VAPID keys not set');
 const loadSubs = () => { try { return JSON.parse(fs.readFileSync(SUBS_FILE, 'utf8')); } catch { return []; } };
 const saveSubs = s => atomicWrite(SUBS_FILE, s);
 // 1.50: what each device wants. A subscription saved by an earlier build has no prefs and gets everything, as before.
-const PUSH_KINDS = ['turns', 'reminders', 'vault', 'alerts', 'automation']; // 1.119: automation (check-back results, limit notices), on by default like the others; // 1.69: alerts (POST /api/notify, Inbox Watch) is a saved kind with its own device toggle; a device saved before it gets them, as before
+const PUSH_KINDS = ['turns', 'reminders', 'vault', 'alerts', 'automation', 'approvals']; // 1.126: approvals (Action approvals), urgent, used only while Answer approvals from notifications is on; // 1.119: automation (check-back results, limit notices), on by default like the others; // 1.69: alerts (POST /api/notify, Inbox Watch) is a saved kind with its own device toggle; a device saved before it gets them, as before
 const pushPrefsOf = s => ({ kinds: Object.fromEntries(PUSH_KINDS.map(k => [k, s.kinds?.[k] !== false])), badge: s.badge !== false });
 const cleanPushPrefs = p => { const out = {}; if (p?.kinds && typeof p.kinds === 'object') out.kinds = Object.fromEntries(PUSH_KINDS.filter(k => typeof p.kinds[k] === 'boolean').map(k => [k, p.kinds[k]])); if (typeof p?.badge === 'boolean') out.badge = p.badge; return out; };
 // per-session mute: a chatty background session shouldn't buzz the phone every turn
@@ -1025,6 +1026,96 @@ async function pushRaw(title, body, { kind = 'turns', badge, ...fields }) { // 1
   }));
   if (dead.length) saveSubs(loadSubs().filter(s => !dead.includes(s.endpoint)));
   return sent;
+}
+
+// ---------- 1.126: action approvals answered from the notification (docs/plans/notification-approvals.md) ----------
+// Off by default (settings.approvalPush holds only saved values; POCKET_APPROVAL_PUSH_<KEY> presets). Off, every approval
+// push is exactly 1.125.3's (pushNotify, kind turns). On, each request gets its own notification per device (kind
+// approvals, urgent), its words and its Allow built by approval-push.mjs for that device, at most perConversation at once
+// and a summary beyond; an answer or a withdrawal replaces it on the other devices that got it.
+const approvalCfg = () => apush.values(settings.approvalPush);
+const approvalsOn = () => approvalCfg().answers === true;
+const APPROVAL_WINDOW_TEST_MS = msSetting('POCKET_TEST_APPROVAL_WINDOW_MS', 0); // tests only: shortens Allow works for, never lengthens it
+const approvalWindowMs = cfg => { const ms = cfg.allowFor * 60_000; return APPROVAL_WINDOW_TEST_MS > 0 ? Math.min(ms, APPROVAL_WINDOW_TEST_MS) : ms; };
+const fmtShortTime = ms => { const o = { hour: 'numeric', minute: '2-digit' }; try { return new Date(ms).toLocaleTimeString('en-US', { ...o, timeZone: ownerZone() || undefined }); } catch { return new Date(ms).toLocaleTimeString('en-US', o); } };
+// The facts about a reply the notification rules read: its engine and folder, its root origin, whether a job has run in
+// this conversation or one it branched from, and the conversation's title.
+function approvalView(sid, turn, engine) {
+  const root = auto.normRoot(turn?.rootOrigin);
+  const title = titleOf(sid) || shownTitle(sid) || String(turn?.userText || '').split('\n')[0].slice(0, 120) || `${ENGINES[engine]?.label || 'Agent'} conversation`;
+  return { sessionId: sid, engine, cwd: typeof turn?.cwd === 'string' ? turn.cwd : '', home: HOME, root,
+    jobConversation: apush.jobConversation(sid, { metaOf: id => smeta[id], ranIn: jobRanIn }), jobName: root === 'job' ? shownOriginRef(turn) : null, title };
+}
+// One push per device, each with its own payload (null: none for that device). Urgent unless asked otherwise. Returns the
+// subscriptions the push service accepted; a gone subscription (404, 410) is removed as pushRaw does.
+async function pushEach(subs, payloadOf, { urgent = true, kind = 'approvals' } = {}) {
+  const dead = [], ok = [];
+  await Promise.all(subs.map(async s => {
+    const payload = payloadOf(s);
+    if (!payload) return;
+    try { await webpush.sendNotification(s, JSON.stringify(payload), urgent ? { urgency: 'high' } : {}); ok.push(s); }
+    catch (e) {
+      if (e.statusCode === 404 || e.statusCode === 410) dead.push(s.endpoint);
+      else log(`push not delivered to a device (${e.statusCode ? `the push service answered ${e.statusCode}` : e.code || e.message}) kind=${kind}`);
+    }
+  }));
+  if (dead.length) saveSubs(loadSubs().filter(s => !dead.includes(s.endpoint)));
+  return ok;
+}
+const approvalSubs = () => loadSubs().filter(apush.wantsApprovals);
+// One request's notification, built for each device. `push.devices[<device>]` is written only for a device whose push
+// service accepted it: a push that reached no device offers nothing (Part 3).
+async function sendApprovalPush(sid, turn, engine, row) {
+  const cfg = approvalCfg(), view = approvalView(sid, turn, engine), built = new Map();
+  const ok = await pushEach(approvalSubs(), s => { const p = apush.approvalPush(row, view, s, cfg); built.set(s.endpoint, p); return p.payload; });
+  for (const s of ok) { const p = built.get(s.endpoint); row.push.devices[apush.deviceId(s.endpoint)] = { allow: p.allow, shown: p.shown, at: Date.now() }; }
+  row.push.sending = false;
+  log(`approval push sent (${ok.length} devices, Allow on ${ok.filter(s => built.get(s.endpoint).allow).length}) session=${sid} request=${row.id}`);
+  if (row.gone) sendApprovalReplacement(sid, turn, row, row.gone); // answered or withdrawn while its push was on its way
+}
+function approvalGoneText(turn, info) {
+  const at = fmtShortTime(info.at || Date.now());
+  if (info.why === 'answered') return info.decision === 'allow' ? (info.source === 'notification' ? `Allowed on another device at ${at}` : `Allowed in Pocket at ${at}`) : `Not allowed at ${at}`;
+  if (info.why === 'withdrawn') return 'No longer waiting: the agent withdrew it';
+  return `No longer waiting: ${pausedNow() ? 'Pocket was paused' : turn?.stopped ? 'the reply was stopped' : 'the reply ended'}`;
+}
+// The replacement: same tag, no buttons, silent, only to the devices that got the original and not to the one that answered.
+function sendApprovalReplacement(sid, turn, row, info) {
+  if (!pushReady || !approvalCfg().updateOthers || row.push?.replaced) return;
+  const targets = new Set(Object.keys(row.push?.devices || {}).filter(d => d !== info.device));
+  if (!targets.size) return;
+  row.push.replaced = true;
+  const { title, body, ...fields } = apush.replacement(row.id, sid, approvalGoneText(turn, info)), payload = pushShape(title, body, fields).base;
+  pushEach(loadSubs().filter(s => targets.has(apush.deviceId(s.endpoint))), () => payload).catch(e => log(`approval replacement: ${e.message}`));
+}
+// Keep a conversation's notifications in step with its waiting requests: the oldest not yet shown get theirs while fewer
+// than perConversation are showing, and the summary says how many more wait (silently "Nothing more waits" at zero).
+function syncApprovalPushes(sid, turn, engine) {
+  if (!pushReady || !turn?.approvals || !approvalsOn() || mutes.has(sid)) return;
+  const cfg = approvalCfg(), rows = turn.approvals.rows();
+  let showing = rows.filter(r => r.push).length;
+  for (const r of rows) {
+    if (r.push) continue;
+    if (showing >= cfg.perConversation) break;
+    r.push = { devices: {}, sending: true }; showing++;
+    sendApprovalPush(sid, turn, engine, r).catch(e => { r.push.sending = false; log(`approval push: ${e.message}`); });
+  }
+  const waiting = rows.filter(r => !r.push).length, st = turn.approvalSummary ??= { count: 0 };
+  if (waiting === st.count) return;
+  const had = st.count; st.count = waiting;
+  const words = apush.summary(sid, waiting, cfg.show === 'waits' ? null : approvalView(sid, turn, engine).title, { silent: had > 0 });
+  const { title, body, ...fields } = words, payload = pushShape(title, body, fields).base;
+  pushEach(approvalSubs(), () => payload).catch(e => log(`approval summary: ${e.message}`));
+}
+// An approval row answered, withdrawn or ended (the inbox's onGone hook): replace its notification, then show the next.
+function approvalGone(sid, turn, engine, rows, info) {
+  for (const r of rows) { r.gone = info; if (r.push && !r.push.sending) sendApprovalReplacement(sid, turn, r, info); }
+  syncApprovalPushes(sid, turn, engine);
+}
+// An inbox changed: today's push when the feature is off, else the per-request notifications.
+function approvalChanged(sid, turn, engine, legacy) {
+  if (!approvalsOn()) return legacy();
+  syncApprovalPushes(sid, turn, engine);
 }
 
 // ---------- auth ----------
@@ -1991,10 +2082,12 @@ function attachClaudeQuestions(turn,sessionId){
     const requests=turn.approvals?.list()||[];
     try{const meta=JSON.parse(fs.readFileSync(turn.files.meta,'utf8'));meta.waitingForApproval=Boolean(requests.length);meta.waitingForInput=Boolean(requests.length||turn.questions.list().length);atomicWrite(turn.files.meta,meta);}catch{} // 1.124.4: as above
     broadcast(turn,{type:'approvals'});
-    const last=requests.at(-1);
-    if(last&&turn.approvalNotified!==last.id&&!mutes.has(sessionId)){turn.approvalNotified=last.id;pushNotify(sessionId,last.agent?'A subagent is waiting for your OK':'Waiting for your OK','Open Pocket Code to review the pending action.').catch(()=>{});}
+    approvalChanged(sessionId,turn,'claude',()=>{ // 1.126: as before while answers from notifications are off
+      const last=requests.at(-1);
+      if(last&&turn.approvalNotified!==last.id&&!mutes.has(sessionId)){turn.approvalNotified=last.id;pushNotify(sessionId,last.agent?'A subagent is waiting for your OK':'Waiting for your OK','Open Pocket Code to review the pending action.').catch(()=>{});}
+    });
     maybeEndControlTurn(turn);
-  },onAutoError:(e,{tool})=>log(`trusted action reply not delivered session=${sessionId} tool=${tool}: ${e.message}`)});
+  },onGone:(rows,info)=>approvalGone(sessionId,turn,'claude',rows,info),onAutoError:(e,{tool})=>log(`trusted action reply not delivered session=${sessionId} tool=${tool}: ${e.message}`)});
 }
 // 1.83: the slash commands the Claude CLI reports on its init line, so the / picker offers only the built-ins this CLI
 // has and the plugin skills that are not on disk. The newest report wins; null until a reply has started.
@@ -3430,12 +3523,50 @@ app.get('/api/session/:id/approvals',requireAuth,(req,res)=>{
   const turn=ownedTurn(req.params.id);
   res.json({requests:turn?.approvals?.list()||[],interrupted:Boolean(turn?.approvalUnavailable),activeMode:turn?.approvalMode||null,defaultMode:DEFAULT_APPROVAL_MODE,allowFullAccess:ALLOW_FULL_ACCESS});
 });
-app.post('/api/session/:id/approvals/:request/decision',requireAuth,async(req,res)=>{
+// 1.126 (notification-approvals.md, Part 3): same origin for every caller. An answer from the app (`via` absent or 'app')
+// is checked as before. From a notification (`via: 'notification'`): only while answers from notifications are on (404
+// answers_off), and an Allow only when approvalPush, re-run now with today's settings for the device that posts, still
+// offers it (409 not_offered), that device's push service accepted a push with Allow for this request (not_offered) no
+// longer ago than Allow works for (too_old), and `shown` is what the server built for it (changed). Any other `via`
+// (voice is a later release) is refused. Refusals are recorded with their reason, never with the command.
+const APPROVAL_VIA = new Set(['app', 'notification']);
+app.post('/api/session/:id/approvals/:request/decision',requireAuth,sameOrigin,async(req,res)=>{
   res.set('Cache-Control','no-store');
   if(!anyId(req.params.id))return res.status(400).json({error:'Invalid conversation'});
-  const turn=ownedTurn(req.params.id);
-  if(!turn?.approvals||turn.done||turn.finalized||turn.stopped)return res.status(409).json({error:'This action is no longer waiting. Refresh the conversation.'});
-  try{res.json(await turn.approvals.decide(req.params.request,req.body.decision));}
+  const sid=req.params.id,request=String(req.params.request),body=req.body||{},via=body.via??'app',away=via!=='app';
+  const turn=ownedTurn(sid);
+  const endpoint=away&&typeof body.endpoint==='string'?body.endpoint:null,sub=endpoint?loadSubs().find(s=>s.endpoint===endpoint)||null:null;
+  const meta=away?{source:APPROVAL_VIA.has(via)?via:'unknown',device:sub?apush.deviceId(endpoint):'unknown',...(endpoint?{pushService:apush.pushServiceOf(endpoint)}:{})}:{source:'app'};
+  const refuse=(status,code,error)=>{
+    if(turn?.approvals)turn.approvals.refuse(request,{...meta,reason:code});
+    else try{auditApproval({event:'refused',sessionId:sid,requestId:request,...meta,reason:code});}catch{}
+    log(`approval answer from a notification refused (${code}) session=${sid} request=${request} device=${meta.device}`);
+    return res.status(status).json({error,code});
+  };
+  if(!APPROVAL_VIA.has(via))return refuse(400,'unknown_via','Answer this request in Pocket.');
+  if(away&&!approvalsOn())return refuse(404,'answers_off','Answering approvals from notifications is turned off.');
+  if(!turn?.approvals||turn.done||turn.finalized||turn.stopped){
+    if(away)return refuse(409,'gone','This action is no longer waiting. Refresh the conversation.');
+    return res.status(409).json({error:'This action is no longer waiting. Refresh the conversation.'});
+  }
+  const row=turn.approvals.row(request);
+  let action;
+  if(away&&row){
+    const engine=sessionEngine(sid),cfg=approvalCfg(),view=approvalView(sid,turn,engine);
+    action=apush.actionOf(row,view).what;meta.action=action;
+    if(body.decision==='allow'&&row.status==='pending'){
+      const now=apush.approvalPush(row,view,sub,cfg),rec=sub?row.push?.devices?.[apush.deviceId(endpoint)]:null;
+      if(!now.allow)return refuse(409,'not_offered','Pocket no longer offers Allow on this notification. Review it in Pocket.');
+      if(!rec||rec.allow!==true)return refuse(409,'not_offered','This notification did not offer Allow. Review it in Pocket.');
+      if(Date.now()-rec.at>approvalWindowMs(cfg))return refuse(409,'too_old','The notification is too old to Allow from. Review it in Pocket.');
+      if(typeof body.shown!=='string'||body.shown!==now.shown)return refuse(409,'changed','This no longer matches what the notification showed. Review it in Pocket.');
+    }
+  }
+  try{
+    const out=await turn.approvals.decide(request,body.decision,meta);
+    if(away&&!out.duplicate)log(`approval answered from a notification: ${out.decision} session=${sid} request=${request} device=${meta.device} service=${meta.pushService||'unknown'}`);
+    res.json(out);
+  }
   catch(e){res.status(e.status||503).json({error:e.status?e.message:'The approval connection is unavailable. Stop this reply before trying again.'});}
 });
 
@@ -3877,7 +4008,8 @@ app.post('/api/session/:id/queue/start',requireAuth,ownerSendGate,async(req,res)
 // startCodexTurn has returned, so a closure can't reach a local binding yet.
 function codexHooks(id) {
   return {
-    auditApproval,onApproval:turn=>{const sid=id||(codex.CX+turn.threadId);const aid=turn.approvals.list().at(-1)?.id;if(aid&&turn.approvalNotified!==aid&&!mutes.has(sid)){turn.approvalNotified=aid;pushNotify(sid,'Waiting for your OK','Open Pocket Code to review the pending action.').catch(()=>{});}},
+    auditApproval,onApproval:turn=>{const sid=id||(codex.CX+turn.threadId);approvalChanged(sid,turn,'codex',()=>{const aid=turn.approvals.list().at(-1)?.id;if(aid&&turn.approvalNotified!==aid&&!mutes.has(sid)){turn.approvalNotified=aid;pushNotify(sid,'Waiting for your OK','Open Pocket Code to review the pending action.').catch(()=>{});}});},
+    onApprovalGone:(turn,rows,info)=>approvalGone(id||(codex.CX+turn.threadId),turn,'codex',rows,info), // 1.126
     onQuestion:turn=>{const sid=id||(codex.CX+turn.threadId);const qid=turn.questions.list().at(-1)?.id;if(!mutes.has(sid)&&turn.questionNotified!==qid){turn.questionNotified=qid;pushNotify(sid,'Codex has a question','Open Pocket Code to answer it.').catch(()=>{});}},
     onFinish: (ev, turn) => codexTurnFinished(id || (codex.CX + turn.threadId), turn, ev),
     // 1.117: a turn Codex started by itself: nobody's queue or retry, and stopped at once while paused (no push for it)
@@ -3931,7 +4063,8 @@ async function startCodexFromApi({ id, threadId, forkFrom, cwd, text, body, onFo
 function acpHooks(id, engine = 'acp') {
   return {
     auditApproval,
-    onApproval: turn => { const sid = id || turn.fullId; const aid = turn.approvals.list().at(-1)?.id; if (aid && turn.approvalNotified !== aid && !mutes.has(sid)) { turn.approvalNotified = aid; pushNotify(sid, 'Waiting for your OK', 'Open Pocket Code to review the pending action.').catch(() => { }); } },
+    onApproval: turn => { const sid = id || turn.fullId; approvalChanged(sid, turn, engine, () => { const aid = turn.approvals.list().at(-1)?.id; if (aid && turn.approvalNotified !== aid && !mutes.has(sid)) { turn.approvalNotified = aid; pushNotify(sid, 'Waiting for your OK', 'Open Pocket Code to review the pending action.').catch(() => { }); } }); },
+    onApprovalGone: (turn, rows, info) => approvalGone(id || turn.fullId, turn, engine, rows, info), // 1.126
     onQuestion: turn => { const sid = id || turn.fullId; const qid = turn.questions.list().at(-1)?.id; if (!mutes.has(sid) && turn.questionNotified !== qid) { turn.questionNotified = qid; pushNotify(sid, `${ENGINES[engine].label} has a question`, 'Open Pocket Code to answer it.').catch(() => { }); } },
     instructions: sid => pocketInstructions(engine, sid),
     onFinish: (result, turn) => acpTurnFinished(id || turn.fullId, turn, { ok: !turn.stopped && result.stopReason !== 'error', stopReason: result.stopReason, ...(result.error ? { error: result.error } : {}) }),
@@ -6085,7 +6218,10 @@ app.post('/api/push/subscribe', requireAuth, (req, res) => {
   const sub = req.body?.subscription;
   if (!sub?.endpoint) return res.status(400).json({ error: 'bad subscription' });
   const subs = loadSubs().filter(s => s.endpoint !== sub.endpoint);
-  const row = { ...sub, ...cleanPushPrefs(req.body.prefs) }; // 1.50: what this device wants rides with its subscription
+  // 1.126: the record is rebuilt from what the browser sends, so subscribing again turns Allow button on this device off; it
+  // is never taken from the request (only the device test sets it)
+  const { [apush.ALLOW_FIELD]: _allow, ...given } = sub;
+  const row = { ...given, ...cleanPushPrefs(req.body.prefs) }; // 1.50: what this device wants rides with its subscription
   subs.push(row);
   saveSubs(subs);
   log(`push subscribed (${subs.length} devices)`);
@@ -6095,7 +6231,7 @@ app.post('/api/push/subscribe', requireAuth, (req, res) => {
 app.get('/api/push/prefs', requireAuth, (req, res) => {
   const s = loadSubs().find(x => x.endpoint === req.query.endpoint);
   if (!s) return res.status(404).json({ error: 'This device is not subscribed.', code: 'not_subscribed' });
-  res.set('Cache-Control', 'private, no-store').json({ ok: true, prefs: pushPrefsOf(s) });
+  res.set('Cache-Control', 'private, no-store').json({ ok: true, prefs: pushPrefsOf(s), approvals: apush.deviceStatus(s, approvalCfg()) }); // 1.126: this device's Action approvals and Allow button
 });
 app.post('/api/push/prefs', requireAuth, (req, res) => {
   const subs = loadSubs(), s = subs.find(x => x.endpoint === req.body?.endpoint);
@@ -6104,7 +6240,58 @@ app.post('/api/push/prefs', requireAuth, (req, res) => {
   if (clean.kinds) s.kinds = { ...pushPrefsOf(s).kinds, ...clean.kinds };
   if ('badge' in clean) s.badge = clean.badge;
   saveSubs(subs);
-  res.json({ ok: true, prefs: pushPrefsOf(s) });
+  res.json({ ok: true, prefs: pushPrefsOf(s), approvals: apush.deviceStatus(s, approvalCfg()) });
+});
+// 1.126 (notification-approvals.md, Part 4): Allow button on this device. It is turned on only here, by a test push to the
+// caller's own subscription in the real layout at today's limit and both codes it showed, typed back within 10 minutes;
+// Pocket stores the limit the device was tested at. It can be turned off at any time. Owner only, from Pocket's own origin.
+// As ownerControl (defined further down): JSON, and not from another site.
+const deviceControl = (req, res, next) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  if (!req.is('application/json') || req.headers['sec-fetch-site'] === 'cross-site') return res.status(403).json({ error: 'Open this control from Pocket Code.' });
+  next();
+};
+const approvalTests = new Map(); // device id -> { codes, limit, expires, tries }
+const APPROVAL_TEST_MS = 10 * 60_000;
+const ownDevice = (req, res) => {
+  const endpoint = typeof req.body?.endpoint === 'string' ? req.body.endpoint : '';
+  const subs = loadSubs(), s = endpoint && subs.find(x => x.endpoint === endpoint);
+  if (!s) { res.status(404).json({ error: 'This device is not subscribed.', code: 'not_subscribed' }); return null; }
+  return { subs, s, endpoint, device: apush.deviceId(endpoint) };
+};
+app.post('/api/push/approval-test', requireAuth, deviceControl, sameOrigin, async (req, res) => {
+  if (!pushReady) return res.status(409).json({ error: 'Push is not set up on this server.', code: 'push_off' });
+  const d = ownDevice(req, res); if (!d) return;
+  const limit = approvalCfg().longestAction, codes = [apush.makeCode(), apush.makeCode()];
+  const { payload } = apush.testPush(limit, codes);
+  const ok = await pushEach([d.s], () => payload, { kind: 'approvals' });
+  if (!ok.length) { approvalTests.delete(d.device); return res.status(502).json({ error: 'The test notification could not be sent to this device. Try again.', code: 'not_delivered' }); }
+  const expires = Date.now() + APPROVAL_TEST_MS;
+  approvalTests.set(d.device, { codes, limit, expires, tries: 0 });
+  log(`approval test notification sent device=${d.device} limit=${limit}`);
+  res.json({ ok: true, limit, expiresAt: new Date(expires).toISOString() });
+});
+app.post('/api/push/approval-test/confirm', requireAuth, deviceControl, sameOrigin, (req, res) => {
+  const d = ownDevice(req, res); if (!d) return;
+  const t = approvalTests.get(d.device), norm = v => String(v ?? '').trim().toUpperCase();
+  if (!t || Date.now() > t.expires) { approvalTests.delete(d.device); return res.status(410).json({ error: 'Send a new test notification: this one has expired or was never sent.', code: 'test_expired' }); }
+  if (t.limit !== approvalCfg().longestAction) { approvalTests.delete(d.device); return res.status(409).json({ error: 'The longest action changed since the test. Send a new test notification.', code: 'limit_changed' }); }
+  if (norm(req.body?.actionCode) !== t.codes[0] || norm(req.body?.folderCode) !== t.codes[1]) {
+    if (++t.tries >= 5) approvalTests.delete(d.device);
+    return res.status(400).json({ error: 'Those codes don\'t match the test notification. Type the two characters at the end of the "Runs:" line and of the "In:" line.', code: 'wrong_codes', ...(t.tries >= 5 ? { expired: true } : {}) });
+  }
+  approvalTests.delete(d.device);
+  d.s[apush.ALLOW_FIELD] = { limit: t.limit, at: new Date().toISOString() };
+  saveSubs(d.subs);
+  log(`Allow button on device=${d.device} limit=${t.limit}`);
+  res.json({ ok: true, prefs: pushPrefsOf(d.s), approvals: apush.deviceStatus(d.s, approvalCfg()) });
+});
+app.post('/api/push/approval-allow', requireAuth, deviceControl, sameOrigin, (req, res) => {
+  const d = ownDevice(req, res); if (!d) return;
+  if (req.body?.on !== false) return res.status(400).json({ error: 'Turn Allow button on with a test notification.', code: 'test_needed' });
+  delete d.s[apush.ALLOW_FIELD]; approvalTests.delete(d.device);
+  saveSubs(d.subs);
+  res.json({ ok: true, prefs: pushPrefsOf(d.s), approvals: apush.deviceStatus(d.s, approvalCfg()) });
 });
 // 1.50: a test message to the address in Settings, so the owner can see the mail path works before relying on it.
 app.post('/api/notify/test-email', requireAuth, async (_req, res) => {
@@ -6565,6 +6752,60 @@ app.post('/api/automation/settings', requireAuth, ownerControl, (req, res) => {
   if (req.body.group === 'checkbacks' || released) setImmediate(() => checkbackPass().catch(e => log(`check-backs: ${e.message}`)));
   autoAudit({ action: 'settings', group: req.body.group, ...(req.body.reset === true ? { reset: true } : { keys: Object.keys(req.body.values) }) });
   res.json(automationView());
+});
+
+// ---------- 1.126: Settings → Features → Answers from notifications ----------
+// Owner only (the cookie or Access; the CLI token, runner tokens and job keys are refused by requireAuth), JSON, same site.
+// A save is all or nothing. Raising Longest action with an Allow button turns Allow button off on every device: each proved
+// it shows an action of the old length, not of the new one. Lowering it keeps them on.
+function approvalPushView() {
+  const d = apush.describe(settings.approvalPush);
+  return { on: approvalsOn(), pushReady, groups: d.groups, warnings: d.warnings };
+}
+app.get('/api/approval-push', requireAuth, (_req, res) => { res.setHeader('Cache-Control', 'private, no-store'); res.json(approvalPushView()); });
+app.post('/api/approval-push/settings', requireAuth, ownerControl, sameOrigin, (req, res) => {
+  const r = apush.applySave(settings.approvalPush, req.body);
+  if (r.error) return res.status(r.status || 400).json({ error: r.error });
+  const prev = settings.approvalPush, before = approvalCfg().longestAction;
+  if (Object.keys(r.saved).length) settings.approvalPush = r.saved; else delete settings.approvalPush;
+  try { saveSettings(); } catch (e) {
+    if (prev === undefined) delete settings.approvalPush; else settings.approvalPush = prev;
+    log(`approval push settings not saved: ${e.message}`);
+    return res.status(503).json({ error: 'Pocket could not save the change, so nothing changed. Check that its data folder has space and can be written, then try again.' });
+  }
+  const after = approvalCfg().longestAction;
+  let turnedOff = 0;
+  if (after > before) {
+    const subs = loadSubs();
+    for (const s of subs) if (s[apush.ALLOW_FIELD]) { delete s[apush.ALLOW_FIELD]; turnedOff++; }
+    if (turnedOff) saveSubs(subs);
+    approvalTests.clear();
+  }
+  autoAudit({ action: 'settings', group: apush.GROUP_KEY, ...(req.body.reset === true ? { reset: true } : { keys: Object.keys(req.body.values) }), ...(turnedOff ? { allowButtonsOff: turnedOff } : {}) });
+  log(`answers from notifications settings saved${turnedOff ? `; Allow button turned off on ${turnedOff} device(s) (the limit was raised)` : ''}`);
+  res.json({ ...approvalPushView(), ...(turnedOff ? { allowButtonsOff: turnedOff } : {}) });
+});
+// Settings → Usage → Answered away from the app: the last 7 days of answers from notifications, and refusals, from
+// approval-decisions.jsonl (ids, outcomes and where the answer said it came from; never a command).
+const APPROVAL_DECISIONS_FILE = path.join(DATA_DIR, 'approval-decisions.jsonl');
+app.get('/api/approval-push/answers', requireAuth, (_req, res) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  let text = '';
+  try {
+    const fd = fs.openSync(APPROVAL_DECISIONS_FILE, 'r');
+    try { const { size } = fs.fstatSync(fd), n = Math.min(size, 4 * 1024 * 1024), b = Buffer.alloc(n); fs.readSync(fd, b, 0, n, size - n); text = b.toString('utf8'); } finally { fs.closeSync(fd); }
+  } catch (e) { if (e.code !== 'ENOENT') return res.status(503).json({ error: 'The record of answers could not be read. Try again.' }); }
+  const since = Date.now() - 7 * 86_400_000, rows = [];
+  for (const line of text.split('\n')) {
+    let o; try { o = JSON.parse(line); } catch { continue; }
+    const t = Date.parse(o?.at);
+    if (!(t >= since) || o.source === 'app' || o.source === 'auto-trusted' || !o.source || (o.event !== 'decision' && o.event !== 'refused')) continue;
+    rows.push({ at: o.at, sessionId: o.sessionId || null, conversation: o.sessionId ? titleOf(o.sessionId) || null : null, requestId: o.requestId || null,
+      action: o.action || null, kind: o.kind || null,
+      result: o.event === 'refused' ? 'refused' : o.decision === 'allow' ? 'allowed' : 'not_allowed', ...(o.event === 'refused' ? { reason: o.reason || null } : {}),
+      source: o.source, device: o.device || 'unknown', pushService: o.pushService || null, where: o.pushService ? apush.serviceLabel(o.pushService) : 'unknown' });
+  }
+  res.json({ answers: rows.reverse(), days: 7 });
 });
 
 // ---------- 1.117: the longest unattended reply ----------

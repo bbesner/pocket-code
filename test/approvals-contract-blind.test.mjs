@@ -490,7 +490,7 @@ describe('ApprovalInbox.decide contract', () => {
     assert.equal(state.changes - changesBefore, 2, 'onChange at sending and after success');
     const dec = completeRows(file)[1];
     assert.match(dec.at, ISO);
-    assert.deepEqual({ ...dec, at: undefined }, { at: undefined, event: 'decision', sessionId: 'sess-1', turnId: 't1', requestId: id, kind: 'command', fingerprint: fp(r), decision: 'allow' });
+    assert.deepEqual({ ...dec, at: undefined }, { at: undefined, event: 'decision', sessionId: 'sess-1', turnId: 't1', requestId: id, kind: 'command', fingerprint: fp(r), decision: 'allow', source: 'app' }); // 1.126: each decision names its source
     assert.deepEqual(inbox.list(), []);
     assert.deepEqual(await inbox.decide(id, 'allow'), { ok: true, duplicate: true });
     await rejectsWith(() => inbox.decide(id, 'deny'), 'This action was already answered differently.', 409);

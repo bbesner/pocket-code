@@ -21,6 +21,10 @@ self.addEventListener('fetch', e => {
   );
 });
 
+// 1.126: { session, request, shown } of an action approval's push, or null.
+const approvalOf = d => d && d.approval && typeof d.approval === 'object' && typeof d.approval.session === 'string' && d.approval.session
+  && typeof d.approval.request === 'string' && d.approval.request && typeof d.approval.shown === 'string'
+  ? { session: d.approval.session, request: d.approval.request, shown: d.approval.shown } : null;
 self.addEventListener('push', e => {
   let d = {}; try { d = e.data.json(); } catch { }
   const opts = {
@@ -28,11 +32,15 @@ self.addEventListener('push', e => {
     tag: d.tag || 'pc',
     icon: '/icon-192.png',
     badge: '/icon-192.png',
-    data: { url: d.url || '/', ...(d.vaultRequest ? { vaultRequest: String(d.vaultRequest) } : {}), ...(d.docRequest ? { docRequest: String(d.docRequest) } : {}), ...(d.snooze && typeof d.snooze === 'object' ? { snooze: d.snooze } : {}) },
+    data: { url: d.url || '/', ...(d.vaultRequest ? { vaultRequest: String(d.vaultRequest) } : {}), ...(d.docRequest ? { docRequest: String(d.docRequest) } : {}), ...(d.snooze && typeof d.snooze === 'object' ? { snooze: d.snooze } : {}),
+      // 1.126: an action approval names its own conversation, request and the hash of what the server built for this device
+      ...(approvalOf(d) && d.silent !== true ? { approval: approvalOf(d) } : {}), ...(d.approvalTest === true ? { approvalTest: true } : {}) },
   };
   // 1.41: a Vault request carries Allow and Deny, answered from the notification without opening Pocket.
   // 1.50: a due task or reminder carries Tomorrow (and Done for a task), answered the same way.
   if (Array.isArray(d.actions) && d.actions.length) opts.actions = d.actions.filter(a => a && a.action && a.title).map(a => ({ action: String(a.action), title: String(a.title) }));
+  // 1.126: a replacement (the request was answered or withdrawn) shows silently, with no buttons
+  if (d.silent === true) { opts.silent = true; delete opts.actions; }
   // 1.50: the count of due items on the app icon, when this device asked for it (the server sends it only then).
   // 1.50.2: set after the notification is shown and guarded, so a browser that refuses the badge never costs the notification.
   const setBadge = () => { if (typeof d.badge !== 'number' || !('setAppBadge' in self.navigator)) return; try { const p = d.badge > 0 ? self.navigator.setAppBadge(d.badge) : self.navigator.clearAppBadge(); return p && p.catch(() => {}); } catch { } };
@@ -73,9 +81,45 @@ const answerDue = (snooze, action, url) => {
     : post('/api/board/act', { action: 'remind', project: snooze.project, at: tomorrowNine(), task: snooze.task || undefined, text: snooze.label || '' });
   return req.then(r => { if (!r.ok) return openUrl(url); }, () => openUrl(url));
 };
+// 1.126 (notification-approvals.md, Part 3): Allow or Don't allow on an action approval posts to the request the
+// notification itself names, with its `shown` and this device's own subscription endpoint, and never follows a redirect
+// (an Access login is a sign-in problem, not success). It never looks up which request is waiting. If the answer does not
+// land, a new notification says so (on a locked phone the page waits for the unlock, and a closed notification would look
+// like success) and Pocket opens at the request with ?missed=<why>&tap=allow|deny.
+const SAFE_ID = /^[A-Za-z0-9:._-]{1,200}$/;
+const APPROVAL_MISSED = {
+  signin: 'this device was signed out of Pocket', off: 'answering from notifications is turned off', gone: 'it was no longer waiting',
+  changed: "it didn't match what the notification showed, or a setting changed", old: 'the notification was too old',
+  uncertain: 'delivery is uncertain, so stop the reply and review it; do not approve it again', offline: 'this device was offline', error: "Pocket couldn't take it",
+};
+const approvalMissedWhy = async r => {
+  if (r.type === 'opaqueredirect' || r.status === 0 || (r.status >= 300 && r.status < 400) || r.status === 401 || r.status === 403) return 'signin';
+  if (r.status === 404) return 'off';
+  if (r.status === 503) return 'uncertain';
+  if (r.status === 409) { let code = ''; try { code = (await r.json()).code || ''; } catch { } return code === 'too_old' ? 'old' : code === 'changed' || code === 'not_offered' ? 'changed' : 'gone'; }
+  return 'error';
+};
+const ownEndpoint = () => Promise.resolve().then(() => self.registration.pushManager.getSubscription()).then(s => (s && s.endpoint) || null, () => null);
+const answerApproval = (a, action) => {
+  const tap = action === 'allow' ? 'allow' : 'deny';
+  if (!SAFE_ID.test(a.session) || !SAFE_ID.test(a.request)) return openUrl('/');
+  const page = '/#/chat/' + a.session + '?approval=' + encodeURIComponent(a.request);
+  const missed = why => Promise.all([
+    self.registration.showNotification('Pocket Code', { body: `Your ${tap === 'allow' ? 'Allow' : "Don't allow"} didn't go through: ${APPROVAL_MISSED[why] || APPROVAL_MISSED.error}. Open Pocket.`,
+      tag: 'approval-missed:' + a.request, icon: '/icon-192.png', badge: '/icon-192.png', data: { url: page + '&missed=' + why + '&tap=' + tap } }).catch(() => {}),
+    openUrl(page + '&missed=' + why + '&tap=' + tap),
+  ]);
+  return ownEndpoint().then(endpoint => fetch('/api/session/' + encodeURIComponent(a.session) + '/approvals/' + encodeURIComponent(a.request) + '/decision', {
+    method: 'POST', credentials: 'same-origin', redirect: 'manual', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ decision: tap, via: 'notification', shown: a.shown, endpoint }),
+  })).then(r => r.ok && r.type !== 'opaqueredirect' ? undefined : approvalMissedWhy(r).then(missed), () => missed('offline'));
+};
 self.addEventListener('notificationclick', e => {
   e.notification.close();
   const data = e.notification.data || {}, url = data.url || '/';
+  // 1.126: the device test's buttons only open Settings; nothing is posted
+  if (data.approvalTest) { e.waitUntil(openUrl(url)); return; }
+  if ((e.action === 'allow' || e.action === 'deny') && data.approval && typeof data.approval === 'object') { e.waitUntil(answerApproval(data.approval, e.action)); return; }
   if ((e.action === 'allow' || e.action === 'deny') && data.vaultRequest) { e.waitUntil(answerVault(data.vaultRequest, e.action, url)); return; }
   if ((e.action === 'allow' || e.action === 'deny') && data.docRequest) { e.waitUntil(answerDoc(data.docRequest, e.action)); return; }
   if ((e.action === 'later' || e.action === 'done') && data.snooze) { e.waitUntil(answerDue(data.snooze, e.action, url)); return; }
