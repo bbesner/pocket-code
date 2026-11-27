@@ -164,6 +164,11 @@ test('T7 (rules): no Allow for a line break, tab, U+202E, U+200B, a Cyrillic let
   invariants(accent); assert.equal(accent.allow, false);
   const dots = push(codexRow('command', { command: 'ls', cwd: CWD + '/../../etc' }), turnOf('codex'));
   invariants(dots); assert.equal(dots.allow, false);
+  // A long command is never shown cut with Allow beside it
+  for (const len of [81, 120, 400]) {
+    const long = push(claudeRow('Bash', { command: 'echo ' + 'x'.repeat(len) }), t); invariants(long);
+    assert.equal(long.allow, false, 'length ' + len); assert.match(long.lines[0], /too long to show here/);
+  }
   // A payload pushRaw would cut: the request id makes it longer than a push holds
   const huge = push(claudeRow('Bash', { command: 'ls' }, { id: 'r'.repeat(1400) }), t);
   assert.equal(huge.allow, false); assert.ok(!allowOf(huge).includes('allow'));
