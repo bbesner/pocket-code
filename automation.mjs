@@ -120,9 +120,11 @@ export const GROUPS = [
         help: 'Off: every call from a program is refused. Keys are kept.' },
       { key: 'jobsInTasks', label: 'Show job keys in Tasks', type: 'bool', default: true,
         help: 'Adds a Jobs group to Tasks: each key, whether it is on, its last run and any requests waiting for you.' },
-      { key: 'jobAccess', label: 'Access', type: 'choice', default: 'ask',
+      // Full access by default since 1.125.2 (the owner, 2026-11-27): work he asked to run unattended runs freely. A server
+      // with Full access off still makes new keys "ask" (jobDefaults and jobKeyFields in server.mjs).
+      { key: 'jobAccess', label: 'Access', type: 'choice', default: 'full',
         choices: [{ value: 'ask', label: 'Ask me for every action' }, { value: 'full', label: 'Full access (only where this server allows it)' }],
-        help: '"Ask me for every action" stops for your approval. Full access runs without asking, where this server allows it.' },
+        help: 'Full access runs without asking, where this server allows it; where it doesn\'t, a new key asks. "Ask me for every action" stops for your approval.' },
       { key: 'jobAddInstructions', label: 'Job may add its own instructions', type: 'bool', default: false,
         help: 'Lets the program send instructions as well as data. Off: everything it sends is treated as data, so it can\'t change what the job does.' },
       { key: 'jobPerHour', label: 'Runs per hour', type: 'number', default: 6, min: 1, max: 120, step: 1, unit: '', integer: true, offAllowed: true,

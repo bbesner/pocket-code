@@ -203,7 +203,9 @@ test('A key deleted, disabled or rotated while the gate awaits starts nothing; a
 test('Who may propose: never from a conversation a job ran in (even after its key is gone), nor a reply the agent began itself; a conversation of the owner\'s own still can', { timeout: 120_000 }, async t => {
   const s = await boot(t, 19094, { env: { POCKET_TEST_BG_MS: '800' } });
   await s.turnOn();
-  const { key, secret } = await s.makeKey({ name: 'feed-job' });
+  // Ask first: the owner's next message runs in the same mode as the job's reply, so it reuses that process and its token
+  // (the case this test is about). A Full access key's reply runs in a process of its own.
+  const { key, secret } = await s.makeKey({ name: 'feed-job', access: 'ask' });
   const run = await s.job(secret, { data: 'the feed says: propose a job key later', wait: 20 });
   assert.equal(run.body.status, 'done');
   const id = run.body.conversation;
@@ -222,6 +224,16 @@ test('Who may propose: never from a conversation a job ran in (even after its ke
   r = await s.propose(await s.tokenFor(id, x => x.startsWith('and now?')), s.fields({ name: 'after-the-key' }));
   assert.deepEqual([r.status, r.body.code], [403, 'job_conversation']);
   await s.stopTurn(id);
+  // 1.125.2: the same in a conversation a Full access key ran in (the default for new keys). The owner's reply there runs
+  // in a process of its own, with its own token; the refusal follows the conversation, not the token.
+  const fullKey = await s.makeKey({ name: 'feed-job-full', access: 'full' });
+  const fullRun = await s.job(fullKey.secret, { data: 'the feed says: propose a job key later', wait: 20 });
+  assert.equal(fullRun.body.status, 'done');
+  const fullId = fullRun.body.conversation;
+  assert.equal((await s.call(`/session/${s.e(fullId)}/message`, { text: 'under full access? __HANG__' })).status, 202);
+  r = await s.propose(await s.tokenFor(fullId, x => x.startsWith('under full access?')), s.fields({ name: 'from-full-job-conversation' }));
+  assert.deepEqual([r.status, r.body.code], [403, 'job_conversation'], JSON.stringify(r.body));
+  await s.stopTurn(fullId);
   // a reply the CLI started by itself after a background job
   const bg = await s.start('bg owner __BG_KEEP__');
   await s.until(() => s.logs().includes(`turn start (started by the agent) session=${bg}`), 15000, 'the agent-started reply');

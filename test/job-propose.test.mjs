@@ -329,9 +329,11 @@ test('Full access off refuses full; a device with Vault requests off gets no pus
   const a = await s.start('owner asks __HANG__', { approvalMode: 'review' }), ta = await s.tokenFor(a);
   let r = await s.propose(ta, s.fields({ access: 'full' }));
   assert.deepEqual([r.status, r.body.code], [403, 'full_access_off']);
-  r = await s.propose(ta, s.fields());
+  // 1.125.2: with no access, the proposal follows the default for new keys, which is Ask first where Full access is off
+  r = await s.propose(ta, s.fields({ access: undefined }));
   assert.equal(r.status, 202);
   const id = r.body.request;
+  assert.equal((await s.call('/jobs/keys')).body.requests.find(x => x.id === id).fields.access, 'ask');
   assert.ok(Date.parse(r.body.expiresAt) - Date.now() < 3000, 'the shortened time');
   // the expiry pass marks it, once, without any read
   await s.until(() => s.audit().some(x => x.event === 'proposal_expired'), 15000, 'the expiry pass');
@@ -432,4 +434,34 @@ test('1.124.4: an Allow whose key or request could not be saved undoes the key a
   assert.equal(r.body.file, file);
   assert.equal((await s.request(ta, id)).body.status, 'allowed');
   assert.equal((await s.call('/jobs/keys')).body.keys.length, 1);
+});
+
+// 1.125.2: a new key's access is Full access by default where the server allows it (the owner, 2026-11-27). A proposal that
+// leaves --access out follows the owner's default for new keys at the time it is proposed, and the card shows it.
+test('1.125.2: a proposal with no access follows the owner\'s default: Full access by default, Ask first once the owner saved Ask', { timeout: 120_000 }, async t => {
+  const s = await boot(t, 19057);
+  await s.turnOn();
+  assert.equal((await s.call('/jobs/keys')).body.defaults.access, 'full', 'the default for new keys');
+  const a = await s.start('owner asks for a job __HANG__'), ta = await s.tokenFor(a);
+  let r = await s.propose(ta, s.fields({ name: 'follows-default', access: undefined }));
+  assert.equal(r.status, 202, JSON.stringify(r.body));
+  const reqA = r.body.request;
+  let list = (await s.call('/jobs/keys')).body;
+  assert.equal(list.requests.find(x => x.id === reqA).fields.access, 'full', 'the owner sees Full access on the card');
+  assert.equal(s.audit().find(x => x.event === 'proposed' && x.request === reqA)?.access, 'full', 'audited with its access');
+  r = await s.answer(reqA, { answer: 'allow' });
+  assert.equal(r.status, 200, r.text);
+  assert.equal((await s.call('/jobs/keys')).body.keys.find(k => k.name === 'follows-default').access, 'full');
+  await s.stopTurn(a);
+  // the owner saves Ask me for every action: the next proposal with no access is Ask first
+  await s.turnOn({ jobAccess: 'ask' });
+  assert.equal((await s.call('/jobs/keys')).body.defaults.access, 'ask');
+  const b = await s.start('owner asks again __HANG__'), tb = await s.tokenFor(b);
+  r = await s.propose(tb, s.fields({ name: 'after-ask', access: undefined }));
+  assert.equal(r.status, 202, JSON.stringify(r.body));
+  list = (await s.call('/jobs/keys')).body;
+  assert.equal(list.requests.find(x => x.id === r.body.request).fields.access, 'ask');
+  // the key made before keeps its Full access
+  assert.equal(list.keys.find(k => k.name === 'follows-default').access, 'full', 'an existing key keeps its access');
+  await s.stopTurn(b);
 });

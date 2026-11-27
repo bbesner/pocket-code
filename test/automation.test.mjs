@@ -34,8 +34,8 @@ test('the defaults are the spec tables, and the groups are data', () => {
   // 1.119: the Check-backs table, off by default, the two engine switches on
   assert.deepEqual(auto.groupValues({}, 'checkbacks', {}), { checkbacks: false, checkbackAccess: 'same', checkbackClaude: true, checkbackCodex: true, pushWhenMuted: true, showInTasks: true,
     perConversation: 10, perInstall: 50, chainLimit: 5, furthestHours: 2160, soonestMin: 1, noteMax: 1000, catchUpHours: 12, busyWaitMin: 60, spacingSec: 15 });
-  // job keys: the Settings table of Part 3, off by default
-  assert.deepEqual(auto.groupValues({}, 'jobs', {}), { jobs: false, jobsInTasks: true, jobAccess: 'ask', jobAddInstructions: false, jobPerHour: 6, jobPerDay: 24, jobAtOnce: 1,
+  // job keys: the Settings table of Part 3, off by default; new keys Full access since 1.125.2
+  assert.deepEqual(auto.groupValues({}, 'jobs', {}), { jobs: false, jobsInTasks: true, jobAccess: 'full', jobAddInstructions: false, jobPerHour: 6, jobPerDay: 24, jobAtOnce: 1,
     jobDataMax: 20000, jobWaitMax: 300, jobRepeatDays: 7, jobPush: true, jobPushRespectsMute: true, jobKeyFolder: '~/.config/pocket/jobs/' });
   const cbg = auto.GROUPS[2].settings;
   assert.deepEqual(cbg.filter(s => s.advanced).map(s => s.key), ['perConversation', 'perInstall', 'chainLimit', 'furthestHours', 'soonestMin', 'noteMax', 'catchUpHours', 'busyWaitMin', 'spacingSec']);

@@ -306,7 +306,7 @@ Settings → Automation → Job keys → **New job key**:
 | Name | `alert-pager` | Shown in the conversation title and pushes |
 | Workspace | `~/projects/alert-pager` | The job can't choose another folder. The owner can change it until the key's first run; after that it is fixed (`fixed_after_run`). |
 | Agent and model | Claude Code · Opus 5.5 · high | The job can't change them. Fixed after the first run, like the folder. A Claude key needs a model from the catalogue. Antigravity is not offered (it runs only the owner's own messages). |
-| Access | **Ask me for every action** (default) / Full access | Full access is offered only when the install allows it. |
+| Access | Ask me for every action / **Full access** (default since 1.125.2) | Full access is offered only when the install allows it. *2026-11-27: the owner changed the default from Ask me for every action to Full access (where the install allows it); see SECURITY.md.* |
 | Standing instruction | "Diagnose the camera outage described in the data below using the outage-diagnosis skill. Write the internal escalation as a draft. Don't email or message anyone." | Required. Written by the owner. This is the only instruction the run follows. |
 | Job may add its own instructions | Off | When off, everything the job sends is treated as data. |
 | Limits | 6 runs an hour, 24 a day, one at a time | Per key, on top of the install-wide limits in 1.4 |
@@ -575,7 +575,7 @@ The install-wide settings are the defaults for each new key. Each key can then c
 | Setting | Default | Range |
 |---|---|---|
 | Job keys | Off until turned on | On · Off |
-| Access for new keys | Ask me for every action | Ask me for every action · Full access (only where the install allows it) |
+| Access for new keys | Full access where the install allows it, else Ask me for every action (*was Ask me for every action until the owner changed it on 2026-11-27, 1.125.2*) | Ask me for every action · Full access (only where the install allows it) |
 | Job may add its own instructions | Off | On · Off (per key) |
 | Runs per hour, per key | 6 | 1–120 · Off |
 | Runs per day, per key | 24 | 1–1,000 · Off |
