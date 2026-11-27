@@ -169,6 +169,11 @@ try {
   assert.equal(await p.$eval('.job-key-sheet [data-job-limit="atOnce"]', x => x.value), String(defaults.limits.atOnce));
   assert.match(await p.$eval('.job-key-sheet [data-job-bool="save"]', x => x.textContent), /~\/\.config\/pocket\/jobs\/<name>\.key/);
   assert.equal(await p.$eval('.job-key-sheet select[name="access"]', x => [...x.options].map(o => o.textContent).join('|')), defaults.fullAccessAllowed ? 'Ask first|Full access' : 'Ask first');
+  // 1.125.2: the sheet starts at the default for new keys, Full access on a server that allows it
+  assert.deepEqual([defaults.fullAccessAllowed, defaults.access], [true, 'full']);
+  assert.equal(await p.$eval('.job-key-sheet select[name="access"]', x => x.selectedOptions[0].textContent), 'Full access');
+  // this key is the one whose third run waits for the owner's approval below, so it is Ask first
+  await p.select('.job-key-sheet select[name="access"]', 'ask');
   await p.waitForFunction(() => document.querySelector('.job-key-sheet input[name="workspace"]').value !== '');
   await p.type('.job-key-sheet input[name="name"]', 'Disk Check');
   await p.click('.job-key-sheet button[type="submit"]');

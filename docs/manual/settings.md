@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.125.0
+checked: 1.125.2
 sources: context-policy.mjs, automation.mjs, job-keys.mjs, cli-updates.mjs, self-update.mjs, scripts/pocket-self-update.sh, public/cli-updates.js, public/app.js, public/workspace.js, public/theme.js, public/voice.js, server.mjs, router.mjs, access.mjs
 -->
 # Settings
@@ -365,8 +365,8 @@ requests conversations have made for a job key, each with **Allow**, **Edit firs
 only while one waits), your list of keys with **New job key**, and these settings. Every setting,
 with its range, is in [Automation](automation.md#job-settings):
 
-- What a new key starts with (each key can change its own): **Access**, **Job may add its own
-  instructions**, **Runs per hour**, **Runs per day**, **Runs at once** and **Push when a job
+- What a new key starts with (each key can change its own): **Access** (**Full access** where the
+  server allows it, otherwise Ask me for every action), **Job may add its own instructions**, **Runs per hour**, **Runs per day**, **Runs at once** and **Push when a job
   finishes**.
 - Under **Advanced** (the defaults suit almost everyone): **Job pushes respect the conversation's
   mute**, **Most data per run**, **Longest wait a job may ask for**, **Ignore a repeated call for**

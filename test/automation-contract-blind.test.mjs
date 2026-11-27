@@ -54,7 +54,7 @@ const DEFAULTS = {
     noteMax: 1000, catchUpHours: 12, busyWaitMin: 60, spacingSec: 15,
   },
   jobs: {
-    jobs: false, jobsInTasks: true, jobAccess: 'ask', jobAddInstructions: false, jobPerHour: 6, jobPerDay: 24,
+    jobs: false, jobsInTasks: true, jobAccess: 'full', jobAddInstructions: false, jobPerHour: 6, jobPerDay: 24,
     jobAtOnce: 1, jobDataMax: 20000, jobWaitMax: 300, jobRepeatDays: 7, jobPush: true, jobPushRespectsMute: true,
     jobKeyFolder: '~/.config/pocket/jobs/',
   },

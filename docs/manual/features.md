@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.125.0
+checked: 1.125.2
 sources: server.mjs, public/app.js, public/workspace.js, public/sw.js, public/manifest.webmanifest, router.mjs, access.mjs, engines.mjs, codex.mjs, acp.mjs, automation.mjs, checkbacks.mjs, job-keys.mjs, vault.mjs, inbox.mjs, inbox-runner.mjs, projects.mjs, project-mode.mjs, documents.mjs, tasks.mjs, coordination.mjs, skills.mjs, approvals.mjs, trusted.mjs, sidechat.mjs, voice.mjs, usage.mjs, self-update.mjs, cli-updates.mjs, scripts/pocket-init.mjs
 -->
 # Feature reference
@@ -342,7 +342,7 @@ Work that came from a check-back or a job key is always held by the limits. Work
 
 **What it is.** A way for a script on this server (cron, a monitor) to start a reply in a conversation you can watch. You write the instruction, folder, agent, model and access once, when you make the key; the script supplies data, never orders.
 
-**How it works.** A key is `pjk_` plus 43 characters, shown once and stored only as a hash in `job-keys.json` (mode `0600`). The script calls `pocket-run --key-file <file> [--data-file <path> | --data -]` or the HTTP route `/api/jobs/run`. The conversation is titled with the job's name and sits under **Automated** in the list. A job reply may not set a check-back or ask for a job key, cannot change settings, and asks for approval like any reply (**Ask first** is Review actions with nobody watching, so `pocket-run` exits 3 when it needs you). Each key has its own **Runs per hour** (6), **Runs per day** (24) and **Runs at once** (1); the install-wide limits and Pause all hold job work too.
+**How it works.** A key is `pjk_` plus 43 characters, shown once and stored only as a hash in `job-keys.json` (mode `0600`). The script calls `pocket-run --key-file <file> [--data-file <path> | --data -]` or the HTTP route `/api/jobs/run`. The conversation is titled with the job's name and sits under **Automated** in the list. A job reply may not set a check-back or ask for a job key, cannot change settings, and asks for approval like any reply (**Ask first** is Review actions with nobody watching, so `pocket-run` exits 3 when it needs you). A new key is **Full access** by default where the server allows it, and **Ask first** where it doesn't; the default is a setting. Each key has its own **Runs per hour** (6), **Runs per day** (24) and **Runs at once** (1); the install-wide limits and Pause all hold job work too.
 
 A conversation can **ask** for a key (`pocket-jobkey propose`): the request waits for your **Allow**, **Edit first** or **Deny** in **Settings → Features → Job keys**, and expires after 24 hours. An agent can never make a key.
 

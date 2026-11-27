@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.125.0
+checked: 1.125.2
 sources: automation.mjs, checkbacks.mjs, job-keys.mjs, public/automation.js, scripts/pocket-checkback.mjs, scripts/pocket-run.mjs, scripts/pocket-jobkey.mjs, skills/pocket-checkback/SKILL.md, skills/pocket-jobs/SKILL.md, server.mjs, queue.mjs, codex.mjs, acp.mjs, sidechat.mjs, coordination.mjs, usage.mjs, inbox-runner.mjs, public/voice-text.js
 -->
 # Automation: Pause all, check-backs, job keys and limits on unattended work
@@ -320,7 +320,7 @@ While the switch is on and a request waits, the count shows on the **Features** 
 | **Folder** | Where the agent works. The script can't choose another. It must be a folder that exists on this server; `~/` stands for your home folder. Where Pocket is locked to one folder, that folder is used. |
 | **Agent** | Claude Code, Codex or OpenRouter, the ones this server runs. Antigravity is not offered ([Engines](#engines)). |
 | **Model** and effort | The same menus as the message box for that agent. Fixed for the key. |
-| **Access** | **Ask first** or **Full access**. **Ask first** is Review actions: every action that isn't on your list of read-only actions waits for your OK ([Questions and approvals](approvals.md#choose-review-actions-or-full-access)). **Full access** is offered only where the server allows it. A new key starts with the default from **Access** below. |
+| **Access** | **Ask first** or **Full access**. **Ask first** is Review actions: every action that isn't on your list of read-only actions waits for your OK ([Questions and approvals](approvals.md#choose-review-actions-or-full-access)). **Full access** is offered only where the server allows it. A new key starts with the default from **Access** below: **Full access** where the server allows it, **Ask first** where it doesn't. |
 | **Instruction** | What every run of this job does. Required, up to 20,000 characters, written by you. It is the only instruction the run follows. |
 | **The job may add its own instructions** | Off by default. Off: everything the script sends is data. On: the script may also send instructions, which are labelled as the script's and come after yours ([What the reply receives](#what-the-reply-receives)). |
 | **Runs per hour**, **Runs per day** and **Runs at once** | This key's own limits, filled in from the defaults below. |
@@ -361,7 +361,7 @@ You don't have to make the key yourself. In a Claude Code or Codex conversation,
 
 - the job's name, the conversation that asked (it opens that conversation) and when;
 - the folder, the agent, the model and the effort;
-- the access. **Full access** is marked with the same warning look as elsewhere in Settings;
+- the access. **Full access** is marked with the same warning look as elsewhere in Settings. A request that doesn't name an access gets your default for new keys (**Access** in [Job settings](#job-settings)), so Full access unless you changed it or the server turns Full access off;
 - the limits, whether the job may add its own instructions, and whether it pushes when it finishes;
 - when the request expires;
 - **the whole instruction**, in a block that keeps its line breaks. Every line shows: the block grows with the instruction and has no scroll of its own, so a long one makes the card long and you scroll the sheet. It is never cut short, and the note and the buttons come after its last line.
@@ -633,7 +633,7 @@ A key can only use an agent this server runs. If the agent is later turned off, 
 |---|---|---|
 | **Job keys** | Off | On or Off, in the Features list. Off: every job call is refused; keys are kept |
 | **Show job keys in Tasks** | On | On or Off, on the Tasks page. The read-only Jobs group in Tasks ([Jobs in the list](tasks.md#jobs-in-the-list)) |
-| **Access** | **Ask me for every action** | That, or **Full access (only where this server allows it)**. Where Full access is turned off for the server, a job runs under Ask me for every action whatever its key says |
+| **Access** | **Full access** where this server allows it | That, or **Ask me for every action**. Where Full access is turned off for the server, a new key starts at Ask me for every action, and a job runs under it whatever its key says |
 | **Job may add its own instructions** | Off | On or Off. Off: everything a job sends is treated as data |
 | **Runs per hour** | 6 | 1 to 120, or No limit |
 | **Runs per day** | 24 | 1 to 1,000, or No limit. The last 24 hours. Job replies also count toward the unattended replies per day |
@@ -646,6 +646,8 @@ A key can only use an agent this server runs. If the agent is later turned off, 
 | **Where new keys are saved** | `~/.config/pocket/jobs/` | A folder in your home folder, written like `~/.config/pocket/jobs/`. A path with `..`, a control character or over 400 characters is refused. A key made from a request you allow is always saved here |
 
 **Access** and the key sheet's **Ask first** are the same thing: the key sheet says **Ask first** and the setting says **Ask me for every action**. Both mean Review actions.
+
+**Full access is the default since 1.125.2.** Before, a new key started at **Ask me for every action**. A job you set up to run unattended now runs without stopping for approvals, unless you choose otherwise. Keys that exist keep their access, and an install where **Ask me for every action** was saved keeps it. Under Full access, text in a job's data (an emailed alert, a web page, a log) could steer the agent into running a command, and nothing stops it to ask you; what still holds is in [SECURITY.md](../../SECURITY.md#job-keys). For a key whose data comes from people you don't control and whose job only reads and reports, choose **Ask first** on its sheet, or set **Access** back to **Ask me for every action** for every new key.
 
 ### Job audit lines
 

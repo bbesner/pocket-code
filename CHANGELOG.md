@@ -3,6 +3,29 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.125.2] — Unreleased · build 235
+
+**New job keys default to Full access**, the owner's decision of 2026-11-27: work he asked to run unattended should run
+without stopping for approvals unless he chose otherwise.
+
+- **The default.** The **Access** setting for new keys (`jobAccess`, `automation.mjs`) now defaults to `full`. On a server
+  that allows Full access, a key made on the **New job key** sheet starts at **Full access**, and so does a key a
+  conversation proposes without `--access` (`pocket-jobkey`, `/api/jobs/agent/propose`); the access is fixed on the request
+  when it is proposed, and the Allow/Deny card shows it. Where the server turns Full access off (`POCKET_ALLOW_FULL_ACCESS=0`),
+  a new key is still `ask`, as before (`jobDefaults()` and `jobKeyFields()` in `server.mjs`, unchanged).
+- **No migration.** Existing keys keep their access. An install where `ask` was saved keeps it; one with no saved value gets
+  the new default. **Reset to defaults** returns to Full access. `POCKET_AUTOMATION_JOB_ACCESS` still presets it, and a saved
+  value still wins. Job keys stay off by default.
+- **Words.** The setting's help text, the `pocket-jobs` skill (leave `--access` out so the key follows the owner's default and
+  say which access it will have; `--access ask` when the owner wants every action approved, or for a read-and-report job the
+  owner prefers to approve), the `pocket-jobkey` help, the manual (Automation, For agents, Questions and approvals, Feature
+  reference) and SECURITY.md, which now states the risk: under Full access, text in a job's data could steer the agent into a
+  command with nothing stopping to ask, and recommends Ask first for a key whose data comes from people outside the owner's
+  control and whose job doesn't need to change anything.
+- **Tests.** New: a key with no access is `full` and `defaults.access` is `full`; a saved `ask` wins; reset returns `full`;
+  the env preset and a save over it; a proposal with no access follows the default (`full`, then `ask` once saved; `ask`
+  where Full access is off). Tests that meant Ask first now say `access: 'ask'`.
+
 ## [1.125.1] — 2026-11-27 · build 234
 
 Claude Code account switching works with the shorter sign-in link introduced in Claude Code 2.1.330. Get sign-in link now shows Open Claude sign-in and Copy link. Earlier Claude Code versions still work.

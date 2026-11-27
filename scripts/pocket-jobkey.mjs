@@ -9,7 +9,7 @@
 // Only a reply the owner started can propose one. Nothing exists until the owner reads the whole instruction and taps
 // Allow in Settings → Features → Job keys. On Allow it prints the key file's path, never the key.
 // Exit codes: 0 allowed · 6 waiting for the owner (run `wait <request>` later) · 7 denied or expired · 5 job keys are off
-// · 1 refused or failed. --workspace defaults to this conversation's folder, --engine to its agent.
+// · 1 refused or failed. --workspace defaults to this conversation's folder, --engine to its agent, --access to the owner's default.
 // Environment: POCKET_DATA_DIR and PORT as for the server (the server's .env is read for both); POCKET_URL overrides.
 import fs from 'node:fs';
 import path from 'node:path';

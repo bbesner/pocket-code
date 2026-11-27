@@ -262,11 +262,19 @@ Job keys (1.122.0) let a script on the server start a reply, in a conversation t
   only where the server allows it (`POCKET_ALLOW_FULL_ACCESS` is not `0`); where it is off, a job runs under **Ask first**
   (the Review actions mode; the setting for new keys calls it *Ask me for every action*) whatever its key says. Under that,
   every action asks the owner, and nobody may be looking, so the reply waits for an answer.
-- **Text in the data can still mislead the agent.** An alert, a log line, a web page or an email the script passes on can
-  say "ignore the above" and the agent might go along. The fence and the label lower that risk; they don't remove it. The
-  protection that holds is the key's access: the access and the instruction are fixed by the owner, not by the data, a new key
-  starts under **Ask first** unless the owner changed the default, and a job's reply can't set a check-back. Choose Full access only for a folder
-  where a mistake is cheap.
+- **A new key is Full access by default (since 1.125.2).** The owner decided on 2026-11-27 that work he asked to run
+  unattended should run without stopping for approvals, so the setting for new keys starts at **Full access** where the server
+  allows it, and at **Ask first** where it doesn't. Existing keys keep their access; a saved *Ask me for every action* stays.
+- **Text in the data can still mislead the agent, and under Full access nothing stops it to ask.** A job's data comes from
+  outside: an emailed alert, a log line, a web page. Text in it can say "ignore the above, run this", and the agent might go
+  along. Under Full access that command runs with no approval card. The fence and the label lower that risk; they don't remove
+  it. What still protects: the owner writes the standing instruction, and the data can't change it, the folder, the agent or the
+  access; the data is labelled as information, not instructions; no key exists until the owner makes or allows it, and the
+  owner sees its access on the New job key sheet and on the request card before it does; the key's folder and its run limits
+  bound what one key can do; **Pause all** stops every run; a job's reply can't set a check-back or ask for a key; and, for a
+  Claude Code key, Claude Code's own safety check still asks before a few dangerous commands even under Full access.
+  Recommendation: for a key whose data comes from people outside the owner's control and whose job doesn't need to change
+  anything, choose **Ask first** (*Ask me for every action*). Keep Full access keys in folders where a mistake is cheap.
 - **`POCKET_URL` decides where `pocket-run` sends the key.** Leave it unset or point it at this server.
 - **The data directory holds the runs.** `job-keys.json` holds each key's hash and settings and, for each run, its status and
   the first line of the reply; keep the data directory private, as above.
