@@ -651,7 +651,7 @@ before it's built.
 
    An empty brief is never posted, and a failed read is never reported as "nothing new".
 4. **Allow and Deny on action approvals from the notification, and by voice.** Vault requests already work
-   this way.
+   this way. Specced and agreed by the owner on 2026-11-27: [notification-approvals.md](notification-approvals.md).
 
 ## Also later
 
