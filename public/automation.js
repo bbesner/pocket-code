@@ -486,8 +486,9 @@ const Automation = (() => {
       : !rows.length ? `<p class="title-note">No approvals were answered away from the app in the last ${d?.days || 7} days.</p>`
       : `<ul class="automation-notices answers-away" aria-labelledby="auto-answers-h">${rows.map(a => {
         // the server's record has a title only when one was given; the conversation list's title covers the rest
+        const short = t => { const one = String(t).replace(/\s+/g, ' ').trim(), ch = Array.from(one); return ch.length > 60 ? ch.slice(0, 59).join('') + '…' : one; }; // one line, as the notification cuts it
         const listed = a.sessionId && typeof allSessions !== 'undefined' ? allSessions.find(s => s.id === a.sessionId)?.title : '';
-        const convo = a.sessionId ? `<a href="#/chat/${encodeURIComponent(a.sessionId)}">${esc(a.conversation || listed || 'Untitled conversation')}</a>` : esc(a.conversation || 'A conversation');
+        const convo = a.sessionId ? `<a href="#/chat/${encodeURIComponent(a.sessionId)}">${esc(short(a.conversation || listed || 'Untitled conversation'))}</a>` : esc(short(a.conversation || 'A conversation'));
         const where = a.where && a.where !== 'unknown' ? 'from ' + a.where : 'from an unknown device';
         return `<li data-answer="${esc(a.requestId || '')}"><span class="automation-when">${esc(whenText(a.at))}</span>${convo} · ${esc(KIND_WORDS[a.action] || ROW_KIND_WORDS[a.kind] || 'Action')} · <span data-answer-result>${esc(resultText(a))}</span> · ${esc(where)}</li>`;
       }).join('')}</ul>`;
