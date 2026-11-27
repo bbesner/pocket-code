@@ -275,6 +275,7 @@ test('T20 (rules): "Only that an action waits" sends no conversation title, no a
   assert.equal(s.body, '2 more actions wait'); assert.equal(s.tag, 'approval-more:s-1');
   assert.equal(ap.summary('s-1', 1, 'Shop').body, '1 more action waits in Shop');
   assert.equal(ap.summary('s-1', 0, 'Shop', { silent: true }).silent, true);
+  assert.equal(ap.summary('s-1', 2, 'deploy with ghp_' + 'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8').body, '2 more actions wait', 'a title that looks like a key is left out');
   const r = ap.replacement('r1', 's-1', 'Not allowed at 2:14 PM');
   assert.deepEqual(r, { title: 'Pocket Code', body: 'Not allowed at 2:14 PM', tag: 'approval:r1', url: '/#/chat/s-1', silent: true });
 });

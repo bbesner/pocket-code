@@ -292,7 +292,7 @@ export function replacement(rowId, sessionId, text) {
 }
 // The summary beyond the per-conversation limit. `title` is null under "Only that an action waits".
 export function summary(sessionId, count, title, { silent = false } = {}) {
-  const where = title ? ' in ' + cut(oneLine(title), 60) : '';
+  const where = title && !looksSecret(title) ? ' in ' + cut(oneLine(title), 60) : ''; // a title that looks like a key is left out, as on the Conversation line
   const body = count > 0 ? `${count} more action${count === 1 ? '' : 's'} wait${count === 1 ? 's' : ''}${where}` : `Nothing more waits${where}`;
   return { title: 'Pocket Code', body, tag: 'approval-more:' + sessionId, url: '/#/chat/' + sessionId, ...(silent ? { silent: true } : {}) };
 }
