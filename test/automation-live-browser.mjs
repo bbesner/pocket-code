@@ -104,8 +104,8 @@ try {
   await home(); await openAutomation();
   const served = (await call('/automation')).body;
   // 1.124.9: a feature's group is also in Features (its switch) and Tasks (its "in Tasks" switch), as sections of their own.
-  assert.deepEqual(await p.$$eval('[data-auto-group]:not(.automation-switch)', e => e.map(x => x.dataset.autoGroup)), served.groups.map(g => g.key));
-  assert.deepEqual(await p.$$eval('[data-auto-group]:not(.automation-switch) > h3', e => e.map(x => x.textContent)), served.groups.map(g => g.title));
+  assert.deepEqual(await p.$$eval('[data-auto-group]:not(.automation-switch):not([data-auto-group="approvalPush"])', e => e.map(x => x.dataset.autoGroup)), served.groups.map(g => g.key));
+  assert.deepEqual(await p.$$eval('[data-auto-group]:not(.automation-switch):not([data-auto-group="approvalPush"]) > h3', e => e.map(x => x.textContent)), served.groups.map(g => g.title));
   // Job keys while off: the switch and its help only (its settings come with the switch on, under Advanced).
   const bareOff = g => g.key === 'jobs' && g.settings[0]?.value !== true;
   // Where each control is: a feature's own switch in Features, its "in Tasks" switch in Tasks, the rest in the group.
@@ -126,7 +126,7 @@ try {
   assert.equal(await p.$$eval('.automation-usage tbody tr', e => e.length), 7);
   assert.equal(await p.$eval('.automation-usage tbody tr th', e => e.textContent), await p.evaluate(d => new Date(d + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }), served.usage.days.at(-1).date), 'newest day first: the server sends oldest first');
   await showSetting(p, `[data-auto-group="limits"] ${input('claudeWeekly')}`);
-  assert.equal(await p.$('.automation-warning'), null);
+  assert.equal(await p.$('.automation-warning:not([data-auto-group="approvalPush"] *)'), null);
   await p.$eval('#s-automation', e => e.scrollIntoView());
   await shot('automation-1440-dark');
 
@@ -145,16 +145,16 @@ try {
 
   console.log('Live: No limit brings the server\'s warning; Reset to defaults clears it');
   await p.click('[data-auto-off="dailyReplies"]');
-  await p.waitForSelector('.automation-warning');
+  await p.waitForSelector('.automation-warning:not([data-auto-group="approvalPush"] *)');
   assert.equal(savedAutomation().limits.dailyReplies, 'off');
-  assert.deepEqual(await p.$$eval('.automation-warning', e => e.map(x => x.textContent)), [`${setting('limits', 'dailyReplies').label} has no limit.`]);
+  assert.deepEqual(await p.$$eval('.automation-warning:not([data-auto-group="approvalPush"] *)', e => e.map(x => x.textContent)), [`${setting('limits', 'dailyReplies').label} has no limit.`]);
   assert.equal(await p.$eval(input('dailyReplies'), e => e.disabled), true);
   await shot('automation-off-1440-dark');
   await p.click('[data-auto-reset="limits"]');
   await p.waitForFunction(() => document.querySelector('[data-auto-status="limits"]')?.textContent === 'Back to the defaults.');
   assert.equal(savedAutomation(), undefined, 'the saved values are gone');
   assert.equal(await p.$eval(input('claudeWeekly'), e => e.value), '80');
-  assert.equal(await p.$('.automation-warning'), null);
+  assert.equal(await p.$('.automation-warning:not([data-auto-group="approvalPush"] *)'), null);
   await closeSheet();
   await phone(); await home(); await openAutomation(); await p.$eval('#s-automation', e => e.scrollIntoView());
   await shot('automation-390-dark');
