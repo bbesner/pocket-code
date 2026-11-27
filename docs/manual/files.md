@@ -100,7 +100,7 @@ An agent can keep files and change their title or project, but it cannot share o
 
 - **Allow** makes that change, once. If the file's content, name or sharing changed since the agent asked, nothing changes and Pocket says why; ask the agent to try again if you still want it.
 - **Deny** changes nothing. A request you don't answer ends after 15 minutes and changes nothing.
-- **Allow** and **Deny** on the notification answer the same way; if the answer cannot be recorded, Files opens with the card. A file title too long for the notification is cut, and then the notification has only **Deny**: tap it to read the request in Files (1.125.3). A card already answered on the notification or another device says what that answer did (*Already allowed. Shared …*) and goes away (1.124.5).
+- **Allow** and **Deny** on the notification answer the same way; if the answer cannot be recorded, Files opens with the card. If the file title is too long for the notification, or holds a line break or another invisible character, the notification has only **Deny**: tap it to read the request in Files (1.125.3). A card already answered on the notification or another device says what that answer did (*Already allowed. Shared …*) and goes away (1.124.5).
 
 A reply that [a job key started](automation.md#job-keys) can ask too, and the request waits for you like any other: the run reads **needs you** to the script that started it ([What waits for you in a job reply](automation.md#what-waits-for-you-in-a-job-reply)).
 

@@ -135,7 +135,7 @@ this device** and **Finished replies** on: **Claude has a question** or **Codex 
 answer it."), or **Waiting for your OK** ("Open Pocket Code to review the pending action."); from a subagent, **A
 subagent has a question** or **A subagent is waiting for your OK**. The notification carries no command or argument details. Tapping it
 opens the conversation; answer or approve there. Action approvals cannot be answered from the notification itself.
-(Vault requests are different: those notifications carry Allow and Deny buttons, Allow only when the whole command fits; see
+(Vault requests are different: those notifications carry Allow and Deny buttons, Allow only when the command, title and text were sent uncut and in plain characters; see
 [Vault](vault.md#answer-a-request).)
 
 A conversation muted with its **Alerts** chip sends no notifications, including questions and approvals.

