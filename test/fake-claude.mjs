@@ -95,10 +95,12 @@ setInterval(()=>{if(!fs.existsSync(root))process.exit(0)},300).unref();
 // spent: the process's running cost, as the real CLI reports it. 1.122.2: like the real CLI (2.1.328), a process on an
 // existing transcript starts it at that transcript's last cost-state line (the conversation's spend so far).
 const carried=fs.existsSync(file)?fs.readFileSync(file,'utf8').split('\n').map(l=>{try{return JSON.parse(l);}catch{return null;}}).filter(o=>o?.type==='cost-state').map(o=>Number(o.totalCostUSD)||0).at(-1)||0:0;
-let working=false,questionKeepAlive,spent=carried;
+let working=false,questionKeepAlive,spent=carried,many=null; // many: 1.126 __REQS__ requests still waiting
 const append=o=>fs.appendFileSync(file,JSON.stringify({sessionId:id,cwd:process.cwd(),timestamp:new Date().toISOString(),...o})+'\n');
 lines.on('line',line=>{
   const obj=JSON.parse(line);
+  // 1.126: while __REQS__ requests wait, each answer is recorded and the reply ends only on the last
+  if(obj.type==='control_response'&&many?.has(obj.response.request_id)){many.delete(obj.response.request_id);if(many.size){fs.appendFileSync(process.env.POCKET_TEST_CALLS+'.responses',JSON.stringify({id,request_id:obj.response.request_id,behavior:obj.response.response?.behavior})+'\n');return;}many=null;}
   if(obj.type==='control_response'){clearInterval(questionKeepAlive);fs.appendFileSync(process.env.POCKET_TEST_CALLS+'.responses',JSON.stringify({id,request_id:obj.response.request_id,behavior:obj.response.response?.behavior})+'\n');
     // 1.82: the background agent's request answered: the agent finishes a moment later, and the CLI reports it in a turn of its own
     if(obj.response.request_id==='bg-ask'){setTimeout(()=>{console.log(JSON.stringify({type:'system',subtype:'background_tasks_changed',tasks:[]}));const msg={type:'assistant',message:{role:'assistant',content:[{type:'text',text:'The background agent finished.'}]}};append(msg);console.log(JSON.stringify({type:'system',subtype:'init',session_id:id}));console.log(JSON.stringify(msg));console.log(JSON.stringify({type:'result',subtype:'success'}));},Number(process.env.POCKET_TEST_BG_MS||600));return;}if(obj.response.request_id==='native-approval'&&obj.response.response.behavior==='allow')fs.appendFileSync(process.env.POCKET_TEST_CALLS+'.approved',id+'\n');const msg={type:'assistant',message:{role:'assistant',content:[{type:'text',text:'Blue'}]}};append(msg);console.log(JSON.stringify(msg));console.log(JSON.stringify({type:'result',subtype:'success'}));return;}
@@ -110,6 +112,10 @@ lines.on('line',line=>{
   if(text.includes('__APPROVAL__')){questionKeepAlive=setInterval(()=>{},1000);console.log(JSON.stringify({type:'control_request',request_id:'native-approval',request:{subtype:'can_use_tool',tool_name:'Bash',input:{command:'echo fixture-only-secret > approval.txt'}}}));return;}
   // 1.56: __TOOLREQ__ {"tool":…,"input":{…}}: ask permission for that tool call, then end the turn on the answer
   if(text.includes('__TOOLREQ__ ')){questionKeepAlive=setInterval(()=>{},1000);const req=JSON.parse(text.slice(text.indexOf('__TOOLREQ__ ')+12));console.log(JSON.stringify({type:'control_request',request_id:'native-tool-'+(req.n||0),request:{subtype:'can_use_tool',tool_name:req.tool,input:req.input}}));return;}
+  // 1.126 __REQS__ {"reqs":[{"id":…,"tool":…,"input":{…}}],"cancel":id?,"cancelMs":ms?} (to the end of its line, so it
+  // also works inside a job's fenced data): ask several at once and end the reply on the last answer; `cancel` withdraws
+  // that one (control_cancel_request) cancelMs later
+  if(text.includes('__REQS__ ')){questionKeepAlive=setInterval(()=>{},1000);const q=JSON.parse(text.slice(text.indexOf('__REQS__ ')+9).split('\n')[0]);many=new Set(q.reqs.map(r=>r.id));for(const r of q.reqs)console.log(JSON.stringify({type:'control_request',request_id:r.id,request:{subtype:'can_use_tool',tool_name:r.tool,input:r.input}}));if(q.cancel)setTimeout(()=>{many?.delete(q.cancel);console.log(JSON.stringify({type:'control_cancel_request',request_id:q.cancel}));},q.cancelMs||500);return;}
   if(text.includes('__QUESTION__')){questionKeepAlive=setInterval(()=>{},1000);console.log(JSON.stringify({type:'control_request',request_id:'native-test',request:{subtype:'can_use_tool',tool_name:'AskUserQuestion',input:{questions:[{header:'Color',question:'Which color?',options:[{label:'Blue',description:'Cool'},{label:'Red',description:'Warm'}],multiSelect:false}]}}}));return;}
   if (working) return;
   working=true;
