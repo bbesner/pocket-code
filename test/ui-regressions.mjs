@@ -1535,10 +1535,14 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.waitForSelector('.task-item');
    // Remind later on a dated task: the project reminder's quick picks, the task re-dated.
    const later=await page.evaluate(()=>{const t=tasksSnap.tasks.find(x=>x.text==='Chase the revised camera quote');taskSheet(t.id);return t.dueAt;});
-   await page.waitForSelector('.task-sheet [data-later]');await clickControl(page,'.task-sheet [data-later]');await page.waitForSelector('.sheet [data-pick="monday"]');
-   // 1.124.5: on a Monday "In a week" is the same morning as "Next Monday" and is left out, so the last pick depends on the day
-   const lastPick=await page.evaluate(()=>new Date().getDay()===1?'monday':'week');
-   assert.deepEqual(await page.$$eval('.sheet [data-pick]',els=>els.map(e=>e.dataset.pick)),lastPick==='week'?['tomorrow','three','monday','week']:['tomorrow','three','monday']);
+   await page.waitForSelector('.task-sheet [data-later]');await clickControl(page,'.task-sheet [data-later]');await page.waitForSelector('.sheet [data-pick="tomorrow"]');
+   // The first shortcut wins when two dates coincide. Next Monday can be one, three or seven days away.
+   const weekday=await page.evaluate(()=>new Date().getDay());
+   const expectedPicks=['tomorrow','three'];
+   if(weekday!==0&&weekday!==5)expectedPicks.push('monday');
+   if(weekday!==1)expectedPicks.push('week');
+   assert.deepEqual(await page.$$eval('.sheet [data-pick]',els=>els.map(e=>e.dataset.pick)),expectedPicks);
+   const lastPick=expectedPicks.at(-1);
    await clickControl(page,`.sheet [data-pick="${lastPick}"]`);await page.waitForFunction(prev=>tasksSnap.tasks.find(x=>x.text==='Chase the revised camera quote').dueAt!==prev,{},later);
    const moved=new Date(await page.evaluate(()=>tasksSnap.tasks.find(x=>x.text==='Chase the revised camera quote').dueAt));assert.equal(moved.getHours(),9,'9 AM in the device zone');assert.ok(moved.getTime()-Date.now()>6*86400000,'a week out');
    // The sheet: facts and the briefing; Start writes the New session draft in the task's workspace.
