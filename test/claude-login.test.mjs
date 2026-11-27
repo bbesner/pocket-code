@@ -27,6 +27,22 @@ test('login URLs must be complete, provider-owned OAuth authorization URLs',()=>
   for(const invalid of [url.replace('claude.com','claude.com.evil.test'),url.replace('claude.com','evil@claude.com'),url.replace('/cai/oauth/authorize','/redirect'),url.replace('https:','http:'),url.replace('state=','other=')]) assert.equal(loginUrl(invalid+'\n'),null);
 });
 
+test('compact Claude login links reach the copy-link state only when complete',()=>{
+  const compact='https://claude.ai/oauth/authorize?z-'+'Ab1_'.repeat(10)+'-X9';
+  const {login,child}=fixture();
+  const started=login.start();
+  child.stdout.write('If the browser did not open, visit:\n'+compact.slice(0,-1));
+  assert.equal(login.snapshot().status,'starting');
+  child.stdout.write(compact.slice(-1)+'\nPaste code here if prompted > ');
+  assert.equal(login.snapshot().status,'waiting');
+  assert.equal(login.snapshot().url,compact);
+  login.cancel(started.id);
+  for(const invalid of [compact.slice(0,-1),compact+'x',compact.replace('?z-','?x-'),compact+'&other=1',
+    compact+'#extra',compact.replace('claude.ai','claude.ai.example'),compact.replace('/oauth/','/other/')]){
+    assert.equal(loginUrl(invalid+'\n'),null);
+  }
+});
+
 test('one flow handles split output, passes codes only over stdin and verifies identity',async()=>{
   let prepared=0,completed=0;
   const {login,child,calls,writes}=fixture({prepare:()=>prepared++,onSuccess:()=>completed++});
