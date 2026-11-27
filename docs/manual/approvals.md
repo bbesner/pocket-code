@@ -1,6 +1,6 @@
 <!-- manual
 checked: 1.125.3
-sources: approvals.mjs, checkbacks.mjs, job-keys.mjs, trusted.mjs, questions.mjs, subagents.mjs, public/approvals.js, public/workspace.js
+sources: approvals.mjs, checkbacks.mjs, job-keys.mjs, trusted.mjs, questions.mjs, subagents.mjs, public/approvals.js, public/workspace.js, push-text.mjs
 -->
 # Questions and approvals
 

@@ -1,6 +1,6 @@
 <!-- manual
 checked: 1.125.3
-sources: server.mjs, public/app.js, public/workspace.js, public/sw.js, public/manifest.webmanifest, router.mjs, access.mjs, engines.mjs, codex.mjs, acp.mjs, automation.mjs, checkbacks.mjs, job-keys.mjs, vault.mjs, inbox.mjs, inbox-runner.mjs, projects.mjs, project-mode.mjs, documents.mjs, tasks.mjs, coordination.mjs, skills.mjs, approvals.mjs, trusted.mjs, sidechat.mjs, voice.mjs, usage.mjs, self-update.mjs, cli-updates.mjs, scripts/pocket-init.mjs
+sources: server.mjs, public/app.js, public/workspace.js, public/sw.js, public/manifest.webmanifest, router.mjs, access.mjs, engines.mjs, codex.mjs, acp.mjs, automation.mjs, checkbacks.mjs, job-keys.mjs, vault.mjs, inbox.mjs, inbox-runner.mjs, projects.mjs, project-mode.mjs, documents.mjs, tasks.mjs, coordination.mjs, skills.mjs, approvals.mjs, trusted.mjs, sidechat.mjs, voice.mjs, usage.mjs, self-update.mjs, cli-updates.mjs, scripts/pocket-init.mjs, push-text.mjs
 -->
 # Feature reference
 
