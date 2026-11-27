@@ -334,6 +334,105 @@ instruction, folder and access, as often as the key's limits allow, and an agent
 user is such a program (first plain warning above). Keep the key folder out of the folders agents work in, and choose
 **Full access** only for a folder where a mistake is cheap.
 
+## Answering action approvals away from the app
+
+Since 1.126.0 the owner can answer an agent's action approval from its notification. It is off on every install until
+the owner turns on **Answer approvals from notifications** in **Settings → Features**. While it is off, every approval
+notification is exactly as in 1.125.3: no buttons and no command. An answer that says it came from a notification is
+then refused (404 `answers_off`). Turning it on adds the following. Answering by voice is not built.
+
+- **Who can answer.** `POST /api/session/<id>/approvals/<request>/decision` takes the owner's sign-in only: the session
+  cookie, or the sign-in through Cloudflare Access. The CLI token, runner tokens and job keys are refused (401), so an
+  agent can't answer its own request. Since 1.126.0 the route also refuses a request whose `Origin` header names another
+  site (403), for every caller, the app included. A request with no `Origin` header passes, as on the Vault routes.
+- **What the checks are for.** Anyone with the owner's sign-in can answer as the app does, from the full card. The checks
+  below apply to an answer that says it came from a notification (`via: notification`). They tie an Allow tapped on a
+  notification to the exact text the server built for that device, and refuse it when the server would no longer offer it.
+  They are not a second sign-in.
+- **When a notification offers Allow.** Only when all of these hold; otherwise it offers **Don't allow** only:
+  - The device's **Allow button on this device** is on, tested at a limit at least today's (below).
+  - The request can be stated in one line: a Claude Code command (Bash or PowerShell), web page (WebFetch) or web search
+    (WebSearch) with no input field outside a short fixed list; a Codex command with no extra permissions that names its
+    own folder; or an OpenRouter or Antigravity command whose text came from the command itself, with an allow-once
+    option. File edits, helpers, connector tools, network access, more access for the reply and any request Pocket
+    doesn't know never get Allow. Nor does a request the app's card can't allow.
+  - The action and the folder are printable ASCII only (space to `~`). That shuts out line breaks, tabs, zero-width and
+    direction-changing characters, and look-alike letters such as a Cyrillic "а".
+  - The action line and the folder line, labels included, together fit in **Longest action with an Allow button**, 80
+    characters by default. With a usual folder that leaves room for a command of roughly 30 characters. The owner can
+    raise the limit, up to 240; each device then needs a new test.
+  - The folder has no `..` part.
+  - The secret detector finds nothing in the action or the folder.
+  - The reply's origin allows it (the job rule, below).
+  - The reply's engine is switched on under **Engines**.
+  - The whole notification goes out uncut.
+- **Never more than one request.** Allow from a notification covers the one request it names. **Always allow**, and a new
+  rule for **Actions that run without asking**, are never offered there. **Don't allow** is offered on every approval
+  notification: denying runs nothing, and the agent can ask again.
+- **The device test.** Pocket can't see what a phone draws: a phone may show one line or three, fold a notification, or
+  bundle it with others while the buttons still work. So the owner proves it per device. **Send a test notification**
+  sends a sample in the real layout at today's limit: an action line and a folder line that together are exactly the
+  limit, each ending in a two-character code, then the longest context lines. The owner types both codes back within 10
+  minutes. Pocket keeps the limit the device was tested at with that device's push subscription in `push-subs.json`. The
+  routes that save a device's notification choices and subscribe it never accept it. Subscribing again (turning push off
+  and on, or a browser that changes its push address) turns the device's Allow button off, and raising the limit turns it
+  off on every device. The test shows that someone read the end of both lines on that device once. It doesn't show that
+  the device displays them in every view, every time.
+- **The check when an answer arrives.** For an Allow from a notification, the server builds that notification again for
+  the device that posts, with today's settings. It refuses the Allow (409) when the notification would no longer offer it,
+  or that device's push service never accepted a push with Allow for this request (`not_offered`); when the push is older
+  than **Allow works for**, 30 minutes by default (`too_old`); or when `shown` differs (`changed`). A switch turned off, a
+  lower limit or **Only that an action waits** therefore takes back an Allow already on a phone. Any `via` other than `app`
+  or `notification` is refused (400 `unknown_via`). As for every answer, the decision is recorded before the agent hears
+  it.
+- **What `shown` proves, and what it doesn't.** `shown` is a SHA-256 of the request's id, its kind, the action line and the
+  folder line as built for that device. It proves that the Allow names text the server built from this request and would
+  still offer now. It does not prove what the screen displayed, that the owner read it, or that the answer came from a
+  notification at all. `via`, the push address the answer sends and the record's `source` are what the client says. The
+  device test is what stands for "the whole line was shown".
+- **The job rule.** A job's data (an emailed alert, a pager message) can steer the agent into proposing a command made to
+  look harmless, and that text stays in the conversation. So a job's reply, and every later reply in a conversation a job
+  has run in, offers **Don't allow** only unless the owner turns on **Allow on a job's actions** (off by default). That
+  includes the owner's own replies there, and any branch of such a conversation. A check-back's reply offers Allow while
+  **Allow on a check-back's actions** is on (the default); in a conversation a job has run in, the job rule wins. The rule
+  is checked when the notification is built and again when the answer arrives.
+- **Outside text reaches the owner's own replies too.** A web page, an email or a file an agent reads can shape a command
+  in a reply the owner started. That is why the rule that Allow appears only beside the whole action, in plain characters
+  and short enough to read, is the main protection everywhere. The origin rule is a second one.
+- **Nothing that looks like a secret goes into the push.** Push text passes through the browser's push service. An action,
+  a folder, a conversation title or a subagent name that looks like a password or key is replaced by a note.
+- **A stolen or borrowed phone.** By default the notification shows the action on the lock screen (**What approval
+  notifications show: The action**). Whether a button works on a locked phone depends on the device, and nothing here has
+  been verified on real phones yet. The owner accepted Allow from a locked phone on a tested device: it is his choice, per
+  device, by turning that device's Allow button on. Anyone holding the phone unlocked, and on some phones locked, can read
+  the action and tap Allow while the notification is younger than **Allow works for**. Pocket can't prevent that. The
+  remedies: the phone's own setting that hides notification content on the lock screen (its effect on the buttons is
+  unverified); **Only that an action waits**, which shows no conversation, no action and no Allow; leaving a device's
+  Allow button off; and, for a lost phone, **Sign out everywhere**, which removes every push subscription at once.
+- **The record.** Each `decision` line in `approval-decisions.jsonl` now has `source` (`app` or `notification`). One from a
+  notification also has `device` (12 hex digits of a SHA-256 of the push address, or `unknown` when that address isn't
+  subscribed), `pushService` (the push address's host) and `action` (the kind of action). A refused answer from a
+  notification writes a `refused` line with its reason. No line holds a command, an argument or file content.
+
+**Weaknesses inherited from the Vault's notification flow, stated and not fixed.** The first one in the plan, a cut
+command beside Allow, was fixed in 1.125.3. These still apply:
+
+1. **The Vault's own record has no source.** A Vault answer is still recorded as the owner's wherever it came from. Action
+   approvals now record a source, as the answer states it.
+2. **Stale buttons on other devices.** Once a request is answered or withdrawn, Pocket sends a silent replacement to the
+   other devices that got it. That is a new push: it can be late or lost, and none is sent after a restart or with
+   **Update other devices after an answer** off. A tap on a stale Allow is refused (409) and says so. It can't answer
+   another request, because every answer names its own.
+3. **A failure on a locked phone.** The notification closes before the answer is sent. When the answer doesn't land,
+   Pocket shows a second notification saying so and opens the conversation at the request, but on a locked phone that page
+   waits for the unlock.
+4. **No recent sign-in.** Any device with the 90-day cookie and a push subscription can answer; with its Allow button on,
+   it can allow. Pocket asks for no fresh sign-in.
+5. **Behind Cloudflare Access (unverified).** When the Access session has ended, the answer meets a redirect to the Access
+   login. For action approvals the service worker doesn't follow it and reports that the device was signed out; this has
+   not been checked against a real Access login. A Vault answer still follows the redirect, and what it reports then has
+   not been checked either.
+
 ## Projects, Files, Tasks and the Vault
 
 These libraries are off until the owner switches them on in Settings. Turning one on adds

@@ -1,6 +1,6 @@
 <!-- manual
-checked: 1.125.3
-sources: automation.mjs, checkbacks.mjs, job-keys.mjs, public/automation.js, scripts/pocket-checkback.mjs, scripts/pocket-run.mjs, scripts/pocket-jobkey.mjs, skills/pocket-checkback/SKILL.md, skills/pocket-jobs/SKILL.md, server.mjs, queue.mjs, codex.mjs, acp.mjs, sidechat.mjs, coordination.mjs, usage.mjs, inbox-runner.mjs, public/voice-text.js
+checked: 1.126.0
+sources: automation.mjs, checkbacks.mjs, job-keys.mjs, approval-push.mjs, public/automation.js, scripts/pocket-checkback.mjs, scripts/pocket-run.mjs, scripts/pocket-jobkey.mjs, skills/pocket-checkback/SKILL.md, skills/pocket-jobs/SKILL.md, server.mjs, queue.mjs, codex.mjs, acp.mjs, sidechat.mjs, coordination.mjs, usage.mjs, inbox-runner.mjs, public/voice-text.js
 -->
 # Automation: Pause all, check-backs, job keys and limits on unattended work
 
@@ -223,7 +223,7 @@ A reply that started any other way is refused: from the queue, a usage-limit ret
 
 The reply runs with the **permissions of the reply that set it**: the same permission mode (Review actions or Full access), model, effort and plan or work mode, taken when it was set. Two things lower that to Review actions: the setting **Permissions for a check-back** set to **Always Review actions**, and a server where Full access is turned off. A check-back is never given more than the reply that set it had.
 
-It asks for approval as any reply does. Nobody may be looking, and it waits for you, with the usual push ([Questions and approvals](approvals.md#replies-you-did-not-start)). Time spent waiting on you doesn't count toward **Longest unattended reply** unless you switch that on.
+It asks for approval as any reply does. Nobody may be looking, and it waits for you, with the usual push ([Questions and approvals](approvals.md#replies-you-did-not-start)). With **Answer approvals from notifications** on (1.126.0), its notification reads *Started by a check-back* and can offer **Allow**, because **Allow on a check-back's actions** is on by default; turn that off in **Settings → Features → Answers from notifications** to get **Don't allow** only. A check-back in a conversation a job has run in follows the job rule instead ([What waits for you in a job reply](#what-waits-for-you-in-a-job-reply)). Time spent waiting on you doesn't count toward **Longest unattended reply** unless you switch that on.
 
 ### When it runs
 
@@ -595,6 +595,11 @@ The reply runs with the key's folder, agent, model and access, and nothing the s
 Nobody may be looking when a job reply asks for something, and it waits for you. An approval or a question doesn't expire (unless you switched on **Count time waiting for me toward the longest reply**, which then lets the longest-reply limit stop it):
 
 - **An approval or a question.** With **Ask first**, every action that isn't on your list of read-only actions asks ([Questions and approvals](approvals.md#replies-you-did-not-start)). For a job that should run on its own, keep the instruction to reading what your list already allows ([Let read-only actions run without asking](approvals.md#let-read-only-actions-run-without-asking)), or give the key **Full access** in a folder where a mistake is cheap.
+  With **Answer approvals from notifications** on (1.126.0), a job's approvals reach your phone with **Don't allow** only:
+  **Allow on a job's actions** is off by default, because the job's data can steer the agent. That covers every reply in a
+  conversation a job has run in, your own included, and in a branch of one. The notification says *Started by job …* or
+  *A job has run in this conversation*. Turn it on in **Settings → Features → Answers from notifications** only for jobs
+  whose data you trust ([Answer from the notification](approvals.md#answer-from-the-notification)).
 - **A request to share or publish a file** ([Files](files.md#when-an-agent-asks-to-share)). A job reply never shares anything on its own, under any access.
 - **A request to use a secret that asks** ([Vault](vault.md#answer-a-request)).
 

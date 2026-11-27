@@ -102,7 +102,9 @@ Pocket server; voice is an input and output method, not a separate assistant.
 
 **Out of scope:** general file browsing/editing, a terminal and multi-user accounts. Files is
 a curated library of outputs someone chose to keep, not a browser for the server's file system. Native questions and action approvals are
-supported; review/full-access choices govern subsequent Pocket-owned turns, while
+supported. When the owner turns it on, an action approval can also be answered from its notification on a device the
+owner has tested: Allow covers that one request only, appears only for a short action Pocket can show whole, and is
+never Always allow (answering by voice is not built yet). Review/full-access choices govern subsequent Pocket-owned turns, while
 server credentials and provider rules remain the authority. Read-only Git inspection belongs to the
 session workspace. Codex Plan mode guides the task but is not a security sandbox.
 

@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.125.3
+checked: 1.126.0
 sources: checkbacks.mjs, job-keys.mjs, automation.mjs, cli-updates.mjs, cli-update-worker.mjs, self-update.mjs, scripts/pocket-self-update.sh, ecosystem.config.cjs, environment.mjs, pipes.mjs, codex.mjs, sidechat.mjs, skills.mjs, vault.mjs, scripts/pocket-mcp-proxy.mjs, scripts/pocket-run.mjs
 -->
 # Operations, upgrades and recovery
@@ -393,7 +393,9 @@ than replayed as approvals, so the agent can continue or ask again. Codex reques
 already recorded as resolved are skipped. An input pipe that cannot be recovered
 produces an interrupted state; stop that turn, review completed work and start again.
 Never attach an old decision to a new process. [Action approvals](action-approvals.md)
-describes scope and audit behavior.
+describes scope and audit behavior. With answers from notifications on (1.126.0), a
+notification sent before the restart keeps its buttons on the phone; an answer from it finds
+no waiting request, changes nothing, and the phone shows that it didn't go through.
 
 ## A paused install
 
