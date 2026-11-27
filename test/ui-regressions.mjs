@@ -6,6 +6,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {createRequire} from 'node:module';
 import {modelPanel} from './model-panel.mjs';
+// The first shortcut wins when two dates coincide. Next Monday can be one, three or seven days away.
+function expectedReminderPicks(weekday){
+ const picks=['tomorrow','three'];
+ if(weekday!==0&&weekday!==5)picks.push('monday');
+ if(weekday!==1)picks.push('week');
+ return picks;
+}
 const require=createRequire(import.meta.url);
 const axePath=require.resolve('axe-core/axe.min.js');
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
@@ -1536,11 +1543,7 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    // Remind later on a dated task: the project reminder's quick picks, the task re-dated.
    const later=await page.evaluate(()=>{const t=tasksSnap.tasks.find(x=>x.text==='Chase the revised camera quote');taskSheet(t.id);return t.dueAt;});
    await page.waitForSelector('.task-sheet [data-later]');await clickControl(page,'.task-sheet [data-later]');await page.waitForSelector('.sheet [data-pick="tomorrow"]');
-   // The first shortcut wins when two dates coincide. Next Monday can be one, three or seven days away.
-   const weekday=await page.evaluate(()=>new Date().getDay());
-   const expectedPicks=['tomorrow','three'];
-   if(weekday!==0&&weekday!==5)expectedPicks.push('monday');
-   if(weekday!==1)expectedPicks.push('week');
+   const expectedPicks=expectedReminderPicks(await page.evaluate(()=>new Date().getDay()));
    assert.deepEqual(await page.$$eval('.sheet [data-pick]',els=>els.map(e=>e.dataset.pick)),expectedPicks);
    const lastPick=expectedPicks.at(-1);
    await clickControl(page,`.sheet [data-pick="${lastPick}"]`);await page.waitForFunction(prev=>tasksSnap.tasks.find(x=>x.text==='Chase the revised camera quote').dueAt!==prev,{},later);
@@ -2558,7 +2561,9 @@ export async function runUIRegressions({browser,base,rows,out,setMode,getMode=()
    await page.type('[data-task-add] input','Post the inventory adjustment');await page.keyboard.press('Enter');
    await page.waitForFunction(()=>document.querySelectorAll('.task-row').length===3);c=await card();assert.deepEqual(c.steps[2],['Post the inventory adjustment',false,'']);
    await clickControl(page,'[data-remind]');await page.waitForSelector('.sheet [data-pick="tomorrow"]');
-   const picks=await page.$$eval('.sheet [data-pick]',els=>els.map(e=>e.textContent.replace(/\s+/g,' ').trim()));assert.equal(picks.length,await page.evaluate(()=>new Date().getDay()===1?3:4),'four picks, three on a Monday (1.124.5)');assert.match(picks[0],/^Tomorrow morning/);
+   const picks=await page.$$eval('.sheet [data-pick]',els=>els.map(e=>e.dataset.pick));
+   assert.deepEqual(picks,expectedReminderPicks(await page.evaluate(()=>new Date().getDay())));
+   assert.match(await page.$eval('.sheet [data-pick="tomorrow"]',e=>e.textContent),/^Tomorrow morning/);
    await clickControl(page,'.sheet [data-pick="tomorrow"]');await page.waitForFunction(()=>document.querySelectorAll('.reminder-title').length===1);
    c=await card();assert.deepEqual(c.reminders,['Revisit Warehouse stock report']);
    await clickControl(page,'[data-finish]');await page.waitForSelector('.sheet [data-yes]');await clickControl(page,'.sheet [data-yes]');
