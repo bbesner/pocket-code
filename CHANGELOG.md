@@ -3,7 +3,7 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
-## [1.125.2] — Unreleased · build 235
+## [1.125.2] — 2026-11-27 · build 235
 
 **New job keys default to Full access**, the owner's decision of 2026-11-27: work he asked to run unattended should run
 without stopping for approvals unless he chose otherwise.
