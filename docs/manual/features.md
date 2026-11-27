@@ -1,6 +1,6 @@
 <!-- manual
-checked: 1.125.2
-sources: server.mjs, public/app.js, public/workspace.js, public/sw.js, public/manifest.webmanifest, router.mjs, access.mjs, engines.mjs, codex.mjs, acp.mjs, automation.mjs, checkbacks.mjs, job-keys.mjs, vault.mjs, inbox.mjs, inbox-runner.mjs, projects.mjs, project-mode.mjs, documents.mjs, tasks.mjs, coordination.mjs, skills.mjs, approvals.mjs, trusted.mjs, sidechat.mjs, voice.mjs, usage.mjs, self-update.mjs, cli-updates.mjs, scripts/pocket-init.mjs
+checked: 1.125.3
+sources: server.mjs, public/app.js, public/workspace.js, public/sw.js, public/manifest.webmanifest, router.mjs, access.mjs, engines.mjs, codex.mjs, acp.mjs, automation.mjs, checkbacks.mjs, job-keys.mjs, vault.mjs, inbox.mjs, inbox-runner.mjs, projects.mjs, project-mode.mjs, documents.mjs, tasks.mjs, coordination.mjs, skills.mjs, approvals.mjs, trusted.mjs, sidechat.mjs, voice.mjs, usage.mjs, self-update.mjs, cli-updates.mjs, scripts/pocket-init.mjs, push-text.mjs
 -->
 # Feature reference
 
@@ -444,7 +444,7 @@ The list can be searched, sorted (including by who can use it, least protected f
 
 **What it is.** Everything that reaches you when Pocket is not on screen, and what it plays when it is.
 
-**How it works.** Web push (VAPID keys, `VAPID_PUBLIC` and `VAPID_PRIVATE`, written by `pocket-init`) needs HTTPS and the browser's permission, and is turned on separately for each device. Subscriptions are in `push-subs.json`. There are five kinds: **Finished replies** (also covers questions and approvals), **Due tasks and reminders** (with **Tomorrow** and **Done** actions), **Vault requests** (with **Allow** and **Deny**; also the job-key request), **Inbox alerts**, and **Check-backs and job results**. A **Completion chime** plays when a reply finishes while Pocket is open, and **Count on the app icon** shows due tasks and reminders. Muting a conversation (its **Alerts** chip) stops its notifications, including questions and approvals. For due tasks and project reminders, **Notice a day before** adds a 24-hour notice, **Email due tasks and reminders to** adds email (through `POCKET_SMTP_URL`), and `POCKET_REMINDER_HOOK` runs a command with the reminder as JSON on standard input; each is announced once, checked every minute.
+**How it works.** Web push (VAPID keys, `VAPID_PUBLIC` and `VAPID_PRIVATE`, written by `pocket-init`) needs HTTPS and the browser's permission, and is turned on separately for each device. Subscriptions are in `push-subs.json`. There are five kinds: **Finished replies** (also covers questions and approvals), **Due tasks and reminders** (with **Tomorrow** and **Done** actions), **Vault requests** (with **Allow** and **Deny**, or only **Deny** when the command, title or text was cut or holds unusual characters; also the job-key request), **Inbox alerts**, and **Check-backs and job results**. A **Completion chime** plays when a reply finishes while Pocket is open, and **Count on the app icon** shows due tasks and reminders. Muting a conversation (its **Alerts** chip) stops its notifications, including questions and approvals. For due tasks and project reminders, **Notice a day before** adds a 24-hour notice, **Email due tasks and reminders to** adds email (through `POCKET_SMTP_URL`), and `POCKET_REMINDER_HOOK` runs a command with the reminder as JSON on standard input; each is announced once, checked every minute.
 
 **Where to control it.** **Settings → Notifications**; the bell on the conversation list. `POCKET_PUBLIC_URL` sets the address used in email links.
 

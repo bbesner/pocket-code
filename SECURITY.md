@@ -530,7 +530,11 @@ expires after 15 minutes; an answer stays good for 15 minutes after it is given 
 *Free rein* runs any command without asking (every use is still recorded). *Only you* refuses
 agents. The owner answers from the Vault view, from the push notification's **Allow** and
 **Deny** buttons, or by replying in the conversation that raised the request; only the owner's
-own messages in that session count. Under Review actions the owner also approves the agent's
+own messages in that session count. The notification offers **Allow** only when the command, the title and
+the text were sent uncut and in plain characters (1.125.3): a command over 80 characters or with any character
+outside printable ASCII, and a title or text cut to fit or holding a control, format or line-separator character,
+leave **Deny** only. This covers what the server sent, not what a phone draws: a phone can fold a long notification
+until it is opened out, and the notification never carries the folder or the variables. Under Review actions the owner also approves the agent's
 `pocket-vault run` call itself; under Full access the Vault's request is the only check, which
 is why asking is the default. Calls from a terminal or code-server session on the host follow
 the same rules and are recorded as `terminal`.

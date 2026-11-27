@@ -374,6 +374,9 @@ Every turn records its origin and root origin (automation.mjs:14-15). The root d
 1. **A cut-off command next to Allow.** The Vault push cuts the command at 80 characters with no mark (server.mjs:5672),
    and `pushRaw` can cut the title and body (1012-1018), yet Allow stays. This is a security bug; Releases puts its fix
    first. Part 2 must not copy this code.
+   *Fixed in 1.125.3 (2026-11-27):* a command over 80 characters or outside printable ASCII is sent marked, with a
+   pointer to Pocket and Deny only, and `pushShape` (`push-text.mjs`, used by `pushRaw`) drops the `allow` action from
+   any push whose title or body it cut or that holds a control, format or separator character; Deny stays.
 2. **No source in the record.** A Vault answer is `by: 'owner'` wherever it came from (vault.mjs:711).
 3. **Stale buttons on other devices.** The 409 keeps it safe, but the owner meets a live-looking Allow that can't work.
 4. **A failure on a locked phone looks like success.** The worker closes the notification first (sw.js:77) and the
@@ -480,7 +483,7 @@ expanded, lock screen, bundled), and whether Allow works while locked.
 ## Releases and rollout
 
 1. **A patch release first:** the Vault push offers Allow only when the command fits uncut, with a mark when cut
-   (Weakness 1). It is a security bug today, independent of this feature.
+   (Weakness 1). It is a security bug today, independent of this feature. *Done in 1.125.3 (2026-11-27).*
 2. **The next minor:** Parts 1-5 and 7, `sameOrigin` on the decision route, the manual and SECURITY.md.
 3. **The minor after it:** Part 6, voice.
 
