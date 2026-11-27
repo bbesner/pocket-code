@@ -3,6 +3,34 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.125.3] — 2026-11-27 · build 236
+
+**A notification offers Allow only when it shows the whole request.** A security fix, first in the plan for answering
+approvals from the notification (`docs/plans/notification-approvals.md`, Weakness 1).
+
+### Security
+
+- **A cut command no longer comes with Allow.** The Vault's request notification showed the command cut at 80 characters
+  with no mark, and still offered **Allow**: the owner could allow, from the lock screen, a command whose end he never saw.
+  Now a command over 80 characters (`VAULT_PUSH_COMMAND_MAX`) shows its first 80 characters followed by
+  *… Open Pocket to read the whole command.*, and the notification has only **Deny**. A tap on it opens the request in
+  Pocket, where the whole command is shown, as before. A command of 80 characters or fewer is shown whole with
+  **Allow** and **Deny**.
+- **Nor does a cut title or text.** The push cuts a title over 70 characters, and a body that would not fit a push
+  message. When it does, it now drops **Allow** from that notification, for every request that carries it: Vault runs and
+  fills (many or long item names) and file share or publish requests (a long file title). **Deny** and any other button
+  stay; a due task or reminder keeps **Tomorrow** and **Done**.
+
+### Fixed
+
+- The server's log line for a Vault or file request push now says whether Allow was offered (`allow=yes`, or
+  `allow=no (command cut)`, `(title cut)`, `(text cut)`); it never logs the command or a secret.
+- Nothing is stored differently: the request itself, the card in Pocket, the answer route and the service worker's answer
+  code are unchanged. New asset number so phones load the new release notes.
+- **Tests.** `test/push-whole.test.mjs` reads what a device receives from a push service on the test machine: 80
+  characters whole with Allow and Deny; 81 and more marked with Deny only; Deny still answers a cut request; long item
+  names and a long file title lose Allow while a short title keeps both; a cut reminder title keeps Tomorrow.
+
 ## [1.125.2] — 2026-11-27 · build 235
 
 **New job keys default to Full access**, the owner's decision of 2026-11-27: work he asked to run unattended should run
