@@ -1,4 +1,4 @@
 google-api-python-client>=2.0
-google-auth>=2.0
+google-auth>=2.63.1
 google-auth-oauthlib>=1.0   # only for mail.auth = "oauth"
 anthropic>=0.60             # only for judge.kind = "anthropic"
