@@ -106,23 +106,38 @@ export const ENGINE_SETTING = { claude: 'engineClaude', codex: 'engineCodex', ac
 export const allowWindowMs = (cfg, testMs = 0) => { const ms = cfg.allowFor * 60_000; return Number.isFinite(testMs) && testMs > 0 && testMs < ms ? testMs : ms; };
 
 // ---------- text ----------
-const FORMAT = /\p{Cf}/gu; // zero-width and direction-changing characters: dropped
+// Invisible characters, dropped: every format character (\p{Cf}: zero-width, direction-changing) and every
+// default-ignorable code point (\p{Default_Ignorable_Code_Point}: variation selectors, the combining grapheme joiner,
+// the Hangul and Khmer fillers, the tag characters and the rest Unicode marks so). Unicode's own classes, not a list.
+const FORMAT = /[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu;
 const BREAKS = /[\p{Cc}\u2028\u2029]+/gu; // line breaks, tabs and other control characters: one space
 export const PRINTABLE_ASCII = /^[\x20-\x7e]*$/;
 const chars = s => Array.from(s);
-// One line: no line break, tab, control, zero-width or direction-changing character, spaces collapsed.
+// One line: no line break, tab, control or invisible character (FORMAT), spaces collapsed.
 export const oneLine = v => String(v ?? '').replace(FORMAT, '').replace(BREAKS, ' ').replace(/ {2,}/g, ' ').trim();
 // A context line's text, cut to n characters with … (the … counts).
 export const cut = (s, n) => { const c = chars(s); return c.length <= n ? s : c.slice(0, n - 1).join('') + '…'; };
 // Characters that show as blank space or nothing but are not an ordinary space: every space separator (no-break, em,
-// ideographic and the rest), the braille blank and the Hangul and Khmer fillers. A context line shows each run as one space.
-const BLANKS = /[\p{Zs}\u2800\u3164\u115F\u1160\uFFA0\u17B4\u17B5]+/gu;
+// ideographic and the rest), the braille blank, the Hangul and Khmer fillers and the musical null notehead (U+1D159, a
+// symbol to Unicode that draws nothing). A context line shows each run as one space. A list: Unicode has no class for it.
+const BLANKS = /[\p{Zs}\u2800\u3164\u115F\u1160\uFFA0\u17B4\u17B5\u{1D159}]+/gu;
+const BLANK_ONE = /[\p{Zs}\u2800\u3164\u115F\u1160\uFFA0\u17B4\u17B5\u{1D159}]/gu;
 // A context line (conversation, subagent, job name, summary): one line, every blank-looking run one ordinary space.
 export const contextLine = v => oneLine(String(v ?? '').replace(BLANKS, ' '));
 export const looksSecret = s => { try { return Boolean(globalThis.PocketSecrets?.scan(String(s ?? ''), { mode: 'message' }).length); } catch { return true; } };
-// Hide a text if it looks like a key as written or as cleaned for the notification: cleaning drops a zero-width character
-// and so can join the two halves of a key the raw scan saw apart.
-export const hidden = v => { const s = String(v ?? ''); return looksSecret(s) || looksSecret(oneLine(s)) || looksSecret(contextLine(s)); };
+// Hide a text if it looks like a key as written or as cleaned for the notification: cleaning drops an invisible character
+// and so can join the two halves of a key the raw scan saw apart. Also scanned with every blank-looking character other
+// than an ordinary space removed (a key split by one would otherwise show as two harmless halves).
+export const hidden = v => {
+  const s = String(v ?? '');
+  return looksSecret(s) || looksSecret(oneLine(s)) || looksSecret(contextLine(s)) || looksSecret(oneLine(s.replace(BLANK_ONE, c => c === ' ' ? ' ' : '')));
+};
+// A tool's name (mcp__server__tool): the scanner does not see a key glued after `_`, so each part after a `__` and the
+// rest of the name after every run of `_` are scanned too.
+export const hiddenName = v => {
+  const s = oneLine(v);
+  return hidden(v) || s.split(/__+/).some(looksSecret) || [...s.matchAll(/_+/g)].some(m => looksSecret(s.slice(m.index + m[0].length)));
+};
 export const tilde = (p, home) => typeof p === 'string' && home && (p === home || p.startsWith(home.endsWith('/') ? home : home + '/')) ? '~' + p.slice(home.replace(/\/$/, '').length) : p;
 const hasDotDot = p => String(p).split(/[\\/]/).some(x => x === '..');
 const SECRET_NOTE = '(looks like it contains a password or key; open Pocket to review it)';
@@ -177,7 +192,7 @@ export function actionOf(row, t) {
     }
     if (EDIT_TOOLS.has(tool)) { const f = input?.file_path ?? input?.notebook_path; return { ...base, what: 'edit', label: 'Edits', text: typeof f === 'string' ? f : null, allowable: false, why: 'edit' }; }
     if (tool === 'Agent' || tool === 'Task') return { ...base, what: 'action', fixed: 'Starts a helper', allowable: false, why: 'helper' };
-    return { ...base, what: 'action', label: 'Uses', text: tool || 'a tool', allowable: false, why: 'tool' };
+    return { ...base, what: 'action', label: 'Uses', text: tool || 'a tool', name: true, allowable: false, why: 'tool' };
   }
   if (engine === 'codex') {
     const base = { folder: d.cwd ?? t.cwd, folderLabel: d.cwd == null ? 'Conversation folder' : 'In' };
@@ -285,7 +300,7 @@ export function approvalPush(row, t, device, cfg) {
   let actionLine;
   if (a.fixed) actionLine = a.fixed;
   else if (a.text == null || a.text === '') { actionLine = `${a.label}: (not given; open Pocket to review it)`; why.push('no_text'); }
-  else if (hidden(a.text)) { actionLine = `${a.label}: ${SECRET_NOTE}`; why.push('secret'); }
+  else if (a.name ? hiddenName(a.text) : hidden(a.text)) { actionLine = `${a.label}: ${SECRET_NOTE}`; why.push('secret'); }
   else {
     const whole = `${a.label}: ${a.text}`;
     if (chars(whole).length + chars(folderLine).length > cfg.longestAction) { actionLine = `${a.label}: ${tooLong(chars(a.text).length)}`; why.push('length'); }

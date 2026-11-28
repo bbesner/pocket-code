@@ -112,7 +112,8 @@ async function handlePrompt(id, params) {
   } else if (!process.env.FAKE_ACP_NO_ASK) {
     // like OpenCode: the request carries the tool call, titled with the command it will run
     const ans = await askClient('session/request_permission', { sessionId: sid, toolCallId: toolId,
-      toolCall: { toolCallId: toolId, title: 'echo ACP_OK', kind: 'execute', status: 'pending', rawInput: { command: 'echo ACP_OK' } },
+      // FAKE_ACP_RAW_INPUT (JSON): another rawInput, such as a bare string, as an agent may send
+      toolCall: { toolCallId: toolId, title: 'echo ACP_OK', kind: 'execute', status: 'pending', rawInput: process.env.FAKE_ACP_RAW_INPUT ? JSON.parse(process.env.FAKE_ACP_RAW_INPUT) : { command: 'echo ACP_OK' } },
       options: [{ optionId: 'allow_once', name: 'Allow once', kind: 'allow_once' }, { optionId: 'reject_once', name: 'Reject', kind: 'reject_once' }] });
     if (cancelled.has(sid) || ans?.cancelled) { cancelled.delete(sid); saveSess(sid, s); return reply(id, { stopReason: 'cancelled' }); }
     s.permissionOutcome = ans?.outcome?.outcome;

@@ -386,6 +386,61 @@ test('F3 (rules): a key split by a zero-width character is hidden on every line 
   const a2 = push(claudeRow('Bash', { command: 'ls' }, { agent: KEY }), turnOf('claude')); noKey(a2); assert.equal(a2.lines[3], 'Subagent: (hidden)');
 });
 
+// Unicode's default-ignorable code points that are not format characters (the combining grapheme joiner, two variation
+// selectors and a supplementary one), and U+1D159, a symbol that draws nothing
+const IGNORABLE = [0x034F, 0xFE0F, 0xFE00, 0xE0100], NOTEHEAD = 0x1D159;
+test('Invisible characters (rules): a key split by a default-ignorable code point or U+1D159 is hidden on every line, and context lines drop them (U+1D159 shows as a space)', () => {
+  for (const cp of [...IGNORABLE, NOTEHEAD]) {
+    const c = ch(cp), split = KEY.slice(0, 12) + c + KEY.slice(12), why = 'U+' + cp.toString(16).toUpperCase();
+    assert.equal(ap.looksSecret(split), false, why + ': the raw scan alone misses it');
+    assert.equal(ap.hidden(split), true, why);
+    const action = push(claudeRow('Bash', { command: 'echo ' + split }), turnOf('claude'));
+    noKey(action); assert.equal(action.allow, false, why); assert.match(action.lines[0], /looks like it contains a password or key/, why);
+    const folder = push(codexRow('command', { command: 'ls', cwd: '/srv/' + split }), turnOf('codex'));
+    noKey(folder); assert.equal(folder.allow, false, why);
+    const convo = push(claudeRow('Bash', { command: 'ls' }), turnOf('claude', { title: 'deploy ' + split }));
+    noKey(convo); assert.equal(convo.lines[2], 'Conversation: (hidden: it looks like it contains a password or key)', why);
+    const job = push(claudeRow('Bash', { command: 'ls' }), turnOf('claude', { root: 'job', jobName: split }));
+    noKey(job); assert.equal(job.lines[3], 'Started by job (hidden)', why);
+    const sub = push(claudeRow('Bash', { command: 'ls' }, { agent: 'helper ' + split }), turnOf('claude'));
+    noKey(sub); assert.equal(sub.lines[3], 'Subagent: (hidden)', why);
+    const s = ap.summary('s-1', 2, 'deploy ' + split); noKey(s); assert.equal(s.body, '2 more actions wait', why);
+    const r = ap.replacement('r1', 's-1', 'Allowed ' + split); noKey(r); assert.equal(r.body, 'No longer waiting', why);
+    // the context lines, the summary and the replacement keep none of them
+    const gap = cp === NOTEHEAD ? ' ' : '';
+    const p = push(claudeRow('Bash', { command: 'ls' }, { agent: 'help' + c + 'er' }), turnOf('claude', { title: 'Shop' + c + 'price' }));
+    assert.equal(p.lines[2], 'Conversation: Shop' + gap + 'price', why); assert.equal(p.lines[3], 'Subagent: help' + gap + 'er', why);
+    const j = push(claudeRow('Bash', { command: 'ls' }), turnOf('claude', { root: 'job', jobName: 'night' + c + 'ly' }));
+    assert.equal(j.lines[3], 'Started by job night' + gap + 'ly', why);
+    assert.equal(ap.summary('s-1', 1, 'Shop' + c + 'price').body, '1 more action waits in Shop' + gap + 'price', why);
+    const rep = ap.replacement('r1', 's-1', 'Allowed in Pocket' + c + ' at 9:00');
+    assert.ok(!JSON.stringify(rep).includes(c), why + ': the replacement'); assert.ok(!rep.body.includes(c), why);
+    for (const line of [...p.lines, ...j.lines]) assert.ok(!line.includes(c), why + ': ' + line);
+    // the action line: no Allow (the character is not printable ASCII); a default-ignorable one is not shown there either
+    const a = push(claudeRow('Bash', { command: 'echo a' + c + 'b' }), turnOf('claude'));
+    assert.equal(a.allow, false, why); if (cp !== NOTEHEAD) assert.ok(!a.body.includes(c), why);
+  }
+});
+
+test('Tool names (rules): a key glued after _ or __ in a tool\'s name is hidden on its Uses line', () => {
+  for (const tool of ['mcp__' + KEY, 'mcp_' + KEY, 'x_' + KEY, 'mcp__server__' + KEY, 'mcp__server___' + KEY + '__run']) {
+    assert.equal(ap.looksSecret(tool), false, tool + ': the raw scan alone misses it');
+    const p = push(claudeRow(tool, { q: 1 }), turnOf('claude'));
+    noKey(p); assert.equal(p.allow, false, tool); assert.equal(p.lines[0], 'Uses: (looks like it contains a password or key; open Pocket to review it)', tool);
+  }
+  assert.equal(push(claudeRow('mcp__github__create_issue', { q: 1 }), turnOf('claude')).lines[0], 'Uses: mcp__github__create_issue', 'an ordinary name still shows');
+});
+
+test('ACP rawInput that is not an object (card and rules): a string, a number or true shows the card as before 1.126 (the title as the command) and gets no Allow', () => {
+  for (const rawInput of ['ls -la', 7, true, false, 0, '']) {
+    const toolCall = { kind: 'execute', title: 'echo hi', rawInput };
+    const card = approvalCard({ toolCall });
+    assert.deepEqual(card, { kind: 'command', details: { command: 'echo hi', tool: 'echo hi' } }, JSON.stringify(rawInput));
+    const p = push(acpRow(toolCall), turnOf('acp')); invariants(p);
+    assert.equal(p.allow, false, JSON.stringify(rawInput)); assert.deepEqual(allowOf(p), ['deny']);
+  }
+});
+
 test('F4, B5, B8 (rules): context lines show blank-looking characters as one ordinary space, and a line break early in a title still makes one line', () => {
   const blanks = [0x2800, 0x3164, 0x115F, 0x1160, 0x2003, 0x00A0, 0x3000, 0xFFA0, 0x202F].map(ch);
   for (const b of blanks) {
