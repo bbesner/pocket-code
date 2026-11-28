@@ -955,7 +955,7 @@ test('Off then on, mute then unmute (server): settling forgets the devices, so t
   s.push.delay.set('a', 3000);
   await s.set({ answers: true });
   await s.until(() => originals('a', one.id).length === 2, 5000, 'a fresh notification for the first');
-  assert.match(s.logs(), new RegExp(`approval notifications synced after turned on: 1 with requests waiting, 1 replies kept`));
+  assert.equal(s.logs().match(/approval notifications synced after turned on: .*/g).at(-1), 'approval notifications synced after turned on: 1 with requests waiting, 1 replies kept', 'the last turn-on');
   const old = await s.fromNote(id, one.id, 'a', 'allow', p.payload.approval.shown, { wait: false });
   assert.equal(old.status, 409); assert.equal(old.body.code, 'not_offered', 'the old notification offers nothing');
   // N24: the settled one did not count as showing, and the limit still holds: the second gets none, the summary says 1 more
@@ -997,7 +997,7 @@ test('Ended while muted (server): a reply that ends while muted or off is not ke
   await s.set({ answers: false });
   assert.equal((await s.call(`/session/${s.e(off)}/stop`, {})).status, 200); await s.idle(off);
   await s.set({ answers: true });
-  assert.match(s.logs(), /approval notifications synced after turned on: 0 with requests waiting, 0 replies kept/);
+  assert.equal(s.logs().match(/approval notifications synced after turned on: .*/g).at(-1), 'approval notifications synced after turned on: 0 with requests waiting, 0 replies kept', 'the last turn-on');
 });
 
 test('N14b (server): after the reply ended, a notification answer to a request answered in Pocket says answered_in_app; one never answered says gone', { timeout: 120_000 }, async t => {
