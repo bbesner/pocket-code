@@ -41,7 +41,8 @@ test('T3 (rules): ACP, Don\'t allow only: only allow_always offered; text only f
   const t = turnOf('acp');
   const good = acpRow({ kind: 'execute', title: 'ls', rawInput: { command: 'ls -la' } });
   const ok = push(good, t); invariants(ok);
-  assert.equal(ok.allow, true); assert.equal(ok.lines[0], 'Runs: ls -la'); assert.equal(ok.lines[1], 'In: ~/projects/shop');
+  assert.equal(ok.allow, true); assert.equal(ok.lines[0], 'Runs: ls -la'); assert.equal(ok.lines[1], 'Conversation folder: ~/projects/shop', 'OpenCode names no folder of its own');
+  assert.equal(push(acpRow({ kind: 'execute', title: 'ls', rawInput: { command: 'ls', cwd: CWD } }), t).lines[1], 'In: ~/projects/shop', 'a request that names the conversation\'s folder says In:');
   const agy = acpRow({ kind: 'execute', title: 'Run', rawInput: { CommandLine: 'git status', WaitMsBeforeAsync: 500, toolSummary: 'status', cwd: CWD } });
   assert.equal(push(agy, turnOf('antigravity')).allow, true, 'Antigravity CommandLine with its own fields and the same folder');
   const cases = {
@@ -314,4 +315,195 @@ test('T21 (rules): every setting saves, refuses out-of-range values, resets and 
   const af = desc.settings.find(s => s.key === 'allowFor'), jb = desc.settings.find(s => s.key === 'jobs');
   assert.equal(af.saved, true); assert.equal(af.value, 10); assert.equal(af.offAllowed, false); assert.equal(af.min, 5); assert.equal(af.max, 240);
   assert.equal(jb.preset, true); assert.equal(jb.value, true); assert.equal(jb.env, 'POCKET_APPROVAL_PUSH_JOBS');
+});
+
+// ---------- 1.126 review fixes (F1-F6 and the survivors), each failing without its fix ----------
+const ch = cp => String.fromCodePoint(cp);
+const KEY = 'ghp_' + 'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8';
+const ZW = ch(0x200B), SPLIT = KEY.slice(0, 12) + ZW + KEY.slice(12); // a key the raw scan sees in two halves
+const noKey = p => { const all = JSON.stringify(p.payload ?? p); assert.ok(!all.includes(KEY) && !all.includes(KEY.slice(4, 20)), 'the key appears nowhere: ' + all.slice(0, 200)); };
+
+test('F1 (rules): a folder cleaning would change, a relative one, an engine\'s literal ~/ and an empty one get no Allow; the same for an action with a double or trailing space', () => {
+  const cmd = "/bin/bash -lc 'make deploy'";
+  const good = push(codexRow('command', { command: cmd, cwd: HOME + '/work' }), turnOf('codex'));
+  invariants(good); assert.equal(good.allow, true); assert.equal(good.lines[1], 'In: ~/work');
+  for (const cwd of [HOME + '/work ', ' ' + HOME + '/work', HOME + '/work  x', 'work', '~/work', '']) {
+    const p = push(codexRow('command', { command: cmd, cwd }), turnOf('codex')); invariants(p);
+    assert.equal(p.allow, false, JSON.stringify(cwd)); assert.deepEqual(allowOf(p), ['deny'], JSON.stringify(cwd));
+  }
+  // The rule holds whoever names the folder: Claude's request cwd and an ACP turn's folder
+  assert.equal(push(claudeRow('Bash', { command: 'ls' }, { details: JSON.stringify({ tool: 'Bash', cwd: CWD + ' ', input: { command: 'ls' } }) }), turnOf('claude')).allow, false);
+  assert.equal(push(acpRow({ kind: 'execute', title: 'ls', rawInput: { command: 'ls' } }), turnOf('acp', { cwd: 'shop' })).allow, false);
+  assert.equal(push(acpRow({ kind: 'execute', title: 'ls', rawInput: { command: 'ls' } }), turnOf('acp', { cwd: '' })).allow, false, 'an empty folder (X46)');
+  // The action: shown exactly as given, so a double or trailing space (which a notification may not show) loses Allow
+  for (const c of ['make  deploy', 'make deploy ', ' make deploy']) {
+    for (const [row, tt] of [[claudeRow('Bash', { command: c }), turnOf('claude')], [codexRow('command', { command: `/bin/bash -lc '${c}'`, cwd: CWD }), turnOf('codex')],
+      [acpRow({ kind: 'execute', title: 'x', rawInput: { command: c } }), turnOf('acp')]]) {
+      const p = push(row, tt); invariants(p); assert.equal(p.allow, false, JSON.stringify(c) + ' ' + tt.engine);
+    }
+  }
+  assert.equal(push(claudeRow('Bash', { command: 'make deploy' }), turnOf('claude')).allow, true);
+});
+
+test('F2 (rules and card): an ACP request with both command and CommandLine gets no Allow, each engine takes only its own key, and the card does not show one of them as the whole command', () => {
+  const both = { kind: 'execute', title: 'ls', rawInput: { command: 'ls', CommandLine: 'rm -rf ~' } };
+  for (const engine of ['acp', 'antigravity']) {
+    const p = push(acpRow(both), turnOf(engine)); invariants(p);
+    assert.equal(p.allow, false, engine); assert.equal(p.lines[0], 'Runs: (two commands given; open Pocket to review it)');
+    assert.ok(!p.body.includes('rm -rf') && !p.body.includes('Runs: ls'), engine);
+  }
+  // The key belongs to the engine: OpenCode's is command, Antigravity's CommandLine
+  assert.equal(push(acpRow({ kind: 'execute', title: 'x', rawInput: { CommandLine: 'ls' } }), turnOf('acp')).allow, false, 'OpenCode with CommandLine');
+  assert.equal(push(acpRow({ kind: 'execute', title: 'x', rawInput: { command: 'ls' } }), turnOf('antigravity')).allow, false, 'Antigravity with command');
+  assert.equal(push(acpRow({ kind: 'execute', title: 'x', rawInput: { command: 'ls', WaitMsBeforeAsync: 0 } }), turnOf('acp')).allow, false, 'an Antigravity field on an OpenCode request');
+  assert.equal(push(acpRow({ kind: 'execute', title: 'x', rawInput: { CommandLine: 'ls' } }), turnOf('antigravity')).allow, true);
+  assert.equal(push(acpRow({ kind: 'execute', title: 'x', rawInput: { command: 'ls' } }), turnOf('acp')).allow, true);
+  // The in-app card: both keys shown under Show details, neither as the command
+  const card = approvalCard({ toolCall: both });
+  assert.equal(card.details.command, null);
+  assert.deepEqual(card.details.commands, { command: 'ls', CommandLine: 'rm -rf ~' });
+  assert.equal(approvalCard({ toolCall: { kind: 'execute', title: 't', rawInput: { CommandLine: 'git status' } } }).details.command, 'git status');
+});
+
+test('F3 (rules): a key split by a zero-width character is hidden on every line the push builds (action, folder, conversation, job, subagent, summary, replacement)', () => {
+  assert.equal(ap.looksSecret(SPLIT), false, 'the raw scan alone misses it');
+  const action = push(claudeRow('Bash', { command: 'echo ' + SPLIT }), turnOf('claude'));
+  noKey(action); assert.equal(action.lines[0], 'Runs: (looks like it contains a password or key; open Pocket to review it)'); assert.equal(action.allow, false);
+  const folder = push(codexRow('command', { command: 'ls', cwd: '/srv/' + SPLIT }), turnOf('codex'));
+  noKey(folder); assert.equal(folder.allow, false); assert.match(folder.lines[1], /looks like it contains a password or key/);
+  const convo = push(claudeRow('Bash', { command: 'ls' }), turnOf('claude', { title: 'deploy ' + SPLIT }));
+  noKey(convo); assert.equal(convo.lines[2], 'Conversation: (hidden: it looks like it contains a password or key)');
+  const job = push(claudeRow('Bash', { command: 'ls' }), turnOf('claude', { root: 'job', jobName: SPLIT }));
+  noKey(job); assert.equal(job.lines[3], 'Started by job (hidden)');
+  const sub = push(claudeRow('Bash', { command: 'ls' }, { agent: 'helper ' + SPLIT }), turnOf('claude'));
+  noKey(sub); assert.equal(sub.lines[3], 'Subagent: (hidden)');
+  const s = ap.summary('s-1', 2, 'deploy ' + SPLIT); noKey(s); assert.equal(s.body, '2 more actions wait');
+  const r = ap.replacement('r1', 's-1', 'Allowed ' + SPLIT); noKey(r); assert.equal(r.body, 'No longer waiting');
+  // A key that is whole as written (X19, X19b, X19c, X19e)
+  const f2 = push(codexRow('command', { command: 'ls', cwd: '/srv/' + KEY }), turnOf('codex'));
+  noKey(f2); assert.equal(f2.allow, false, 'a folder that looks like a key never gets Allow (X19)');
+  const c2 = push(claudeRow('Bash', { command: 'ls' }), turnOf('claude', { title: KEY })); noKey(c2);
+  const a2 = push(claudeRow('Bash', { command: 'ls' }, { agent: KEY }), turnOf('claude')); noKey(a2); assert.equal(a2.lines[3], 'Subagent: (hidden)');
+});
+
+test('F4, B5, B8 (rules): context lines show blank-looking characters as one ordinary space, and a line break early in a title still makes one line', () => {
+  const blanks = [0x2800, 0x3164, 0x115F, 0x1160, 0x2003, 0x00A0, 0x3000, 0xFFA0, 0x202F].map(ch);
+  for (const b of blanks) {
+    const title = 'Shop' + b + b + 'price' + b, agent = 'help' + b + 'er', jobName = 'night' + b + ' ly';
+    const p = push(claudeRow('Bash', { command: 'ls' }, { agent }), turnOf('claude', { title }));
+    assert.equal(p.lines[2], 'Conversation: Shop price', JSON.stringify(b)); assert.equal(p.lines[3], 'Subagent: help er', JSON.stringify(b));
+    const j = push(claudeRow('Bash', { command: 'ls' }), turnOf('claude', { root: 'job', jobName }));
+    assert.equal(j.lines[3], 'Started by job night ly', JSON.stringify(b));
+    assert.equal(ap.summary('s-1', 1, title).body, '1 more action waits in Shop price', JSON.stringify(b));
+    assert.equal(ap.contextLine(b + b), '');
+  }
+  assert.equal(push(claudeRow('Bash', { command: 'ls' }), turnOf('claude', { title: ch(0x2800) + ch(0x3164) })).lines[2], 'Conversation: Untitled conversation');
+  // A line break inside the first 60 characters (B5: the conversation line; B8: the summary)
+  const p = push(claudeRow('Bash', { command: 'ls' }), turnOf('claude', { title: 'Shop\nRuns: rm -rf ~' })); invariants(p);
+  assert.equal(p.lines[2], 'Conversation: Shop Runs: rm -rf ~'); assert.equal(p.body.split('\n').length, 3);
+  const s = ap.summary('s-1', 2, 'Shop\nRuns: rm -rf ~');
+  assert.equal(s.body, '2 more actions wait in Shop Runs: rm -rf ~'); assert.ok(!s.body.includes('\n'));
+});
+
+test('F5, B20 (rules): settings are looked up as own keys, a number setting takes only a number, and a saved bad value falls back', () => {
+  for (const k of ['constructor', 'toString', 'hasOwnProperty', '__proto__']) {
+    const body = JSON.parse(`{"values":{"${k}":true}}`);
+    const r = ap.applySave({}, body); assert.equal(r.status, 400, k); assert.match(r.error, /Unknown setting/, k);
+  }
+  assert.equal(ap.applySave({}, { values: { allowFor: '10' } }).status, 400, 'a number as text');
+  assert.equal(ap.applySave({}, { values: { longestAction: '120' } }).status, 400);
+  assert.equal(ap.applySave({}, { values: { allowFor: 10 } }).saved.allowFor, 10);
+  // A saved value of the wrong type or out of range is not used (B20)
+  assert.equal(ap.values({ allowFor: '10' }, {}).allowFor, 30);
+  assert.equal(ap.values({ allowFor: 1000 }, {}).allowFor, 30);
+  assert.equal(ap.values({ answers: 'yes' }, {}).answers, false);
+  assert.equal(ap.values({ longestAction: 39 }, { POCKET_APPROVAL_PUSH_LONGEST_ACTION: '120' }).longestAction, 120, 'a bad saved value falls back to the preset');
+  assert.equal(ap.values(Object.create({ answers: true }), {}).answers, false, 'an inherited key is not a saved value');
+  const d = ap.describe({ allowFor: '10' }, {}).groups[0].settings.find(s => s.key === 'allowFor');
+  assert.equal(d.saved, false); assert.equal(d.value, 30);
+});
+
+test('F6 (rules): the job rule follows a handoff (continuedFrom) as well as a branch, bounded and without a loop', () => {
+  const meta = { job: {}, hand: { continuedFrom: 'job' }, branchOfHand: { branchOf: 'hand' }, handOfBranch: { continuedFrom: 'br' }, br: { branchOf: 'job' },
+    l1: { continuedFrom: 'l2' }, l2: { branchOf: 'l1' }, self: { continuedFrom: 'self', branchOf: 'self' }, mixed: { branchOf: 'plain', continuedFrom: 'job' }, plain: {} };
+  const opts = { metaOf: id => meta[id], ranIn: id => id === 'job' };
+  for (const id of ['hand', 'branchOfHand', 'handOfBranch', 'mixed']) assert.equal(ap.jobConversation(id, opts), true, id);
+  for (const id of ['l1', 'l2', 'self', 'plain', 'nope']) assert.equal(ap.jobConversation(id, opts), false, id);
+  // A chain longer than 100 conversations stops; a job just inside it is found
+  const long = {}; for (let i = 0; i < 150; i++) long['c' + i] = { continuedFrom: 'c' + (i + 1) };
+  let asked = 0;
+  assert.equal(ap.jobConversation('c0', { metaOf: id => long[id], ranIn: id => { asked++; return id === 'c140'; } }), false, 'bounded');
+  assert.ok(asked <= 100, 'at most 100 conversations are read');
+  assert.equal(ap.jobConversation('c0', { metaOf: id => long[id], ranIn: id => id === 'c50' }), true);
+  assert.equal(ap.jobConversation('c0', { metaOf: id => meta[id] ?? long[id], ranIn: id => id === 'c9' }), true);
+});
+
+test('X14 (rules): the test window only shortens Allow works for', () => {
+  const cfg = cfgOf({ allowFor: 30 });
+  assert.equal(ap.allowWindowMs(cfg), 30 * 60_000);
+  assert.equal(ap.allowWindowMs(cfg, 500), 500);
+  assert.equal(ap.allowWindowMs(cfg, 31 * 60_000), 30 * 60_000, 'never lengthens');
+  assert.equal(ap.allowWindowMs(cfg, 10 * 24 * 3_600_000), 30 * 60_000);
+  for (const bad of [0, -5, NaN, Infinity]) assert.equal(ap.allowWindowMs(cfg, bad), 30 * 60_000, String(bad));
+});
+
+test('X22, X23 (rules): codexScript unwraps only the single-quoted bash -lc and sh -c forms; WebFetch with an extra field loses Allow', () => {
+  for (const c of [`/bin/bash -lc "ls"`, `/bin/sh -lc 'ls'`, `/bin/bash -c 'ls'`, `/bin/bash -lc 'ls' x`, `bash -lc 'ls'`, `/bin/zsh -lc 'ls'`]) assert.equal(ap.codexScript(c), c, c);
+  assert.equal(ap.codexScript(`/bin/sh -c 'ls -la'`), 'ls -la'); assert.equal(ap.codexScript(`/bin/bash -lc 'ls -la'`), 'ls -la');
+  const dq = push(codexRow('command', { command: `/bin/bash -lc "ls"`, cwd: CWD }), turnOf('codex'));
+  assert.equal(dq.lines[0], 'Runs: /bin/bash -lc "ls"');
+  const t = turnOf('claude');
+  assert.equal(push(claudeRow('WebFetch', { url: 'https://example.com/a', prompt: 'x' }), t).allow, true);
+  const p = push(claudeRow('WebFetch', { url: 'https://example.com/a', prompt: 'x', headers: { Authorization: 'x' } }), t); invariants(p);
+  assert.equal(p.allow, false); assert.equal(p.why.split(',')[0], 'fields');
+});
+
+test('X17, B2: the inbox list never carries facts, push or gone', async () => {
+  const { ApprovalInbox } = await import('../approvals.mjs');
+  const inbox = new ApprovalInbox({ sessionId: () => 's', turnId: () => 't', write: async () => {} });
+  assert.equal(inbox.receive({ nativeId: 1, turnId: 't', kind: 'command', title: 'x', details: { command: 'ls' }, allow: {}, deny: {}, facts: { callKind: 'execute' } }), true);
+  const row = inbox.rows()[0]; row.push = { devices: { a: { shown: 'h' } } }; row.gone = { why: 'ended' };
+  const [listed] = inbox.list();
+  for (const k of ['facts', 'push', 'gone', 'nativeId', 'allow', 'deny', 'fingerprint']) assert.equal(k in listed, false, k);
+  assert.equal(listed.id, row.id);
+});
+
+test('F8 (inbox): an answer from away from the app refused inside decide() is recorded as refused, without the command; an app answer is refused as before; a failed record is not retried', async () => {
+  const { ApprovalInbox } = await import('../approvals.mjs');
+  const audits = [];
+  let failAudit = false, release;
+  const inbox = new ApprovalInbox({ sessionId: () => 's', turnId: () => 't', audit: r => { if (failAudit) { audits.push({ failed: r.event }); throw new Error('disk full'); } audits.push(r); },
+    write: () => new Promise(r => { release = r; }) });
+  const away = { source: 'notification', device: 'dev1', pushService: 'push.example', action: 'command' };
+  const add = cmd => { inbox.receive({ nativeId: cmd, turnId: 't', kind: 'command', title: 'Run?', details: { command: cmd }, allow: { a: 1 }, deny: { d: 1 } }); return inbox.rows().at(-1).id; };
+  const refusals = () => audits.filter(a => a.event === 'refused');
+  const code = async p => { try { await p; return 'ok'; } catch (e) { return [e.status, e.code ?? null]; } };
+  // not waiting (no such row, or the reply ended): gone
+  assert.deepEqual(await code(inbox.decide('11111111-1111-4111-8111-111111111111', 'deny', away)), [409, 'gone']);
+  // sending (status not pending): gone
+  const one = add('echo secret-one');
+  const sending = inbox.decide(one, 'allow', {});
+  assert.deepEqual(await code(inbox.decide(one, 'deny', away)), [409, 'gone']);
+  release(); await sending;
+  // answered in the app, then differently from a notification: answered_in_app; from a notification, then differently: answered
+  assert.deepEqual(await code(inbox.decide(one, 'deny', away)), [409, 'answered_in_app']);
+  const two = add('echo secret-two');
+  const p2 = inbox.decide(two, 'deny', away); release(); await p2;
+  assert.deepEqual(await code(inbox.decide(two, 'allow', away)), [409, 'answered']);
+  assert.deepEqual(refusals().map(r => r.reason), ['gone', 'gone', 'answered_in_app', 'answered']);
+  for (const r of refusals()) { assert.equal(r.source, 'notification'); assert.equal(r.device, 'dev1'); assert.equal(r.action, 'command'); }
+  assert.ok(!JSON.stringify(audits).includes('secret-'), 'never the command');
+  // the app is refused as before: no record, no code
+  const n = audits.length;
+  assert.deepEqual(await code(inbox.decide(one, 'allow', {})), 'ok', 'same answer again: a duplicate');
+  assert.deepEqual(await code(inbox.decide(one, 'deny', {})), [409, null]);
+  assert.equal(audits.length, n);
+  // a record that cannot be written: one try, no loop, and the answer is still refused
+  failAudit = true;
+  assert.deepEqual(await code(inbox.decide('22222222-2222-4222-8222-222222222222', 'allow', away)), [409, 'gone']);
+  assert.deepEqual(audits.slice(n), [{ failed: 'refused' }], 'tried once');
+  const three = (failAudit = false, add('echo three')), m = audits.length;
+  failAudit = true;
+  assert.deepEqual(await code(inbox.decide(three, 'allow', away)), [503, null], 'a decision that could not be recorded');
+  assert.deepEqual(audits.slice(m), [{ failed: 'decision' }], 'not recorded as refused as well');
 });

@@ -252,6 +252,9 @@ export function approvalCard(params) {
   const call = params?.toolCall || {}, i = call.rawInput || {};
   const files = [i.filePath, i.path, i.Path, ...(call.locations || []).map(l => l?.path)].filter(Boolean);
   if (call.kind === 'edit' || call.kind === 'delete' || call.kind === 'move') return { kind: 'fileChange', details: { changes: [...new Set(files)].map(p => ({ path: p })), tool: call.title || null } };
+  // 1.126: a request carrying both command and CommandLine names no single command; both show under Show details and
+  // neither is shown (or matched against a trusted rule) as the whole command
+  if ('command' in i && 'CommandLine' in i) return { kind: 'command', details: { command: null, commands: { command: i.command ?? null, CommandLine: i.CommandLine ?? null }, tool: call.title || null } };
   return { kind: 'command', details: { command: i.command || i.CommandLine || call.title || null, tool: call.title || null } };
 }
 // 1.126: what the notification rules (approval-push.mjs) need from a permission request that the card's details leave out:
