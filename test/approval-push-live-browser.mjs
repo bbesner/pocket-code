@@ -7,7 +7,10 @@
 //       only (Action approvals, the Allow button: the test notification and its two codes, wrong codes, five wrong tries,
 //       an expired test, a changed limit, an undelivered test, success, needs a new test, Off, the test link), and Usage →
 //       Answered away from the app (empty, then with rows).
-//   26: an approval link with ?missed=<why> shows its line above the request's card and moves focus to it, for every why.
+//   26: an approval link with ?missed=<why> shows its line above the request's card and moves focus to it, for every why;
+//       the line stays, focused, through a reload of the list; it is text, never HTML; a link more than 60 seconds old
+//       opens nothing, unless a sign-in on Pocket's own screen came in between; a link without missed opens nothing for a
+//       request that no longer waits; a conversation title in Answered away from the app is text, never HTML.
 // Screenshots at 1440 and 390 go to POCKET_APPROVAL_PUSH_SHOTS (default /tmp/np-shots). axe runs on every new screen in
 // dark and light. With POCKET_DESIGN_DETECT (the path of impeccable's launcher), the design detector scans the rendered
 // screens through Chrome's DevTools port and its findings are written beside the screenshots.
@@ -79,6 +82,8 @@ const call = async (p, body, headers = { cookie: 'pc_auth=' + cookie }) => {
 };
 const until = async (fn, what, ms = 15000) => { const t0 = Date.now(); for (;;) { const v = await fn(); if (v) return v; if (Date.now() - t0 > ms) throw new Error(`timed out waiting for ${what}; log tail: ${logs.slice(-1500)}`); await sleep(60); } };
 const e = id => encodeURIComponent(id);
+// every regex metacharacter, the backslash included, so a value matches only as itself
+const reEscape = v => String(v).replace(/[\\^$.*+?()[\]{}|\/-]/g, '\\$&');
 const values = async () => Object.fromEntries((await call('/approval-push')).body.groups[0].settings.map(s => [s.key, s.value]));
 const DEFAULTS = { answers: false, show: 'action', allowFor: 30, checkbacks: true, jobs: false, engineClaude: true, engineCodex: true, engineOpenrouter: true, engineAntigravity: true, longestAction: 80, perConversation: 3, updateOthers: true };
 const waitingIn = id => until(async () => { const r = (await call(`/session/${e(id)}/approvals`)).body?.requests || []; return r.length ? r : null; }, 'an approval in ' + id);
@@ -344,8 +349,10 @@ try {
   const convo = await startWaiting('browser missed lines', 'echo missed');
   const MISSED = {
     signin: 'This device was signed out of Pocket.',
+    refused: 'Pocket refused the answer from the address the notification used. Answer it here.',
     off: 'Answering from notifications is turned off.',
     gone: 'It was no longer waiting.',
+    answered: 'It was no longer waiting: it was answered in Pocket.',
     changed: "Pocket couldn't match it to what the notification showed, or a setting changed. Review it here.",
     old: 'The notification was too old. Review it here.',
     uncertain: 'Delivery of this decision is uncertain. Stop the reply and review the conversation; do not approve it again.',
@@ -360,9 +367,13 @@ try {
     const tap = i % 2 ? 'deny' : 'allow';
     await openMissed(convo.id, convo.req.id, why, tap);
     await p.waitForSelector('.approvals-sheet .approval-missed');
-    const seen = await p.evaluate(() => { const l = document.querySelector('.approvals-sheet .approval-missed'); return { text: l.textContent, focused: document.activeElement === l, next: l.nextElementSibling?.dataset.approvalRequest, role: l.getAttribute('role'), hash: location.hash }; });
-    assert.deepEqual(seen, { text: `Your ${tap === 'allow' ? 'Allow' : "Don't allow"} didn't go through. ${words}`, focused: true, next: convo.req.id, role: 'alert', hash: '#/chat/' + convo.id }, why);
+    const seen = await p.evaluate(() => { const l = document.querySelector('.approvals-sheet .approval-missed'); return { text: l.textContent, focused: document.activeElement === l, next: l.nextElementSibling?.dataset.approvalRequest, role: l.getAttribute('role'), live: l.getAttribute('aria-live'), hash: location.hash }; });
+    assert.deepEqual(seen, { text: `Your ${tap === 'allow' ? 'Allow' : "Don't allow"} didn't go through. ${words}`, focused: true, next: convo.req.id, role: null, live: 'off', hash: '#/chat/' + convo.id }, why);
     if (why === 'changed') {
+      // F13: a reload of the list (Refresh, or another card answered) keeps the line above its card, and its focus
+      await p.$eval('.approvals-sheet [data-refresh-approvals]', b => b.onclick());
+      await sleep(400);
+      assert.deepEqual(await p.evaluate(() => { const l = document.querySelectorAll('.approvals-sheet .approval-missed'); return { n: l.length, focused: document.activeElement === l[0], next: l[0]?.nextElementSibling?.dataset.approvalRequest }; }), { n: 1, focused: true, next: convo.req.id }, 'kept through a reload');
       await twoWidths('missed-line', '.approvals-sheet .approval-missed');
       await axeOn('missed-line', '.approvals-sheet');
       await detect('missed-line');
@@ -397,12 +408,66 @@ try {
   const rows = await p.$$eval('#s-answers-usage .answers-away li', x => x.map(li => ({ text: li.textContent, href: li.querySelector('a')?.getAttribute('href'), request: li.dataset.answer })));
   assert.equal(rows.length, 2);
   assert.equal(rows[0].request, convo.req.id, 'newest first');
-  assert.match(rows[0].text, new RegExp(`browser missed lines.* · Command · Refused: Allow was no longer offered for it · from ${pushHost.replace(/\./g, '\\.')}$`));
+  assert.match(rows[0].text, new RegExp(`browser missed lines.* · Command · Refused: Allow was no longer offered for it · from ${reEscape(pushHost)}$`));
   assert.equal(rows[0].href, '#/chat/' + e(convo.id));
-  assert.match(rows[1].text, new RegExp(`browser answered elsewhere.* · Command · Not allowed · from ${pushHost.replace(/\./g, '\\.')}$`));
+  assert.match(rows[1].text, new RegExp(`browser answered elsewhere.* · Command · Not allowed · from ${reEscape(pushHost)}$`));
   await twoWidths('usage-rows', '#auto-answers-h');
   await axeOn('usage-rows', '#s-answers-usage');
   await detect('usage-rows');
+  await closeSheet();
+
+  console.log('A5: a conversation title in Answered away from the app is text, never HTML');
+  const TRAP = '<img src=x onerror="window.__trap=1">';
+  assert.equal((await call(`/session/${e(convo.id)}/rename`, { name: 'A5 ' + TRAP })).status, 200);
+  await p.evaluate(() => settingsSheet({ category: 'usage' }));
+  await p.waitForSelector('#s-answers-usage .answers-away li');
+  const a5 = await p.$eval(`#s-answers-usage .answers-away li[data-answer="${convo.req.id}"]`, li => ({ text: li.querySelector('a').textContent, img: li.querySelectorAll('img').length }));
+  assert.deepEqual(a5, { text: 'A5 ' + TRAP, img: 0 });
+  await sleep(200); assert.equal(await p.evaluate(() => window.__trap), undefined);
+  await closeSheet();
+
+  console.log('A14: the missed line is text, never HTML (an answer recorded with markup in where it came from)');
+  const decisions = path.join(data, 'approval-decisions.jsonl');
+  fs.appendFileSync(decisions, JSON.stringify({ at: new Date().toISOString(), event: 'decision', sessionId: convo.id, requestId: convo.req.id, kind: 'command', decision: 'allow', source: 'notification', device: 'd', pushService: TRAP }) + '\n');
+  await openMissed(convo.id, convo.req.id, 'gone', 'deny');
+  await p.waitForSelector('.approvals-sheet .approval-missed');
+  const a14 = await p.$eval('.approvals-sheet .approval-missed', l => ({ text: l.textContent, img: l.querySelectorAll('*').length }));
+  assert.match(a14.text, new RegExp(`^Your Don't allow didn't go through\\. It was no longer waiting: it was allowed at .+ from ${reEscape(TRAP)}\\.$`));
+  assert.equal(a14.img, 0, 'no element inside the line');
+  await sleep(200); assert.equal(await p.evaluate(() => window.__trap), undefined);
+  await closeSheet();
+
+  console.log('A1: a link more than 60 seconds old opens nothing; a sign-in on Pocket\'s own screen in between restarts the 60 seconds');
+  const signedOutAt = async why => {
+    await p.deleteCookie({ name: 'pc_auth', url: base });
+    await p.goto(`${base}/#/chat/${e(convo.id)}?approval=${e(convo.req.id)}&missed=${why}&tap=allow`);
+    await p.waitForSelector('#pw');
+    await p.evaluate(() => { approvalFocus.at -= 61_000; }); // the owner took more than a minute to get here
+  };
+  await signedOutAt('offline');
+  await p.setCookie({ name: 'pc_auth', value: cookie, url: base });
+  await p.evaluate(() => route()); // signed in some other way: no sign-in on this screen
+  await p.waitForSelector('#box'); await sleep(800);
+  assert.equal(await p.$('.approvals-sheet'), null, 'too old: nothing opens');
+  await signedOutAt('offline');
+  await p.type('#pw', 'test-only'); await p.click('#go');
+  await p.waitForSelector('.approvals-sheet .approval-missed');
+  assert.equal(await text('.approvals-sheet .approval-missed'), "Your Allow didn't go through. This device was offline.");
+  await p.setCookie({ name: 'pc_auth', value: cookie, url: base });
+  await closeSheet();
+
+  console.log('A7: a link without missed, for a request that no longer waits, opens nothing');
+  await p.goto(`${base}/#/chat/${e(other.id)}?approval=${e(other.req.id)}`);
+  await p.waitForSelector('#box'); await sleep(800);
+  assert.equal(await p.$('.approvals-sheet'), null);
+
+  console.log('F9: a record longer than one listing reads, every row of it recent, says older answers are not listed');
+  const pad = JSON.stringify({ at: new Date().toISOString(), event: 'decision', sessionId: 'pad', requestId: 'p'.repeat(200), kind: 'command', decision: 'deny', source: 'notification', device: 'd' }) + '\n';
+  fs.appendFileSync(decisions, pad.repeat(Math.ceil(4.2 * 1024 * 1024 / pad.length)));
+  await p.evaluate(() => settingsSheet({ category: 'usage' }));
+  await p.waitForSelector('#s-answers-usage [data-answers-older]');
+  assert.equal(await text('#s-answers-usage [data-answers-older]'), 'Older answers from these 7 days are not listed: the record is too long to read in full here.');
+  await axeOn('usage-older', '#s-answers-usage');
   await closeSheet();
   await call(`/session/${e(convo.id)}/approvals/${e(convo.req.id)}/decision`, { decision: 'deny' });
 

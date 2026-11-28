@@ -875,6 +875,7 @@ function renderLogin() {
     $('#pw').removeAttribute('aria-invalid'); $('#lerr').textContent = '';
     try {
       await api('/login', { method: 'POST', body: JSON.stringify({ password: $('#pw').value }) });
+      if (typeof approvalFocusSignedIn === 'function') approvalFocusSignedIn(); // 1.126: a missed answer's line outlasts the sign-in
       if (over && host.isConnected) { host._release(); if (back?.isConnected) back.focus({ preventScroll: true }); if (!document.activeElement?.closest('.sheet')) { const top = [...document.querySelectorAll('.sheet')].at(-1); (top?.querySelector('input:not([type=hidden]):not([disabled]),textarea:not([disabled])') || top)?.focus({ preventScroll: true }); } return; } // the sheet carries on; its own refresh reloads it
       route();
     } catch (e) {

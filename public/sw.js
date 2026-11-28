@@ -88,15 +88,19 @@ const answerDue = (snooze, action, url) => {
 // like success) and Pocket opens at the request with ?missed=<why>&tap=allow|deny.
 const SAFE_ID = /^[A-Za-z0-9:._-]{1,200}$/;
 const APPROVAL_MISSED = {
-  signin: 'this device was signed out of Pocket', off: 'answering from notifications is turned off', gone: 'it was no longer waiting',
+  signin: 'this device was signed out of Pocket', refused: 'Pocket refused the answer from this address', off: 'answering from notifications is turned off',
+  gone: 'it was no longer waiting', answered: 'it was answered in Pocket',
   changed: "it didn't match what the notification showed, or a setting changed", old: 'the notification was too old',
   uncertain: 'delivery is uncertain, so stop the reply and review it; do not approve it again', offline: 'this device was offline', error: "Pocket couldn't take it",
 };
 const approvalMissedWhy = async r => {
-  if (r.type === 'opaqueredirect' || r.status === 0 || (r.status >= 300 && r.status < 400) || r.status === 401 || r.status === 403) return 'signin';
+  if (r.type === 'opaqueredirect' || r.status === 0 || (r.status >= 300 && r.status < 400) || r.status === 401) return 'signin';
+  // 403: Pocket's same-origin check refused it (the address the answer came from is not the one Pocket expects, as behind
+  // a proxy that doesn't pass the public Host on). Signing in again would not help, so the line doesn't say signed out.
+  if (r.status === 403) return 'refused';
   if (r.status === 404) return 'off';
   if (r.status === 503) return 'uncertain';
-  if (r.status === 409) { let code = ''; try { code = (await r.json()).code || ''; } catch { } return code === 'too_old' ? 'old' : code === 'changed' || code === 'not_offered' ? 'changed' : 'gone'; }
+  if (r.status === 409) { let code = ''; try { code = (await r.json()).code || ''; } catch { } return code === 'too_old' ? 'old' : code === 'changed' || code === 'not_offered' ? 'changed' : code === 'answered_in_app' ? 'answered' : 'gone'; }
   return 'error';
 };
 const ownEndpoint = () => Promise.resolve().then(() => self.registration.pushManager.getSubscription()).then(s => (s && s.endpoint) || null, () => null);

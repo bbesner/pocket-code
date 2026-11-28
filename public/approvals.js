@@ -74,13 +74,16 @@ async function openApprovals(id,focus=null){
  mountSheet(scrim,sh);
  const load=async()=>{
   const list=sh.querySelector('[data-approval-list]');
+  // 1.126: a missed line stays through a reload (Refresh, or another card answered), and keeps focus if it had it
+  const kept=list.querySelector(':scope > .approval-missed'),hadFocus=Boolean(kept)&&document.activeElement===kept;
+  const keep=()=>{if(!kept)return;const c=[...list.querySelectorAll('.approval-card')].find(x=>x.dataset.approvalRequest===kept.dataset.request);if(c)c.before(kept);else list.prepend(kept);if(hadFocus)kept.focus({preventScroll:true});};
   try{
    const d=await api('/session/'+encodeURIComponent(id)+'/approvals');if(!sh.isConnected)return;
    if(d.interrupted){
     list.innerHTML='<p class="sheet-help">The server restarted and lost the permission connection to this reply. Old approvals cannot be replayed. Stop the reply, review what finished, then send a new instruction.</p><button class="chip" data-stop-approval>Stop interrupted reply</button>';
     list.querySelector('[data-stop-approval]').onclick=async e=>{e.target.disabled=true;try{await api('/session/'+encodeURIComponent(id)+'/stop',{method:'POST',body:'{}'});closeCurrentSheet?.();toast('Stop requested. Review the conversation before resuming.');}catch(err){toast(err.message);e.target.disabled=false;}};return;
    }
-   if(!d.requests.length){list.textContent='No actions are waiting for approval.';return;}
+   if(!d.requests.length){list.textContent='No actions are waiting for approval.';keep();return;}
    list.replaceChildren();
    for(const r of d.requests){
     const card=document.createElement('section');card.className='approval-card';card.dataset.approvalRequest=r.id;
@@ -107,7 +110,8 @@ async function openApprovals(id,focus=null){
     });
     list.append(card);
    }
-  }catch(e){if(sh.isConnected)list.textContent=e.message+' Use Refresh to try again.';}
+   keep();
+  }catch(e){if(sh.isConnected){list.textContent=e.message+' Use Refresh to try again.';keep();}}
  };
  sh.querySelector('[data-refresh-approvals]').onclick=load;await load();
  if(focus&&sh.isConnected)await showApprovalFocus(sh,focus); // 1.126: once, after the first load
@@ -120,8 +124,10 @@ async function openApprovals(id,focus=null){
 const APPROVAL_ID=/^[A-Za-z0-9:._-]{1,200}$/;
 const APPROVAL_MISSED_LINES={
  signin:'This device was signed out of Pocket.',
+ refused:'Pocket refused the answer from the address the notification used. Answer it here.',
  off:'Answering from notifications is turned off.',
  gone:'It was no longer waiting.',
+ answered:'It was no longer waiting: it was answered in Pocket.',
  changed:'Pocket couldn\'t match it to what the notification showed, or a setting changed. Review it here.',
  old:'The notification was too old. Review it here.',
  uncertain:'Delivery of this decision is uncertain. Stop the reply and review the conversation; do not approve it again.',
@@ -131,8 +137,12 @@ const APPROVAL_MISSED_LINES={
 let approvalFocus=null;
 function noteApprovalFocus(session,q){
  const request=q.get('approval')||'',missed=q.get('missed')||'';
- approvalFocus=APPROVAL_ID.test(session)&&APPROVAL_ID.test(request)?{session,request,...(missed?{missed:APPROVAL_MISSED_LINES[missed]?missed:'error',tap:q.get('tap')==='deny'?'deny':'allow'}:{}),at:Date.now()}:null;
+ // an own-key lookup: ?missed=constructor (or any reason this build doesn't know) reads as Pocket couldn't take it
+ approvalFocus=APPROVAL_ID.test(session)&&APPROVAL_ID.test(request)?{session,request,...(missed?{missed:Object.hasOwn(APPROVAL_MISSED_LINES,missed)?missed:'error',tap:q.get('tap')==='deny'?'deny':'allow'}:{}),at:Date.now()}:null;
 }
+// The 60-second rule counts from when Pocket can show the line: a sign-in on Pocket's own screen in between restarts it.
+// (A sign-in that leaves the page, as Cloudflare Access's does, starts a new page, and the line is lost with it.)
+function approvalFocusSignedIn(){if(approvalFocus)approvalFocus.at=Date.now();}
 async function takeApprovalFocus(id){
  const f=approvalFocus;if(!f||f.session!==id)return;approvalFocus=null;
  if(Date.now()-f.at>60000)return;
@@ -157,7 +167,11 @@ async function showApprovalFocus(sh,f){
  if(!f.missed){card?.scrollIntoView({block:'center'});return;}
  const text=(f.missed==='gone'&&await approvalAnsweredAway(f.request))||APPROVAL_MISSED_LINES[f.missed]||APPROVAL_MISSED_LINES.error;
  if(!sh.isConnected||!list.isConnected)return;
- const line=document.createElement('p');line.className='approval-missed';line.tabIndex=-1;line.setAttribute('role','alert');
+ // Read out once: focus moves to the line, and a screen reader reads what takes focus. The list it sits in is a
+ // role="status" live region, which would read the new line a second time, and role="alert" a third; so the line is
+ // aria-live="off" (it opts out of the list's announcement) and has no alert role. Focus also tells a sighted keyboard
+ // user where it is.
+ const line=document.createElement('p');line.className='approval-missed';line.tabIndex=-1;line.setAttribute('aria-live','off');line.dataset.request=f.request;
  line.textContent=`Your ${f.tap==='deny'?'Don\'t allow':'Allow'} didn't go through. ${text}`;
  if(card&&card.isConnected)card.before(line);else list.prepend(line);
  line.scrollIntoView({block:'center'});line.focus({preventScroll:true});

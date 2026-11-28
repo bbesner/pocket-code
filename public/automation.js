@@ -477,7 +477,8 @@ const Automation = (() => {
   const KIND_WORDS = { command: 'Command', page: 'Web page', search: 'Web search', edit: 'File edit', action: 'Other action' };
   const ROW_KIND_WORDS = { tool: 'Action', command: 'Command', fileChange: 'File edit', network: 'Network access', permissions: 'More access' };
   const REFUSED_WORDS = { answers_off: 'answering from notifications was off', gone: 'it was no longer waiting', not_offered: 'Allow was no longer offered for it',
-    too_old: 'the notification was too old', changed: "it didn't match what the notification showed", unknown_via: 'it came from an unknown place' };
+    too_old: 'the notification was too old', changed: "it didn't match what the notification showed", unknown_via: 'it came from an unknown place',
+    answered: 'it had already been answered differently', answered_in_app: 'it had already been answered in Pocket' };
   const whenText = at => { const d = new Date(at); return Number.isNaN(d.getTime()) ? '' : d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); };
   const resultText = a => a.result === 'allowed' ? 'Allowed' : a.result === 'not_allowed' ? 'Not allowed' : `Refused: ${REFUSED_WORDS[a.reason] || 'the reason was not recorded'}`;
   function answersUsageHTML(d, error) {
@@ -492,8 +493,10 @@ const Automation = (() => {
         const where = a.where && a.where !== 'unknown' ? 'from ' + a.where : 'from an unknown device';
         return `<li data-answer="${esc(a.requestId || '')}"><span class="automation-when">${esc(whenText(a.at))}</span>${convo} · ${esc(KIND_WORDS[a.action] || ROW_KIND_WORDS[a.kind] || 'Action')} · <span data-answer-result>${esc(resultText(a))}</span> · ${esc(where)}</li>`;
       }).join('')}</ul>`;
+    // the record is longer than one listing reads and all of what was read is recent: older answers are left out
+    const older = !error && d?.olderNotListed ? `<p class="title-note" data-answers-older>Older answers from these ${d?.days || 7} days are not listed: the record is too long to read in full here.</p>` : '';
     return `<section class="automation-group automation-usage" aria-labelledby="auto-answers-h"><h3 class="vault-set-head" id="auto-answers-h">Answered away from the app</h3>
-      <p class="title-note">Answers to action approvals from a notification, and answers Pocket refused, in the last ${d?.days || 7} days. Where is the push service the device uses.</p>${body}</section>`;
+      <p class="title-note">Answers to action approvals from a notification, and answers Pocket refused, in the last ${d?.days || 7} days. Where is the push service the device uses.</p>${body}${older}</section>`;
   }
   async function loadAnswersUsage() {
     const el = host?.querySelector('#s-answers-usage'); if (!el) return;

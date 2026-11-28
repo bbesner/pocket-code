@@ -3,6 +3,8 @@
 // for the registration, clients and fetch, as in test/review-1881-secA.test.mjs.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+// every regex metacharacter, the backslash included, so a value matches only as itself
+const reEscape = v => String(v).replace(/[\\^$.*+?()[\]{}|\/-]/g, '\\$&');
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
@@ -54,9 +56,11 @@ test('T22: Allow posts to the address built from the notification\'s own session
 
 test('T23: every answer that does not land maps to its missed reason, shows the approval-missed notification and opens the page at the request', async () => {
   const cases = [
-    [{ status: 401 }, 'signin'], [{ status: 403 }, 'signin'], [{ status: 0, type: 'opaqueredirect' }, 'signin'], [{ status: 302 }, 'signin'],
+    [{ status: 401 }, 'signin'], [{ status: 0, type: 'opaqueredirect' }, 'signin'], [{ status: 302 }, 'signin'],
+    [{ status: 403 }, 'refused'], // F7: Pocket's same-origin check, not a sign-in
     [{ status: 404, code: 'answers_off' }, 'off'],
-    [{ status: 409 }, 'gone'], [{ status: 409, code: 'gone' }, 'gone'],
+    [{ status: 409 }, 'gone'], [{ status: 409, code: 'gone' }, 'gone'], [{ status: 409, code: 'answered' }, 'gone'],
+    [{ status: 409, code: 'answered_in_app' }, 'answered'],
     [{ status: 409, code: 'changed' }, 'changed'], [{ status: 409, code: 'not_offered' }, 'changed'],
     [{ status: 409, code: 'too_old' }, 'old'],
     [{ status: 503 }, 'uncertain'],
@@ -70,9 +74,11 @@ test('T23: every answer that does not land maps to its missed reason, shows the 
     assert.equal(w.opened.at(-1), origin + want, `${JSON.stringify(answer)} ${tap}`);
     assert.equal(w.shown.length, 1, `${JSON.stringify(answer)}: a notification says it did not go through`);
     assert.equal(w.shown[0].tag, 'approval-missed:' + APPROVAL.request);
-    assert.match(w.shown[0].body, new RegExp(`^Your ${tap === 'allow' ? 'Allow' : "Don't allow"} didn't go through: .+\\. Open Pocket\\.$`));
+    assert.match(w.shown[0].body, new RegExp(`^Your ${reEscape(tap === 'allow' ? 'Allow' : "Don't allow")} didn't go through: .+\\. Open Pocket\\.$`));
     assert.equal(w.shown[0].data.url, want);
     assert.ok(!w.shown[0].actions?.length, 'the missed notification has no buttons');
+    if (why === 'refused') assert.ok(!/signed out/.test(w.shown[0].body) && /Pocket refused the answer from this address/.test(w.shown[0].body), 'a 403 does not say signed out');
+    if (why === 'answered') assert.match(w.shown[0].body, /it was answered in Pocket/);
   }
 });
 
