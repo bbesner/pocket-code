@@ -362,8 +362,8 @@ adds the following. Answering by voice is not built.
     own folder; or an OpenRouter or Antigravity command whose text came from the command itself, with an allow-once
     option. Each of those two engines is read from its own field only (`command` for OpenRouter, `CommandLine` for
     Antigravity) with no field outside a short list; a request that carries both fields gets no Allow, and the app's card
-    shows both under Show details. An OpenRouter (OpenCode) request names no folder of its own, so its folder line reads
-    "Conversation folder:", the folder the conversation started in. File edits, helpers, connector tools, network access, more access for the reply and any request Pocket
+    shows both under Show details. OpenCode's command may run in a folder of its own that the request does not carry,
+    which is why an OpenRouter request's folder line reads "Conversation folder:", the folder the conversation started in. File edits, helpers, connector tools, network access, more access for the reply and any request Pocket
     doesn't know never get Allow. Nor does a request the app's card can't allow.
   - The action and the folder are printable ASCII only (space to `~`). That shuts out line breaks, tabs, zero-width and
     direction-changing characters, and look-alike letters such as a Cyrillic "а".
@@ -414,8 +414,11 @@ adds the following. Answering by voice is not built.
 - **Nothing that looks like a secret goes into the push.** Push text passes through the browser's push service. An action,
   a folder, a conversation title, a job's name or a subagent name that looks like a password or key is replaced by a note,
   and so is the text of a summary or replacement notification. Each is checked as written and again as the push shows it
-  (invisible characters removed, line breaks and blank-looking characters turned into one space), so a zero-width
-  character can't split a key that the cleaning would join again.
+  (format characters (Unicode class Cf: zero-width and direction-changing ones) and default-ignorable code points (Default_Ignorable_Code_Point: variation selectors, the combining grapheme joiner, the tag characters and the like) removed; line breaks and a listed set of blank-looking characters turned into one space), and once
+  more with those blank-looking characters removed, so none of those characters can split a key that the scanner
+  would otherwise see whole. A tool's name (the Uses: line) is also scanned after each underscore run and each `__`
+  part, as in `mcp__ghp_…`. The scanner's own patterns decide what looks like a key; a key in a form it doesn't know
+  is not caught.
 - **A stolen or borrowed phone.** By default the notification shows the action on the lock screen (**What approval
   notifications show: The action**). Whether a button works on a locked phone depends on the device, and nothing here has
   been verified on real phones yet. Allow from a locked phone on a tested device is accepted by design: each install's

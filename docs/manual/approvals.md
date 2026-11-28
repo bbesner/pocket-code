@@ -211,8 +211,11 @@ Started by job alert-pager
   "Edits: <file>", "Starts a helper", "Uses: <tool>" or "Network access: <host>".
 - The folder line is "In: <folder>" when the request names where the command runs (Codex, and Antigravity when it
   says), or "Conversation folder: <folder>" otherwise: for Claude Code, whose shell may have moved with a `cd`, and for
-  OpenRouter, whose request names no folder. Your home folder is written `~`.
-- Blank-looking characters in the conversation title, a job's name or a subagent's name show as one space.
+  OpenRouter, whose request names no folder: OpenCode may run its command in a folder of its own that the request does
+  not carry, so Pocket shows the folder the conversation started in and says so. Your home folder is written `~`.
+- In the conversation title, a job's name or a subagent's name, a run of blank-looking characters (the wide and narrow
+  spaces, the braille blank, the Hangul and Khmer fillers and the musical null notehead, U+1D159) shows as one space,
+  and invisible characters are removed: format characters (Unicode class Cf: zero-width and direction-changing ones) and default-ignorable code points (Default_Ignorable_Code_Point: variation selectors, the combining grapheme joiner, the tag characters and the like).
 - The conversation title is cut to 60 characters and a subagent's name to 40. The origin line is "Started by job
   <name>", "Started by a check-back" or "A job has run in this conversation".
 - A tap on the notification itself opens the conversation at the request's card. It never answers.
@@ -253,7 +256,11 @@ Allow shows only when all of these hold. Otherwise the notification has **Don't 
   After a restart no replacement is sent.
 - Turning **Answer approvals from notifications** off, or muting the conversation, replaces the approval notifications
   already out the same way, once: "Answering from notifications was turned off. Open Pocket to review it." or
-  "Notifications for this conversation were muted. Open Pocket to review it."
+  "Notifications for this conversation were muted. Open Pocket to review it." This happens whatever **Update other
+  devices after an answer** says: that setting is about your other devices after an answer, while this takes the
+  buttons back. An Allow from one of those old notifications is then refused, and so is any Allow from a muted
+  conversation's notification (**Don't allow** still works). When you turn answers on again, or unmute the
+  conversation, the requests still waiting get a fresh notification, under the usual limit per conversation.
 - If the answer doesn't go through, a second notification says so ("Your Allow didn't go through: … Open Pocket.") and
   Pocket opens the conversation at the request. A line above its card says what happened:
 
@@ -264,7 +271,7 @@ Allow shows only when all of these hold. Otherwise the notification has **Don't 
 | Answering from notifications is turned off. | **Answer approvals from notifications** was off when the answer arrived. |
 | It was no longer waiting. | It was answered on another device, the reply ended or was stopped, or Pocket was paused. When Pocket knows, the line says when and from where it was answered. |
 | It was no longer waiting: it was answered in Pocket. | It was answered differently in Pocket itself. |
-| Pocket couldn't match it to what the notification showed, or a setting changed. Review it here. | The action no longer matches the notification, or a setting changed since it was sent so that it would no longer offer Allow. |
+| Pocket couldn't match it to what the notification showed, or a setting changed. Review it here. | The action no longer matches the notification, a setting changed since it was sent so that it would no longer offer Allow, or the conversation was muted. |
 | The notification was too old. Review it here. | The notification was older than **Allow works for**. |
 | Delivery of this decision is uncertain. Stop the reply and review the conversation; do not approve it again. | Pocket answered 503. |
 | This device was offline. | The answer could not reach Pocket. |
@@ -405,6 +412,7 @@ Variables go in the Pocket Code directory's `.env`; restart Pocket after changin
 | Missed: "This device was signed out of Pocket." | The device's sign-in ended (**Sign out everywhere**, a new password, or a Cloudflare Access session that ran out). | Sign in again on the device; answer on the card. If the sign-in takes more than a minute, Pocket's own sign-in screen still shows the line afterwards; a Cloudflare Access sign-in starts the page again and the line is lost. |
 | Missed: "Pocket refused the answer from the address the notification used.", or **Allow** and **Don't allow** in Pocket say "Cross-origin request refused." | Pocket's same-origin check compares the page's address with the `Host` the request arrives with. A reverse proxy that doesn't pass on the public `Host` makes every answer look like it came from another site (403). Since 1.126.0 the answer route has this check, so such an install loses the in-app buttons too. | Make the proxy forward the public `Host` (for nginx, `proxy_set_header Host $host;`; see [Install](../install.md)). |
 | Missed: "It was no longer waiting: it was answered in Pocket." | It was answered differently in Pocket first. | Read the conversation; the first answer stands. |
+| Missed: "Pocket couldn't match it to what the notification showed, or a setting changed." after muting the conversation | An Allow from a muted conversation's notification is refused. | Answer on the card, or unmute the conversation: the requests still waiting get a fresh notification. |
 | Missed: "Answering from notifications is turned off." | **Answer approvals from notifications** was turned off after the notification was sent. | Answer on the card, or turn it on again in **Settings → Features**. |
 | Missed: "It was no longer waiting." | Someone answered it first, or the reply ended, was stopped or was paused. | Read the conversation; send a new message if needed. |
 | Missed: "Pocket couldn't match it to what the notification showed, or a setting changed." | A setting changed after the notification was sent (a lower limit, **Only that an action waits**, the agent switched off under **Engines**, the job or check-back switch, the device's Allow button off), or the request changed. | Review the card and answer there. |

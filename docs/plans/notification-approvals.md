@@ -606,9 +606,11 @@ and SECURITY.md describe the code.
   "Conversation: (hidden: it looks like it contains a password or key)", a subagent name "Subagent: (hidden)", and the
   summary drops the title. A folder that looks like a key gets the same note as the action and no Allow. The origin line
   is cut to 64 characters, the folder text to 240. Every line the push builds (action, folder, conversation, job name,
-  subagent, summary and replacement) is checked for a key both as written and as cleaned, so an invisible character can't
-  split a key that the cleaning joins. In context lines, blank-looking characters (wide spaces, the braille blank, the
-  Hangul and Khmer fillers) become one space.
+  subagent, summary and replacement) is checked for a key as written, as cleaned, and with the listed blank-looking
+  characters removed. Cleaning drops format characters (`\p{Cf}`) and default-ignorable code points
+  (`\p{Default_Ignorable_Code_Point}`); in context lines a run of the listed blank-looking characters (`\p{Zs}`, the
+  braille blank, the Hangul and Khmer fillers and U+1D159, a symbol to Unicode that draws nothing) becomes one space.
+  A tool's name is also scanned after each underscore run and each `__` part (a key glued in `mcp__ghp_…`).
 - **An action in characters outside printable ASCII that fits the limit** is shown with line breaks and invisible
   characters removed, with no note saying why, and Don't allow only. The length note is used only for length.
 - **Fixed lines for requests that never get Allow:** "Runs: (a list of arguments; open Pocket to review it)" (a Codex
@@ -625,8 +627,19 @@ and SECURITY.md describe the code.
   stopping at a loop.
 - **Turning answers off, or muting a conversation, settles what is out.** The approval notifications already sent are
   replaced once, silently and with no buttons ("Answering from notifications was turned off. Open Pocket to review it."
-  or "Notifications for this conversation were muted. …"), and a summary is replaced the same way; then nothing more is
-  sent for them.
+  or "Notifications for this conversation were muted. …"), and a summary is replaced the same way. This does not depend
+  on **Update other devices after an answer**: that setting is about the other devices after an answer, while settling
+  takes buttons back. Settling then forgets which devices got each notification, so its Allow is `not_offered` and it
+  no longer counts as showing; a push still on its way is settled when it lands. Turning answers on again, or
+  unmuting, syncs each reply with requests waiting once: they get fresh notifications under the usual rules. While a
+  conversation is muted, an Allow from its notifications is refused `not_offered` (Don't allow still works).
+- **Each device is recorded as its own push service accepts the push,** never before: one slow push service holds back
+  only its own device's Allow. A push send gives up after 30 seconds (web-push has no limit of its own), so a request
+  can't stay "sending" for ever; the legacy push path (`pushRaw`) has no such limit.
+- **A notification answer after the reply ended** says `answered_in_app` when the app answered it (Pocket keeps the
+  last 500 request ids answered in the app), else `gone`.
+- **An ACP request whose `rawInput` is not an object** (a string, a number, `true`) shows its card as before 1.126,
+  with the title as the command, and gets Don't allow only.
 - **A malformed request id is 400 `bad_request`** before anything else, with no record.
 - **Allow is checked against the device that posts.** The answer's `endpoint` must name a subscription in
   `push-subs.json`; an unknown one is `not_offered`. The audit then records `device: unknown`.

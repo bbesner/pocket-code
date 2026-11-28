@@ -248,8 +248,9 @@ or off and choose what they get:
   requests** (which include an agent's request to share or publish a file), **Inbox alerts**,
   **Check-backs and job results** and **Action approvals** (used only while **Answer approvals from
   notifications** is on in Features; until then approvals come with Finished replies). Finished replies
-  and check-back results are sent at normal priority; the others are urgent, so an idle Android phone
-  shows them at once.
+  and check-back results are sent at normal priority; the others are sent as urgent, which asks the
+  phone to show them at once. How a given phone treats them while idle depends on the phone, and has not
+  been checked for action approvals.
 - **Allow button on this device** (1.126.0): with answers from notifications on, a device shows
   **Allow** on an approval's notification only after it passed a test: **Send a test notification**,
   then type the two codes the notification shows. Test each phone and computer on its own; one that was

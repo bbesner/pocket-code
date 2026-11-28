@@ -33,7 +33,9 @@ action approvals away from the app"; the steps are in the manual, Questions and 
   happened (allowed or not, from where and when, or that it is no longer waiting). An Allow that does not go through is
   never retried: the phone shows "Your Allow didn't go through: <reason>. Open Pocket." and the request's page says why
   above its card. Turning the feature off, or muting a conversation, replaces the approval notifications already out,
-  once and silently, with ones that have no buttons.
+  once and silently, with ones that have no buttons, whatever **Update other devices after an answer** says. Their old
+  Allow is then refused, and an Allow from a muted conversation's notification is refused too (Don't allow still works).
+  Turning the feature on again, or unmuting, sends the requests still waiting a fresh notification under the usual rules.
 - **Settings → Usage → Answered away from the app**: answers from notifications, and answers Pocket refused, in the last 7
   days, with the kind of action and the push service, never the command.
 
@@ -54,10 +56,17 @@ action approvals away from the app"; the steps are in the manual, Questions and 
   writes a `refused` line with its `reason`, including one no longer waiting (`gone`) or already answered (`answered`,
   `answered_in_app`). Still no command or arguments.
 - **Hardened after a security review, before release.** The secret check runs on every line the push builds both as
-  written and as cleaned, so an invisible character can't split a key; blank-looking characters in context lines become
-  one space. OpenRouter and Antigravity requests are read from their own command field only, and one carrying both gets
+  written, as cleaned and with the listed blank-looking characters removed, so a key split by a format character (Cf),
+  a default-ignorable code point or one of those blanks is still hidden; context lines drop the first two and show a run
+  of the blanks as one space. A tool name is also scanned after each underscore, so `mcp__ghp_…` is hidden. OpenRouter and Antigravity requests are read from their own command field only, and one carrying both gets
   no Allow. The job rule follows handoffs as well as branches. Settings are own-key lookups, unknown keys are 400 and a
   number setting takes a number only. A malformed request id is 400 before anything else.
+- **Hardened after the recheck, before release.** Each device is recorded as its own push service accepts the push, so
+  one slow push service no longer refuses every other device's Allow (`not_offered`); a push send gives up after 30
+  seconds. Muting refuses an Allow from the conversation's notifications. Settling on off or mute forgets which devices
+  got each notification. A reply that ends while muted or off is no longer kept. An OpenRouter or Antigravity request
+  whose `rawInput` is a string, number or `true` shows its card again (1.126's first build declined it with no card).
+  A notification answer after the reply ended still says `answered_in_app` when the app answered it.
 - **What this does not cover** is listed in SECURITY.md: a stolen or borrowed phone that still shows notifications, the
   Vault's record (no source yet), stale buttons after a restart, a locked phone that can't send, no recent sign-in check,
   and untested behaviour behind Cloudflare Access.
@@ -94,6 +103,11 @@ Action approvals off gets it back on the first kind it changes there.
   every line, handoffs, refusals inside the inbox, settling on off and mute, the older-answers line, and in the browser
   the 60-second rule and sign-in, a body tap on a request that no longer waits, and the missed line and a conversation
   title kept as text. End to end, an Allow from a notification reaches the fake Codex and the fake OpenCode.
+- The recheck's cases: a slow push service and the send time limit, a non-object ACP `rawInput`, keys split by
+  default-ignorable characters and U+1D159, a key glued in a tool name, an Allow while muted, off then on and mute then
+  unmute, a reply that ends while muted, `answered_in_app` after the reply ended, `?missed=constructor`, and the
+  `answered_in_app` words in Usage. A notification answer in the route tests now waits until the server has recorded
+  that device's push, as a phone can only tap a notification it was shown.
 - Not tested yet: the notifications on real phones (spec tests 30-32).
 
 ## [1.125.3] — 2026-11-27 · build 236

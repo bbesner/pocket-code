@@ -144,9 +144,9 @@ Code policy blocks the title model, Pocket uses the cheapest offered model the p
 
 The six push kinds are disabled until **Push to this device** is on. Push needs HTTPS, the
 server's `VAPID_PUBLIC` and `VAPID_PRIVATE`, and the browser's permission. Due reminders, Vault
-requests, Inbox alerts and action approvals (while answers from notifications are on) are sent as urgent, so a phone
-gets them while idle; finished replies
-and check-back results are sent at normal priority. Links in reminder emails use `POCKET_PUBLIC_URL`, or the address you
+requests, Inbox alerts and action approvals (while answers from notifications are on) are sent as urgent, which asks a
+phone to show them at once (how a phone treats them while idle is up to the phone, and is unverified for action
+approvals); finished replies and check-back results are sent at normal priority. Links in reminder emails use `POCKET_PUBLIC_URL`, or the address you
 last signed in from.
 
 `POCKET_SMTP_URL` is an SMTP address with its login, for example
