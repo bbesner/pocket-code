@@ -93,7 +93,18 @@ async function boot(t, port, { env = {}, devices = { a: { approvalAllow: TESTED 
   const waiting = async (id, n = 1) => (await until(async () => { const r = (await call(`/session/${e(id)}/approvals`)).body?.requests || []; return r.length >= n ? r : null; }, 15000, `${n} approvals in ${id}`));
   const pushed = (device, reqId, n = 1) => until(() => { const l = push.of(device, 'approval:' + reqId); return l.length >= n ? l : null; }, 10000, `push of ${reqId} to ${device}`);
   const answer = (id, req, body, headers) => call(`/session/${e(id)}/approvals/${e(req)}/decision`, body, headers);
-  const fromNote = (id, req, device, decision, shown) => answer(id, req, { decision, via: 'notification', endpoint: push.endpoint(device), ...(shown !== undefined ? { shown } : {}) });
+  // An answer from a device's notification. The fake push service hears a push before the server has read its 201, so the
+  // answer waits until the server has recorded every original push the service accepted for that device and request (its
+  // "approval push accepted" line), as a phone can only tap a notification it was shown. `wait: false` posts at once (a
+  // test of a push still on its way).
+  const fromNote = async (id, req, device, decision, shown, { wait = true } = {}) => {
+    const n = wait ? push.of(device, 'approval:' + req).filter(g => g.accepted && g.payload.approval).length : 0;
+    if (n) {
+      const line = `approval push accepted session=${id} request=${req} device=${deviceId(push.endpoint(device))}\n`;
+      await until(() => logs.split(line).length - 1 >= n, 10000, `the server to record ${device}'s push of ${req}`);
+    }
+    return answer(id, req, { decision, via: 'notification', endpoint: push.endpoint(device), ...(shown !== undefined ? { shown } : {}) });
+  };
   const audit = () => lines(path.join(data, 'approval-decisions.jsonl'));
   const responses = () => lines(path.join(dir, 'calls.responses'));
   const idle = id => until(async () => { const b = (await call('/session/' + e(id))).body; return b && !b.active && b.state?.kind !== 'running' ? b : null; }, 15000, `${id} to end`);
@@ -841,4 +852,164 @@ test('X7, X9, X71, B13 (server): no summary to a device with Action approvals of
     const r = await s.until(() => s.push.of(d, 'approval:' + wr.id)[1], 6000, 'the replacement on ' + d);
     assert.equal(r.payload.silent, true); assert.match(r.payload.body, /^Not allowed at /);
   }
+});
+
+test('Slow push service (server): each device is recorded as its own push service accepts; the fast device\'s Allow works while the slow one is still on its way, and the slow device\'s Allow is refused until its own push is accepted', { timeout: 120_000 }, async t => {
+  const s = await boot(t, 19545, { devices: { a: { approvalAllow: TESTED }, b: { approvalAllow: TESTED } } });
+  await s.on();
+  s.push.delay.set('b', 4000);
+  const id = await s.start('claude', s.reqs([['w1', 'Bash', { command: 'echo slow-one' }], ['w2', 'Bash', { command: 'echo slow-two' }]]));
+  const [one, two] = await s.waiting(id, 2);
+  const [a1] = await s.pushed('a', one.id); const [b2] = await s.pushed('b', two.id); await s.pushed('b', one.id);
+  const bRecorded = r => s.logs().includes(`approval push accepted session=${id} request=${r} device=${deviceId(s.push.endpoint('b'))}`);
+  // the fast device answers while b's push service has not answered yet
+  const ok = await s.fromNote(id, one.id, 'a', 'allow', a1.payload.approval.shown);
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.equal(bRecorded(one.id), false, 'b was still on its way');
+  // the slow device: refused while its push is on its way, allowed once its push service accepted it
+  const early = await s.fromNote(id, two.id, 'b', 'allow', b2.payload.approval.shown, { wait: false });
+  assert.equal(bRecorded(two.id), false, 'b was still on its way');
+  assert.equal(early.status, 409); assert.equal(early.body.code, 'not_offered');
+  await s.until(() => bRecorded(two.id), 8000, 'b to be recorded');
+  const late = await s.fromNote(id, two.id, 'b', 'allow', b2.payload.approval.shown);
+  assert.equal(late.status, 200, JSON.stringify(late.body));
+  assert.match(s.logs(), new RegExp(`approval push sent \\(2 devices, Allow on 2\\) session=${reEscape(id)} request=${reEscape(two.id)}`));
+});
+
+test('Push timeout (server): a push service that does not answer in time counts as not delivered: the push finishes, the device is not recorded and its Allow is refused', { timeout: 120_000 }, async t => {
+  const s = await boot(t, 19546, { devices: { a: { approvalAllow: TESTED }, b: { approvalAllow: TESTED } }, env: { POCKET_TEST_PUSH_TIMEOUT_MS: '800' } });
+  await s.on();
+  s.push.delay.set('b', 3000);
+  const id = await s.start('claude', s.toolReq('Bash', { command: 'echo timeout' }));
+  const [req] = await s.waiting(id);
+  const [b] = await s.pushed('b', req.id);
+  const t0 = Date.now();
+  const sent = new RegExp(`approval push sent \\(1 devices, Allow on 1\\) session=${reEscape(id)} request=${reEscape(req.id)}`);
+  await s.until(() => sent.test(s.logs()), 2500, 'the push to finish without b');
+  assert.ok(Date.now() - t0 < 2500, 'finished before b answered');
+  assert.match(s.logs(), /push not delivered to a device \(Socket timeout\) kind=approvals/);
+  await sleep(2600); // b's push service answers 201 now, to a request already given up
+  assert.ok(!s.logs().includes(`approval push accepted session=${id} request=${req.id} device=${deviceId(s.push.endpoint('b'))}`), 'b never recorded');
+  const r = await s.fromNote(id, req.id, 'b', 'allow', b.payload.approval.shown, { wait: false });
+  assert.equal(r.status, 409); assert.equal(r.body.code, 'not_offered');
+  assert.equal((await s.fromNote(id, req.id, 'a', 'allow', b.payload.approval.shown)).status, 200, 'a was recorded');
+});
+
+for (const [n, raw] of [[0, '"ls -la"'], [1, '7'], [2, 'true']]) {
+  test(`ACP rawInput ${raw} (server): a request whose rawInput is not an object shows its card as before 1.126, off and on, and its notification offers Don't allow only`, { timeout: 120_000 }, async t => {
+    const s = await boot(t, 19547 + n, { env: { FAKE_ACP_RAW_INPUT: raw } });
+    const off = await s.start('acp', 'go');
+    const [card] = await s.waiting(off);
+    assert.equal(card.kind, 'command'); assert.equal(JSON.parse(card.details).command, 'echo ACP_OK');
+    assert.equal((await s.answer(off, card.id, { decision: 'deny' })).status, 200);
+    await s.on();
+    const id = await s.start('acp', 'go');
+    const [req] = await s.waiting(id);
+    assert.equal(req.kind, 'command'); assert.equal(JSON.parse(req.details).command, 'echo ACP_OK');
+    const [p] = await s.pushed('a', req.id);
+    assert.deepEqual(actionsOf(p), ['deny']);
+    const r = await s.fromNote(id, req.id, 'a', 'allow', p.payload.approval.shown);
+    assert.equal(r.status, 409); assert.equal(r.body.code, 'not_offered');
+    assert.equal((await s.fromNote(id, req.id, 'a', 'deny')).status, 200);
+  });
+}
+
+test('Muting refuses (server): an Allow from a muted conversation\'s notification is refused not_offered and recorded, also from a device whose push landed while another was on its way; Don\'t allow still works; N47: settling does not wait for Update other devices', { timeout: 120_000 }, async t => {
+  const s = await boot(t, 19550, { devices: { a: { approvalAllow: TESTED }, b: { approvalAllow: TESTED } } });
+  await s.on({ updateOthers: false });
+  s.push.delay.set('b', 3000);
+  const id = await s.start('claude', s.reqs([['m1', 'Bash', { command: 'echo mute-one' }], ['m2', 'Bash', { command: 'echo mute-two' }]]));
+  const [one, two] = await s.waiting(id, 2);
+  const [p1] = await s.pushed('a', one.id); const [p2] = await s.pushed('a', two.id); await s.pushed('b', one.id);
+  await s.until(() => s.logs().includes(`approval push accepted session=${id} request=${two.id} device=${deviceId(s.push.endpoint('a'))}`), 5000, 'a recorded');
+  assert.equal((await s.call(`/session/${s.e(id)}/mute`, { muted: true })).status, 200);
+  // b is still on its way, so these requests are not settled yet and a's record is still there: the mute alone refuses
+  const r = await s.fromNote(id, one.id, 'a', 'allow', p1.payload.approval.shown);
+  assert.equal(r.status, 409); assert.equal(r.body.code, 'not_offered');
+  assert.equal(r.body.error, 'Notifications for this conversation are muted. Review it in Pocket.');
+  const rec = s.audit().filter(a => a.event === 'refused' && a.requestId === one.id);
+  assert.deepEqual(rec.map(a => [a.reason, a.source, a.device]), [['not_offered', 'notification', deviceId(s.push.endpoint('a'))]]);
+  const d = await s.fromNote(id, two.id, 'a', 'deny', undefined, { wait: false });
+  assert.equal(d.status, 200, JSON.stringify(d.body));
+  // N47: when b lands, both devices' notifications lose their buttons although Update other devices is off
+  for (const dev of ['a', 'b']) {
+    const x = await s.until(() => s.push.of(dev, 'approval:' + one.id).find(g => !g.payload.approval), 8000, 'the settle on ' + dev);
+    assert.equal(x.payload.body, 'Notifications for this conversation were muted. Open Pocket to review it.'); assert.equal(x.payload.actions, undefined);
+  }
+  assert.equal((await s.fromNote(id, one.id, 'b', 'allow', p1.payload.approval.shown, { wait: false })).body.code, 'not_offered');
+  assert.equal((await s.answer(id, one.id, { decision: 'deny' })).status, 200, 'the app still answers');
+  void p2;
+});
+
+test('Off then on, mute then unmute (server): settling forgets the devices, so the old Allow is not_offered; turning answers on again or unmuting sends the requests still waiting a fresh notification once, under the per-conversation limit (N23, N24, N26)', { timeout: 180_000 }, async t => {
+  const s = await boot(t, 19551, { devices: { a: { approvalAllow: TESTED }, b: { approvalAllow: TESTED } } });
+  await s.on({ perConversation: 1 });
+  const id = await s.start('claude', s.reqs([['o1', 'Bash', { command: 'echo on-one' }], ['o2', 'Bash', { command: 'echo on-two' }]]));
+  const [one, two] = await s.waiting(id, 2);
+  const [p] = await s.pushed('a', one.id);
+  await s.until(() => s.push.of('a', 'approval-more:' + id)[0], 5000, 'the summary');
+  const originals = (dev, r) => s.push.of(dev, 'approval:' + r).filter(g => g.payload.approval);
+  // off: replaced once; on again: the old record is gone, so until the fresh push is accepted the old Allow is refused
+  await s.set({ answers: false });
+  await s.until(() => s.push.of('a', 'approval:' + one.id)[1], 5000, 'the settle');
+  s.push.delay.set('a', 3000);
+  await s.set({ answers: true });
+  await s.until(() => originals('a', one.id).length === 2, 5000, 'a fresh notification for the first');
+  assert.match(s.logs(), new RegExp(`approval notifications synced after turned on: 1 with requests waiting, 1 replies kept`));
+  const old = await s.fromNote(id, one.id, 'a', 'allow', p.payload.approval.shown, { wait: false });
+  assert.equal(old.status, 409); assert.equal(old.body.code, 'not_offered', 'the old notification offers nothing');
+  // N24: the settled one did not count as showing, and the limit still holds: the second gets none, the summary says 1 more
+  assert.equal(originals('a', two.id).length, 0);
+  const sum = await s.until(() => s.push.of('a', 'approval-more:' + id).find((g, i) => i >= 2), 5000, 'the summary again');
+  assert.equal(sum.payload.body.split('\n')[0].includes('1 more'), true, JSON.stringify(sum.payload));
+  s.push.delay.delete('a');
+  const fresh = await s.fromNote(id, one.id, 'a', 'allow', originals('a', one.id)[1].payload.approval.shown);
+  assert.equal(fresh.status, 200, JSON.stringify(fresh.body));
+  // the second now shows; N23: muted while b's push of it is on its way, it lands without buttons
+  await s.pushed('a', two.id);
+  s.push.delay.set('b', 2500);
+  await s.until(() => s.logs().includes(`approval push accepted session=${id} request=${two.id} device=${deviceId(s.push.endpoint('a'))}`), 5000, 'a recorded');
+  assert.equal((await s.call(`/session/${s.e(id)}/mute`, { muted: true })).status, 200);
+  for (const dev of ['a', 'b']) await s.until(() => s.push.of(dev, 'approval:' + two.id).find(g => !g.payload.approval), 6000, 'the settle on ' + dev);
+  s.push.delay.delete('b');
+  // N26: unmuting sends no "muted" words, only a fresh notification, once
+  const mutedWords = () => s.push.got.filter(g => g.payload.body === 'Notifications for this conversation were muted. Open Pocket to review it.').length;
+  const before = mutedWords();
+  assert.equal((await s.call(`/session/${s.e(id)}/mute`, { muted: false })).status, 200);
+  for (const dev of ['a', 'b']) await s.until(() => originals(dev, two.id).length === 2, 5000, 'a fresh notification on ' + dev);
+  await sleep(400);
+  assert.equal(mutedWords(), before, 'unmuting settles nothing');
+  assert.equal(originals('a', two.id).length, 2, 'once');
+  const again = originals('b', two.id)[1];
+  assert.equal((await s.fromNote(id, two.id, 'b', 'allow', again.payload.approval.shown)).status, 200);
+});
+
+test('Ended while muted (server): a reply that ends while muted or off is not kept (the leak); a later turn-on syncs nothing for it', { timeout: 120_000 }, async t => {
+  const s = await boot(t, 19552);
+  await s.on();
+  const id = await s.start('claude', s.reqs([['e1', 'Bash', { command: 'echo ended' }]]));
+  const [req] = await s.waiting(id);
+  await s.pushed('a', req.id);
+  assert.equal((await s.call(`/session/${s.e(id)}/mute`, { muted: true })).status, 200);
+  assert.equal((await s.call(`/session/${s.e(id)}/stop`, {})).status, 200); await s.idle(id);
+  const off = await s.start('claude', s.reqs([['e2', 'Bash', { command: 'echo ended-off' }]]));
+  await s.waiting(off);
+  await s.set({ answers: false });
+  assert.equal((await s.call(`/session/${s.e(off)}/stop`, {})).status, 200); await s.idle(off);
+  await s.set({ answers: true });
+  assert.match(s.logs(), /approval notifications synced after turned on: 0 with requests waiting, 0 replies kept/);
+});
+
+test('N14b (server): after the reply ended, a notification answer to a request answered in Pocket says answered_in_app; one never answered says gone', { timeout: 120_000 }, async t => {
+  const s = await boot(t, 19553);
+  await s.on();
+  const id = await s.start('claude', s.reqs([['h1', 'Bash', { command: 'echo n14-one' }], ['h2', 'Bash', { command: 'echo n14-two' }]]));
+  const [one, two] = await s.waiting(id, 2);
+  const [p1] = await s.pushed('a', one.id); const [p2] = await s.pushed('a', two.id);
+  assert.equal((await s.answer(id, one.id, { decision: 'deny' })).status, 200);
+  assert.equal((await s.call(`/session/${s.e(id)}/stop`, {})).status, 200); await s.idle(id);
+  const a = await s.fromNote(id, one.id, 'a', 'allow', p1.payload.approval.shown);
+  assert.equal(a.status, 409); assert.equal(a.body.code, 'answered_in_app'); assert.equal(a.body.error, 'This action was answered in Pocket.');
+  const b = await s.fromNote(id, two.id, 'a', 'allow', p2.payload.approval.shown);
+  assert.equal(b.status, 409); assert.equal(b.body.code, 'gone');
 });

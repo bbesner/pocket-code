@@ -1046,13 +1046,16 @@ function approvalView(sid, turn, engine) {
     jobConversation: apush.jobConversation(sid, { metaOf: id => Object.hasOwn(smeta, id) ? smeta[id] : null, ranIn: jobRanIn }), jobName: root === 'job' ? shownOriginRef(turn) : null, title };
 }
 // One push per device, each with its own payload (null: none for that device). Urgent unless asked otherwise. Returns the
-// subscriptions the push service accepted; a gone subscription (404, 410) is removed as pushRaw does.
-async function pushEach(subs, payloadOf, { urgent = true, kind = 'approvals' } = {}) {
+// subscriptions the push service accepted; a gone subscription (404, 410) is removed as pushRaw does. `accepted(s)` runs for
+// each device as soon as its own push service accepts, so one slow service holds back nobody else. A push service that
+// hasn't answered within PUSH_TIMEOUT_MS counts as not delivered (web-push has no time limit of its own).
+const PUSH_TIMEOUT_MS = msSetting('POCKET_TEST_PUSH_TIMEOUT_MS', 30_000) || 30_000; // tests shorten it; 0 never means no limit
+async function pushEach(subs, payloadOf, { urgent = true, kind = 'approvals', accepted = null } = {}) {
   const dead = [], ok = [];
   await Promise.all(subs.map(async s => {
     const payload = payloadOf(s);
     if (!payload) return;
-    try { await webpush.sendNotification(s, JSON.stringify(payload), urgent ? { urgency: 'high' } : {}); ok.push(s); }
+    try { await webpush.sendNotification(s, JSON.stringify(payload), { timeout: PUSH_TIMEOUT_MS, ...(urgent ? { urgency: 'high' } : {}) }); ok.push(s); accepted?.(s); }
     catch (e) {
       if (e.statusCode === 404 || e.statusCode === 410) dead.push(s.endpoint);
       else log(`push not delivered to a device (${e.statusCode ? `the push service answered ${e.statusCode}` : e.code || e.message}) kind=${kind}`);
@@ -1062,13 +1065,19 @@ async function pushEach(subs, payloadOf, { urgent = true, kind = 'approvals' } =
   return ok;
 }
 const approvalSubs = () => loadSubs().filter(apush.wantsApprovals);
-// One request's notification, built for each device. `push.devices[<device>]` is written only for a device whose push
-// service accepted it: a push that reached no device offers nothing (Part 3).
+// One request's notification, built for each device. `push.devices[<device>]` is written for each device as soon as its own
+// push service accepts it, and never before: a push that reached no device offers nothing (Part 3), and a slow push service
+// holds back only its own device's Allow. The log line after each is what the tests wait for.
 async function sendApprovalPush(sid, turn, engine, row) {
-  const cfg = approvalCfg(), view = approvalView(sid, turn, engine), built = new Map();
-  const ok = await pushEach(approvalSubs(), s => { const p = apush.approvalPush(row, view, s, cfg); built.set(s.endpoint, p); return p.payload; });
-  for (const s of ok) { const p = built.get(s.endpoint); row.push.devices[apush.deviceId(s.endpoint)] = { allow: p.allow, shown: p.shown, at: Date.now() }; }
-  row.push.sending = false;
+  const cfg = approvalCfg(), view = approvalView(sid, turn, engine), built = new Map(), push = row.push;
+  const ok = await pushEach(approvalSubs(), s => { const p = apush.approvalPush(row, view, s, cfg); built.set(s.endpoint, p); return p.payload; }, {
+    accepted: s => {
+      const p = built.get(s.endpoint), device = apush.deviceId(s.endpoint);
+      push.devices[device] = { allow: p.allow, shown: p.shown, at: Date.now() };
+      log(`approval push accepted session=${sid} request=${row.id} device=${device}`);
+    },
+  });
+  push.sending = false;
   log(`approval push sent (${ok.length} devices, Allow on ${ok.filter(s => built.get(s.endpoint).allow).length}) session=${sid} request=${row.id}`);
   if (row.gone) sendApprovalReplacement(sid, turn, row, row.gone); // answered or withdrawn while its push was on its way
   else { const settle = approvalSettleWhy(sid); if (settle) settleApprovalPushes(sid, turn, settle); } // turned off or muted meanwhile
@@ -1092,13 +1101,15 @@ function replaceApprovalPush(sid, row, text, except = null) {
   pushEach(loadSubs().filter(s => targets.has(apush.deviceId(s.endpoint))), () => payload).catch(e => log(`approval replacement: ${e.message}`));
 }
 // F10: answers from notifications turned off, or the conversation muted, while its notifications are out: each request's
-// notification with buttons is replaced once (silently, no buttons) and the summary too, then nothing more is sent for
-// them. Whatever updateOthers says: an Allow left on a phone after this would only be refused. A push still on its way
-// is settled when it lands (sendApprovalPush).
+// notification with buttons is replaced once (silently, no buttons) and the summary too. The request then forgets which
+// devices got it, so an Allow tapped on the old notification is refused (not_offered), it no longer counts as showing,
+// and when answers are turned on again (or the conversation unmuted) it gets a fresh notification under the usual rules.
+// This happens whatever Update other devices says: that setting is about the other devices after an answer, while this
+// takes buttons back. A push still on its way is settled when it lands (sendApprovalPush).
 function settleApprovalPushes(sid, turn, why) {
   if (!pushReady || !turn?.approvals) return;
   const text = why === 'muted' ? 'Notifications for this conversation were muted. Open Pocket to review it.' : 'Answering from notifications was turned off. Open Pocket to review it.';
-  for (const r of turn.approvals.rows()) if (r.push && !r.push.replaced && !r.push.sending) replaceApprovalPush(sid, r, text);
+  for (const r of turn.approvals.rows()) if (r.push && !r.push.sending) { if (!r.push.replaced) replaceApprovalPush(sid, r, text); r.push = null; }
   const st = turn.approvalSummary;
   if (st?.count > 0) {
     st.count = 0;
@@ -1107,16 +1118,24 @@ function settleApprovalPushes(sid, turn, why) {
   }
 }
 const approvalSettleWhy = sid => !approvalsOn() ? 'off' : mutes.has(sid) ? 'muted' : null;
+// The replies with requests waiting, on or off, muted or not: conversation id -> { turn, engine }. Kept on every inbox
+// change (before anything else, so a reply that ends while off or muted is dropped too), read to settle everything when
+// answers are turned off and to send fresh notifications when they are turned on again or a conversation is unmuted.
+const approvalPushTurns = new Map();
+function trackApprovalTurn(sid, turn, engine) {
+  if (turn?.approvals?.rows().length && !turn.approvals.closed) approvalPushTurns.set(sid, { turn, engine }); // clear() empties and closes
+  else if (approvalPushTurns.get(sid)?.turn === turn) approvalPushTurns.delete(sid);
+}
 // Keep a conversation's notifications in step with its waiting requests: the oldest not yet shown get theirs while fewer
 // than perConversation are showing, and the summary says how many more wait (silently "Nothing more waits" at zero).
-const approvalPushTurns = new Map(); // conversation id -> its turn, while it has requests (settleAllApprovalPushes reads it)
 function syncApprovalPushes(sid, turn, engine) {
-  if (!pushReady || !turn?.approvals) return;
+  if (!turn?.approvals) return;
+  trackApprovalTurn(sid, turn, engine);
+  if (!pushReady) return;
   const settle = approvalSettleWhy(sid);
   if (settle) return settleApprovalPushes(sid, turn, settle);
   const cfg = approvalCfg(), rows = turn.approvals.rows();
-  if (rows.length) approvalPushTurns.set(sid, turn); else if (approvalPushTurns.get(sid) === turn) approvalPushTurns.delete(sid);
-  let showing = rows.filter(r => r.push && !r.push.replaced).length; // a notification settled while off or muted is not showing
+  let showing = rows.filter(r => r.push && !r.push.replaced).length; // a settled notification was forgotten (push null)
   for (const r of rows) {
     if (r.push) continue;
     if (showing >= cfg.perConversation) break;
@@ -1137,12 +1156,24 @@ function approvalGone(sid, turn, engine, rows, info) {
 }
 // An inbox changed: today's push when the feature is off, else the per-request notifications.
 function approvalChanged(sid, turn, engine, legacy) {
-  if (!approvalsOn()) { settleApprovalPushes(sid, turn, 'off'); return legacy(); } // settling sends nothing unless 1.126's notifications are out
+  if (!approvalsOn()) { trackApprovalTurn(sid, turn, engine); settleApprovalPushes(sid, turn, 'off'); return legacy(); } // settling sends nothing unless 1.126's notifications are out
   syncApprovalPushes(sid, turn, engine);
 }
 // Every reply with requests, after answers from notifications were turned off (the settings route)
 function settleAllApprovalPushes(why) {
-  for (const [sid, turn] of approvalPushTurns) { settleApprovalPushes(sid, turn, why); approvalPushTurns.delete(sid); }
+  for (const [sid, { turn }] of approvalPushTurns) settleApprovalPushes(sid, turn, why);
+}
+// After answers were turned on again, or a conversation unmuted (`only`): the requests still waiting get notifications
+// under the usual rules, once. The log line says how many replies were kept and how many had requests waiting.
+function resyncApprovalPushes(why, only = null) {
+  const kept = approvalPushTurns.size;
+  let n = 0;
+  for (const [sid, { turn, engine }] of [...approvalPushTurns]) {
+    if (only && sid !== only) continue;
+    if (turn.approvals.closed || !turn.approvals.rows().length) { approvalPushTurns.delete(sid); continue; }
+    n++; syncApprovalPushes(sid, turn, engine);
+  }
+  log(`approval notifications synced after ${why}: ${n} with requests waiting, ${kept} replies kept`);
 }
 
 // ---------- auth ----------
@@ -3560,6 +3591,10 @@ const APPROVAL_VIA = new Set(['app', 'notification']);
 // Every engine's request gets its id from the inbox (approvals.mjs, randomUUID); any other shape is no request, refused
 // before anything is looked up or recorded.
 const APPROVAL_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+// The requests answered in Pocket lately (request id -> conversation id, the newest 500): a reply's inbox goes when the
+// reply ends, and a notification answer that arrives after that should still hear it was answered in Pocket.
+const approvalsAnsweredInApp = new Map();
+const answeredInApp = (sid, request, turn) => turn?.approvals?.answeredAs(request)?.source === 'app' || approvalsAnsweredInApp.get(request) === sid;
 app.post('/api/session/:id/approvals/:request/decision',requireAuth,sameOrigin,async(req,res)=>{
   res.set('Cache-Control','no-store');
   if(!anyId(req.params.id))return res.status(400).json({error:'Invalid conversation'});
@@ -3577,7 +3612,7 @@ app.post('/api/session/:id/approvals/:request/decision',requireAuth,sameOrigin,a
   if(!APPROVAL_VIA.has(via))return refuse(400,'unknown_via','Answer this request in Pocket.');
   if(away&&!approvalsOn())return refuse(404,'answers_off','Answering approvals from notifications is turned off.');
   if(!turn?.approvals||turn.done||turn.finalized||turn.stopped){
-    if(away)return turn?.approvals?.answeredAs(request)?.source==='app'?refuse(409,'answered_in_app','This action was answered in Pocket.'):refuse(409,'gone','This action is no longer waiting. Refresh the conversation.');
+    if(away)return answeredInApp(sid,request,turn)?refuse(409,'answered_in_app','This action was answered in Pocket.'):refuse(409,'gone','This action is no longer waiting. Refresh the conversation.');
     return res.status(409).json({error:'This action is no longer waiting. Refresh the conversation.'});
   }
   const row=turn.approvals.row(request);
@@ -3587,6 +3622,7 @@ app.post('/api/session/:id/approvals/:request/decision',requireAuth,sameOrigin,a
     action=apush.actionOf(row,view).what;meta.action=action;
     if(body.decision==='allow'&&row.status==='pending'){
       const now=apush.approvalPush(row,view,sub,cfg),rec=sub?row.push?.devices?.[apush.deviceId(endpoint)]:null;
+      if(mutes.has(sid))return refuse(409,'not_offered','Notifications for this conversation are muted. Review it in Pocket.'); // a push still on its way when muted is settled only when it lands
       if(!now.allow)return refuse(409,'not_offered','Pocket no longer offers Allow on this notification. Review it in Pocket.');
       if(!rec||rec.allow!==true)return refuse(409,'not_offered','This notification did not offer Allow. Review it in Pocket.');
       if(Date.now()-rec.at>apush.allowWindowMs(cfg,APPROVAL_WINDOW_TEST_MS))return refuse(409,'too_old','The notification is too old to Allow from. Review it in Pocket.');
@@ -3595,6 +3631,7 @@ app.post('/api/session/:id/approvals/:request/decision',requireAuth,sameOrigin,a
   }
   try{
     const out=await turn.approvals.decide(request,body.decision,meta);
+    if(!away&&!out.duplicate){approvalsAnsweredInApp.set(request,sid);if(approvalsAnsweredInApp.size>500)approvalsAnsweredInApp.delete(approvalsAnsweredInApp.keys().next().value);}
     if(away&&!out.duplicate)log(`approval answered from a notification: ${out.decision} session=${sid} request=${request} device=${meta.device} service=${meta.pushService||'unknown'}`);
     res.json(out);
   }
@@ -4792,10 +4829,12 @@ app.post('/api/settings', requireAuth, (req, res) => {
 app.post('/api/session/:id/mute', requireAuth, (req, res) => {
   const id = req.params.id;
   if (!anyId(id)) return res.status(400).json({ error: 'bad id' });
+  const wasMuted = mutes.has(id);
   if (req.body?.muted) mutes.add(id); else mutes.delete(id);
   saveMutes();
   log(`push ${mutes.has(id) ? 'muted' : 'unmuted'} session=${id}`);
-  if (mutes.has(id)) { let turn = null; try { turn = ownedTurn(id); } catch { } settleApprovalPushes(id, turn, 'muted'); } // 1.126 (F10): its approval notifications lose their buttons, once
+  if (mutes.has(id)) { let turn = approvalPushTurns.get(id)?.turn || null; if (!turn) try { turn = ownedTurn(id); } catch { } settleApprovalPushes(id, turn, 'muted'); } // 1.126 (F10): its approval notifications lose their buttons, once
+  else if (wasMuted && approvalsOn()) resyncApprovalPushes('unmute', id); // the requests still waiting get fresh notifications
   res.json({ ok: true, muted: mutes.has(id) });
 });
 
@@ -6818,6 +6857,7 @@ app.post('/api/approval-push/settings', requireAuth, ownerControl, sameOrigin, (
     approvalTests.clear();
   }
   if (wasOn && !approvalsOn()) settleAllApprovalPushes('off'); // F10: the notifications already out lose their buttons, once
+  else if (!wasOn && approvalsOn()) resyncApprovalPushes('turned on'); // the requests still waiting get fresh notifications, under the usual rules
   autoAudit({ action: 'settings', group: apush.GROUP_KEY, ...(req.body.reset === true ? { reset: true } : { keys: Object.keys(req.body.values) }), ...(turnedOff ? { allowButtonsOff: turnedOff } : {}) });
   log(`answers from notifications settings saved${turnedOff ? `; Allow button turned off on ${turnedOff} device(s) (the limit was raised)` : ''}`);
   res.json({ ...approvalPushView(), ...(turnedOff ? { allowButtonsOff: turnedOff } : {}) });
