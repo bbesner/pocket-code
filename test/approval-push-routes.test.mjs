@@ -291,13 +291,13 @@ test('T12: a change after the push takes the old Allow back (not_offered): a low
 });
 
 test('T13: past Allow works for (shortened by an env var), an Allow gets 409 too_old; Don\'t allow still works', { timeout: 120_000 }, async t => {
-  const s = await boot(t, 19527, { env: { POCKET_TEST_APPROVAL_WINDOW_MS: '1500' } });
+  const s = await boot(t, 19527, { env: { POCKET_TEST_APPROVAL_WINDOW_MS: '5000' } });
   await s.on();
   const id = await s.start('claude', s.reqs([['o1', 'Bash', { command: 'echo T13-one' }], ['o2', 'Bash', { command: 'echo T13-two' }]]));
   const [one, two] = await s.waiting(id, 2);
   const [p1] = await s.pushed('a', one.id), [p2] = await s.pushed('a', two.id);
   assert.equal((await s.fromNote(id, one.id, 'a', 'allow', p1.payload.approval.shown)).status, 200, 'inside the window');
-  await sleep(1800);
+  await sleep(5300); // a window long enough that a loaded machine answers inside it (1.5 s was not, under npm test)
   const old = await s.fromNote(id, two.id, 'a', 'allow', p2.payload.approval.shown);
   assert.equal(old.status, 409); assert.equal(old.body.code, 'too_old');
   assert.equal((await s.fromNote(id, two.id, 'a', 'deny')).status, 200, 'Don\'t allow has no window');
