@@ -403,8 +403,8 @@ then refused (404 `answers_off`). Turning it on adds the following. Answering by
   a folder, a conversation title or a subagent name that looks like a password or key is replaced by a note.
 - **A stolen or borrowed phone.** By default the notification shows the action on the lock screen (**What approval
   notifications show: The action**). Whether a button works on a locked phone depends on the device, and nothing here has
-  been verified on real phones yet. The owner accepted Allow from a locked phone on a tested device: it is his choice, per
-  device, by turning that device's Allow button on. Anyone holding the phone unlocked, and on some phones locked, can read
+  been verified on real phones yet. Allow from a locked phone on a tested device is accepted by design: each install's
+  owner chooses it, per device, by turning that device's Allow button on. Anyone holding the phone unlocked, and on some phones locked, can read
   the action and tap Allow while the notification is younger than **Allow works for**. Pocket can't prevent that. The
   remedies: the phone's own setting that hides notification content on the lock screen (its effect on the buttons is
   unverified); **Only that an action waits**, which shows no conversation, no action and no Allow; leaving a device's
