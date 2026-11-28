@@ -209,8 +209,10 @@ Started by job alert-pager
   action?". A check-back's reply puts "Check-back: " in front, a job's "Job: ".
 - The action line is "Runs: …", "Opens: …" or "Searches: …"; for a request that never gets Allow it is, for example,
   "Edits: <file>", "Starts a helper", "Uses: <tool>" or "Network access: <host>".
-- The folder line is "In: <folder>" where the command runs (Codex, OpenRouter, Antigravity), or "Conversation folder:
-  <folder>" for Claude Code, whose shell may have moved with a `cd`. Your home folder is written `~`.
+- The folder line is "In: <folder>" when the request names where the command runs (Codex, and Antigravity when it
+  says), or "Conversation folder: <folder>" otherwise: for Claude Code, whose shell may have moved with a `cd`, and for
+  OpenRouter, whose request names no folder. Your home folder is written `~`.
+- Blank-looking characters in the conversation title, a job's name or a subagent's name show as one space.
 - The conversation title is cut to 60 characters and a subagent's name to 40. The origin line is "Started by job
   <name>", "Started by a check-back" or "A job has run in this conversation".
 - A tap on the notification itself opens the conversation at the request's card. It never answers.
@@ -231,9 +233,10 @@ Allow shows only when all of these hold. Otherwise the notification has **Don't 
 | The request is a Claude Code command, web page or web search, a Codex command, or an OpenRouter or Antigravity command | File edits, helpers, connector tools, network access and more access for the reply do more than one line can show. |
 | The action and the folder are plain characters (letters, digits, spaces and ordinary punctuation) | Line breaks, invisible characters and look-alike letters can hide what runs. |
 | The action line and the folder line, labels included, fit in **Longest action with an Allow button** (80 characters) | A cut command could hide its end. With a usual folder that leaves room for a command of roughly 30 characters. The line then says "(412 characters, too long to show here; open Pocket to review it)". You can raise the limit, then test each device again. |
-| The folder has no `..` part | `~/projects/shop/../../..` reads as the shop folder and is somewhere else. |
-| Nothing in the action or the folder looks like a password or key | Push text passes through the browser's push service. The line then says "(looks like it contains a password or key; open Pocket to review it)". |
-| The reply was not started by a job, and no job has run in this conversation | Unless **Allow on a job's actions** is on (off by default). |
+| The folder is a full path with no `..` part, and neither it nor the action starts or ends with a space or has two in a row | `~/projects/shop/../../..` reads as the shop folder and is somewhere else; a folder the agent gave as `~/work`, or with a space Pocket would have to trim, is not the folder shown. |
+| An OpenRouter or Antigravity request gives its command once, in that agent's own field | A request with two commands could run the one you didn't read. The card in Pocket shows both under **Show details**. |
+| Nothing in the action or the folder looks like a password or key | Push text passes through the browser's push service. The line then says "(looks like it contains a password or key; open Pocket to review it)". A conversation title, job name or subagent name that looks like one is left out the same way. |
+| The reply was not started by a job, and no job has run in this conversation, or in one it branched from or was handed off from | Unless **Allow on a job's actions** is on (off by default). |
 | A check-back's reply: **Allow on a check-back's actions** is on | On by default. |
 | The agent is switched on under **Engines** | All four are on by default. |
 | A Codex command names its own folder | Without one, Pocket can't say where it runs. |
@@ -248,14 +251,19 @@ Allow shows only when all of these hold. Otherwise the notification has **Don't 
   PM", "Allowed in Pocket at 2:14 PM", "Not allowed at 2:14 PM", or "No longer waiting: the reply ended" (or "the reply
   was stopped", "Pocket was paused", "the agent withdrew it"). **Update other devices after an answer** turns this off.
   After a restart no replacement is sent.
+- Turning **Answer approvals from notifications** off, or muting the conversation, replaces the approval notifications
+  already out the same way, once: "Answering from notifications was turned off. Open Pocket to review it." or
+  "Notifications for this conversation were muted. Open Pocket to review it."
 - If the answer doesn't go through, a second notification says so ("Your Allow didn't go through: … Open Pocket.") and
   Pocket opens the conversation at the request. A line above its card says what happened:
 
 | The line above the card | What happened |
 |---|---|
-| This device was signed out of Pocket. | The answer was refused as not signed in (401 or 403), or met a redirect to a sign-in page. |
+| This device was signed out of Pocket. | The answer was refused as not signed in (401), or met a redirect to a sign-in page. |
+| Pocket refused the answer from the address the notification used. Answer it here. | Pocket refused it as coming from another site (403). Behind a reverse proxy, this usually means the proxy doesn't pass on the public address (see Troubleshooting). |
 | Answering from notifications is turned off. | **Answer approvals from notifications** was off when the answer arrived. |
-| It was no longer waiting. | It was answered on another device or in Pocket, the reply ended or was stopped, or Pocket was paused. When Pocket knows, the line says when and from where it was answered. |
+| It was no longer waiting. | It was answered on another device, the reply ended or was stopped, or Pocket was paused. When Pocket knows, the line says when and from where it was answered. |
+| It was no longer waiting: it was answered in Pocket. | It was answered differently in Pocket itself. |
 | Pocket couldn't match it to what the notification showed, or a setting changed. Review it here. | The action no longer matches the notification, or a setting changed since it was sent so that it would no longer offer Allow. |
 | The notification was too old. Review it here. | The notification was older than **Allow works for**. |
 | Delivery of this decision is uncertain. Stop the reply and review the conversation; do not approve it again. | Pocket answered 503. |
@@ -394,7 +402,9 @@ Variables go in the Pocket Code directory's `.env`; restart Pocket after changin
 | **Allow button on this device** says **Needs a new test** | The longest action was raised after this device was tested. | **Send a test notification** and type its codes. |
 | The test notification didn't come | Notifications for Pocket are blocked or silenced on the device, or the push service refused it. | Allow notifications for Pocket on the device, then send another test. |
 | "Those codes don't match." | A code was mistyped, or it came from an older test. | Type the two characters at the end of the "Runs:" line, then the two at the end of the "In:" line. After five wrong tries, send a new test. |
-| Missed: "This device was signed out of Pocket." | The device's sign-in ended (**Sign out everywhere**, a new password, or a Cloudflare Access session that ran out). | Sign in again on the device; answer on the card. |
+| Missed: "This device was signed out of Pocket." | The device's sign-in ended (**Sign out everywhere**, a new password, or a Cloudflare Access session that ran out). | Sign in again on the device; answer on the card. If the sign-in takes more than a minute, Pocket's own sign-in screen still shows the line afterwards; a Cloudflare Access sign-in starts the page again and the line is lost. |
+| Missed: "Pocket refused the answer from the address the notification used.", or **Allow** and **Don't allow** in Pocket say "Cross-origin request refused." | Pocket's same-origin check compares the page's address with the `Host` the request arrives with. A reverse proxy that doesn't pass on the public `Host` makes every answer look like it came from another site (403). Since 1.126.0 the answer route has this check, so such an install loses the in-app buttons too. | Make the proxy forward the public `Host` (for nginx, `proxy_set_header Host $host;`; see [Install](../install.md)). |
+| Missed: "It was no longer waiting: it was answered in Pocket." | It was answered differently in Pocket first. | Read the conversation; the first answer stands. |
 | Missed: "Answering from notifications is turned off." | **Answer approvals from notifications** was turned off after the notification was sent. | Answer on the card, or turn it on again in **Settings → Features**. |
 | Missed: "It was no longer waiting." | Someone answered it first, or the reply ended, was stopped or was paused. | Read the conversation; send a new message if needed. |
 | Missed: "Pocket couldn't match it to what the notification showed, or a setting changed." | A setting changed after the notification was sent (a lower limit, **Only that an action waits**, the agent switched off under **Engines**, the job or check-back switch, the device's Allow button off), or the request changed. | Review the card and answer there. |

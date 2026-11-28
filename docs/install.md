@@ -175,6 +175,11 @@ callers share the intake links' per-address limits, and without `X-Forwarded-Pro
 is not sent HSTS. Cloudflare Tunnel (`cloudflared`), Caddy's `reverse_proxy` and Tailscale Serve
 add `X-Forwarded-For` themselves, so their examples above need nothing more.
 
+**Any reverse proxy must pass on the public `Host`.** Pocket refuses a request whose browser `Origin` names a different
+host from the `Host` header it arrives with (403, "Cross-origin request refused."). The Vault, Files and, since 1.126.0,
+**Allow** and **Don't allow** on an action approval (in the app and from a notification) depend on it. nginx sends its
+upstream's address unless told otherwise, which is why the example above has `proxy_set_header Host $host;`; keep it.
+
 Whichever you use, `POCKET_FRAME_ANCESTORS` in `.env` is only needed if another page will embed
 Pocket in a frame.
 

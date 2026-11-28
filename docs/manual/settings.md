@@ -389,11 +389,11 @@ is in [Notifications](#notifications), under **This device only**.
 
 | Setting | What it does | Default | Range or choices |
 |---|---|---|---|
-| **Answer approvals from notifications** | Off: approval notifications are as before, with no buttons, and an answer from a notification is refused | Off | On or off |
+| **Answer approvals from notifications** | Off: approval notifications are as before, with no buttons, and an answer from a notification is refused. Turning it off replaces the approval notifications already out, silently, with ones that have no buttons | Off | On or off |
 | **What approval notifications show** | **The action** shows the action, its folder and the conversation. **Only that an action waits** shows no conversation and no action, and offers **Don't allow** only | The action | The action, Only that an action waits |
 | **Allow works for** | An Allow from a notification older than this many minutes is refused; review the request in Pocket instead | 30 min | 5 to 240 min |
 | **Allow on a check-back's actions** | Off: a check-back's notifications offer **Don't allow** only | On | On or off |
-| **Allow on a job's actions** | Covers every reply in a conversation a job has run in, yours included. Off: they offer **Don't allow** only | Off | On or off |
+| **Allow on a job's actions** | Covers every reply in a conversation a job has run in, yours included, in a branch of one, and in a conversation handed off from one. Off: they offer **Don't allow** only | Off | On or off |
 
 Under **Advanced**:
 
@@ -404,7 +404,8 @@ Under **Advanced**:
 | **Update other devices after an answer** | Replaces the notification on your other devices once the request is answered or withdrawn | On | On or off |
 | **Engines**: **Claude Code**, **Codex**, **OpenRouter**, **Antigravity** | Allow on notifications for that agent's replies. Off: its notifications offer **Don't allow** only | All on | On or off, each |
 
-The limits have no Off. **Reset to defaults** puts every setting back. All are stored on the server (`approvalPush` in
+The limits have no Off. A number setting takes a number only, and a saved value Pocket can't use (outside its range, or
+not a number) counts as the default. **Reset to defaults** puts every setting back. All are stored on the server (`approvalPush` in
 `pocket-settings.json`). `POCKET_APPROVAL_PUSH_<NAME>` presets each one ([below](#settings-and-environment-variables)).
 If push isn't set up on the server, the page says so: no approval notification is sent until `VAPID_PUBLIC` and
 `VAPID_PRIVATE` are set.
@@ -491,7 +492,7 @@ Read only. It reports; nothing here can be changed.
 | **Plan usage** | Your Claude and Codex 5-hour and weekly usage, and extra-usage status. Codex shows only when it is installed. It updates when a reply runs, not live. Also in **Conversation options** |
 | **Unattended replies** | What ran without you: **Today**, and **Last 7 days** with replies, tokens and cost. Stored on the server (`automation-state.json`) |
 | **Limits reached today** | Which limits held work back today, and when |
-| **Answered away from the app** | Answers to action approvals from a notification, and answers Pocket refused, in the last 7 days, newest first: the time, the conversation, the kind of action, **Allowed**, **Not allowed** or **Refused** with the reason, and where (the push service the device uses, such as **Chrome or Android**, **Apple** or **Firefox**). Never the command. Read from `approval-decisions.jsonl`. Shown in both modes, whether or not answers from notifications are on |
+| **Answered away from the app** | Answers to action approvals from a notification, and answers Pocket refused, in the last 7 days, newest first: the time, the conversation, the kind of action, **Allowed**, **Not allowed** or **Refused** with the reason, and where (the push service the device uses, such as **Chrome or Android**, **Apple** or **Firefox**). Never the command. Read from `approval-decisions.jsonl`, up to its last 4 MB; when the record is longer and all of that is recent, a line says older answers from the 7 days are not listed. Shown in both modes, whether or not answers from notifications are on |
 | **Inbox Watch cost** (Developer mode, Inbox Watch on) | What Inbox Watch spent each day for the last 7 days. Opens the cost table in its settings, where it also stays |
 
 ## Help & updates

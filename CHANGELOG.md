@@ -16,8 +16,8 @@ action approvals away from the app"; the steps are in the manual, Questions and 
   `Edits:` or `Uses:`), the folder and the conversation, with **Don't allow** and, on a device the owner has tested,
   **Allow**. Allow answers that one request only, never Always allow, and never Allow network access or Allow for this
   reply. It appears only for an action Pocket can show whole: short enough (**Longest action with an Allow button**, 80
-  characters by default, counting the action and folder lines), in plain ASCII, with no `..` in the folder and nothing
-  that looks like a password or key. Otherwise the notification says why the action is not shown and offers Don't allow
+  characters by default, counting the action and folder lines), in plain ASCII, with a full folder path (no `..`, no
+  engine-written `~/`, nothing a cleaning would trim) and nothing that looks like a password or key. Otherwise the notification says why the action is not shown and offers Don't allow
   only. A tap opens the request in Pocket.
 - **Its own page, Settings → Features → Answers from notifications** (`approval-push.mjs`): **What approval notifications
   show** (the action, or only that an action waits, with Don't allow only), **Allow works for** (30 minutes, 5-240),
@@ -32,7 +32,8 @@ action approvals away from the app"; the steps are in the manual, Questions and 
 - **After an answer.** The other devices' notifications for that request are replaced by a silent one that says what
   happened (allowed or not, from where and when, or that it is no longer waiting). An Allow that does not go through is
   never retried: the phone shows "Your Allow didn't go through: <reason>. Open Pocket." and the request's page says why
-  above its card.
+  above its card. Turning the feature off, or muting a conversation, replaces the approval notifications already out,
+  once and silently, with ones that have no buttons.
 - **Settings → Usage → Answered away from the app**: answers from notifications, and answers Pocket refused, in the last 7
   days, with the kind of action and the push service, never the command.
 
@@ -40,6 +41,9 @@ action approvals away from the app"; the steps are in the manual, Questions and 
 
 - **The answer route now checks the origin for every caller.** `POST /api/session/:id/approvals/:request/decision` gained
   `sameOrigin`: a request whose `Origin` names another host gets 403. Pocket's own page and its service worker pass.
+  An install whose proxy does not forward the public `Host` header loses the in-app Allow and Don't allow buttons
+  (and answers from notifications) until the proxy is fixed (`docs/install.md`); a notification answer refused this way
+  says Pocket refused the answer from that address, not that the device was signed out.
 - **An Allow from a notification is checked again when it arrives.** Pocket re-runs the rules with today's settings, checks
   that the posting device was offered Allow for that request, that the notification is younger than **Allow works for**,
   and that the action, folder and kind still match what the notification showed (`shown`, a SHA-256 the notification
@@ -47,7 +51,13 @@ action approvals away from the app"; the steps are in the manual, Questions and 
   gets 400 `unknown_via`; with the feature off a notification answer gets 404 `answers_off`.
 - **The approval record says where each answer came from.** Every `decision` line in `approval-decisions.jsonl` has
   `source` (`app` or `notification`); a notification answer adds `device`, `pushService` and `action`, and a refused one
-  writes a `refused` line with its `reason`. Still no command or arguments.
+  writes a `refused` line with its `reason`, including one no longer waiting (`gone`) or already answered (`answered`,
+  `answered_in_app`). Still no command or arguments.
+- **Hardened after a security review, before release.** The secret check runs on every line the push builds both as
+  written and as cleaned, so an invisible character can't split a key; blank-looking characters in context lines become
+  one space. OpenRouter and Antigravity requests are read from their own command field only, and one carrying both gets
+  no Allow. The job rule follows handoffs as well as branches. Settings are own-key lookups, unknown keys are 400 and a
+  number setting takes a number only. A malformed request id is 400 before anything else.
 - **What this does not cover** is listed in SECURITY.md: a stolen or borrowed phone that still shows notifications, the
   Vault's record (no source yet), stale buttons after a restart, a locked phone that can't send, no recent sign-in check,
   and untested behaviour behind Cloudflare Access.
@@ -80,6 +90,10 @@ Action approvals off gets it back on the first kind it changes there.
   in a real browser; added to `npm run test:browser`).
 - The fake Claude can ask several approvals at once and withdraw one (`__REQS__`); the fake Codex can ask any kind of
   approval (`__CXREQ__`). Existing tests now expect the sixth push kind, `source: "app"` and the new Settings group.
+- The security review's cases: the folder and spacing rules, both ACP fields, a key split by an invisible character in
+  every line, handoffs, refusals inside the inbox, settling on off and mute, the older-answers line, and in the browser
+  the 60-second rule and sign-in, a body tap on a request that no longer waits, and the missed line and a conversation
+  title kept as text. End to end, an Allow from a notification reaches the fake Codex and the fake OpenCode.
 - Not tested yet: the notifications on real phones (spec tests 30-32).
 
 ## [1.125.3] — 2026-11-27 · build 236

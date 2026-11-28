@@ -339,12 +339,18 @@ user is such a program (first plain warning above). Keep the key folder out of t
 Since 1.126.0 the owner can answer an agent's action approval from its notification. It is off on every install until
 the owner turns on **Answer approvals from notifications** in **Settings → Features**. While it is off, every approval
 notification is exactly as in 1.125.3: no buttons and no command. An answer that says it came from a notification is
-then refused (404 `answers_off`). Turning it on adds the following. Answering by voice is not built.
+then refused (404 `answers_off`). Turning it off again, or muting a conversation, replaces the approval notifications
+already out (for that conversation, or everywhere) once, silently, with a line that says why and no buttons. Turning it on
+adds the following. Answering by voice is not built.
 
 - **Who can answer.** `POST /api/session/<id>/approvals/<request>/decision` takes the owner's sign-in only: the session
   cookie, or the sign-in through Cloudflare Access. The CLI token, runner tokens and job keys are refused (401), so an
   agent can't answer its own request. Since 1.126.0 the route also refuses a request whose `Origin` header names another
   site (403), for every caller, the app included. A request with no `Origin` header passes, as on the Vault routes.
+  The check compares `Origin` with the `Host` header the request arrived with, so a reverse proxy must forward the public
+  `Host` (`docs/install.md`). Behind one that does not, every answer from the app's buttons and from notifications gets
+  403 until the proxy is fixed. A notification answer refused this way says Pocket refused the answer from that address;
+  it does not say the device was signed out.
 - **What the checks are for.** Anyone with the owner's sign-in can answer as the app does, from the full card. The checks
   below apply to an answer that says it came from a notification (`via: notification`). They tie an Allow tapped on a
   notification to the exact text the server built for that device, and refuse it when the server would no longer offer it.
@@ -354,14 +360,19 @@ then refused (404 `answers_off`). Turning it on adds the following. Answering by
   - The request can be stated in one line: a Claude Code command (Bash or PowerShell), web page (WebFetch) or web search
     (WebSearch) with no input field outside a short fixed list; a Codex command with no extra permissions that names its
     own folder; or an OpenRouter or Antigravity command whose text came from the command itself, with an allow-once
-    option. File edits, helpers, connector tools, network access, more access for the reply and any request Pocket
+    option. Each of those two engines is read from its own field only (`command` for OpenRouter, `CommandLine` for
+    Antigravity) with no field outside a short list; a request that carries both fields gets no Allow, and the app's card
+    shows both under Show details. An OpenRouter (OpenCode) request names no folder of its own, so its folder line reads
+    "Conversation folder:", the folder the conversation started in. File edits, helpers, connector tools, network access, more access for the reply and any request Pocket
     doesn't know never get Allow. Nor does a request the app's card can't allow.
   - The action and the folder are printable ASCII only (space to `~`). That shuts out line breaks, tabs, zero-width and
     direction-changing characters, and look-alike letters such as a Cyrillic "а".
   - The action line and the folder line, labels included, together fit in **Longest action with an Allow button**, 80
     characters by default. With a usual folder that leaves room for a command of roughly 30 characters. The owner can
     raise the limit, up to 240; each device then needs a new test.
-  - The folder has no `..` part.
+  - The folder is a full path (it starts with `/`), is not empty and has no `..` part. Nothing in it or in the action
+    would change when the push cleans the line: no leading, trailing or doubled space. A folder the engine gave as `~/`
+    counts as a relative path; only Pocket's own shortening of the home folder shows `~/`.
   - The secret detector finds nothing in the action or the folder.
   - The reply's origin allows it (the job rule, below).
   - The reply's engine is switched on under **Engines**.
@@ -393,14 +404,18 @@ then refused (404 `answers_off`). Turning it on adds the following. Answering by
 - **The job rule.** A job's data (an emailed alert, a pager message) can steer the agent into proposing a command made to
   look harmless, and that text stays in the conversation. So a job's reply, and every later reply in a conversation a job
   has run in, offers **Don't allow** only unless the owner turns on **Allow on a job's actions** (off by default). That
-  includes the owner's own replies there, and any branch of such a conversation. A check-back's reply offers Allow while
+  includes the owner's own replies there, any branch of such a conversation and any conversation handed off from one
+  (Pocket follows both links back, at most 100 steps, and stops at a loop). A check-back's reply offers Allow while
   **Allow on a check-back's actions** is on (the default); in a conversation a job has run in, the job rule wins. The rule
   is checked when the notification is built and again when the answer arrives.
 - **Outside text reaches the owner's own replies too.** A web page, an email or a file an agent reads can shape a command
   in a reply the owner started. That is why the rule that Allow appears only beside the whole action, in plain characters
   and short enough to read, is the main protection everywhere. The origin rule is a second one.
 - **Nothing that looks like a secret goes into the push.** Push text passes through the browser's push service. An action,
-  a folder, a conversation title or a subagent name that looks like a password or key is replaced by a note.
+  a folder, a conversation title, a job's name or a subagent name that looks like a password or key is replaced by a note,
+  and so is the text of a summary or replacement notification. Each is checked as written and again as the push shows it
+  (invisible characters removed, line breaks and blank-looking characters turned into one space), so a zero-width
+  character can't split a key that the cleaning would join again.
 - **A stolen or borrowed phone.** By default the notification shows the action on the lock screen (**What approval
   notifications show: The action**). Whether a button works on a locked phone depends on the device, and nothing here has
   been verified on real phones yet. Allow from a locked phone on a tested device is accepted by design: each install's
@@ -412,7 +427,10 @@ then refused (404 `answers_off`). Turning it on adds the following. Answering by
 - **The record.** Each `decision` line in `approval-decisions.jsonl` now has `source` (`app` or `notification`). One from a
   notification also has `device` (12 hex digits of a SHA-256 of the push address, or `unknown` when that address isn't
   subscribed), `pushService` (the push address's host) and `action` (the kind of action). A refused answer from a
-  notification writes a `refused` line with its reason. No line holds a command, an argument or file content.
+  notification writes a `refused` line with its reason, also when the request was no longer waiting (`gone`) or had been
+  answered already (`answered`, or `answered_in_app` when the app answered it). If that line can't be written the answer
+  is still refused, and Pocket does not try again; a decision that could not be recorded is not also recorded as refused.
+  No line holds a command, an argument or file content.
 
 **Weaknesses inherited from the Vault's notification flow, stated and not fixed.** The first one in the plan, a cut
 command beside Allow, was fixed in 1.125.3. These still apply:

@@ -141,8 +141,11 @@ from Pocket, `notification` for one from a notification. A notification answer a
 address is not subscribed), `pushService` (the push address's host) and `action` (`command`,
 `page`, `search`, `edit` or `action`). An answer from a notification that Pocket refuses writes
 a `"event":"refused"` line with the same fields and a `reason` (`answers_off`, `gone`,
-`not_offered`, `too_old`, `changed` or `unknown_via`; for `unknown_via` the `source` is
-`unknown`). `source` and `device` are what the answer
+`answered`, `answered_in_app`, `not_offered`, `too_old`, `changed` or `unknown_via`; for
+`unknown_via` the `source` is `unknown`). `answered` means the request was already answered
+differently from a notification, `answered_in_app` that it was answered in Pocket. If that line
+can't be written the answer is still refused and Pocket does not try again; a decision that
+could not be recorded (503) is not also written as refused. `source` and `device` are what the answer
 said about itself, not proof of where it came from. The file still excludes commands, arguments,
 file contents and credentials. Keep it with instance backups. Full request details
 remain in the live inbox, private Claude turn logs and provider transcript, not

@@ -597,7 +597,7 @@ Nobody may be looking when a job reply asks for something, and it waits for you.
 - **An approval or a question.** With **Ask first**, every action that isn't on your list of read-only actions asks ([Questions and approvals](approvals.md#replies-you-did-not-start)). For a job that should run on its own, keep the instruction to reading what your list already allows ([Let read-only actions run without asking](approvals.md#let-read-only-actions-run-without-asking)), or give the key **Full access** in a folder where a mistake is cheap.
   With **Answer approvals from notifications** on (1.126.0), a job's approvals reach your phone with **Don't allow** only:
   **Allow on a job's actions** is off by default, because the job's data can steer the agent. That covers every reply in a
-  conversation a job has run in, your own included, and in a branch of one. The notification says *Started by job …* or
+  conversation a job has run in, your own included, and in a branch of one or a conversation handed off from one. The notification says *Started by job …* or
   *A job has run in this conversation*. Turn it on in **Settings → Features → Answers from notifications** only for jobs
   whose data you trust ([Answer from the notification](approvals.md#answer-from-the-notification)).
 - **A request to share or publish a file** ([Files](files.md#when-an-agent-asks-to-share)). A job reply never shares anything on its own, under any access.
