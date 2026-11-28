@@ -817,7 +817,7 @@ header.bar { gap: 2px; padding-inline: 8px; }
 .coord-name { font-weight:600;overflow-wrap:anywhere; }
 .coord-who,.coord-why,.coord-wait { grid-column:1 / -1;min-width:0;overflow-wrap:anywhere; }
 .coord-who { color:var(--dim); }
-.coord-who a,.coord-why a { color:inherit;text-underline-offset:3px; }
+.coord-who a,.coord-why a,.answers-away a { color:inherit;text-underline-offset:3px; }
 .coord-why { color:var(--text); }
 .coord-wait { color:var(--dim); }
 .coord-time { grid-row:1;grid-column:2;color:var(--dim);font-family:ui-monospace,"Cascadia Mono",Menlo,monospace;font-size:13px;white-space:nowrap; }
@@ -1683,7 +1683,7 @@ header.bar .chat-statebar { border: 0; background: none; padding: 0; order: 10; 
 .vault-deny:hover { background: var(--raised); }
 .vault-answer:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
 .vault-answer:disabled { opacity: .55; cursor: default; filter: none; }
-.vault-request-missed, .vault-request-changed, .vault-notice { margin: 0 0 10px; padding: 9px 12px; border: 1px solid var(--warn); border-radius: 10px; color: var(--text); font-size: 14px; line-height: 1.45; max-width: 64ch; }
+.vault-request-missed, .vault-request-changed, .vault-notice, .approval-missed { margin: 0 0 10px; padding: 9px 12px; border: 1px solid var(--warn); border-radius: 10px; color: var(--text); font-size: 14px; line-height: 1.45; max-width: 64ch; }
 .vault-notice { margin: 0 18px 14px; }
 /* What Pocket checks for a run: the program line reuses .vault-request-where; a note says what it cannot check, and the
    argument files Always allow pins are a short checklist the owner can untick for a file the command writes. */
@@ -2349,6 +2349,16 @@ html.pocket-paused .frame header.bar { padding-top: 10px; } /* the banner takes 
 .automation-off { min-height: 44px; }
 .automation-off[aria-pressed="true"] { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
 .automation-advanced { margin-top: 4px; }
+/* 1.126: Answers from notifications reuses the groups above: Advanced's Engines heading is the group's own small heading,
+   the raise warning hides while empty, and the device test's code form is the Cloudflare Access form's column. The missed
+   line above an approval card is the Vault's missed line. */
+.automation-advanced > .automation-section { margin: 12px 0 2px; }
+.automation-row > [data-ap-raise]:empty { display: none; }
+.access-form[hidden] { display: none; }
+.allow-codes .voice-field input { max-width: 12em; }
+.allow-codes .voice-field input[aria-invalid=true] { border-color: var(--err); }
+.approval-missed { margin: 16px 0 0; }
+.approval-missed:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
 .automation-group > .vault-set-actions { margin-top: 6px; }
 .automation-group > [data-auto-status]:empty { display: none; }
 .automation-usage .watch-usage caption { caption-side: bottom; text-align: left; padding-top: 6px; }
@@ -2574,11 +2584,11 @@ a.job-run:hover { background: var(--raised); }
 .feature-open { position: relative; }
 .model-offer > .feature-row #s-router-on, .features-list #s-router-on { margin: 0; padding: 14px; font-size: 16.5px; }
 .automation-host > .automation-group:first-child > .vault-set-head:first-child { display: none; } /* the page's own heading names it */
-#s-tasks-auto, #s-auto-usage { padding-top: 0; }
+#s-tasks-auto, #s-auto-usage, #s-answers-usage { padding-top: 0; }
 #s-tasks-auto > .automation-switch { padding: 0; border-top: 0; }
 #s-tasks-auto .automation-row .opt.automation-bool { margin: 0; width: 100%; padding: 14px; font-size: 16.5px; }
-#s-auto-usage > .automation-usage { border-top: 0; }
-#s-auto-usage > .automation-usage > .vault-set-head:first-child { display: block; }
+#s-auto-usage > .automation-usage, #s-answers-usage > .automation-usage { border-top: 0; }
+#s-auto-usage > .automation-usage > .vault-set-head:first-child, #s-answers-usage > .automation-usage > .vault-set-head:first-child { display: block; }
 .automation-lead { margin: 0 14px 8px; }
 .settings-details-page > summary { display: none; }
 .settings-details-page { border-top: 0; margin-top: 0; padding-top: 0; }

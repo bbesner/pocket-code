@@ -18,7 +18,13 @@ additional permissions, which grants the listed access until the turn ends. For 
 broader grants the card states the scope above the details; for a single request it is under
 **Show details**. Closing the sheet, sleeping the phone or losing
 the browser connection does not approve anything. Refresh reloads the live pending requests.
-Push notifications contain no command or argument details. A decision being sent is
+While **Answer approvals from notifications** is off (the default), approval push notifications
+contain no command or argument details. When the owner turns it on (1.126.0), each request gets
+its own notification showing the action, the folder and the conversation, with **Don't allow**
+and, on a device the owner has tested, **Allow** for a short action Pocket can show whole. Under
+**What approval notifications show: Only that an action waits** they again contain no command
+or argument details. The rules are in [SECURITY.md](../SECURITY.md#answering-action-approvals-away-from-the-app)
+and the steps in the [manual](manual/approvals.md#answer-from-the-notification). A decision being sent is
 not evidence of successful execution; check the conversation for the result.
 
 ## Provider behavior
@@ -129,10 +135,22 @@ stop the turn and inspect the result before starting again.
 
 `approval-decisions.jsonl` in the instance data directory records request identifiers,
 turn IDs, kinds, hashes, timestamps and decisions, including automatic approvals with the rule
-that matched. It excludes commands, arguments,
+that matched. Since 1.126.0 each `decision` line also has `source`: `app` for an answer
+from Pocket, `notification` for one from a notification. A notification answer adds `device`
+(the first 12 hex digits of a SHA-256 of the device's push address, or `unknown` when that
+address is not subscribed), `pushService` (the push address's host) and `action` (`command`,
+`page`, `search`, `edit` or `action`). An answer from a notification that Pocket refuses writes
+a `"event":"refused"` line with the same fields and a `reason` (`answers_off`, `gone`,
+`answered`, `answered_in_app`, `not_offered`, `too_old`, `changed` or `unknown_via`; for
+`unknown_via` the `source` is `unknown`). `answered` means the request was already answered
+differently from a notification, `answered_in_app` that it was answered in Pocket. If that line
+can't be written the answer is still refused and Pocket does not try again; a decision that
+could not be recorded (503) is not also written as refused. `source` and `device` are what the answer
+said about itself, not proof of where it came from. The file still excludes commands, arguments,
 file contents and credentials. Keep it with instance backups. Full request details
 remain in the live inbox, private Claude turn logs and provider transcript, not
-browser storage or notifications. Approval HTTP responses use `Cache-Control: no-store`.
+browser storage. Notifications carry the action and its folder only while answers from
+notifications are on (see above). Approval HTTP responses use `Cache-Control: no-store`.
 
 Pending approvals do not survive a daemon restart as actionable requests. The
 restarted daemon reattaches to the running Claude or Codex process and answers every

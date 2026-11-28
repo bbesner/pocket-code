@@ -1030,7 +1030,7 @@ export function closeCodexSession(s, why) {
 // 1.117: what started a turn (automation.mjs): kept on the turn and in the session marker, so an adopted turn keeps it.
 const originOf = t => t?.origin ? { origin: t.origin, ...(t.originRef ? { originRef: t.originRef } : {}), rootOrigin: t.rootOrigin || 'owner' } : {};
 function makeTurn(s, { text, model, effort, executionMode = 'work', hooks, autonomous = false, offset, origin, originRef, rootOrigin }) {
-  const { emit, onFinish, onQuestion, onApproval, auditApproval } = hooks;
+  const { emit, onFinish, onQuestion, onApproval, auditApproval, onApprovalGone } = hooks;
   const turn = {
     threadId: s.threadId, cwd: s.cwd, startedAt: Date.now(), userText: text, model, effort,
     events: [], subs: new Set(), queue: [], turnId: null, done: false, onFinish, executionMode, approvalMode: s.approvalMode, approvalItems: new Map(),
@@ -1052,7 +1052,7 @@ function makeTurn(s, { text, model, effort, executionMode = 'work', hooks, auton
     if(!conn.writable())return reject(new Error('Approval connection closed'));
     try{conn._write({jsonrpc:'2.0',id,result},e=>e?reject(e):resolve());}catch(e){reject(e);}
   }),onChange:()=>{writeSessionMeta(s);turn.emit({type:'approvals'});if(turn.approvals?.list().length)onApproval?.(turn);},
-  onAutoError:(e,{tool})=>log(`trusted action reply not delivered session=${CX+turn.threadId} tool=${tool}: ${e.message}`)}); // 1.124.4: as Claude's
+  onAutoError:(e,{tool})=>log(`trusted action reply not delivered session=${CX+turn.threadId} tool=${tool}: ${e.message}`),onGone:(rows,info)=>onApprovalGone?.(turn,rows,info)}); // 1.126: answered, withdrawn or ended // 1.124.4: as Claude's
   clearTimeout(s.idleTimer);
   s.turn = turn;
   s.lastActivityAt = Date.now();
@@ -1196,10 +1196,10 @@ async function openCodexSession({ threadId, forkFrom, cwd, model, approvalMode, 
 
 // `mayStart` (1.117): called just before the turn exists, after any wait to open the process; it throws to refuse (Pocket
 // was paused meanwhile). The process opened for it stays, idle, as after a finished reply.
-export async function startCodexTurn({ threadId, forkFrom, cwd, text, model, effort, executionMode = 'work', approvalMode='review', attachments, action = null, emit, onFinish, onQuestion, onApproval, auditApproval, onAutonomous, onForked, launch = null, origin, originRef, rootOrigin, mayStart = null }) {
+export async function startCodexTurn({ threadId, forkFrom, cwd, text, model, effort, executionMode = 'work', approvalMode='review', attachments, action = null, emit, onFinish, onQuestion, onApproval, auditApproval, onApprovalGone, onAutonomous, onForked, launch = null, origin, originRef, rootOrigin, mayStart = null }) {
   const existing = threadId && codexTurns.get(threadId);
   if (existing) throw Object.assign(new Error('busy'), { code: 409 });
-  const hooks = { emit, onFinish, onQuestion, onApproval, auditApproval, onAutonomous };
+  const hooks = { emit, onFinish, onQuestion, onApproval, auditApproval, onApprovalGone, onAutonomous };
   let s = threadId && codexSessions.get(threadId);
   // Permissions ride on thread/resume, so a change needs a fresh process (after the old
   // one has let go of the writer lock).

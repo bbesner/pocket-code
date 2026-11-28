@@ -1,5 +1,5 @@
 <!-- manual
-checked: 1.125.3
+checked: 1.126.0
 sources: docs/install.md, scripts/pocket-init.mjs, access.mjs, public/manifest.webmanifest, public/sw.js, public/workspace.js
 -->
 # Getting started
@@ -71,7 +71,9 @@ Pocket Code is an installable web app (a PWA).
 4. Tap the bell at the top of the conversation list to turn on notifications for this device, or
    use **Settings → Notifications → Push to this device**. Then choose which kinds this
    device gets: **Finished replies**, **Due tasks and reminders**, **Vault requests**, **Inbox
-   alerts** and **Check-backs and job results**.
+   alerts**, **Check-backs and job results** and **Action approvals** (used only once you turn on
+   answering approvals from the notification; see
+   [Answer from the notification](approvals.md#answer-from-the-notification)).
 
 Push needs HTTPS, the VAPID keys `pocket-init` wrote to `.env`, and the browser's permission. On
 iPhone and iPad, web push works only from the installed app. The app caches its own screens, never

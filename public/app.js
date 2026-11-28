@@ -875,6 +875,7 @@ function renderLogin() {
     $('#pw').removeAttribute('aria-invalid'); $('#lerr').textContent = '';
     try {
       await api('/login', { method: 'POST', body: JSON.stringify({ password: $('#pw').value }) });
+      if (typeof approvalFocusSignedIn === 'function') approvalFocusSignedIn(); // 1.126: a missed answer's line outlasts the sign-in
       if (over && host.isConnected) { host._release(); if (back?.isConnected) back.focus({ preventScroll: true }); if (!document.activeElement?.closest('.sheet')) { const top = [...document.querySelectorAll('.sheet')].at(-1); (top?.querySelector('input:not([type=hidden]):not([disabled]),textarea:not([disabled])') || top)?.focus({ preventScroll: true }); } return; } // the sheet carries on; its own refresh reloads it
       route();
     } catch (e) {
@@ -986,7 +987,7 @@ function featuresLockedNote(f) {
   const say = (names, state) => !names.length ? '' : (names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names.at(-1) + ' are ' : names[0] + ' is ') + (names.length === all.length ? 'all ' : '') + state + '.';
   return [say(all.filter(x => x[1]).map(x => x[0]), 'on'), say(all.filter(x => !x[1]).map(x => x[0]), 'off'), 'To change them, ask the person who runs this install.'].filter(Boolean).join(' ');
 }
-async function settingsSheet({about = false, category = '', scrollTop = 0} = {}) {
+async function settingsSheet({about = false, category = '', scrollTop = 0, approvalTest = false} = {}) {
   const scrim = document.createElement('div'); scrim.className = 'scrim';
   const sh = document.createElement('div'); sh.className = 'sheet settings-sheet';
   const chimeOn = localStorage.getItem('pc-chime') !== 'off';
@@ -1069,7 +1070,9 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
       <button class="opt" id="s-push-vault" disabled aria-pressed="false"><span class="dot"></span><span>Vault requests<span class="sub">An agent is waiting for you to allow a stored password or key, or to share or publish a file</span></span></button>
       <button class="opt" id="s-push-alerts" disabled aria-pressed="false"><span class="dot"></span><span>Inbox alerts<span class="sub">Inbox Watch, or another program on this server, flagged something that needs you. Which emails count is set in Features › Inbox Watch</span></span></button>
       <button class="opt" id="s-push-automation" disabled aria-pressed="false"><span class="dot"></span><span>Check-backs and job results<span class="sub">A check-back ran or was missed, a job finished, or a limit held back unattended work. Muting and per-job choices are in Features › Check-backs and Features › Job keys</span></span></button>
+      <button class="opt" id="s-push-approvals" disabled aria-pressed="false"><span class="dot"></span><span>Action approvals<span class="sub">An agent is waiting for you to allow a command or other action. Sent at once, only while Answer approvals from notifications is on in Features; otherwise these come with Finished replies</span></span></button>
     </div>
+    ${Automation.deviceHTML()}
     <button class="opt" id="s-badge" aria-pressed="false"><span class="dot"></span><span>Count on the app icon<span class="sub" id="s-badge-state">How many tasks and reminders are due, on the installed app's icon</span></span></button>
     <button class="opt" id="s-ahead" disabled aria-pressed="false"><span class="dot"></span><span>Notice a day before<span class="sub" id="s-ahead-state">Loading the reminder setting…</span></span></button>
     <div class="title-settings" id="s-email-wrap"><form class="email-form" id="s-email-form" novalidate><label class="voice-field">Email due tasks and reminders to<input type="email" name="to" id="s-email" placeholder="you@example.com" maxlength="200" autocomplete="email" aria-describedby="s-email-err" disabled></label>
@@ -1144,6 +1147,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
   sh.querySelector('#s-theme').onchange = e => PocketTheme.setPreference(e.target.value);
   Voice.bindSettings(sh);
   Automation.bindSettings(sh); // 1.117
+  Automation.bindDevice(sh, { approvalTest }); // 1.126: Allow button on this device (approvalTest: the test notification's link)
   sh.querySelector('#s-environment').onclick = openEnvironment;
   sh.querySelector('#s-connectors').onclick = () => openConnectors();
   sh.querySelector('#s-usage').onclick = openUsagePanel;
@@ -1191,7 +1195,7 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
   };
   // 1.50: push by kind and the icon count are this device's choices, kept with its subscription on the server.
   let pushSub = null, pushPrefs = null;
-  const PUSH_KINDS = ['turns', 'reminders', 'vault', 'alerts', 'automation']; // 1.69: alerts; 1.119: automation (always shown: it also carries the 1.117 limit notices)
+  const PUSH_KINDS = ['turns', 'reminders', 'vault', 'alerts', 'automation', 'approvals']; // 1.69: alerts; 1.119: automation (always shown: it also carries the 1.117 limit notices); 1.126: approvals (Action approvals)
   const paintPushKinds = () => {
     for (const k of PUSH_KINDS) { const b = sh.querySelector('#s-push-' + k); if (!b) continue; const on = Boolean(pushSub) && pushPrefs?.kinds?.[k] !== false; b.disabled = !pushSub; b.setAttribute('aria-pressed', String(on)); b.querySelector('.dot').classList.toggle('on', on); }
   };
@@ -1204,13 +1208,14 @@ async function settingsSheet({about = false, category = '', scrollTop = 0} = {})
     btn.setAttribute('aria-pressed', String(Boolean(sub)));
     btn.querySelector('.dot').classList.toggle('on', Boolean(sub));
     sh.querySelector('#s-push-state').textContent = !reg ? 'Unavailable. Reload the app or tap to retry.' : sub ? 'On. Notifications reach this device even when Pocket is closed. Choose the kinds below' : 'Off. Turn it on to get finished replies, due tasks and reminders, Vault requests, Inbox alerts, and check-back and job results on this device, even when Pocket is closed. Turn it on separately on each device';
-    if (sub) { try { pushPrefs = (await api('/push/prefs?endpoint=' + encodeURIComponent(sub.endpoint), { signal: AbortSignal.timeout(8000) })).prefs; } catch { pushPrefs = { kinds: { turns: true, reminders: true, vault: true, alerts: true, automation: true }, badge: true }; } }
-    if (sh.isConnected) paintPushKinds();
+    let approvals = null; // 1.126: this device's Action approvals and Allow button
+    if (sub) { try { const r = await api('/push/prefs?endpoint=' + encodeURIComponent(sub.endpoint), { signal: AbortSignal.timeout(8000) }); pushPrefs = r.prefs; approvals = r.approvals || null; } catch { pushPrefs = { kinds: { turns: true, reminders: true, vault: true, alerts: true, automation: true, approvals: true }, badge: true }; } }
+    if (sh.isConnected) { paintPushKinds(); Automation.deviceState({ sub, status: approvals }); }
   };
   sh.querySelector('#s-push').onclick = async e => { await togglePush(e.currentTarget); await refreshPush(); };
   for (const k of PUSH_KINDS) sh.querySelector('#s-push-' + k).onclick = async e => {
     if (!pushSub) return; const btn = e.currentTarget, on = btn.getAttribute('aria-pressed') !== 'true'; btn.disabled = true;
-    try { pushPrefs = (await api('/push/prefs', { method: 'POST', body: JSON.stringify({ endpoint: pushSub.endpoint, kinds: { [k]: on } }), signal: AbortSignal.timeout(8000) })).prefs; toast(({ turns: 'Finished replies', reminders: 'Due tasks and reminders', vault: 'Vault requests', alerts: 'Inbox alerts', automation: 'Check-backs and job results' })[k] + (on ? ' on for this device' : ' off for this device')); }
+    try { const r = await api('/push/prefs', { method: 'POST', body: JSON.stringify({ endpoint: pushSub.endpoint, kinds: { [k]: on } }), signal: AbortSignal.timeout(8000) }); pushPrefs = r.prefs; if (r.approvals) Automation.deviceState({ sub: pushSub, status: r.approvals }); toast(({ turns: 'Finished replies', reminders: 'Due tasks and reminders', vault: 'Vault requests', alerts: 'Inbox alerts', automation: 'Check-backs and job results', approvals: 'Action approvals' })[k] + (on ? ' on for this device' : ' off for this device')); }
     catch (err) { toast('Could not save: ' + (err.message || 'error')); }
     finally { if (sh.isConnected) paintPushKinds(); }
   };
@@ -3378,6 +3383,7 @@ async function renderChat(id, { away = false } = {}) {
   paintDelivery(id); refreshSessions();
   refreshQuestions(id);
   refreshApprovals(id);
+  takeApprovalFocus(id); // 1.126: opened from an approval notification: its card, and why an answer didn't go through
   restoreDock();
   refreshAgents(id);
   paintContextMeter(id);
@@ -4759,6 +4765,13 @@ async function route() {
   // Job keys: a request's push (/#/settings/jobs/request/<id>) opens Settings → Features → Job keys at that request, over the home view.
   const jobRequest = typeof JobKeys !== 'undefined' ? JobKeys.requestFromHash(location.hash) : null;
   if (jobRequest) history.replaceState(history.state, '', '#/');
+  // 1.126: a settings page link (/#/settings/<page>, the approval test notification's /#/settings/notifications?approvalTest=1)
+  // opens Settings at that page over the home view; the address goes back to the home view so a reload doesn't repeat it.
+  const settingsLink = (m => m ? { category: m[1], approvalTest: new URLSearchParams(m[2] || '').get('approvalTest') === '1' } : null)(/^#\/settings\/([a-z-]+)\/?(?:\?(.*))?$/.exec(location.hash));
+  if (settingsLink) history.replaceState(history.state, '', '#/');
+  // 1.126: an approval notification opens /#/chat/<session>?approval=<request>[&missed=<why>&tap=allow|deny]; the request is
+  // kept to bring its card into view (approvals.js) and the address loses the query, so a reload doesn't repeat it.
+  { const m = /^#\/chat\/([^?]+)\?(.*)$/.exec(location.hash); if (m) { noteApprovalFocus(m[1], new URLSearchParams(m[2])); history.replaceState(history.state, '', '#/chat/' + m[1]); } }
   rememberViewNavigation(location.hash || '#/');
   rememberReading();stashAttachments(); closeCurrentSheet?.(); ++chatRenderVersion;
   closeES(); chatId = null;
@@ -4788,6 +4801,7 @@ async function route() {
   if (h === '#/all') return renderList();
   const home = assistantMode() ? renderNew({ home: true }) : renderList(); // 1.60: Assistant mode opens on the message box
   if (jobRequest) { await home; JobKeys.openRequest(jobRequest); }
+  if (settingsLink) { await home; settingsSheet(settingsLink); }
   return home;
 }
 // 1.60: one class on <html> carries Assistant mode's simplifications (app.css), and the window takes its name.

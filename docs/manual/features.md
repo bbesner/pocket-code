@@ -1,6 +1,6 @@
 <!-- manual
-checked: 1.125.3
-sources: server.mjs, public/app.js, public/workspace.js, public/sw.js, public/manifest.webmanifest, router.mjs, access.mjs, engines.mjs, codex.mjs, acp.mjs, automation.mjs, checkbacks.mjs, job-keys.mjs, vault.mjs, inbox.mjs, inbox-runner.mjs, projects.mjs, project-mode.mjs, documents.mjs, tasks.mjs, coordination.mjs, skills.mjs, approvals.mjs, trusted.mjs, sidechat.mjs, voice.mjs, usage.mjs, self-update.mjs, cli-updates.mjs, scripts/pocket-init.mjs, push-text.mjs
+checked: 1.126.0
+sources: server.mjs, public/app.js, public/workspace.js, public/sw.js, approval-push.mjs, public/automation.js, public/manifest.webmanifest, router.mjs, access.mjs, engines.mjs, codex.mjs, acp.mjs, automation.mjs, checkbacks.mjs, job-keys.mjs, vault.mjs, inbox.mjs, inbox-runner.mjs, projects.mjs, project-mode.mjs, documents.mjs, tasks.mjs, coordination.mjs, skills.mjs, approvals.mjs, trusted.mjs, sidechat.mjs, voice.mjs, usage.mjs, self-update.mjs, cli-updates.mjs, scripts/pocket-init.mjs, push-text.mjs
 -->
 # Feature reference
 
@@ -52,6 +52,7 @@ Details and the per-agent differences are in [Claude Code, Codex, OpenRouter and
 | [Side chat, Branch and Handoff](#side-chat-branch-and-handoff) | Ask aside, copy a conversation, or continue with a briefing | On | Developer | **Agents** (handoff size) | [conversation.md](conversation.md#ask-a-side-question-side-chat) |
 | [Subagents and worktrees](#subagents-and-worktrees) | See helper agents and background jobs; remove stale worktrees | On | Developer | **Agents** (helper model) | [conversation.md](conversation.md#watch-subagents) |
 | [Questions and approvals](#questions-and-approvals) | Answer questions, allow or deny actions, Review actions or Full access | On | Both | **Agents** (trusted actions) | [approvals.md](approvals.md) |
+| [Answer from the notification](#questions-and-approvals) | Allow or Don't allow an action from its notification | Off | Both | **Features → Answers from notifications**; **Notifications** (each device) | [approvals.md](approvals.md#answer-from-the-notification) |
 | [Desktop workspace and phone layout](#desktop-workspace-and-phone-layout) | Rail, tabs, split view, panel, phone sheets, shortcuts | On | Developer (workbench) | **Help & updates** (shortcuts) | [desktop-and-phone.md](desktop-and-phone.md) |
 | [Projects and Conductor mode](#projects-and-conductor-mode) | Tracked project cards, reminders, top-model-led work | Off | Both (Conductor: Developer) | **Features → Projects** | [projects.md](projects.md) |
 | [Files](#files) | Library of reports and documents, with sharing | Off | Both | **Features → Files** | [files.md](files.md) |
@@ -199,15 +200,17 @@ Details and the per-agent differences are in [Claude Code, Codex, OpenRouter and
 - **Review actions** (the default): the agent asks before running commands, editing files, starting subagents or using external tools. Ordinary reads run without asking. Claude runs in permission mode `default`; Codex runs in a read-only sandbox with the `untrusted` approval policy.
 - **Full access**: tools run without routine prompts, with the access of the server account (`bypassPermissions` for Claude; `danger-full-access` for Codex).
 
-Nothing is decided for you: questions and approvals do not expire and a reply waiting on one is never stopped for being quiet. If Pocket restarts, pending requests are denied and the agent can ask again. Every request and decision is written to `approval-decisions.jsonl` (identifiers, kind, a hash of the request and the decision, never commands or contents); if the record cannot be written, nothing is approved.
+Nothing is decided for you: questions and approvals do not expire and a reply waiting on one is never stopped for being quiet. If Pocket restarts, pending requests are denied and the agent can ask again. Every request and decision is written to `approval-decisions.jsonl` (identifiers, kind, a hash of the request, the decision and, since 1.126.0, where the answer said it came from, never commands or contents); if the record cannot be written, nothing is approved.
 
 **Trusted actions.** The owner can list read-only actions that run without a card in Review actions: `Bash(command:*)`, `Bash(exact command)`, `mcp__server__tool`, `mcp__server__*`, `WebSearch`, `WebFetch`. Edits and file writes can never be listed. Claude uses every rule; Codex, OpenRouter and Antigravity use the command rules (see [Agents](settings.md#agents-developer-mode)). A listed command runs with any arguments, so it is a convenience, not a security boundary.
 
-**Where to control it.** The permissions chip above the box (hidden in Assistant mode), or **Conversation options → Permissions for the next reply**. **Settings → Agents → Actions that run without asking** (Developer mode); `POCKET_TRUSTED_ACTIONS` presets the list until one is saved there. `POCKET_APPROVAL_MODE` sets the install default (`review` or `full`) and `POCKET_ALLOW_FULL_ACCESS=0` removes Full access from the API and the UI.
+**Answer from the notification (1.126.0, off by default).** With **Settings → Features → Answer approvals from notifications** on, each approval gets its own notification showing the action (`Runs:`, `Opens:`, `Searches:`, `Edits:` or `Uses:`), the folder and the conversation, with **Don't allow** and, on a device that passed the test in **Settings → Notifications → Allow button on this device**, **Allow**. Allow answers that one request only and appears only for a short action Pocket can show whole (80 characters by default for the action and folder lines, plain ASCII, nothing that looks like a password or key); edits, helpers and other tools, Codex network and more-access requests, and a job's actions (by default) get Don't allow only. When the answer arrives Pocket checks it again: the same rules today, this device was offered Allow, the notification is younger than **Allow works for** (30 minutes), and the action still matches what it showed. The answer is recorded with `source: "notification"`, the device and the push service, and listed in **Settings → Usage → Answered away from the app**. Answering by voice is not built.
+
+**Where to control it.** The permissions chip above the box (hidden in Assistant mode), or **Conversation options → Permissions for the next reply**. **Settings → Agents → Actions that run without asking** (Developer mode); `POCKET_TRUSTED_ACTIONS` presets the list until one is saved there. `POCKET_APPROVAL_MODE` sets the install default (`review` or `full`) and `POCKET_ALLOW_FULL_ACCESS=0` removes Full access from the API and the UI. Answers from notifications: **Settings → Features → Answer approvals from notifications** and its **›** page (**Answers from notifications**), preset by `POCKET_APPROVAL_PUSH_<NAME>`; each device's **Action approvals** and **Allow button on this device** in **Settings → Notifications**.
 
 **Limits and gotchas.** The permission mode applies to the next reply that starts; steering does not change a running reply. A reply Pocket starts without you (a queued message, a retry, a check-back, a job) asks the same way and waits for you. At most 20 requests can wait per reply. Pocket never approves an action it cannot show in full.
 
-**More.** [Answer a question](approvals.md#answer-a-question), [Choose Review actions or Full access](approvals.md#choose-review-actions-or-full-access), [Review an action](approvals.md#review-an-action), [Let read-only actions run without asking](approvals.md#let-read-only-actions-run-without-asking), [What happens if you don't answer](approvals.md#what-happens-if-you-dont-answer), [Replies you did not start](approvals.md#replies-you-did-not-start).
+**More.** [Answer a question](approvals.md#answer-a-question), [Choose Review actions or Full access](approvals.md#choose-review-actions-or-full-access), [Review an action](approvals.md#review-an-action), [Answer from the notification](approvals.md#answer-from-the-notification), [Answers from notifications page](settings.md#answers-from-notifications-page), [Let read-only actions run without asking](approvals.md#let-read-only-actions-run-without-asking), [What happens if you don't answer](approvals.md#what-happens-if-you-dont-answer), [Replies you did not start](approvals.md#replies-you-did-not-start).
 
 ## Desktop and phone
 
@@ -444,11 +447,11 @@ The list can be searched, sorted (including by who can use it, least protected f
 
 **What it is.** Everything that reaches you when Pocket is not on screen, and what it plays when it is.
 
-**How it works.** Web push (VAPID keys, `VAPID_PUBLIC` and `VAPID_PRIVATE`, written by `pocket-init`) needs HTTPS and the browser's permission, and is turned on separately for each device. Subscriptions are in `push-subs.json`. There are five kinds: **Finished replies** (also covers questions and approvals), **Due tasks and reminders** (with **Tomorrow** and **Done** actions), **Vault requests** (with **Allow** and **Deny**, or only **Deny** when the command, title or text was cut or holds unusual characters; also the job-key request), **Inbox alerts**, and **Check-backs and job results**. A **Completion chime** plays when a reply finishes while Pocket is open, and **Count on the app icon** shows due tasks and reminders. Muting a conversation (its **Alerts** chip) stops its notifications, including questions and approvals. For due tasks and project reminders, **Notice a day before** adds a 24-hour notice, **Email due tasks and reminders to** adds email (through `POCKET_SMTP_URL`), and `POCKET_REMINDER_HOOK` runs a command with the reminder as JSON on standard input; each is announced once, checked every minute.
+**How it works.** Web push (VAPID keys, `VAPID_PUBLIC` and `VAPID_PRIVATE`, written by `pocket-init`) needs HTTPS and the browser's permission, and is turned on separately for each device. Subscriptions are in `push-subs.json`. There are six kinds: **Finished replies** (also covers questions, and approvals while answers from notifications are off), **Due tasks and reminders** (with **Tomorrow** and **Done** actions), **Vault requests** (with **Allow** and **Deny**, or only **Deny** when the command, title or text was cut or holds unusual characters; also the job-key request), **Inbox alerts**, **Check-backs and job results**, and **Action approvals** (one notification per approval, sent at once, only while **Answer approvals from notifications** is on; with **Allow** only on a device that passed the test under **Allow button on this device**). A **Completion chime** plays when a reply finishes while Pocket is open, and **Count on the app icon** shows due tasks and reminders. Muting a conversation (its **Alerts** chip) stops its notifications, including questions and approvals. For due tasks and project reminders, **Notice a day before** adds a 24-hour notice, **Email due tasks and reminders to** adds email (through `POCKET_SMTP_URL`), and `POCKET_REMINDER_HOOK` runs a command with the reminder as JSON on standard input; each is announced once, checked every minute.
 
 **Where to control it.** **Settings → Notifications**; the bell on the conversation list. `POCKET_PUBLIC_URL` sets the address used in email links.
 
-**Limits and gotchas.** On iPhone and iPad web push works only from the installed app. The notification for a question or approval carries no command details. The reminder hook runs without Pocket's own secrets.
+**Limits and gotchas.** On iPhone and iPad web push works only from the installed app. The notification for a question carries no command details, nor does one for an approval while answers from notifications are off or set to **Only that an action waits**; with them on, an approval's notification shows the action, the folder and the conversation title on the lock screen of every device with Action approvals on ([Answer from the notification](approvals.md#answer-from-the-notification)). The reminder hook runs without Pocket's own secrets.
 
 **More.** [Notifications](settings.md#notifications), [How reminders reach you](projects.md#how-reminders-reach-you), [Get notified on your phone](approvals.md#get-notified-on-your-phone).
 
@@ -456,7 +459,7 @@ The list can be searched, sorted (including by who can use it, least protected f
 
 **What it is.** A read-only page of what your plan and unattended work have used.
 
-**How it works.** **Plan usage** shows Claude Code's 5-hour and weekly windows and Codex's windows, learned from each reply (not live). **Unattended replies** shows today and the last seven days. **Limits reached today** says which limits held work back. **Inbox Watch cost** (Developer mode) shows its daily cost. A ring beside the message box shows a conversation's context use (amber at 70%, red at 90%), with a prompt-cache countdown for Claude.
+**How it works.** **Plan usage** shows Claude Code's 5-hour and weekly windows and Codex's windows, learned from each reply (not live). **Unattended replies** shows today and the last seven days. **Limits reached today** says which limits held work back. **Answered away from the app** lists answers to approvals from a notification, and answers Pocket refused, in the last 7 days, never the command. **Inbox Watch cost** (Developer mode) shows its daily cost. A ring beside the message box shows a conversation's context use (amber at 70%, red at 90%), with a prompt-cache countdown for Claude.
 
 **Where to control it.** **Settings → Usage** reports and changes nothing; the limits are in **Settings → Unattended work**.
 
@@ -517,11 +520,11 @@ Settings opens on a list. At the top are **Search settings** (it finds any row o
 | **Layout** | Developer mode or Assistant mode |
 | **Display** | Colour mode, Chat text size, Highlight colour |
 | **Conversations** | Collapse steps, Describe steps in plain words, Show message times (this device; Assistant mode keeps Collapse steps and Show message times); Short titles, Keep titles up to date, Catch-up summary, Model for titles and summaries, Sync names with code-server, Mark all reviewed button (all devices) |
-| **Notifications** | Completion chime, Push to this device, the five push kinds, Count on the app icon (this device); Notice a day before, Email due tasks and reminders to (all devices) |
+| **Notifications** | Completion chime, Push to this device, the six push kinds, Allow button on this device, Count on the app icon (this device); Notice a day before, Email due tasks and reminders to (all devices) |
 | **Voice (beta)** | Mute voice on this device, Speak replies, Spoken reply length, Review before sending, Announce conversations, Hands-free: wait for my reply, Voice, Names and terms to recognize, Play a sample |
 | **Accounts & sign-in** | Claude and Codex accounts, Connectors, Sign in with Cloudflare Access (Developer mode), Sign out |
 | **Agents** (Developer mode) | Models offered in the picker, Long conversations and helpers (Compact conversations, Offer a handoff, Helper model, Helper effort), Actions that run without asking |
-| **Features** | A switch for Projects, Files, Tasks, Inbox Watch, Vault, Check-backs, Job keys, Coordination (Developer mode) and Automatic model choice, each with a **›** |
+| **Features** | A switch for Projects, Files, Tasks, Inbox Watch, Vault, Check-backs, Job keys, Answer approvals from notifications, Coordination (Developer mode) and Automatic model choice, each with a **›** |
 | **Features → Projects** | Open projects (this device) |
 | **Features → Files** | Keep files from replies, Files button, Open files and links |
 | **Features → Tasks** | Show check-backs in Tasks, Show job keys in Tasks |
@@ -529,9 +532,10 @@ Settings opens on a list. At the top are **Search settings** (it finds any row o
 | **Features → Vault** | Restore key (when missing); Agent access, Passphrase, Lock after, Export and import, Catch secrets in messages (Developer mode) |
 | **Features → Check-backs** | Permissions for a check-back, per-agent switches, Push the result even when muted, Advanced limits |
 | **Features → Job keys** | Waiting for you, the key list, New job key, defaults and Advanced limits |
+| **Features → Answers from notifications** | What approval notifications show, Allow works for, Allow on a check-back's actions, Allow on a job's actions; Advanced: Allow per engine, Longest action with an Allow button, Notifications with buttons per conversation, Update other devices after an answer |
 | **Features → Automatic model choice** | Decision model, Key, the four levels, Use the server's settings (Developer mode) |
 | **Unattended work** | Pause all, Your own messages while paused, Also pause Inbox Watch, Also stop background commands, On Resume options, Ask before pausing, the Limits and their Advanced settings |
-| **Usage** | Plan usage, Unattended replies, Limits reached today, Inbox Watch cost (Developer mode) |
+| **Usage** | Plan usage, Unattended replies, Limits reached today, Answered away from the app, Inbox Watch cost (Developer mode) |
 | **Help & updates** | Keyboard shortcuts (Developer mode), About & updates, What's new, Bugs & feature requests (Developer mode) |
 
 Before 1.124.9 these pages were named differently (formerly Appearance, Conversation, "Agents & instance", "Projects, files, tasks & vault", Automation, and "Notifications & voice"). No setting was removed and no default changed; see [Where things moved in 1.124.9](settings.md#where-things-moved-in-11249).
@@ -569,6 +573,7 @@ Set these in `.env` in the Pocket Code directory or in the process environment (
 | `POCKET_DOCUMENTS_DIR`, `POCKET_CHROME`, `POCKET_PDFTOPPM`, `POCKET_CONVERT` | Files storage folder and the preview tools | [Where files live](files.md#where-files-live) |
 | `POCKET_SKILLS` | `0` stops Pocket installing its agent skills | [The skills Pocket installs](for-agents.md#the-skills-pocket-installs) |
 | `POCKET_AUTOMATION_<NAME>` | **Preset** for Unattended work, Check-backs and Job keys values | [Presets for an install](automation.md#presets-for-an-install) |
+| `POCKET_APPROVAL_PUSH_<NAME>` | **Preset** for Answers from notifications values (`ANSWERS`, `SHOW`, `ALLOW_FOR`, `CHECKBACKS`, `JOBS`, `ENGINE_CLAUDE`, `ENGINE_CODEX`, `ENGINE_OPENROUTER`, `ENGINE_ANTIGRAVITY`, `LONGEST_ACTION`, `PER_CONVERSATION`, `UPDATE_OTHERS`) | [Answers from notifications page](settings.md#answers-from-notifications-page) |
 | `POCKET_CHECKBACK_TICK_MS` | How often due check-backs are looked for (60 seconds) | [Presets for an install](automation.md#presets-for-an-install) |
 | `POCKET_JOB_KEY` | The job key `pocket-run` reads when no `--key-file` is given | [Call it with pocket-run](automation.md#call-it-with-pocket-run) |
 | `POCKET_COORD_SWEEP_MS` | How often Coordination renews, expires and wakes (30 seconds) | [Coordination](coordination.md#settings-and-environment) |

@@ -1,6 +1,6 @@
 <!-- manual
-checked: 1.125.0
-sources: public/split.js, public/workspace.js, public/tips.js, public/sidechat.js, docs/session-focus.md
+checked: 1.126.0
+sources: public/split.js, public/workspace.js, public/tips.js, public/sidechat.js, docs/session-focus.md, public/sw.js, approval-push.mjs
 -->
 # Desktop and phone
 
@@ -245,9 +245,17 @@ or off and choose what they get:
   this device**, then allow notifications when the browser asks. Notifications then reach the device
   even when Pocket is closed.
 - **Choose what this device gets**: **Finished replies**, **Due tasks and reminders**, **Vault
-  requests** (which include an agent's request to share or publish a file), **Inbox alerts** and
-  **Check-backs and job results**. Finished replies and check-back results are sent at normal priority;
-  the others are urgent, so an idle Android phone shows them at once.
+  requests** (which include an agent's request to share or publish a file), **Inbox alerts**,
+  **Check-backs and job results** and **Action approvals** (used only while **Answer approvals from
+  notifications** is on in Features; until then approvals come with Finished replies). Finished replies
+  and check-back results are sent at normal priority; the others are sent as urgent, which asks the
+  phone to show them at once. How a given phone treats them while idle depends on the phone, and has not
+  been checked for action approvals.
+- **Allow button on this device** (1.126.0): with answers from notifications on, a device shows
+  **Allow** on an approval's notification only after it passed a test: **Send a test notification**,
+  then type the two codes the notification shows. Test each phone and computer on its own; one that was
+  not tested gets **Don't allow** only. The steps and the rules are in
+  [Answer from the notification](approvals.md#answer-from-the-notification).
 - **Signing out turns push off.** **Sign out** in Settings stops notifications on that browser, and
   **Sign out everywhere** on every device, so a lost phone stops showing them (1.118). After you sign in
   again, turn push on again on the devices you keep.

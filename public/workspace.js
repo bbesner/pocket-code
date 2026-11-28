@@ -819,20 +819,20 @@ const SETTINGS_ALIASES={appearance:'display',conversation:'conversations',librar
 const SETTINGS_FEATURES=[ // [switch selector, page key or 'inbox' (its own sheet), name for the open button]
  ['#s-projects','f-projects','Projects'],['#s-documents','f-files','Files'],['#s-tasks','f-tasks','Tasks'],
  ['#s-inbox','inbox','Inbox Watch'],['#s-vault','f-vault','Vault'],['#s-checkbacks-switch','f-checkbacks','Check-backs'],
- ['#s-jobs-switch','f-jobs','Job keys'],['!#s-coordination','',''],['#s-router-on','f-router','Automatic model choice'],
+ ['#s-jobs-switch','f-jobs','Job keys'],['#s-answers-switch','f-answers','Answers from notifications'],['!#s-coordination','',''],['#s-router-on','f-router','Automatic model choice'],
 ];
 function organizeSettings(sh, {category='',scrollTop=0}={}) {
  const am=assistantMode(),locked=am&&featuresLocked(),DEVICE='This device only',ALL='All your devices';
  const pages=[
   ['display','Display','Colour mode, text size and highlight colour',[[DEVICE,['.chat-text-settings']]]],
   ['conversations','Conversations','How conversations read and how they get their names',[[DEVICE,['#s-tools','!#s-plain','#s-times']],[ALL,['!#s-titles','!#s-live','!#s-away','!^#s-title-model','!#s-sync','!#s-sync-retry','!#s-review-all']]]],
-  ['notifications','Notifications','What reaches this device, and reminders by email',[[DEVICE,['#s-chime','#s-push','#s-push-kinds','#s-badge']],[ALL,['#s-ahead','#s-email-wrap']]]],
+  ['notifications','Notifications','What reaches this device, and reminders by email',[[DEVICE,['#s-chime','#s-push','#s-push-kinds','#s-allow-device','#s-badge']],[ALL,['#s-ahead','#s-email-wrap']]]],
   ['voice','Voice (beta)','Spoken replies and dictation on this device',[[DEVICE,['#s-voice']]]],
   ['accounts','Accounts & sign-in','Claude and Codex accounts, Gmail, Calendar and Drive, signing in and out',[['',['#s-environment','#s-connectors','!#s-access','#s-signout']]]],
   ['agents','Agents','Models offered, long conversations and helpers, actions that run without asking',[[ALL,['!#s-models','!#s-context','!#s-trusted']]]],
   ['features','Features',locked?'Which parts of Pocket are on':'Turn parts of Pocket on or off, each with its own settings',[[ALL,['#s-features-list']]]],
   ['unattended','Unattended work','Pause all, and limits on work that runs while you’re away',[[ALL,['#s-automation']]]],
-  ['usage','Usage','Plan usage, what ran without you, and limits reached',[['',['#s-usage','#s-auto-usage','!#s-usage-inbox']]]],
+  ['usage','Usage','Plan usage, what ran without you, and limits reached',[['',['#s-usage','#s-auto-usage','#s-answers-usage','!#s-usage-inbox']]]],
   ['help','Help & updates',am?'Version and what’s new':'Keyboard shortcuts, version, what’s new and feedback',[['',['!#s-keys','#s-about','#s-notes','!#s-feedback']]]],
   ['f-projects','Projects','',[[DEVICE,['!^#s-projects-open']]],'features'],
   ['f-files','Files','',[[ALL,['!#s-autokeep']],[DEVICE,['!^#s-files-button','!^#s-documents-open']]],'features'],
@@ -840,6 +840,7 @@ function organizeSettings(sh, {category='',scrollTop=0}={}) {
   ['f-vault','Vault','',[[ALL,['#s-vault-restore-wrap','#s-vault-order-wrap','!#s-vault-more','!#s-secrets']]],'features'],
   ['f-checkbacks','Check-backs','',[[ALL,['#s-checkbacks-auto']]],'features'],
   ['f-jobs','Job keys','',[[ALL,['#s-jobs-auto']]],'features'],
+  ['f-answers','Answers from notifications','',[[ALL,['#s-answers-auto']]],'features'], // 1.126
   ['f-router','Automatic model choice','',[[ALL,['!#s-router']]],'features'],
  ];
  const pickAll=sel=>{if(sel.startsWith('!')){if(am)return [];sel=sel.slice(1);}const field=sel.startsWith('^');return [...sh.querySelectorAll(field?sel.slice(1):sel)].map(el=>field?el.closest('.title-settings'):el).filter(Boolean);},pick=sel=>pickAll(sel)[0]||null;
@@ -848,7 +849,7 @@ function organizeSettings(sh, {category='',scrollTop=0}={}) {
  const lead=sh.querySelector('#s-features-lead');
  if(lead)list.append(lead);else{const p=document.createElement('p');p.className='title-note features-lead';p.textContent='Turn parts of Pocket on or off. › opens a feature’s own settings.';list.append(p);}
  for(const [sel,page,name] of SETTINGS_FEATURES){
-  if(locked&&!['f-checkbacks','f-jobs'].includes(page))continue; // a locked Pocket's switches are the server's; its lead says what is on
+  if(locked&&!['f-checkbacks','f-jobs','f-answers'].includes(page))continue; // a locked Pocket's switches are the server's; its lead says what is on
   const sw=pick(sel);if(!sw)continue;
   const row=document.createElement('div');row.className='feature-row';row.dataset.feature=page||sel.replace(/^!?#s-/,'');row.append(sw);
   if(page){const open=document.createElement('button');open.type='button';open.className='icon feature-open';open.dataset.settingsCategory=page;open.setAttribute('aria-label',name+' settings');open.innerHTML=IC.back;row.append(open);}

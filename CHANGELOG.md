@@ -3,6 +3,113 @@
 Every version that reached a server is listed here, newest first, with its frontend asset
 build. Each has a matching [GitHub release](https://github.com/bbesner/pocket-code/releases).
 
+## [1.126.0] — 2026-11-27 · build 237
+
+**Answer action approvals from the notification.** Off by default. Spec: `docs/plans/notification-approvals.md`
+(Parts 1-5 and 7; Part 6, voice, is not built). The rules and what they do not cover are in SECURITY.md, "Answering
+action approvals away from the app"; the steps are in the manual, Questions and approvals, "Answer from the notification".
+
+### Added
+
+- **Settings → Features → Answer approvals from notifications** (`approvalPush.answers`, default off). While it is on,
+  each action approval gets its own notification, sent at once, that shows the action (`Runs:`, `Opens:`, `Searches:`,
+  `Edits:` or `Uses:`), the folder and the conversation, with **Don't allow** and, on a device the owner has tested,
+  **Allow**. Allow answers that one request only, never Always allow, and never Allow network access or Allow for this
+  reply. It appears only for an action Pocket can show whole: short enough (**Longest action with an Allow button**, 80
+  characters by default, counting the action and folder lines), in plain ASCII, with a full folder path (no `..`, no
+  engine-written `~/`, nothing a cleaning would trim) and nothing that looks like a password or key. Otherwise the notification says why the action is not shown and offers Don't allow
+  only. A tap opens the request in Pocket.
+- **Its own page, Settings → Features → Answers from notifications** (`approval-push.mjs`): **What approval notifications
+  show** (the action, or only that an action waits, with Don't allow only), **Allow works for** (30 minutes, 5-240),
+  **Allow on a check-back's actions** (on), **Allow on a job's actions** (off), and under Advanced: Allow per engine
+  (Claude, Codex, OpenRouter, Antigravity; all on), **Longest action with an Allow button** (80, 40-240), **Notifications
+  with buttons per conversation** (3, 1-10; the rest are counted in one summary notification) and **Update other devices
+  after an answer** (on). Each can be preset with `POCKET_APPROVAL_PUSH_<NAME>`; a saved value wins.
+- **Settings → Notifications → Action approvals** (a push kind, on by default for each device) and **Allow button on this
+  device**: **Send a test notification**, then type the two codes it shows. A device offers Allow only after it passed the
+  test at the current limit and while its Action approvals kind is on. Raising the limit turns the Allow button off on
+  every device until each is tested again. **Turn off** removes it from one device.
+- **After an answer.** The other devices' notifications for that request are replaced by a silent one that says what
+  happened (allowed or not, from where and when, or that it is no longer waiting). An Allow that does not go through is
+  never retried: the phone shows "Your Allow didn't go through: <reason>. Open Pocket." and the request's page says why
+  above its card. Turning the feature off, or muting a conversation, replaces the approval notifications already out,
+  once and silently, with ones that have no buttons, whatever **Update other devices after an answer** says. Their old
+  Allow is then refused, and an Allow from a muted conversation's notification is refused too (Don't allow still works).
+  Turning the feature on again, or unmuting, sends the requests still waiting a fresh notification under the usual rules.
+- **Settings → Usage → Answered away from the app**: answers from notifications, and answers Pocket refused, in the last 7
+  days, with the kind of action and the push service, never the command.
+
+### Security
+
+- **The answer route now checks the origin for every caller.** `POST /api/session/:id/approvals/:request/decision` gained
+  `sameOrigin`: a request whose `Origin` names another host gets 403. Pocket's own page and its service worker pass.
+  An install whose proxy does not forward the public `Host` header loses the in-app Allow and Don't allow buttons
+  (and answers from notifications) until the proxy is fixed (`docs/install.md`); a notification answer refused this way
+  says Pocket refused the answer from that address, not that the device was signed out.
+- **An Allow from a notification is checked again when it arrives.** Pocket re-runs the rules with today's settings, checks
+  that the posting device was offered Allow for that request, that the notification is younger than **Allow works for**,
+  and that the action, folder and kind still match what the notification showed (`shown`, a SHA-256 the notification
+  carries back, compared with the same hash built now). Any failure refuses the answer with 409 and leaves the request waiting. `via` other than `app` or `notification`
+  gets 400 `unknown_via`; with the feature off a notification answer gets 404 `answers_off`.
+- **The approval record says where each answer came from.** Every `decision` line in `approval-decisions.jsonl` has
+  `source` (`app` or `notification`); a notification answer adds `device`, `pushService` and `action`, and a refused one
+  writes a `refused` line with its `reason`, including one no longer waiting (`gone`) or already answered (`answered`,
+  `answered_in_app`). Still no command or arguments.
+- **Hardened after a security review, before release.** The secret check runs on every line the push builds both as
+  written, as cleaned and with the listed blank-looking characters removed, so a key split by a format character (Cf),
+  a default-ignorable code point or one of those blanks is still hidden; context lines drop the first two and show a run
+  of the blanks as one space. A tool name is also scanned after each underscore, so `mcp__ghp_…` is hidden. OpenRouter and Antigravity requests are read from their own command field only, and one carrying both gets
+  no Allow. The job rule follows handoffs as well as branches. Settings are own-key lookups, unknown keys are 400 and a
+  number setting takes a number only. A malformed request id is 400 before anything else.
+- **Hardened after the recheck, before release.** Each device is recorded as its own push service accepts the push, so
+  one slow push service no longer refuses every other device's Allow (`not_offered`); a push send gives up after 30
+  seconds. Muting refuses an Allow from the conversation's notifications. Settling on off or mute forgets which devices
+  got each notification. A reply that ends while muted or off is no longer kept. An OpenRouter or Antigravity request
+  whose `rawInput` is a string, number or `true` shows its card again (1.126's first build declined it with no card).
+  A notification answer after the reply ended still says `answered_in_app` when the app answered it.
+- **What this does not cover** is listed in SECURITY.md: a stolen or borrowed phone that still shows notifications, the
+  Vault's record (no source yet), stale buttons after a restart, a locked phone that can't send, no recent sign-in check,
+  and untested behaviour behind Cloudflare Access.
+
+### Changed
+
+Visible with the feature off:
+
+- Settings → Notifications has the **Action approvals** row and the **Allow button on this device** group; the push kinds
+  are now six. With the feature off, approval notifications still come with **Finished replies**, as before, with no
+  command details.
+- Settings → Features lists **Answer approvals from notifications** and its page; Settings → Usage has **Answered away
+  from the app**.
+- A link of the form `/#/settings/<page>` opens Settings at that page.
+- Every decision written by the app now carries `source: "app"`.
+
+### Migration
+
+None. The new settings are stored under `approvalPush` in `pocket-settings.json`; a device's test result is kept with its
+subscription in `push-subs.json` (`approvalAllow`). **Rolling back to 1.125.3:** both are kept and ignored, and a device
+that subscribes again loses its test result. 1.125.3 rebuilds a device's kinds from its own five, so a device that turned
+Action approvals off gets it back on the first kind it changes there.
+
+### Tests
+
+- `test/approval-push.test.mjs` (the rules: what each engine's request shows, when Allow is dropped, titles, the summary),
+  `test/approval-push-routes.test.mjs` (the settings, device test, push and answer routes against a running server with
+  the fake Claude and Codex), `test/approval-push-sw.test.mjs` (the service worker's answer and the missed reasons) and
+  `test/approval-push-live-browser.mjs` (the settings pages, the device test, Usage and the line above a request's card,
+  in a real browser; added to `npm run test:browser`).
+- The fake Claude can ask several approvals at once and withdraw one (`__REQS__`); the fake Codex can ask any kind of
+  approval (`__CXREQ__`). Existing tests now expect the sixth push kind, `source: "app"` and the new Settings group.
+- The security review's cases: the folder and spacing rules, both ACP fields, a key split by an invisible character in
+  every line, handoffs, refusals inside the inbox, settling on off and mute, the older-answers line, and in the browser
+  the 60-second rule and sign-in, a body tap on a request that no longer waits, and the missed line and a conversation
+  title kept as text. End to end, an Allow from a notification reaches the fake Codex and the fake OpenCode.
+- The recheck's cases: a slow push service and the send time limit, a non-object ACP `rawInput`, keys split by
+  default-ignorable characters and U+1D159, a key glued in a tool name, an Allow while muted, off then on and mute then
+  unmute, a reply that ends while muted, `answered_in_app` after the reply ended, `?missed=constructor`, and the
+  `answered_in_app` words in Usage. A notification answer in the route tests now waits until the server has recorded
+  that device's push, as a phone can only tap a notification it was shown.
+- Not tested yet: the notifications on real phones (spec tests 30-32).
+
 ## [1.125.3] — 2026-11-27 · build 236
 
 **A notification offers Allow only when its command, title and text were sent uncut and in plain characters.** A

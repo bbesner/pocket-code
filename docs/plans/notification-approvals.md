@@ -1,7 +1,9 @@
 # Allow and Don't allow on action approvals, from the notification and by voice
 
-Status: **agreed by the owner, not started** (2026-11-27, revised after review; the four open questions were answered
-the same day, see [Decided by the owner](#decided-by-the-owner-2026-11-27)). "Later phase 4" of
+Status: **agreed by the owner; Parts 1-5 and 7 built in 1.126.0, off by default; Part 6 (voice) not started**
+(2026-11-27, revised after review; the four open questions were answered the same day, see
+[Decided by the owner](#decided-by-the-owner-2026-11-27)). Where the code differs from this text, see
+[As built in 1.126.0](#as-built-in-11260). "Later phase 4" of
 [Unattended work](unattended-work.md#later-phases-agreed-to-be-specced-after-job-keys). Line references are to Pocket
 Code 1.125.0 and will drift.
 
@@ -485,6 +487,9 @@ expanded, lock screen, bundled), and whether Allow works while locked.
 1. **A patch release first:** the Vault push offers Allow only when the command fits uncut, with a mark when cut
    (Weakness 1). It is a security bug today, independent of this feature. *Done in 1.125.3 (2026-11-27).*
 2. **The next minor:** Parts 1-5 and 7, `sameOrigin` on the decision route, the manual and SECURITY.md.
+   *Built in 1.126.0 (2026-11-27), off by default on every install.* Server tests 1-21 and service worker tests 22-25
+   are in `test/approval-push*.test.mjs`, browser tests 26-27 in `test/approval-push-live-browser.mjs`. Left: tests 30-32
+   on real devices (the owner runs them on his own server after the release), and Part 6, voice.
 3. **The minor after it:** Part 6, voice.
 
 Process: CONTRIBUTING.md (branch, PR, release check, tests, browser suite, a new asset number) and a ledger entry. The
@@ -564,3 +569,106 @@ available, so an install can choose the other way.
 Decided by the lead without asking: the button word ("Don't allow", as in the app); approval pushes as the urgent
 **Action approvals** kind; the Vault cut-off fix as a patch first; connectors Don't allow only; an 80-character default;
 the 30-minute window; three notifications per conversation; voice in a second release, behind both switches.
+
+## As built in 1.126.0
+
+Added 2026-11-27. The places where the code chose the safer reading of this spec, or says more than it does. The manual
+and SECURITY.md describe the code.
+
+- **The limit counts both labelled lines.** **Longest action with an Allow button** is compared with the length of the
+  whole action line plus the whole folder line, labels included ("Runs: " and "In: " or "Conversation folder: "). With
+  the default 80 and a usual folder, a command of roughly 30 characters fits. Claude's longer folder label leaves less
+  room than Codex's or ACP's.
+- **Only `app` and `notification` are accepted as `via`.** Anything else, `voice` included (Part 6 is not built), is
+  refused with 400 `unknown_via` and a `refused` row with `source: unknown`.
+- **A Codex command without its own folder gets no Allow.** When Codex sends no `cwd`, the folder line is
+  "Conversation folder: <the conversation's folder>" and only Don't allow is offered.
+- **An engine switched off under Engines gives Don't allow only,** not the old push.
+- **The folder must be a full path that needs no cleaning** (from the security review, 2026-11-28). No Allow when the
+  folder is empty, does not start with `/` (an engine's literal `~/` counts as relative; only Pocket's own shortening of
+  the home folder writes `~/`), or would change when the line is cleaned (a leading, trailing or doubled space). The
+  action follows the same "unchanged by cleaning" rule.
+- **Each ACP engine is read from its own field only:** `command` for OpenRouter (OpenCode), `CommandLine` for
+  Antigravity, with no field outside a short list for each. A request with both fields gets the fixed line "Runs: (two
+  commands given; open Pocket to review it)" and no Allow; the app's card shows both under Show details. OpenCode 1.19's
+  bash permission request carries `command` only (read from its binary; it was not run live), so its folder line is
+  "Conversation folder:"; "In:" is used only when the request names its `cwd`.
+- **Summaries and replacements are titled "Pocket Code".** The first summary sounds; later updates of it are silent.
+  The summary goes to every device with **Action approvals** on.
+- **Replacement wording.** "Allowed on another device at <time>" only when the Allow came from a notification; an Allow
+  from the app gives "Allowed in Pocket at <time>"; Don't allow gives "Not allowed at <time>". A withdrawal gives "No
+  longer waiting: the agent withdrew it"; an ended reply gives "No longer waiting: " and "Pocket was paused", "the reply
+  was stopped" or "the reply ended". Each request is replaced at most once.
+- **A check-back's reply has an origin line too:** "Started by a check-back". In a conversation a job has run in, the line
+  is "A job has run in this conversation" whatever started the reply; the title prefix still follows the reply's own root
+  ("Check-back: " or "Job: ").
+- **Context lines with a secret are hidden, not left out.** A conversation title that looks like a key reads
+  "Conversation: (hidden: it looks like it contains a password or key)", a subagent name "Subagent: (hidden)", and the
+  summary drops the title. A folder that looks like a key gets the same note as the action and no Allow. The origin line
+  is cut to 64 characters, the folder text to 240. Every line the push builds (action, folder, conversation, job name,
+  subagent, summary and replacement) is checked for a key as written, as cleaned, and with the listed blank-looking
+  characters removed. Cleaning drops format characters (`\p{Cf}`) and default-ignorable code points
+  (`\p{Default_Ignorable_Code_Point}`); in context lines a run of the listed blank-looking characters (`\p{Zs}`, the
+  braille blank, the Hangul and Khmer fillers and U+1D159, a symbol to Unicode that draws nothing) becomes one space.
+  A tool's name is also scanned after each underscore run and each `__` part (a key glued in `mcp__ghp_…`).
+- **An action in characters outside printable ASCII that fits the limit** is shown with line breaks and invisible
+  characters removed, with no note saying why, and Don't allow only. The length note is used only for length.
+- **Fixed lines for requests that never get Allow:** "Runs: (a list of arguments; open Pocket to review it)" (a Codex
+  list), "Runs: (no command given; open Pocket to review it)" (an ACP command whose text came from the title), "Uses: more
+  access for this reply" (Codex `permissions`), "Uses: Read", "Uses: Search", "Uses: Web" or "Uses: Thinking" (other ACP
+  kinds), "Edits: <first file> and N more".
+- **A notification answer to a reply that has ended** is refused with 409 `gone` and recorded as a `refused` row. An app
+  answer keeps today's 409 and writes nothing. The same holds for a refusal inside the inbox: a request no longer
+  waiting or being sent (`gone`), or already answered differently (`answered`, or `answered_in_app` when the app answered
+  it). A refused row that can't be written is tried once; a decision that couldn't be recorded (503) writes no refused
+  row.
+- **The job rule follows handoffs as well as branches:** a conversation is a job's when a job ran in it or in any
+  conversation it was branched from (`branchOf`) or handed off from (`continuedFrom`), followed at most 100 steps and
+  stopping at a loop.
+- **Turning answers off, or muting a conversation, settles what is out.** The approval notifications already sent are
+  replaced once, silently and with no buttons ("Answering from notifications was turned off. Open Pocket to review it."
+  or "Notifications for this conversation were muted. …"), and a summary is replaced the same way. This does not depend
+  on **Update other devices after an answer**: that setting is about the other devices after an answer, while settling
+  takes buttons back. Settling then forgets which devices got each notification, so its Allow is `not_offered` and it
+  no longer counts as showing; a push still on its way is settled when it lands. Turning answers on again, or
+  unmuting, syncs each reply with requests waiting once: they get fresh notifications under the usual rules. While a
+  conversation is muted, an Allow from its notifications is refused `not_offered` (Don't allow still works).
+- **Each device is recorded as its own push service accepts the push,** never before: one slow push service holds back
+  only its own device's Allow. A push send gives up when its push service has been silent for 30 seconds (web-push's
+  `timeout`, an idle limit, not a cap on the whole send), so a request does not stay "sending" on a service that never
+  answers; the legacy push path (`pushRaw`) has no such limit.
+- **A notification answer after the reply ended** says `answered_in_app` when the app answered it (Pocket keeps the
+  last 500 request ids answered in the app), else `gone`. Once a new reply runs in that conversation it says `gone`.
+  A notification answer that matches the app's answer is a silent duplicate while the reply runs and `answered_in_app`
+  after it ended.
+- **An ACP request whose `rawInput` is not an object** (a string, a number, `true`) shows its card as before 1.126,
+  with the title as the command, and gets Don't allow only.
+- **A malformed request id is 400 `bad_request`** before anything else, with no record.
+- **Allow is checked against the device that posts.** The answer's `endpoint` must name a subscription in
+  `push-subs.json`; an unknown one is `not_offered`. The audit then records `device: unknown`.
+- **The device test.** Each code is two characters from 23 letters and digits that are hard to confuse. Five wrong tries
+  end a test (400 `wrong_codes`, then a new test is needed). A confirm after the limit changed is refused (409
+  `limit_changed`), an expired one 410 `test_expired`, a test the push service refused 502 `not_delivered`, and one on a
+  server without push 409 `push_off`. The test can be sent while the feature is off. Its title is "Test: Allow this
+  command?" and its buttons open **Settings → Notifications** at the code fields.
+- **Raising the limit also cancels device tests in progress.** A limit raised by an env preset instead of a save leaves
+  the record in place, but a device tested below today's limit offers Don't allow only and reads **Needs a new test**.
+- **What the service worker reports.** 401 and a redirect are `signin`; 403 is `refused` ("Pocket refused the answer from
+  the address the notification used"), since Pocket's same-origin check is what sends it and a proxy that doesn't pass
+  on the public `Host` is the usual cause; 409 `answered_in_app` is `answered`. Any 404 is `off`, any 503 is
+  `uncertain`, and any other status it doesn't know (400, 500) is `error` ("Pocket couldn't take the answer. Review it
+  here."). The line above the card for `gone` names when and from where the request was answered when **Answered away
+  from the app** has the answer. A `missed` link is acted on only within a minute of opening; a sign-in on Pocket's own
+  screen restarts that minute (a Cloudflare Access sign-in starts a new page, and the line is lost). The line is read
+  out once: it takes focus, has no alert role and is `aria-live="off"` inside the list's status region, and it keeps
+  its place and focus when the list reloads. An unknown `missed` reason (an own-key lookup) reads as `error`.
+- **The audit adds `action`** (command, page, search, edit or action) to notification decisions and refused rows. App
+  decisions carry `source: app` and nothing more. **Answered away from the app** reads the last 4 MB of
+  `approval-decisions.jsonl` and leaves out app answers and trusted-rule allows. The read is kept until the file's size
+  or time changes. When the file is longer than that and the oldest row read is still within the 7 days, the answer
+  carries `olderNotListed: true` and the page says older answers are not listed.
+- **Settings are own-key lookups.** An unknown key in a save is 400; a number setting takes a JSON number only; a saved
+  value that is not a number in range counts as the default.
+- **The settings route** (`POST /api/approval-push/settings`) needs a JSON body from Pocket's own page, and a save writes a
+  `settings` line to `automation-audit.jsonl` with the keys changed and, after a raised limit, how many devices lost
+  their Allow button.

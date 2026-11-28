@@ -107,7 +107,7 @@ try {
   assert.equal(await p.evaluate(() => window.pocketFeatures.jobs), false);
   assert.equal((await call('/jobs/keys')).status, 404);
   await automation();
-  assert.deepEqual(await p.$$eval('[data-auto-group]:not(.automation-switch)', x => x.map(g => g.dataset.autoGroup)), (await call('/automation')).body.groups.map(g => g.key));
+  assert.deepEqual(await p.$$eval('[data-auto-group]:not(.automation-switch):not([data-auto-group="approvalPush"])', x => x.map(g => g.dataset.autoGroup)), (await call('/automation')).body.groups.map(g => g.key));
   assert.equal(await p.$eval(FULL + ' > h3', x => x.textContent), 'Job keys');
   assert.equal(await p.$eval(FULL, x => x.classList.contains('automation-group-off')), true, 'reads inactive while off');
   assert.equal(await p.$(FULL + ' [data-auto-key="jobs"]'), null, 'the switch is in Features, not on the page');

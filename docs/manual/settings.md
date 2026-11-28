@@ -1,6 +1,6 @@
 <!-- manual
-checked: 1.125.3
-sources: context-policy.mjs, automation.mjs, job-keys.mjs, cli-updates.mjs, self-update.mjs, scripts/pocket-self-update.sh, public/cli-updates.js, public/app.js, public/workspace.js, public/theme.js, public/voice.js, server.mjs, router.mjs, access.mjs, push-text.mjs
+checked: 1.126.0
+sources: context-policy.mjs, automation.mjs, job-keys.mjs, approval-push.mjs, public/automation.js, public/sw.js, cli-updates.mjs, self-update.mjs, scripts/pocket-self-update.sh, public/cli-updates.js, public/app.js, public/workspace.js, public/theme.js, public/voice.js, server.mjs, router.mjs, access.mjs, push-text.mjs
 -->
 # Settings
 
@@ -126,11 +126,13 @@ Code policy blocks the title model, Pocket uses the cheapest offered model the p
 |---|---|---|---|
 | **Completion chime** | A short two-note sound when a reply finishes while Pocket is open on screen. Spoken announcements replace it when **Announce conversations** is on in Voice | On | This browser |
 | **Push to this device** | Sends notifications to this phone or computer even when Pocket is closed. Turn it on separately on each device, then choose the kinds below. Off, its note names all five kinds. The bell on the conversation list does the same. **Sign out** turns it off on this browser, **Sign out everywhere** on every device | Off until you turn it on | Server, per device (`push-subs.json`) |
-| **Finished replies** | A conversation finished a reply. Muted conversations never push, and neither does one open in a browser or one you stopped. Also covers question and approval notifications | On when push is turned on | Server, per device |
+| **Finished replies** | A conversation finished a reply. Muted conversations never push, and neither does one open in a browser or one you stopped. Also covers question notifications, and approval notifications while **Answer approvals from notifications** is off | On when push is turned on | Server, per device |
 | **Due tasks and reminders** | A task or reminder came due. **Done** and **Tomorrow** on the notification answer it without opening Pocket | On when push is turned on | Server, per device |
 | **Vault requests** | An agent is waiting for you to allow a stored password or key, or to share or publish a file, with **Allow** and **Deny** (only **Deny** when the command, title or text was cut or holds unusual characters; tap it to read the request in Pocket). The *Allow a job key?* push, when a conversation asks for a [job key](automation.md#let-a-conversation-set-one-up), follows this switch too, but it has no buttons: it opens the request in Settings, where you read the whole instruction first | On when push is turned on | Server, per device |
 | **Inbox alerts** | Inbox Watch, or another program on this server, flagged something that needs you. Which emails count is set in **Features › Inbox Watch** ([Push notifications](inbox-watch.md#push-notifications)) | On when push is turned on | Server, per device |
 | **Check-backs and job results** | A [check-back](automation.md#check-backs) ran (*Checked back · …*) or was missed, a [job](automation.md#job-pushes) finished (titled with the job's name, with the first line of the reply), or a limit held back unattended work (the **Unattended work held** notice). Muting and per-job choices are in **Features › Check-backs** and **Features › Job keys**. Shown whether check-backs and job keys are on or off, because of that notice | On when push is turned on | Server, per device |
+| **Action approvals** | An agent is waiting for you to allow a command or other action. Sent at once, only while **Answer approvals from notifications** is on in Features; otherwise these come with **Finished replies**. While it is on, a device with this off gets no approval notification at all | On when push is turned on | Server, per device |
+| **Allow button on this device** | Whether this device's approval notifications may show **Allow**. Turned on only by **Send a test notification** and the two codes it shows, typed back within 10 minutes; **Turn off** turns it off. The status line says when it was tested and at what limit, or **Needs a new test** after the limit was raised. Turning **Push to this device** off and on again turns it off. Steps: [Answer from the notification](approvals.md#answer-from-the-notification) | Off | Server, per device (`push-subs.json`) |
 | **Count on the app icon** | Shows how many tasks and reminders are due on the installed app's icon. Only on browsers that support it; disabled elsewhere | On | This browser, and with its push subscription |
 
 **All your devices**
@@ -140,10 +142,11 @@ Code policy blocks the title model, Pocket uses the cheapest offered model the p
 | **Notice a day before** | A second notice 24 hours before a dated task or reminder comes due, sent the same way as the due one | Off | Server |
 | **Email due tasks and reminders to** | Also emails each due task and reminder to this address. **Save**, then **Send a test**, which sends one test email now. Needs `POCKET_SMTP_URL` on the server; without it the field is disabled and the note says what to set | Empty | Server |
 
-The five push kinds are disabled until **Push to this device** is on. Push needs HTTPS, the
+The six push kinds are disabled until **Push to this device** is on. Push needs HTTPS, the
 server's `VAPID_PUBLIC` and `VAPID_PRIVATE`, and the browser's permission. Due reminders, Vault
-requests and Inbox alerts are sent as urgent, so a phone gets them while idle; finished replies
-and check-back results are sent at normal priority. Links in reminder emails use `POCKET_PUBLIC_URL`, or the address you
+requests, Inbox alerts and action approvals (while answers from notifications are on) are sent as urgent, which asks a
+phone to show them at once (how a phone treats them while idle is up to the phone, and is unverified for action
+approvals); finished replies and check-back results are sent at normal priority. Links in reminder emails use `POCKET_PUBLIC_URL`, or the address you
 last signed in from.
 
 `POCKET_SMTP_URL` is an SMTP address with its login, for example
@@ -264,6 +267,7 @@ a **›** beside it that opens the feature's own page. The switches apply to the
 | **Vault** | Keeps passwords, API keys and logins encrypted. Agents use them by name without seeing them. See the [Vault](vault.md) | [Vault page](#vault-page) |
 | **Check-backs** | A conversation can check back later: it takes one more turn at the time you asked for and tells you the result | [Check-backs page](#check-backs-page) |
 | **Job keys** | Lets a script or program on this server start a conversation. You make a key with a fixed instruction, folder and model; the program sends the data to work on | [Job keys page](#job-keys-page) |
+| **Answer approvals from notifications** | Answer an agent's action approval from its notification, without opening Pocket. **Allow** appears only on a device you tested, only for a short action in plain characters, once per request, and never as Always allow. See [Answer from the notification](approvals.md#answer-from-the-notification) | [Answers from notifications page](#answers-from-notifications-page) |
 | **Coordination** (Developer mode) | Lets your conversations message each other and claim shared things, like a staging site, so two agents do not work on the same thing at once. See [Coordination](coordination.md) | A switch only |
 | **Automatic model choice** | A small, fast model reads each new request you type and picks the lightest of four levels that will do it well, so quick questions do not use your strongest model. Works in Assistant mode only | [Automatic model choice page](#automatic-model-choice-page) |
 
@@ -283,7 +287,7 @@ When Assistant mode is locked (`POCKET_ASSISTANT_MODE=locked`), the switches the
 replaced by one line and no switches, for example *Projects and Tasks are on. Files, Inbox Watch and
 Vault are off. To change them, ask the person who runs this install.* They change it by switching
 the install to Developer mode, which means removing `locked` from `.env` and restarting.
-**Check-backs** and **Job keys** keep their switches and pages, as they did in Automation. A library
+**Check-backs**, **Job keys** and **Answer approvals from notifications** keep their switches and pages, as the first two did in Automation. A library
 that is off shows *Files is off. Ask the person who runs this install to turn it on.* in place of
 the pointer to Settings, with no **Open Settings** button.
 
@@ -375,6 +379,37 @@ with its range, is in [Automation](automation.md#job-settings):
 All are stored on the server (`automation` in `pocket-settings.json`; the keys in `job-keys.json`).
 **Show job keys in Tasks** is on the [Tasks page](#tasks-page).
 
+### Answers from notifications page
+
+Off by default; the switch is in the Features list and again at the top of this page. While it is off, every approval
+notification is as before, with no buttons, and the other settings can still be changed and read *These apply when
+Answer approvals from notifications is on.* How it works, the device test and what a notification shows:
+[Answer from the notification](approvals.md#answer-from-the-notification). Each device's **Allow button on this device**
+is in [Notifications](#notifications), under **This device only**.
+
+| Setting | What it does | Default | Range or choices |
+|---|---|---|---|
+| **Answer approvals from notifications** | Off: approval notifications are as before, with no buttons, and an answer from a notification is refused. Turning it off replaces the approval notifications already out, silently, with ones that have no buttons | Off | On or off |
+| **What approval notifications show** | **The action** shows the action, its folder and the conversation. **Only that an action waits** shows no conversation and no action, and offers **Don't allow** only | The action | The action, Only that an action waits |
+| **Allow works for** | An Allow from a notification older than this many minutes is refused; review the request in Pocket instead | 30 min | 5 to 240 min |
+| **Allow on a check-back's actions** | Off: a check-back's notifications offer **Don't allow** only | On | On or off |
+| **Allow on a job's actions** | Covers every reply in a conversation a job has run in, yours included, in a branch of one, and in a conversation handed off from one. Off: they offer **Don't allow** only | Off | On or off |
+
+Under **Advanced**:
+
+| Setting | What it does | Default | Range or choices |
+|---|---|---|---|
+| **Longest action with an Allow button** | The action line and the folder line together, labels included. With a usual folder, 80 leaves room for a command of roughly 30 characters. Raising it turns the Allow button off on every device until each is tested again; the page says so as you type a higher number, and after saving says on how many devices | 80 characters | 40 to 240 |
+| **Notifications with buttons per conversation** | More requests than this wait behind one summary notification | 3 | 1 to 10 |
+| **Update other devices after an answer** | Replaces the notification on your other devices once the request is answered or withdrawn | On | On or off |
+| **Engines**: **Claude Code**, **Codex**, **OpenRouter**, **Antigravity** | Allow on notifications for that agent's replies. Off: its notifications offer **Don't allow** only | All on | On or off, each |
+
+The limits have no Off. A number setting takes a number only, and a saved value Pocket can't use (outside its range, or
+not a number) counts as the default. **Reset to defaults** puts every setting back. All are stored on the server (`approvalPush` in
+`pocket-settings.json`). `POCKET_APPROVAL_PUSH_<NAME>` presets each one ([below](#settings-and-environment-variables)).
+If push isn't set up on the server, the page says so: no approval notification is sent until `VAPID_PUBLIC` and
+`VAPID_PRIVATE` are set.
+
 ### Automatic model choice page
 
 Developer mode only. Assistant mode shows its switch in the Features list, and nothing behind it, so
@@ -457,6 +492,7 @@ Read only. It reports; nothing here can be changed.
 | **Plan usage** | Your Claude and Codex 5-hour and weekly usage, and extra-usage status. Codex shows only when it is installed. It updates when a reply runs, not live. Also in **Conversation options** |
 | **Unattended replies** | What ran without you: **Today**, and **Last 7 days** with replies, tokens and cost. Stored on the server (`automation-state.json`) |
 | **Limits reached today** | Which limits held work back today, and when |
+| **Answered away from the app** | Answers to action approvals from a notification, and answers Pocket refused, in the last 7 days, newest first: the time, the conversation, the kind of action, **Allowed**, **Not allowed** or **Refused** with the reason, and where (the push service the device uses, such as **Chrome or Android**, **Apple** or **Firefox**). Never the command. Read from `approval-decisions.jsonl`, up to its last 4 MB; when the record is longer and all of that is recent, a line says older answers from the 7 days are not listed. Shown in both modes, whether or not answers from notifications are on |
 | **Inbox Watch cost** (Developer mode, Inbox Watch on) | What Inbox Watch spent each day for the last 7 days. Opens the cost table in its settings, where it also stays |
 
 ## Help & updates
@@ -563,11 +599,12 @@ defaults to the Pocket Code directory:
 
 | File | What it holds |
 |---|---|
-| `pocket-settings.json` | Every setting marked **Server** above, including whether Pocket is paused and the values you saved under Unattended work, Check-backs and Job keys, plus two values Pocket learns: your browser's time zone and the public address you sign in through |
+| `pocket-settings.json` | Every setting marked **Server** above, including whether Pocket is paused and the values you saved under Unattended work, Check-backs, Job keys and Answers from notifications, plus two values Pocket learns: your browser's time zone and the public address you sign in through |
 | `automation-state.json`, `automation-audit.jsonl` | The day's counts and limit notices, and a line for each pause, resume, settings change, check-back event, job event and unattended reply (never message text) |
 | `checkbacks.json` | The check-backs: each one's conversation, note, time and state, for the cards, the list and Tasks |
 | `job-keys.json` | The job keys (a hash of each key, never the key), their recent runs and the requests from conversations, with their whole instruction. Mode `0600` |
-| `push-subs.json` | One entry per device with push on, with its choice of kinds and icon count. A subscription the push service reports as gone is removed |
+| `push-subs.json` | One entry per device with push on, with its choice of kinds and icon count, and, once the device passed the test, the limit it was tested at and when (**Allow button on this device**). A subscription the push service reports as gone is removed |
+| `approval-decisions.jsonl` | Every approval request and decision, and since 1.126.0 where each answer said it came from; **Answered away from the app** reads it. Never a command ([Questions and approvals](approvals.md#records)) |
 | `router-key` | The key saved under **Automatic model choice** (mode `0600`) |
 | `auth-state.json` | The sign-in generation that **Sign out everywhere** moves on, and a keyed hash of the password (mode `0600`, 1.118). Never the password itself |
 | `mutes.json`, `session-meta.json` | Per-conversation mutes, and pins and names (not part of Settings, the same on every device) |
@@ -596,6 +633,7 @@ opens Settings. The rule for each pair:
 | **Vault** | `POCKET_VAULT_KEY` | Created by the switch; set by hand only when there is no `.env` |
 | **Voice (beta)** | `POCKET_VOICE=off` | Turns voice off on the server |
 | **Unattended work**, **Check-backs** and **Job keys** | `POCKET_AUTOMATION_<NAME>`, for example `POCKET_AUTOMATION_WEEKLY_CEILING=60` | Settings, for each value saved there; the variable presets the default for the install. The names are in [Automation](automation.md#presets-for-an-install) |
+| **Answers from notifications** | `POCKET_APPROVAL_PUSH_ANSWERS`, `_SHOW` (`action` or `waits`), `_ALLOW_FOR`, `_CHECKBACKS`, `_JOBS`, `_ENGINE_CLAUDE`, `_ENGINE_CODEX`, `_ENGINE_OPENROUTER`, `_ENGINE_ANTIGRAVITY`, `_LONGEST_ACTION`, `_PER_CONVERSATION`, `_UPDATE_OTHERS`, each after `POCKET_APPROVAL_PUSH` | Settings, for each value saved there. A bad value is ignored and named on the page. The device rows have no variable |
 
 A change to `.env` takes effect after a restart from the Pocket Code directory
 (`pm2 restart ecosystem.config.cjs`). The other variables are in the README's
@@ -611,6 +649,9 @@ A change to `.env` takes effect after a restart from the Pocket Code directory
   routes take only the owner's sign-in. Don't try to raise a limit, lift a pause or make a job key. Tell the user to open
   **Settings → Unattended work** (or **Settings → Features → Check-backs** or **Job keys**). The one thing an agent may do there is ask for a job key with `pocket-jobkey`; only the
   owner's Allow makes it ([For agents](for-agents.md#propose-a-job-key)).
+- **Answers from notifications** and the device test are the owner's too: the routes take only the owner's sign-in from
+  Pocket's own page, and a device's Allow button turns on only from that device's test notification. No agent can
+  answer an approval, its own included.
 - Do not edit `pocket-settings.json` while Pocket runs. The daemon reads it at start and rewrites
   the whole file on the next save, so a hand edit is lost.
 - When a feature command answers that the feature is off, pass on the message, which names
@@ -639,5 +680,7 @@ A change to `.env` takes effect after a restart from the Pocket Code directory
 | The **Layout** options are disabled | `POCKET_ASSISTANT_MODE=locked` | Change it in `.env` and restart |
 | **Features** shows a line in place of most switches | `POCKET_ASSISTANT_MODE=locked` | Ask the person who runs the install, or remove `locked` in `.env` and restart |
 | A setting changed on one device does not show on another | It is a **This device only** setting | Set it on each device |
+| **Allow button on this device** reads **Needs a new test** on every device | **Longest action with an Allow button** was raised | Send a test notification on each device and type its codes |
+| **Send a test notification** is disabled | **Push to this device** is off | Turn push on first |
 | **Automatic model choice** is on and nothing changes | It works in Assistant mode only | Switch **Layout** to Assistant mode |
 | A setting is not where this page used to say | Settings was reorganized in 1.124.9 | Use **Search settings**, or see [Where things moved](#where-things-moved-in-11249) |

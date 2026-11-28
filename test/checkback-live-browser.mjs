@@ -113,7 +113,7 @@ try {
   assert.equal(await p.$eval(SWITCH, x => x.getAttribute('aria-pressed')), 'false');
   await closeSheet(); await checkbackPage();
   const served = (await call('/automation')).body;
-  assert.deepEqual(await p.$$eval('[data-auto-group]:not(.automation-switch)', x => x.map(g => g.dataset.autoGroup)), served.groups.map(g => g.key));
+  assert.deepEqual(await p.$$eval('[data-auto-group]:not(.automation-switch):not([data-auto-group="approvalPush"])', x => x.map(g => g.dataset.autoGroup)), served.groups.map(g => g.key));
   assert.equal(await p.$eval(FULL, x => x.classList.contains('automation-group-off')), true);
   assert.ok(await p.$('[data-auto-group="pause"] [data-auto-key="runOverdue"]'), 'On Resume, run late check-backs, from the schema');
 

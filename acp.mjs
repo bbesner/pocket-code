@@ -252,7 +252,22 @@ export function approvalCard(params) {
   const call = params?.toolCall || {}, i = call.rawInput || {};
   const files = [i.filePath, i.path, i.Path, ...(call.locations || []).map(l => l?.path)].filter(Boolean);
   if (call.kind === 'edit' || call.kind === 'delete' || call.kind === 'move') return { kind: 'fileChange', details: { changes: [...new Set(files)].map(p => ({ path: p })), tool: call.title || null } };
+  // 1.126: a request carrying both command and CommandLine names no single command; both show under Show details and
+  // neither is shown (or matched against a trusted rule) as the whole command
+  // (`in` throws on a string, number or true: a rawInput that isn't an object shows its card as before 1.126)
+  if (typeof i === 'object' && 'command' in i && 'CommandLine' in i) return { kind: 'command', details: { command: null, commands: { command: i.command ?? null, CommandLine: i.CommandLine ?? null }, tool: call.title || null } };
   return { kind: 'command', details: { command: i.command || i.CommandLine || call.title || null, tool: call.title || null } };
+}
+// 1.126: what the notification rules (approval-push.mjs) need from a permission request that the card's details leave out:
+// the call's kind, where the command text came from (never Allow on a title), whether an allow-once option was offered
+// (never Allow on an allow-always fallback), the rawInput's keys, and its folder.
+export function approvalFacts(params) {
+  const call = params?.toolCall || {}, raw = call.rawInput, i = raw && typeof raw === 'object' ? raw : {};
+  const from = typeof i.command === 'string' && i.command ? 'command' : !i.command && typeof i.CommandLine === 'string' && i.CommandLine ? 'CommandLine' : call.title ? 'title' : null;
+  return { callKind: typeof call.kind === 'string' ? call.kind : null, from,
+    allowOnce: (Array.isArray(params?.options) ? params.options : []).some(o => o?.kind === 'allow_once' && o.optionId != null),
+    rawKeys: raw == null ? [] : typeof raw === 'object' ? Object.keys(raw) : ['(not an object)'],
+    ...('cwd' in i ? { rawCwd: typeof i.cwd === 'string' ? i.cwd : null } : {}) };
 }
 // An ACP elicitation form (elicitation/create, mode form) as Pocket questions, and the way back: `content(answers)`
 // turns the inbox's answers ({questionId: {answers: [text]}}) into the form's content. One question per property; a
@@ -365,7 +380,7 @@ export function ownedAcpTurn(sessionId) { return acpTurns.get(bareAcpId(sessionI
 // Build the Pocket turn object for an ACP session: emit→SSE subscribers, an ApprovalInbox fed by
 // request_permission, tracked in acpTurns. Mirrors codex.mjs makeTurn.
 function makeAcpTurn(session, { text, model, approvalMode, executionMode, hooks, origin, originRef, rootOrigin }) {
-  const { emit, onFinish, onApproval, onQuestion, auditApproval } = hooks;
+  const { emit, onFinish, onApproval, onQuestion, auditApproval, onApprovalGone } = hooks;
   const client = session.client;
   const turn = {
     sessionId: session.sessionId, fullId: session.fullId, cwd: session.cwd, startedAt: Date.now(), userText: text,
@@ -400,6 +415,7 @@ function makeAcpTurn(session, { text, model, approvalMode, executionMode, hooks,
     }),
     onChange: () => { turn.emit({ type: 'approvals' }); if (turn.approvals?.list().length) onApproval?.(turn); if (turn.settling) armSettle(turn); },
     onAutoError: (e, { tool }) => log(`trusted action reply not delivered session=${turn.fullId} tool=${tool}: ${e.message}`), // 1.124.4: as the Claude caller logs it
+    onGone: (rows, info) => onApprovalGone?.(turn, rows, info), // 1.126: answered, withdrawn or ended (notification replacements)
   });
   // Questions from Pocket's ask tool: the same inbox Claude's and Codex's questions use. The native id is the ask's
   // id; answering resolves the ask the tool is polling, skipping or ending the turn resolves it with no answer.
@@ -541,7 +557,7 @@ function wireTurnHandlers(turn) {
         nativeId: id, turnId: turn.turnId, kind: card.kind,
         title: params.toolCall?.title || params.title || 'Allow this action?',
         details: card.details,
-        allow, deny, canAllow,
+        allow, deny, canAllow, facts: approvalFacts(params),
       });
       if (!ok) client.respond(id, declineFor(method)); // couldn't register (closed/old turn) -> fail closed
       return; // the response is sent later by the inbox's write when the user decides

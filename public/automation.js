@@ -267,7 +267,10 @@ const Automation = (() => {
       <div class="title-settings model-offer automation-settings automation-host" id="s-checkbacks-auto" role="group" aria-label="Check-backs"></div>
       <div class="title-settings model-offer automation-settings automation-host" id="s-jobs-auto" role="group" aria-label="Job keys"></div>
       <div class="title-settings model-offer automation-settings automation-host" id="s-tasks-auto" role="group" aria-label="Tasks"></div>
-      <div class="title-settings model-offer automation-settings automation-host" id="s-auto-usage" role="group" aria-label="Unattended replies"></div>`;
+      <div class="title-settings model-offer automation-settings automation-host" id="s-auto-usage" role="group" aria-label="Unattended replies"></div>
+      <div class="automation-settings automation-host" id="s-answers-switch">${loadingSwitch('Answer approvals from notifications')}</div>
+      <div class="title-settings model-offer automation-settings automation-host" id="s-answers-auto" role="group" aria-label="Answers from notifications"></div>
+      <div class="title-settings model-offer automation-settings automation-host" id="s-answers-usage" role="group" aria-label="Answered away from the app"></div>`;
   }
   function settingRowHTML(g, s) {
     const id = `auto-${g.key}-${s.key}`, err = `<p class="vault-field-error" id="${id}-err" role="alert"></p>`;
@@ -342,7 +345,7 @@ const Automation = (() => {
     if (typeof JobKeys !== 'undefined') { JobKeys.paintBadges(data.jobs?.requests || 0); JobKeys.bind(hostOf('jobs') || body); } // the requests and the key list under Job keys, while it is on
     if (focusKey) host.querySelector(`.automation-settings [${focusAttr}="${CSS.escape(focusKey)}"]`)?.focus({ preventScroll: true });
   }
-  const settingOf = (group, key) => data?.groups?.find(g => g.key === group)?.settings.find(s => s.key === key);
+  const settingOf = (group, key) => (group === AP ? ap : data)?.groups?.find(g => g.key === group)?.settings.find(s => s.key === key);
   // 1.119: turning check-backs on or off here changes what the app shows at once (the list's clock, the cards, Tasks),
   // without waiting for the next /api/me. The push toggle stays: it also carries the 1.117 limit notices.
   function followCheckbacksSwitch() {
@@ -353,16 +356,25 @@ const Automation = (() => {
     if (typeof refreshSessions === 'function') refreshSessions();
   }
   async function save(group, payload, { key = '', control = null, done = '' } = {}) {
-    const row = key ? host.querySelector(`[data-auto-group="${CSS.escape(group)}"] [data-auto-row="${CSS.escape(key)}"]`) : null;
+    // the row of the control that was used (a setting shown twice, as Answers from notifications' switch is, has two rows)
+    const row = control?.closest?.('[data-auto-row]') || (key ? host.querySelector(`[data-auto-group="${CSS.escape(group)}"] [data-auto-row="${CSS.escape(key)}"]`) : null);
     const errEl = row?.querySelector('.vault-field-error'), status = host.querySelector(`[data-auto-status="${CSS.escape(group)}"]`);
     if (errEl) errEl.textContent = '';
     try {
-      data = await api('/automation/settings', { method: 'POST', body: JSON.stringify({ group, ...payload }) });
-      apply({ paused: data.paused ?? state.paused });
-      if (group === 'checkbacks') followCheckbacksSwitch();
-      if (group === 'jobs' && window.pocketFeatures) window.pocketFeatures.jobs = settingOf('jobs', 'jobs')?.value === true;
-      paintSettings();
-      const st = host.querySelector(`[data-auto-status="${CSS.escape(group)}"]`); if (st) st.textContent = (typeof done === 'function' ? done() : done) || 'Saved.';
+      let off = 0;
+      if (group === AP) { // 1.126: Answers from notifications has its own route and answer
+        ap = await api('/approval-push/settings', { method: 'POST', body: JSON.stringify(payload) });
+        off = ap.allowButtonsOff > 0 ? ap.allowButtonsOff : 0;
+        paintAnswers(); paintDevice();
+      } else {
+        data = await api('/automation/settings', { method: 'POST', body: JSON.stringify({ group, ...payload }) });
+        apply({ paused: data.paused ?? state.paused });
+        if (group === 'checkbacks') followCheckbacksSwitch();
+        if (group === 'jobs' && window.pocketFeatures) window.pocketFeatures.jobs = settingOf('jobs', 'jobs')?.value === true;
+        paintSettings();
+      }
+      const st = host.querySelector(`[data-auto-status="${CSS.escape(group)}"]`);
+      if (st) st.textContent = [(typeof done === 'function' ? done() : done) || 'Saved.', off ? allowOffText(off) : ''].filter(Boolean).join(' ');
       return true;
     } catch (e) {
       const message = e.message || 'Could not save.';
@@ -412,9 +424,198 @@ const Automation = (() => {
       if (all && typeof CheckBacks !== 'undefined') all.onclick = () => CheckBacks.confirmCancelAll(data?.checkbacks?.pending || 0);
     });
   }
+  /* ---------- 1.126: Answers from notifications (docs/plans/notification-approvals.md, Settings) ----------
+     Server contract: GET /api/approval-push → { on, pushReady, groups, warnings } (the groups in /api/automation's shape),
+     POST /api/approval-push/settings { values } | { reset: true } (may add allowButtonsOff: N), GET
+     /api/approval-push/answers → { answers, days }, and this device's Allow button through /api/push/prefs (approvals),
+     /api/push/approval-test, /api/push/approval-test/confirm and /api/push/approval-allow. */
+  const AP = 'approvalPush';
+  let ap = null;
+  const allowOffText = n => `The Allow button is now off on ${n === 1 ? '1 device' : n + ' devices'}. Each needs a new test in Notifications before it shows Allow again.`;
+  const RAISE_TEXT = 'Saving a higher number turns the Allow button off on every device. Each one needs a new test before it shows Allow again.';
+  function answersPageHTML(g) {
+    const sw = g.settings.find(s => s.key === 'answers'), off = sw?.value !== true;
+    const rest = g.settings.filter(s => s !== sw), main = rest.filter(s => !s.advanced), adv = rest.filter(s => s.advanced);
+    const plain = adv.filter(s => !s.section), sections = [...new Set(adv.filter(s => s.section).map(s => s.section))];
+    const advHTML = plain.map(s => settingRowHTML(g, s)).join('') + sections.map(name => `<h4 class="vault-set-head automation-section">${esc(name)}</h4>${adv.filter(s => s.section === name).map(s => settingRowHTML(g, s)).join('')}`).join('');
+    return `<section class="automation-group${off ? ' automation-group-off' : ''}" data-auto-group="${AP}">
+      <h3 class="vault-set-head" id="auto-${AP}-h">${esc(g.title)}</h3>
+      <p class="title-note" id="ap-lead">Answer an agent's action approval from its notification, without opening Pocket. Allow appears only on a device you tested, only for a short action in plain characters, once per request, and never as Always allow. Don't allow appears on every approval notification.</p>
+      ${ap.pushReady === false ? `<p class="title-note automation-warning" role="note">Push notifications aren't set up on this server, so no approval notification is sent. Set VAPID_PUBLIC and VAPID_PRIVATE in its .env and restart Pocket.</p>` : ''}
+      ${(ap.warnings || []).map(w => `<p class="title-note automation-warning" role="note">${esc(w)}</p>`).join('')}
+      ${sw ? settingRowHTML(g, sw) : ''}
+      <div class="automation-dependent" data-auto-dependent="${AP}">${off && sw ? `<p class="title-note automation-inactive-note">These apply when ${esc(sw.label)} is on.</p>` : ''}
+        ${main.map(s => settingRowHTML(g, s)).join('')}
+        ${adv.length ? `<details class="settings-details automation-advanced" data-auto-advanced="${AP}"${advancedOpen.has(AP) ? ' open' : ''}><summary>Advanced</summary>${advHTML}</details>` : ''}</div>
+      <p class="title-note">Each device's Allow button is in Notifications, under This device only.</p>
+      <span class="vault-set-actions"><button type="button" class="chip" data-auto-reset="${AP}">Reset to defaults</button></span>
+      <p class="title-note" data-auto-status="${AP}" role="status"></p></section>`;
+  }
+  function paintAnswers() {
+    if (!host?.isConnected || !ap) return;
+    const g = ap.groups?.find(x => x.key === AP), page = host.querySelector('#s-answers-auto'), list = host.querySelector('#s-answers-switch');
+    if (!g) return;
+    const a = document.activeElement, inside = a?.closest?.('#s-answers-auto, #s-answers-switch');
+    const focus = inside && (a.dataset.autoKey ? ['data-auto-key', a.dataset.autoKey] : a.dataset.autoReset ? ['data-auto-reset', a.dataset.autoReset] : null), where = inside?.id;
+    const sw = g.settings.find(s => s.key === 'answers');
+    // the switch in Features' list, with ids of its own (the same switch heads the page)
+    if (list && sw) list.innerHTML = `<section class="automation-group automation-switch" data-auto-group="${AP}" aria-label="${esc(g.title)}">${settingRowHTML({ key: AP + '-list' }, sw)}</section>`;
+    if (page) page.innerHTML = answersPageHTML(g);
+    bindSettingsBody(host);
+    // Raising the longest action turns every device's Allow button off: said before saving, as the number is typed.
+    const input = page?.querySelector('[data-auto-key="longestAction"]'), cur = g.settings.find(s => s.key === 'longestAction');
+    if (input && cur) {
+      const note = document.createElement('p'); note.className = 'title-note'; note.dataset.apRaise = ''; note.setAttribute('role', 'status');
+      input.closest('[data-auto-row]').querySelector('.vault-field-error').before(note);
+      // a warning only while it has something to say (other code reads any .automation-warning as a live warning)
+      const set = () => { const n = Number(input.value), raise = Number.isFinite(n) && n > cur.value; note.textContent = raise ? RAISE_TEXT : ''; note.classList.toggle('automation-warning', raise); };
+      input.addEventListener('input', set); input.addEventListener('blur', () => setTimeout(set, 0));
+    }
+    if (focus && where) host.querySelector(`#${where} [${focus[0]}="${CSS.escape(focus[1])}"]`)?.focus({ preventScroll: true });
+  }
+  // Settings → Usage → Answered away from the app: the last 7 days, newest first, read-only.
+  const KIND_WORDS = { command: 'Command', page: 'Web page', search: 'Web search', edit: 'File edit', action: 'Other action' };
+  const ROW_KIND_WORDS = { tool: 'Action', command: 'Command', fileChange: 'File edit', network: 'Network access', permissions: 'More access' };
+  const REFUSED_WORDS = { answers_off: 'answering from notifications was off', gone: 'it was no longer waiting', not_offered: 'Allow was no longer offered for it',
+    too_old: 'the notification was too old', changed: "it didn't match what the notification showed", unknown_via: 'it came from an unknown place',
+    answered: 'it had already been answered differently', answered_in_app: 'it had already been answered in Pocket' };
+  const whenText = at => { const d = new Date(at); return Number.isNaN(d.getTime()) ? '' : d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); };
+  const resultText = a => a.result === 'allowed' ? 'Allowed' : a.result === 'not_allowed' ? 'Not allowed' : `Refused: ${REFUSED_WORDS[a.reason] || 'the reason was not recorded'}`;
+  function answersUsageHTML(d, error) {
+    const rows = d?.answers || [];
+    const body = error ? `<p class="title-note">${esc(error)}</p>`
+      : !rows.length ? `<p class="title-note">No approvals were answered away from the app in the last ${d?.days || 7} days.</p>`
+      : `<ul class="automation-notices answers-away" aria-labelledby="auto-answers-h">${rows.map(a => {
+        // the server's record has a title only when one was given; the conversation list's title covers the rest
+        const short = t => { const one = String(t).replace(/\s+/g, ' ').trim(), ch = Array.from(one); return ch.length > 60 ? ch.slice(0, 59).join('') + '…' : one; }; // one line, as the notification cuts it
+        const listed = a.sessionId && typeof allSessions !== 'undefined' ? allSessions.find(s => s.id === a.sessionId)?.title : '';
+        const convo = a.sessionId ? `<a href="#/chat/${encodeURIComponent(a.sessionId)}">${esc(short(a.conversation || listed || 'Untitled conversation'))}</a>` : esc(short(a.conversation || 'A conversation'));
+        const where = a.where && a.where !== 'unknown' ? 'from ' + a.where : 'from an unknown device';
+        return `<li data-answer="${esc(a.requestId || '')}"><span class="automation-when">${esc(whenText(a.at))}</span>${convo} · ${esc(KIND_WORDS[a.action] || ROW_KIND_WORDS[a.kind] || 'Action')} · <span data-answer-result>${esc(resultText(a))}</span> · ${esc(where)}</li>`;
+      }).join('')}</ul>`;
+    // the record is longer than one listing reads and all of what was read is recent: older answers are left out
+    const older = !error && d?.olderNotListed ? `<p class="title-note" data-answers-older>Older answers from these ${d?.days || 7} days are not listed: the record is too long to read in full here.</p>` : '';
+    return `<section class="automation-group automation-usage" aria-labelledby="auto-answers-h"><h3 class="vault-set-head" id="auto-answers-h">Answered away from the app</h3>
+      <p class="title-note">Answers to action approvals from a notification, and answers Pocket refused, in the last ${d?.days || 7} days. Where is the push service the device uses.</p>${body}${older}</section>`;
+  }
+  async function loadAnswersUsage() {
+    const el = host?.querySelector('#s-answers-usage'); if (!el) return;
+    let d = null, err = '';
+    try { d = await api('/approval-push/answers'); } catch (e) { err = e.message === 'login' ? '' : (e.message || 'The record of answers could not be read.') + ' Open this page again to retry.'; }
+    if (el.isConnected) el.innerHTML = answersUsageHTML(d, err);
+  }
+  async function loadAnswers() {
+    const page = host?.querySelector('#s-answers-auto');
+    try { ap = await api('/approval-push'); }
+    catch (e) {
+      if (page?.isConnected) page.innerHTML = `<p class="title-note">${esc(e.message || 'Could not load Answers from notifications.')}</p>`;
+      host?.querySelector('#s-answers-switch')?.closest('.feature-row')?.setAttribute('hidden', '');
+      return;
+    }
+    paintAnswers(); paintDevice();
+  }
+
+  /* Notifications → This device only → Allow button on this device. Turned on only by the device test: a test
+     notification, then the two codes at the end of its "Runs:" and "In:" lines, typed here. */
+  const dev = { sub: null, status: null, sent: false, busy: false };
+  const DEVICE_ERRORS = {
+    push_off: "Push notifications aren't set up on this server, so a test can't be sent. Set VAPID_PUBLIC and VAPID_PRIVATE in its .env and restart Pocket.",
+    not_subscribed: "This device isn't getting notifications from Pocket. Turn on Push to this device above, then send a test.",
+    not_delivered: "The test notification didn't reach this device. Check that notifications are allowed for Pocket on it, then send another test.",
+    test_expired: 'This test has expired or was never sent. Send a new test notification.',
+    limit_changed: 'The longest action with an Allow button changed after the test was sent. Send a new test notification.',
+    test_needed: 'The Allow button turns on only with a test notification. Send one, then type its codes.',
+    wrong_codes: "Those codes don't match. Type the two characters at the end of the “Runs:” line, then the two at the end of the “In:” line.",
+    wrong_codes_expired: "Those codes didn't match five times, so this test has ended. Send a new test notification.",
+    offline: "Pocket didn't answer. Check this device's connection, then try again.",
+  };
+  const deviceError = e => e?.code === 'wrong_codes' && e.body?.expired ? DEVICE_ERRORS.wrong_codes_expired : DEVICE_ERRORS[e?.code] || (e?.name === 'TimeoutError' || e instanceof TypeError ? DEVICE_ERRORS.offline : e?.message || 'Something went wrong. Try again.');
+  const dateText = at => { const d = new Date(at); return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }); };
+  function deviceHTML() {
+    const code = (id, label) => `<label class="voice-field">${label}<input id="${id}" type="text" maxlength="4" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" aria-describedby="s-allow-error"></label>`;
+    return `<div class="title-settings model-offer allow-device" id="s-allow-device" role="group" aria-labelledby="s-allow-device-h" aria-describedby="s-allow-device-lead">
+      <p class="vault-set-head" id="s-allow-device-h">Allow button on this device</p>
+      <p class="title-note" id="s-allow-device-lead">Approval notifications show Allow only on a device you tested. Send a test notification, look at it in every way this device shows notifications (collapsed, expanded and on the lock screen), then type the two codes it shows. Turning Push to this device off and on again turns the Allow button off; it then needs a new test.</p>
+      <p class="title-note" id="s-allow-device-state" role="status">Checking this device…</p>
+      <span class="vault-set-actions"><button type="button" class="chip" id="s-allow-test" disabled>Send a test notification</button><button type="button" class="chip" id="s-allow-off" hidden>Turn off</button></span>
+      <form class="access-form allow-codes" id="s-allow-form" novalidate hidden>
+        <p class="title-note" id="s-allow-sent">Look at the test notification collapsed, expanded and on the lock screen. Then type the code at the end of its “Runs:” line and the code at the end of its “In:” line. The codes work for 10 minutes.</p>
+        ${code('s-allow-code-action', 'Code at the end of the “Runs:” line')}
+        ${code('s-allow-code-folder', 'Code at the end of the “In:” line')}
+        <span class="vault-set-actions"><button type="submit" class="chip" id="s-allow-confirm">Turn on Allow button</button></span>
+      </form>
+      <p class="vault-field-error" id="s-allow-error" role="alert"></p></div>`;
+  }
+  function paintDevice() {
+    const root = host?.querySelector('#s-allow-device'); if (!root) return;
+    const st = dev.status, sub = dev.sub, s = root.querySelector('#s-allow-device-state');
+    const off = ap && ap.on === false ? ' Answer approvals from notifications is off in Features, so approval notifications have no buttons for now.' : '';
+    s.textContent = !sub ? 'Off. Turn on Push to this device first, then send a test notification here.'
+      : !st ? 'Checking this device…'
+      : st.approvals === false ? "Action approvals are off for this device above, so it gets no approval notifications." + off
+      : st.allowButton ? `On. Tested at ${st.testedLimit} characters on ${dateText(st.testedAt)}.` + off
+      : st.retest ? `Needs a new test. This device was tested at ${st.testedLimit} characters, and the longest action is now ${st.currentLimit}. Until then its approval notifications offer Don't allow only.` + off
+      : "Off. Approval notifications on this device offer Don't allow only." + off;
+    root.querySelector('#s-allow-test').disabled = !sub || dev.busy;
+    root.querySelector('#s-allow-off').hidden = !(sub && st && (st.allowButton || st.retest));
+    root.querySelector('#s-allow-off').disabled = dev.busy;
+    root.querySelector('#s-allow-confirm').disabled = dev.busy;
+    root.querySelector('#s-allow-form').hidden = !dev.sent;
+  }
+  // From app.js: this device's push subscription and its approvals status (GET or POST /api/push/prefs).
+  function deviceState({ sub, status } = {}) { dev.sub = sub || null; if (status !== undefined) dev.status = status || null; if (!dev.sub) dev.status = null; paintDevice(); }
+  const ownSub = async () => dev.sub || (typeof pushState === 'function' ? await pushState() : null);
+  function bindDevice(sh, { approvalTest = false } = {}) {
+    const root = sh.querySelector('#s-allow-device'); if (!root) return;
+    dev.sent = false; dev.busy = false;
+    const err = root.querySelector('#s-allow-error'), a = root.querySelector('#s-allow-code-action'), f = root.querySelector('#s-allow-code-folder');
+    const say = (text, bad = []) => { err.textContent = text; for (const x of [a, f]) if (bad.includes(x)) x.setAttribute('aria-invalid', 'true'); else x.removeAttribute('aria-invalid'); };
+    const showCodes = () => { dev.sent = true; paintDevice(); requestAnimationFrame(() => { if (!root.isConnected) return; root.querySelector('#s-allow-form').scrollIntoView({ block: 'center' }); a.focus({ preventScroll: true }); }); };
+    for (const x of [a, f]) x.addEventListener('input', () => x.removeAttribute('aria-invalid'));
+    root.querySelector('#s-allow-test').onclick = async () => {
+      const sub = await ownSub(); if (!sub) { say(DEVICE_ERRORS.not_subscribed); return; }
+      dev.busy = true; say(''); paintDevice(); root.querySelector('#s-allow-device-state').textContent = 'Sending a test notification…';
+      try {
+        await api('/push/approval-test', { method: 'POST', body: JSON.stringify({ endpoint: sub.endpoint }), signal: AbortSignal.timeout(20000) });
+        a.value = f.value = ''; dev.busy = false; showCodes();
+      } catch (e) { dev.busy = false; dev.sent = false; if (e.message !== 'login') say(deviceError(e)); }
+      finally { dev.busy = false; paintDevice(); }
+    };
+    root.querySelector('#s-allow-form').onsubmit = async ev => {
+      ev.preventDefault();
+      const actionCode = a.value.replace(/\s+/g, ''), folderCode = f.value.replace(/\s+/g, '');
+      if (!actionCode || !folderCode) { say('Type both codes. Each is two characters.', [!actionCode ? a : null, !folderCode ? f : null].filter(Boolean)); (!actionCode ? a : f).focus(); return; }
+      const sub = await ownSub(); if (!sub) { say(DEVICE_ERRORS.not_subscribed); return; }
+      dev.busy = true; say(''); paintDevice();
+      try {
+        const r = await api('/push/approval-test/confirm', { method: 'POST', body: JSON.stringify({ endpoint: sub.endpoint, actionCode, folderCode }), signal: AbortSignal.timeout(10000) });
+        dev.status = r.approvals || dev.status; dev.sent = false; a.value = f.value = '';
+        toast('Allow button on for this device');
+        dev.busy = false; paintDevice(); root.querySelector('#s-allow-test').focus({ preventScroll: true });
+      } catch (e) {
+        dev.busy = false;
+        if (e.message === 'login') return;
+        if (e.code === 'wrong_codes' && !e.body?.expired) { say(deviceError(e), [a, f]); paintDevice(); a.focus(); return; }
+        dev.sent = false; say(deviceError(e)); paintDevice(); root.querySelector('#s-allow-test').focus({ preventScroll: true });
+      } finally { dev.busy = false; paintDevice(); }
+    };
+    root.querySelector('#s-allow-off').onclick = async () => {
+      const sub = await ownSub(); if (!sub) { say(DEVICE_ERRORS.not_subscribed); return; }
+      dev.busy = true; say(''); paintDevice();
+      try {
+        const r = await api('/push/approval-allow', { method: 'POST', body: JSON.stringify({ endpoint: sub.endpoint, on: false }), signal: AbortSignal.timeout(10000) });
+        dev.status = r.approvals || dev.status; dev.sent = false; toast('Allow button off for this device');
+      } catch (e) { if (e.message !== 'login') say(deviceError(e)); }
+      finally { dev.busy = false; paintDevice(); if (root.querySelector('#s-allow-off').hidden) root.querySelector('#s-allow-test').focus({ preventScroll: true }); }
+    };
+    // The test notification's link (/#/settings/notifications?approvalTest=1): the code fields, in view, the first focused.
+    if (approvalTest) showCodes();
+  }
+
   async function bindSettings(sh) {
     host = sh;
     bindToggles(sh);
+    if (sh.querySelector('#s-answers-auto')) { loadAnswers(); loadAnswersUsage(); } // 1.126: its own route, whatever Automation's state
     const body = sh.querySelector('#s-automation-body'); if (!body) return;
     if (!on()) {
       body.innerHTML = `<p class="title-note">${typeof PANE !== 'undefined' && PANE && window.pocketFeatures?.automation ? 'Unattended work and Pause all are in the main window.' : 'This server does not offer settings for unattended work yet.'}</p>`; body.setAttribute('aria-busy', 'false');
@@ -428,5 +629,6 @@ const Automation = (() => {
   listeners.push(() => { if (host?.isConnected) paintControls(); });
 
   return { on, isPaused, apply, fromMe, fromList, poll, paint, pauseAll, resume, refused, moreMenu, toggleHTML, bindToggles,
-    originLabel, originOf, wouldText, settingsHTML, bindSettings, settingOf, onChange: fn => listeners.push(fn) };
+    originLabel, originOf, wouldText, settingsHTML, bindSettings, settingOf, onChange: fn => listeners.push(fn),
+    deviceHTML, bindDevice, deviceState }; // 1.126: Notifications → This device only → Allow button on this device
 })();
