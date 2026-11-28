@@ -57,7 +57,10 @@ async function pushService(t) {
   };
 }
 
+// APUSH_PORT_SHIFT moves every server port, so a second copy of this file can run beside `npm test` (which runs it too)
+const PORT_SHIFT = Number(process.env.APUSH_PORT_SHIFT) || 0;
 async function boot(t, port, { env = {}, devices = { a: { approvalAllow: TESTED } }, dir = tmpDir(), before = null } = {}) {
+  port += PORT_SHIFT;
   const push = await pushService(t);
   const home = path.join(dir, 'home'), cwd = path.join(home, 'work'), data = path.join(dir, 'data');
   for (const d of [home, cwd, path.join(home, 'pocket-uploads'), path.join(dir, 'sessions'), data]) fs.mkdirSync(d, { recursive: true });
