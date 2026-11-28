@@ -4,6 +4,8 @@
 // exactly what each device was sent. The rules without a server are in test/approval-push.test.mjs.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+// every regex metacharacter, the backslash included, so a value matches only as itself
+const reEscape = v => String(v).replace(/[\\^$.*+?()[\]{}|\/-]/g, '\\$&');
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -26,7 +28,7 @@ const LEGACY = sid => ({ title: 'Waiting for your OK', body: 'Open Pocket Code t
 async function pushService(t) {
   const dir = tmpDir(), key = path.join(dir, 'key.pem'), cert = path.join(dir, 'cert.pem');
   execFileSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-keyout', key, '-out', cert, '-days', '1', '-subj', '/CN=127.0.0.1'], { stdio: 'ignore' });
-  const devices = new Map(), got = [], fail = new Map();
+  const devices = new Map(), got = [], fail = new Map(), delay = new Map(); // delay: ms a device's push service waits before it answers
   const server = https.createServer({ key: fs.readFileSync(key), cert: fs.readFileSync(cert) }, (req, res) => {
     const chunks = []; req.on('data', c => chunks.push(c));
     req.on('end', () => {
@@ -34,7 +36,7 @@ async function pushService(t) {
       let payload; try { payload = JSON.parse(ece.decrypt(Buffer.concat(chunks), { version: 'aes128gcm', privateKey: d.ecdh, authSecret: d.auth }).toString('utf8')); } catch (err) { payload = { error: err.message }; }
       const status = fail.get(name) || 201;
       got.push({ device: name, urgency: req.headers.urgency || null, payload, accepted: status < 300 });
-      res.writeHead(status); res.end();
+      setTimeout(() => { res.writeHead(status); res.end(); }, delay.get(name) || 0);
     });
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
@@ -50,7 +52,7 @@ async function pushService(t) {
     env: { VAPID_PUBLIC: vapid.publicKey, VAPID_PRIVATE: vapid.privateKey, NODE_TLS_REJECT_UNAUTHORIZED: '0' },
     // rows: { name: { kinds?, approvalAllow? } }
     seed: (data, rows) => { fs.mkdirSync(data, { recursive: true }); fs.writeFileSync(path.join(data, 'push-subs.json'), JSON.stringify(Object.entries(rows).map(([name, extra]) => ({ ...sub(name), ...extra })))); },
-    sub, endpoint, got, fail, host: () => `127.0.0.1:${server.address().port}`,
+    sub, endpoint, got, fail, delay, host: () => `127.0.0.1:${server.address().port}`,
     of: (name, tag) => got.filter(g => g.device === name && (!tag || g.payload.tag === tag)),
   };
 }
@@ -138,8 +140,8 @@ test('T2: on, a tested device gets each engine\'s command with its own tag, urge
     ['claude', s.toolReq('WebFetch', { url: 'https://example.com/', prompt: 'Read it' }), 'Allow this web page?', 'Opens: https://example.com/', 'Conversation folder: ~/work'],
     ['claude', s.toolReq('WebSearch', { query: 'pocket code' }), 'Allow this web search?', 'Searches: pocket code', 'Conversation folder: ~/work'],
     ['codex', '__CXREQ__ ' + JSON.stringify({ method: 'item/commandExecution/requestApproval', params: { command: "/bin/bash -lc 'echo CX_T2'", cwd: s.cwd } }), 'Allow this command?', 'Runs: echo CX_T2', 'In: ~/work'],
-    ['acp', 'go', 'Allow this command?', 'Runs: echo ACP_OK', 'In: ~/work'],
-    ['antigravity', 'go', 'Allow this command?', 'Runs: echo AGY_OK', 'In: ~/work'],
+    ['acp', 'go', 'Allow this command?', 'Runs: echo ACP_OK', 'Conversation folder: ~/work'], // their requests name no folder
+    ['antigravity', 'go', 'Allow this command?', 'Runs: echo AGY_OK', 'Conversation folder: ~/work'],
   ];
   for (const [engine, text, wantTitle, action, folder] of cases) {
     const id = await s.start(engine, text);
@@ -497,6 +499,9 @@ test('T19: Action approvals and Allow button per device; the test push and both 
   // five wrong tries end a test
   await s.call('/push/approval-test', { endpoint: s.push.endpoint('b') });
   for (let i = 1; i <= 5; i++) { const r = await s.call('/push/approval-test/confirm', { endpoint: s.push.endpoint('b'), actionCode: 'QQ', folderCode: 'QQ' }); assert.equal(r.body.code, 'wrong_codes'); assert.equal(Boolean(r.body.expired), i === 5); }
+  // X12: after the fifth, even the right codes are refused: the test is over
+  const tb = await s.until(() => s.push.of('b', 'approval-test')[0], 5000, 'b\'s test push'), [bl1, bl2] = tb.payload.body.split('\n');
+  assert.equal((await s.call('/push/approval-test/confirm', { endpoint: s.push.endpoint('b'), actionCode: bl1.slice(-2), folderCode: bl2.slice(-2) })).body.code, 'test_expired');
   // a tested device gets Allow, an untested one Don't allow only, Action approvals off none
   const id = await s.start('claude', s.toolReq('Bash', { command: 'echo T19' }));
   const [req] = await s.waiting(id);
@@ -583,4 +588,257 @@ test('T21 (server): every setting saves through the route, refuses out-of-range 
   assert.equal((await s.call('/approval-push', undefined, s.bearer())).status, 401);
   await s.call('/settings', { approvalPush: { answers: true } });
   assert.equal((await s.call('/approval-push')).body.on, false, 'the general settings route cannot set it');
+});
+
+// ---------- 1.126 review fixes, on the real server (each fails without its fix) ----------
+const cxReq = (command, cwd) => '__CXREQ__ ' + JSON.stringify({ method: 'item/commandExecution/requestApproval', params: { command, cwd } });
+const actionsOf = p => p.payload.actions.map(x => x.action);
+
+test('F1 (server) and Codex end to end: a cwd with a trailing, leading or double space, a relative one and a literal ~/work offer Don\'t allow only and refuse a notification Allow; the exact folder is allowed and Codex hears accept', { timeout: 180_000 }, async t => {
+  const s = await boot(t, 19535);
+  await s.on();
+  const cmd = "/bin/bash -lc 'make deploy'";
+  for (const cwd of [s.cwd + ' ', ' ' + s.cwd, s.cwd + '  x', 'work', '~/work']) {
+    const id = await s.start('codex', cxReq(cmd, cwd));
+    const [req] = await s.waiting(id);
+    const [p] = await s.pushed('a', req.id);
+    assert.deepEqual(actionsOf(p), ['deny'], JSON.stringify(cwd));
+    const r = await s.fromNote(id, req.id, 'a', 'allow', p.payload.approval.shown);
+    assert.equal(r.status, 409, JSON.stringify(cwd)); assert.equal(r.body.code, 'not_offered', JSON.stringify(cwd));
+    assert.equal((await s.answer(id, req.id, { decision: 'deny' })).status, 200);
+  }
+  assert.ok(!s.lines(path.join(s.dir, 'calls.cxapprovals')).some(x => x.decision === 'accept'), 'Codex never heard accept');
+  // the exact folder: Allow from the notification reaches Codex
+  const id = await s.start('codex', cxReq(cmd, s.cwd));
+  const [req] = await s.waiting(id);
+  const [p] = await s.pushed('a', req.id);
+  assert.deepEqual(actionsOf(p), ['deny', 'allow']); assert.deepEqual(p.payload.body.split('\n').slice(0, 2), ['Runs: make deploy', 'In: ~/work']);
+  const ok = await s.fromNote(id, req.id, 'a', 'allow', p.payload.approval.shown);
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  await s.until(() => s.lines(path.join(s.dir, 'calls.cxapprovals')).some(x => x.decision === 'accept'), 5000, 'codex to hear accept');
+  assert.equal(s.audit().find(a => a.event === 'decision' && a.requestId === req.id).source, 'notification');
+});
+
+test('ACP end to end: a notification Allow reaches OpenCode as its allow-once option', { timeout: 120_000 }, async t => {
+  const s = await boot(t, 19536);
+  await s.on();
+  const id = await s.start('acp', 'go');
+  const [req] = await s.waiting(id);
+  const [p] = await s.pushed('a', req.id);
+  assert.deepEqual(actionsOf(p), ['deny', 'allow']);
+  assert.equal((await s.fromNote(id, req.id, 'a', 'allow', p.payload.approval.shown)).status, 200);
+  const store = path.join(s.dir, 'acp-store');
+  await s.until(() => fs.readdirSync(store).some(f => /"permissionOutcome":"selected"/.test(fs.readFileSync(path.join(store, f), 'utf8'))), 8000, 'OpenCode to hear the allow');
+  await s.idle(id);
+});
+
+test('F8 and the request id (server): a notification answer refused inside the inbox is recorded as refused, an app answer first says answered_in_app, and a malformed request id is 400 with no record', { timeout: 120_000 }, async t => {
+  const s = await boot(t, 19537, { devices: { a: { approvalAllow: TESTED }, b: { approvalAllow: TESTED } } });
+  await s.on();
+  const id = await s.start('claude', s.reqs([['g1', 'Bash', { command: 'echo F8-one' }], ['g2', 'Bash', { command: 'echo F8-two' }], ['g3', 'Bash', { command: 'echo F8-three' }]]));
+  const [one, two, three] = await s.waiting(id, 3);
+  const [p1] = await s.pushed('a', one.id); await s.pushed('a', two.id); await s.pushed('b', two.id); await s.pushed('a', three.id);
+  // answered in the app, then the other answer from a notification
+  assert.equal((await s.answer(id, one.id, { decision: 'deny' })).status, 200);
+  const late = await s.fromNote(id, one.id, 'a', 'allow', p1.payload.approval.shown);
+  assert.equal(late.status, 409); assert.equal(late.body.code, 'answered_in_app');
+  // answered from one device, then the other answer from another
+  assert.equal((await s.fromNote(id, two.id, 'b', 'deny')).status, 200);
+  const other = await s.fromNote(id, two.id, 'a', 'allow');
+  assert.equal(other.status, 409); assert.equal(other.body.code, 'answered');
+  const refused = s.audit().filter(a => a.event === 'refused');
+  assert.deepEqual(refused.map(a => [a.requestId, a.reason, a.source]), [[one.id, 'answered_in_app', 'notification'], [two.id, 'answered', 'notification']]);
+  assert.ok(!fs.readFileSync(path.join(s.data, 'approval-decisions.jsonl'), 'utf8').includes('F8-'), 'never the command');
+  const away = (await s.call('/approval-push/answers')).body.answers;
+  assert.ok(away.some(a => a.requestId === one.id && a.reason === 'answered_in_app'));
+  // a malformed request id: 400, nothing recorded, from the app or a notification
+  const before = s.audit().length;
+  for (const bad of ['nope', 'x'.repeat(300), 'a.b', one.id.toUpperCase(), one.id + 'a', 'constructor']) {
+    for (const body of [{ decision: 'deny' }, { decision: 'deny', via: 'notification', endpoint: s.push.endpoint('a') }]) {
+      const r = await s.answer(id, bad, body);
+      assert.equal(r.status, 400, bad); assert.equal(r.body.code, 'bad_request', bad);
+    }
+  }
+  assert.equal(s.audit().length, before, 'no record for a malformed id');
+  assert.equal((await s.answer(id, three.id, { decision: 'deny' })).status, 200, 'a real id still answers');
+});
+
+test('F6 (server): a handoff from a job\'s conversation follows the job rule', { timeout: 180_000 }, async t => {
+  const s = await boot(t, 19538);
+  await s.on();
+  assert.equal((await s.call('/automation/settings', { group: 'jobs', values: { jobs: true } })).status, 200);
+  const k = await s.call('/jobs/keys', { name: 'hand-check', workspace: s.cwd, engine: 'claude', model: 'default', instruction: 'Look.', access: 'ask' });
+  assert.equal(k.status, 201, JSON.stringify(k.body));
+  const run = await s.raw('POST', '/api/jobs/run', { data: s.reqs([['h1', 'Bash', { command: 'echo F6-job' }]]), wait: 1 }, { authorization: 'Bearer ' + k.body.secret });
+  const conv = run.body.conversation;
+  assert.ok(conv, JSON.stringify(run.body));
+  await s.waiting(conv);
+  // the job's reply, still waiting, hands its work to a new conversation (its runner token says who asks)
+  const token = await s.until(() => s.lines(path.join(s.dir, 'calls')).filter(c => c.id === conv).at(-1)?.runnerToken, 10000, 'the job reply\'s runner token');
+  const made = await s.call('/start', { text: 'Carry on', directory: s.cwd, kind: 'handoff' }, { ...s.bearer(), 'x-pocket-runner': token });
+  assert.ok(made.body?.id, JSON.stringify(made.body));
+  const startId = made.body.id;
+  const child = await s.call('/new', { provider: 'claude', cwd: s.cwd, text: s.reqs([['h2', 'Bash', { command: 'echo F6-handoff' }]]), approvalMode: 'review', start: startId });
+  assert.equal(child.status, 202, JSON.stringify(child.body));
+  assert.equal((await s.call('/session/' + s.e(child.body.id))).body.continuedFrom?.id, conv, 'the new conversation carries on the job\'s');
+  const [h2] = await s.waiting(child.body.id);
+  const [p] = await s.pushed('a', h2.id);
+  assert.equal(p.payload.body.split('\n')[3], 'A job has run in this conversation');
+  assert.deepEqual(actionsOf(p), ['deny'], 'Allow on a job\'s actions is off');
+  assert.equal((await s.fromNote(child.body.id, h2.id, 'a', 'allow', p.payload.approval.shown)).body.code, 'not_offered');
+});
+
+test('F9, X34, X35 (server): the answers list leaves out app answers and rows older than 7 days, and says when older answers are not listed', { timeout: 120_000 }, async t => {
+  const day = 86_400_000, now = Date.now();
+  const row = (at, extra = {}) => JSON.stringify({ at: new Date(at).toISOString(), event: 'decision', sessionId: 's', requestId: 'r', kind: 'tool', decision: 'deny', source: 'notification', device: 'd', ...extra });
+  const padRow = row(now - day, { requestId: 'p'.repeat(200) }) + '\n';
+  const pad = bytes => padRow.repeat(Math.ceil(bytes / padRow.length));
+  const MB = 1024 * 1024;
+  const file = data => path.join(data, 'approval-decisions.jsonl');
+  // a short record: an app answer, a trusted rule's, an old one and a recent one
+  const s = await boot(t, 19539, { before: ({ data }) => fs.writeFileSync(file(data), [row(now - 8 * day, { requestId: 'old' }), row(now - day, { requestId: 'app', source: 'app' }), row(now - day, { requestId: 'auto', source: 'auto-trusted' }), row(now - day, { requestId: 'new' })].join('\n') + '\n') });
+  let r = (await s.call('/approval-push/answers')).body;
+  assert.deepEqual(r.answers.map(a => a.requestId), ['new'], 'no app answer, no row older than 7 days');
+  assert.equal(r.olderNotListed, undefined);
+  // the record grows past what one listing reads, every row read recent: one line says older ones are not listed
+  fs.appendFileSync(file(s.data), pad(4.2 * MB));
+  r = (await s.call('/approval-push/answers')).body;
+  assert.equal(r.olderNotListed, true);
+  assert.ok(!r.answers.some(a => a.requestId === 'new'), 'the first rows are beyond the read');
+  // a new row is listed at once (the kept read is renewed when the file changes)
+  fs.appendFileSync(file(s.data), row(now, { requestId: 'newest' }) + '\n');
+  assert.equal((await s.call('/approval-push/answers')).body.answers[0].requestId, 'newest');
+  // under 4 MB: all of it was read, nothing more to say
+  fs.writeFileSync(file(s.data), row(now - 9 * day, { requestId: 'way-old' }) + '\n' + pad(3.5 * MB));
+  assert.equal((await s.call('/approval-push/answers')).body.olderNotListed, undefined);
+  // over 4 MB, but the oldest row read is older than 7 days: nothing more to say either
+  fs.writeFileSync(file(s.data), 'x'.repeat(MB) + '\n' + row(now - 9 * day, { requestId: 'way-old' }) + '\n' + pad(3.5 * MB));
+  assert.ok(fs.statSync(file(s.data)).size > 4 * MB);
+  assert.equal((await s.call('/approval-push/answers')).body.olderNotListed, undefined);
+});
+
+test('F10 (server): turning answers off, or muting the conversation, replaces the notifications already out once, silently, and the summary too; then nothing more', { timeout: 180_000 }, async t => {
+  const s = await boot(t, 19541, { devices: { a: { approvalAllow: TESTED }, b: { approvalAllow: TESTED } } });
+  await s.on({ perConversation: 1 });
+  const id = await s.start('claude', s.reqs([['k1', 'Bash', { command: 'echo F10-one' }], ['k2', 'Bash', { command: 'echo F10-two' }]]));
+  const [one, two] = await s.waiting(id, 2);
+  await s.pushed('a', one.id); await s.pushed('b', one.id);
+  await s.until(() => s.push.of('a', 'approval-more:' + id)[0], 5000, 'the summary');
+  await s.set({ answers: false });
+  for (const d of ['a', 'b']) {
+    const r = await s.until(() => s.push.of(d, 'approval:' + one.id)[1], 5000, 'the replacement on ' + d);
+    assert.equal(r.payload.silent, true); assert.equal(r.payload.actions, undefined); assert.equal(r.payload.body, 'Answering from notifications was turned off. Open Pocket to review it.');
+    const m = await s.until(() => s.push.of(d, 'approval-more:' + id)[1], 5000, 'the summary replaced on ' + d);
+    assert.equal(m.payload.silent, true); assert.equal(m.payload.body, 'Answering from notifications was turned off. Open Pocket to review it.');
+  }
+  assert.equal(s.push.of('a', 'approval:' + two.id).length, 0, 'the second never gets one');
+  // answering now sends the 1.125.3 push path only (no more approval notifications)
+  assert.equal((await s.answer(id, one.id, { decision: 'deny' })).status, 200);
+  await sleep(400);
+  assert.equal(s.push.of('a', 'approval:' + one.id).length, 2, 'replaced once, no more');
+  assert.equal(s.push.of('a', 'approval-more:' + id).length, 2);
+  assert.equal(s.push.of('a', 'approval:' + two.id).length, 0);
+  assert.equal((await s.answer(id, two.id, { decision: 'deny' })).status, 200);
+  // muting: the same, once
+  await s.on({ perConversation: 3 });
+  const m = await s.start('claude', s.reqs([['u1', 'Bash', { command: 'echo F10-mute' }]]));
+  const [u1] = await s.waiting(m);
+  await s.pushed('a', u1.id);
+  assert.equal((await s.call(`/session/${s.e(m)}/mute`, { muted: true })).status, 200);
+  const r = await s.until(() => s.push.of('a', 'approval:' + u1.id)[1], 5000, 'the replacement after mute');
+  assert.equal(r.payload.silent, true); assert.equal(r.payload.body, 'Notifications for this conversation were muted. Open Pocket to review it.');
+  assert.equal((await s.call(`/session/${s.e(m)}/mute`, { muted: true })).status, 200);
+  assert.equal((await s.answer(m, u1.id, { decision: 'deny' })).status, 200);
+  await sleep(400);
+  assert.equal(s.push.of('a', 'approval:' + u1.id).length, 2, 'once');
+});
+
+test('X5b (server): a check-back\'s request offers Allow while check-backs may; switching that off after the push refuses the notification Allow', { timeout: 180_000 }, async t => {
+  const clock = path.join(tmpDir(), 'clock'); fs.writeFileSync(clock, '0');
+  const s = await boot(t, 19542, { env: { POCKET_CHECKBACK_TICK_MS: '200', POCKET_TEST_CHECKBACK_CLOCK: clock } });
+  await s.on();
+  assert.equal((await s.call('/automation/settings', { group: 'checkbacks', values: { checkbacks: true, spacingSec: 0 } })).status, 200);
+  const owner = await s.start('claude', 'set one __HANG__');
+  const token = await s.until(() => s.lines(path.join(s.dir, 'calls')).filter(c => c.id === owner).at(-1)?.runnerToken, 10000, 'the runner token');
+  const note = s.reqs([['cb1', 'Bash', { command: 'echo X5b' }]]);
+  const set = await s.call('/checkbacks/agent/add', { at: '+1m', note }, { ...s.bearer(), 'x-pocket-runner': token });
+  assert.equal(set.status, 201, JSON.stringify(set.body));
+  assert.equal((await s.call(`/session/${s.e(owner)}/stop`, {})).status, 200);
+  await s.idle(owner);
+  fs.writeFileSync(clock, String(2 * 60_000));
+  const [req] = await s.waiting(owner);
+  const [p] = await s.pushed('a', req.id);
+  assert.equal(p.payload.title, 'Check-back: Allow this command?');
+  assert.equal(p.payload.body.split('\n')[3], 'Started by a check-back');
+  assert.deepEqual(actionsOf(p), ['deny', 'allow']);
+  await s.set({ checkbacks: false });
+  const r = await s.fromNote(owner, req.id, 'a', 'allow', p.payload.approval.shown);
+  assert.equal(r.status, 409); assert.equal(r.body.code, 'not_offered');
+  await s.set({ checkbacks: true });
+  assert.equal((await s.fromNote(owner, req.id, 'a', 'allow', p.payload.approval.shown)).status, 200);
+});
+
+test('X13, X31, B15-B19 (server): a device test expires; the CLI token and another site are refused on every device route and the settings route; the codes are never in an answer or the log, differ between tests, and a second test cancels the first', { timeout: 120_000 }, async t => {
+  const s = await boot(t, 19543, { devices: { a: {}, b: {} }, env: { POCKET_TEST_APPROVAL_TEST_MS: '1200' } });
+  await s.on();
+  const ep = s.push.endpoint('a');
+  const routes = [['/push/approval-test', { endpoint: ep }], ['/push/approval-test/confirm', { endpoint: ep, actionCode: 'AA', folderCode: 'AA' }], ['/push/approval-allow', { endpoint: ep, on: false }], ['/approval-push/settings', { values: { answers: true } }]];
+  for (const [p, body] of routes) {
+    assert.equal((await s.call(p, body, s.bearer())).status, 401, p + ' with the CLI token');
+    assert.equal((await s.call(p, body, { cookie: s.cookie, origin: 'https://elsewhere.example' })).status, 403, p + ' from another origin');
+    assert.equal((await s.call(p, body, { cookie: s.cookie, 'sec-fetch-site': 'cross-site' })).status, 403, p + ' cross-site');
+  }
+  assert.equal(s.push.of('a', 'approval-test').length, 0, 'none of those sent a test');
+  const codesOf = g => { const [l1, l2] = g.payload.body.split('\n'); return [l1.slice(-2), l2.slice(-2)]; };
+  const send = async n => { const r = await s.call('/push/approval-test', { endpoint: ep }); assert.equal(r.status, 200); return { r, codes: codesOf(await s.until(() => s.push.of('a', 'approval-test')[n], 5000, 'test push ' + n)) }; };
+  // B16, B17: never in the answer or the log
+  const first = await send(0);
+  for (const c of first.codes) assert.ok(!new RegExp('\\b' + reEscape(c) + '\\b').test(JSON.stringify(first.r.body)), 'not in the answer');
+  // B19: a second test cancels the first's codes; B18: the codes differ from one test to the next
+  const second = await send(1), third = await send(2);
+  assert.ok(new Set([first.codes.join(''), second.codes.join(''), third.codes.join('')]).size > 1, 'the codes change');
+  if (first.codes.join('') !== third.codes.join('')) {
+    const old = await s.call('/push/approval-test/confirm', { endpoint: ep, actionCode: first.codes[0], folderCode: first.codes[1] });
+    assert.equal(old.body.code, 'wrong_codes', 'the first test\'s codes no longer work');
+  }
+  const confirm = await s.call('/push/approval-test/confirm', { endpoint: ep, actionCode: third.codes[0], folderCode: third.codes[1] });
+  assert.equal(confirm.status, 200);
+  for (const c of [...first.codes, ...second.codes, ...third.codes]) assert.ok(!JSON.stringify(confirm.body).includes('"' + c + '"'), 'not in the confirm answer');
+  const log = s.logs();
+  for (const x of [first, second, third]) assert.ok(!log.includes(x.codes.join('')) && !log.includes(x.codes[0] + ' ') && !new RegExp('code[s]?[=: ]+' + reEscape(x.codes[0])).test(log), 'not in the log');
+  // X13: a test expires (here after 1.2 s)
+  const fourth = await (async () => { await s.call('/push/approval-test', { endpoint: s.push.endpoint('b') }); return codesOf(await s.until(() => s.push.of('b', 'approval-test')[0], 5000, 'b test')); })();
+  await sleep(1500);
+  assert.equal((await s.call('/push/approval-test/confirm', { endpoint: s.push.endpoint('b'), actionCode: fourth[0], folderCode: fourth[1] })).body.code, 'test_expired');
+});
+
+test('X7, X9, X71, B13 (server): no summary to a device with Action approvals off; under Only that an action waits the summary has no title; updateOthers off sends no replacement; an answer while the push is still sending still gets its replacement', { timeout: 180_000 }, async t => {
+  const s = await boot(t, 19544, { devices: { a: { approvalAllow: TESTED }, b: { approvalAllow: TESTED }, off: { kinds: { approvals: false } } } });
+  await s.on({ perConversation: 1, show: 'waits' });
+  const id = await s.start('claude', s.reqs([['v1', 'Bash', { command: 'echo X9-one' }], ['v2', 'Bash', { command: 'echo X9-two' }]]));
+  await s.waiting(id, 2);
+  const sum = await s.until(() => s.push.of('a', 'approval-more:' + id)[0], 5000, 'the summary');
+  assert.equal(sum.payload.body, '1 more action waits', 'X9: no title under Only that an action waits');
+  await sleep(300);
+  assert.equal(s.push.of('off', 'approval-more:' + id).length, 0, 'X7: none to a device with Action approvals off');
+  await s.call(`/session/${s.e(id)}/stop`, {}); await s.idle(id);
+  // X71: updateOthers off, an answer replaces nothing
+  await s.set({ show: null, perConversation: 3, updateOthers: false });
+  const u = await s.start('claude', s.toolReq('Bash', { command: 'echo X71' }));
+  const [ur] = await s.waiting(u);
+  await s.pushed('a', ur.id); await s.pushed('b', ur.id);
+  assert.equal((await s.answer(u, ur.id, { decision: 'deny' })).status, 200);
+  await sleep(500);
+  assert.equal(s.push.of('a', 'approval:' + ur.id).length, 1); assert.equal(s.push.of('b', 'approval:' + ur.id).length, 1);
+  // B13: b's push service is slow; the app answers while the push is still on its way; when it lands, both are replaced
+  await s.set({ updateOthers: null });
+  s.push.delay.set('b', 1500);
+  const w = await s.start('claude', s.toolReq('Bash', { command: 'echo B13' }));
+  const [wr] = await s.waiting(w);
+  await s.pushed('a', wr.id); await s.pushed('b', wr.id); // received, b not yet answered
+  assert.equal((await s.answer(w, wr.id, { decision: 'deny' })).status, 200);
+  for (const d of ['a', 'b']) {
+    const r = await s.until(() => s.push.of(d, 'approval:' + wr.id)[1], 6000, 'the replacement on ' + d);
+    assert.equal(r.payload.silent, true); assert.match(r.payload.body, /^Not allowed at /);
+  }
 });

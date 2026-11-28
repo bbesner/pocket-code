@@ -1035,8 +1035,7 @@ async function pushRaw(title, body, { kind = 'turns', badge, ...fields }) { // 1
 // and a summary beyond; an answer or a withdrawal replaces it on the other devices that got it.
 const approvalCfg = () => apush.values(settings.approvalPush);
 const approvalsOn = () => approvalCfg().answers === true;
-const APPROVAL_WINDOW_TEST_MS = msSetting('POCKET_TEST_APPROVAL_WINDOW_MS', 0); // tests only: shortens Allow works for, never lengthens it
-const approvalWindowMs = cfg => { const ms = cfg.allowFor * 60_000; return APPROVAL_WINDOW_TEST_MS > 0 ? Math.min(ms, APPROVAL_WINDOW_TEST_MS) : ms; };
+const APPROVAL_WINDOW_TEST_MS = msSetting('POCKET_TEST_APPROVAL_WINDOW_MS', 0); // tests only: shortens Allow works for, never lengthens it (apush.allowWindowMs)
 const fmtShortTime = ms => { const o = { hour: 'numeric', minute: '2-digit' }; try { return new Date(ms).toLocaleTimeString('en-US', { ...o, timeZone: ownerZone() || undefined }); } catch { return new Date(ms).toLocaleTimeString('en-US', o); } };
 // The facts about a reply the notification rules read: its engine and folder, its root origin, whether a job has run in
 // this conversation or one it branched from, and the conversation's title.
@@ -1044,7 +1043,7 @@ function approvalView(sid, turn, engine) {
   const root = auto.normRoot(turn?.rootOrigin);
   const title = titleOf(sid) || shownTitle(sid) || String(turn?.userText || '').split('\n')[0].slice(0, 120) || `${ENGINES[engine]?.label || 'Agent'} conversation`;
   return { sessionId: sid, engine, cwd: typeof turn?.cwd === 'string' ? turn.cwd : '', home: HOME, root,
-    jobConversation: apush.jobConversation(sid, { metaOf: id => smeta[id], ranIn: jobRanIn }), jobName: root === 'job' ? shownOriginRef(turn) : null, title };
+    jobConversation: apush.jobConversation(sid, { metaOf: id => Object.hasOwn(smeta, id) ? smeta[id] : null, ranIn: jobRanIn }), jobName: root === 'job' ? shownOriginRef(turn) : null, title };
 }
 // One push per device, each with its own payload (null: none for that device). Urgent unless asked otherwise. Returns the
 // subscriptions the push service accepted; a gone subscription (404, 410) is removed as pushRaw does.
@@ -1072,6 +1071,7 @@ async function sendApprovalPush(sid, turn, engine, row) {
   row.push.sending = false;
   log(`approval push sent (${ok.length} devices, Allow on ${ok.filter(s => built.get(s.endpoint).allow).length}) session=${sid} request=${row.id}`);
   if (row.gone) sendApprovalReplacement(sid, turn, row, row.gone); // answered or withdrawn while its push was on its way
+  else { const settle = approvalSettleWhy(sid); if (settle) settleApprovalPushes(sid, turn, settle); } // turned off or muted meanwhile
 }
 function approvalGoneText(turn, info) {
   const at = fmtShortTime(info.at || Date.now());
@@ -1082,18 +1082,41 @@ function approvalGoneText(turn, info) {
 // The replacement: same tag, no buttons, silent, only to the devices that got the original and not to the one that answered.
 function sendApprovalReplacement(sid, turn, row, info) {
   if (!pushReady || !approvalCfg().updateOthers || row.push?.replaced) return;
-  const targets = new Set(Object.keys(row.push?.devices || {}).filter(d => d !== info.device));
+  replaceApprovalPush(sid, row, approvalGoneText(turn, info), info.device);
+}
+function replaceApprovalPush(sid, row, text, except = null) {
+  const targets = new Set(Object.keys(row.push?.devices || {}).filter(d => d !== except));
   if (!targets.size) return;
   row.push.replaced = true;
-  const { title, body, ...fields } = apush.replacement(row.id, sid, approvalGoneText(turn, info)), payload = pushShape(title, body, fields).base;
+  const { title, body, ...fields } = apush.replacement(row.id, sid, text), payload = pushShape(title, body, fields).base;
   pushEach(loadSubs().filter(s => targets.has(apush.deviceId(s.endpoint))), () => payload).catch(e => log(`approval replacement: ${e.message}`));
 }
+// F10: answers from notifications turned off, or the conversation muted, while its notifications are out: each request's
+// notification with buttons is replaced once (silently, no buttons) and the summary too, then nothing more is sent for
+// them. Whatever updateOthers says: an Allow left on a phone after this would only be refused. A push still on its way
+// is settled when it lands (sendApprovalPush).
+function settleApprovalPushes(sid, turn, why) {
+  if (!pushReady || !turn?.approvals) return;
+  const text = why === 'muted' ? 'Notifications for this conversation were muted. Open Pocket to review it.' : 'Answering from notifications was turned off. Open Pocket to review it.';
+  for (const r of turn.approvals.rows()) if (r.push && !r.push.replaced && !r.push.sending) replaceApprovalPush(sid, r, text);
+  const st = turn.approvalSummary;
+  if (st?.count > 0) {
+    st.count = 0;
+    const payload = pushShape('Pocket Code', text, { tag: 'approval-more:' + sid, url: '/#/chat/' + sid, silent: true }).base;
+    pushEach(approvalSubs(), () => payload).catch(e => log(`approval summary: ${e.message}`));
+  }
+}
+const approvalSettleWhy = sid => !approvalsOn() ? 'off' : mutes.has(sid) ? 'muted' : null;
 // Keep a conversation's notifications in step with its waiting requests: the oldest not yet shown get theirs while fewer
 // than perConversation are showing, and the summary says how many more wait (silently "Nothing more waits" at zero).
+const approvalPushTurns = new Map(); // conversation id -> its turn, while it has requests (settleAllApprovalPushes reads it)
 function syncApprovalPushes(sid, turn, engine) {
-  if (!pushReady || !turn?.approvals || !approvalsOn() || mutes.has(sid)) return;
+  if (!pushReady || !turn?.approvals) return;
+  const settle = approvalSettleWhy(sid);
+  if (settle) return settleApprovalPushes(sid, turn, settle);
   const cfg = approvalCfg(), rows = turn.approvals.rows();
-  let showing = rows.filter(r => r.push).length;
+  if (rows.length) approvalPushTurns.set(sid, turn); else if (approvalPushTurns.get(sid) === turn) approvalPushTurns.delete(sid);
+  let showing = rows.filter(r => r.push && !r.push.replaced).length; // a notification settled while off or muted is not showing
   for (const r of rows) {
     if (r.push) continue;
     if (showing >= cfg.perConversation) break;
@@ -1114,8 +1137,12 @@ function approvalGone(sid, turn, engine, rows, info) {
 }
 // An inbox changed: today's push when the feature is off, else the per-request notifications.
 function approvalChanged(sid, turn, engine, legacy) {
-  if (!approvalsOn()) return legacy();
+  if (!approvalsOn()) { settleApprovalPushes(sid, turn, 'off'); return legacy(); } // settling sends nothing unless 1.126's notifications are out
   syncApprovalPushes(sid, turn, engine);
+}
+// Every reply with requests, after answers from notifications were turned off (the settings route)
+function settleAllApprovalPushes(why) {
+  for (const [sid, turn] of approvalPushTurns) { settleApprovalPushes(sid, turn, why); approvalPushTurns.delete(sid); }
 }
 
 // ---------- auth ----------
@@ -3530,9 +3557,13 @@ app.get('/api/session/:id/approvals',requireAuth,(req,res)=>{
 // longer ago than Allow works for (too_old), and `shown` is what the server built for it (changed). Any other `via`
 // (voice is a later release) is refused. Refusals are recorded with their reason, never with the command.
 const APPROVAL_VIA = new Set(['app', 'notification']);
+// Every engine's request gets its id from the inbox (approvals.mjs, randomUUID); any other shape is no request, refused
+// before anything is looked up or recorded.
+const APPROVAL_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 app.post('/api/session/:id/approvals/:request/decision',requireAuth,sameOrigin,async(req,res)=>{
   res.set('Cache-Control','no-store');
   if(!anyId(req.params.id))return res.status(400).json({error:'Invalid conversation'});
+  if(!APPROVAL_REQUEST_ID.test(String(req.params.request)))return res.status(400).json({error:'Invalid request',code:'bad_request'});
   const sid=req.params.id,request=String(req.params.request),body=req.body||{},via=body.via??'app',away=via!=='app';
   const turn=ownedTurn(sid);
   const endpoint=away&&typeof body.endpoint==='string'?body.endpoint:null,sub=endpoint?loadSubs().find(s=>s.endpoint===endpoint)||null:null;
@@ -3546,7 +3577,7 @@ app.post('/api/session/:id/approvals/:request/decision',requireAuth,sameOrigin,a
   if(!APPROVAL_VIA.has(via))return refuse(400,'unknown_via','Answer this request in Pocket.');
   if(away&&!approvalsOn())return refuse(404,'answers_off','Answering approvals from notifications is turned off.');
   if(!turn?.approvals||turn.done||turn.finalized||turn.stopped){
-    if(away)return refuse(409,'gone','This action is no longer waiting. Refresh the conversation.');
+    if(away)return turn?.approvals?.answeredAs(request)?.source==='app'?refuse(409,'answered_in_app','This action was answered in Pocket.'):refuse(409,'gone','This action is no longer waiting. Refresh the conversation.');
     return res.status(409).json({error:'This action is no longer waiting. Refresh the conversation.'});
   }
   const row=turn.approvals.row(request);
@@ -3558,7 +3589,7 @@ app.post('/api/session/:id/approvals/:request/decision',requireAuth,sameOrigin,a
       const now=apush.approvalPush(row,view,sub,cfg),rec=sub?row.push?.devices?.[apush.deviceId(endpoint)]:null;
       if(!now.allow)return refuse(409,'not_offered','Pocket no longer offers Allow on this notification. Review it in Pocket.');
       if(!rec||rec.allow!==true)return refuse(409,'not_offered','This notification did not offer Allow. Review it in Pocket.');
-      if(Date.now()-rec.at>approvalWindowMs(cfg))return refuse(409,'too_old','The notification is too old to Allow from. Review it in Pocket.');
+      if(Date.now()-rec.at>apush.allowWindowMs(cfg,APPROVAL_WINDOW_TEST_MS))return refuse(409,'too_old','The notification is too old to Allow from. Review it in Pocket.');
       if(typeof body.shown!=='string'||body.shown!==now.shown)return refuse(409,'changed','This no longer matches what the notification showed. Review it in Pocket.');
     }
   }
@@ -3567,7 +3598,10 @@ app.post('/api/session/:id/approvals/:request/decision',requireAuth,sameOrigin,a
     if(away&&!out.duplicate)log(`approval answered from a notification: ${out.decision} session=${sid} request=${request} device=${meta.device} service=${meta.pushService||'unknown'}`);
     res.json(out);
   }
-  catch(e){res.status(e.status||503).json({error:e.status?e.message:'The approval connection is unavailable. Stop this reply before trying again.'});}
+  catch(e){
+    if(away&&e.code)log(`approval answer from a notification refused (${e.code}) session=${sid} request=${request} device=${meta.device}`);
+    res.status(e.status||503).json({error:e.status?e.message:'The approval connection is unavailable. Stop this reply before trying again.',...(e.code?{code:e.code}:{})});
+  }
 });
 
 app.get('/api/session/:id/questions',requireAuth,(req,res)=>{
@@ -4761,6 +4795,7 @@ app.post('/api/session/:id/mute', requireAuth, (req, res) => {
   if (req.body?.muted) mutes.add(id); else mutes.delete(id);
   saveMutes();
   log(`push ${mutes.has(id) ? 'muted' : 'unmuted'} session=${id}`);
+  if (mutes.has(id)) { let turn = null; try { turn = ownedTurn(id); } catch { } settleApprovalPushes(id, turn, 'muted'); } // 1.126 (F10): its approval notifications lose their buttons, once
   res.json({ ok: true, muted: mutes.has(id) });
 });
 
@@ -6252,7 +6287,8 @@ const deviceControl = (req, res, next) => {
   next();
 };
 const approvalTests = new Map(); // device id -> { codes, limit, expires, tries }
-const APPROVAL_TEST_MS = 10 * 60_000;
+// POCKET_TEST_APPROVAL_TEST_MS (tests only) can only shorten the 10 minutes, as POCKET_TEST_APPROVAL_WINDOW_MS does Allow works for
+const APPROVAL_TEST_MS = apush.allowWindowMs({ allowFor: 10 }, msSetting('POCKET_TEST_APPROVAL_TEST_MS', 0));
 const ownDevice = (req, res) => {
   const endpoint = typeof req.body?.endpoint === 'string' ? req.body.endpoint : '';
   const subs = loadSubs(), s = endpoint && subs.find(x => x.endpoint === endpoint);
@@ -6766,7 +6802,7 @@ app.get('/api/approval-push', requireAuth, (_req, res) => { res.setHeader('Cache
 app.post('/api/approval-push/settings', requireAuth, ownerControl, sameOrigin, (req, res) => {
   const r = apush.applySave(settings.approvalPush, req.body);
   if (r.error) return res.status(r.status || 400).json({ error: r.error });
-  const prev = settings.approvalPush, before = approvalCfg().longestAction;
+  const prev = settings.approvalPush, before = approvalCfg().longestAction, wasOn = approvalsOn();
   if (Object.keys(r.saved).length) settings.approvalPush = r.saved; else delete settings.approvalPush;
   try { saveSettings(); } catch (e) {
     if (prev === undefined) delete settings.approvalPush; else settings.approvalPush = prev;
@@ -6781,6 +6817,7 @@ app.post('/api/approval-push/settings', requireAuth, ownerControl, sameOrigin, (
     if (turnedOff) saveSubs(subs);
     approvalTests.clear();
   }
+  if (wasOn && !approvalsOn()) settleAllApprovalPushes('off'); // F10: the notifications already out lose their buttons, once
   autoAudit({ action: 'settings', group: apush.GROUP_KEY, ...(req.body.reset === true ? { reset: true } : { keys: Object.keys(req.body.values) }), ...(turnedOff ? { allowButtonsOff: turnedOff } : {}) });
   log(`answers from notifications settings saved${turnedOff ? `; Allow button turned off on ${turnedOff} device(s) (the limit was raised)` : ''}`);
   res.json({ ...approvalPushView(), ...(turnedOff ? { allowButtonsOff: turnedOff } : {}) });
@@ -6788,24 +6825,42 @@ app.post('/api/approval-push/settings', requireAuth, ownerControl, sameOrigin, (
 // Settings → Usage → Answered away from the app: the last 7 days of answers from notifications, and refusals, from
 // approval-decisions.jsonl (ids, outcomes and where the answer said it came from; never a command).
 const APPROVAL_DECISIONS_FILE = path.join(DATA_DIR, 'approval-decisions.jsonl');
+const APPROVAL_ANSWERS_BYTES = 4 * 1024 * 1024; // the most of the file's end one listing reads
+// The rows read last time, kept while the file's size and change time are the same: a repeat of the listing costs one
+// stat, and the file is read again only after it changed. Only answers away from the app are kept (ids and outcomes).
+let approvalAnswersRead = null; // { size, mtimeMs, rows, oldest }
+function readApprovalAnswers() {
+  const fd = fs.openSync(APPROVAL_DECISIONS_FILE, 'r');
+  try {
+    const { size, mtimeMs } = fs.fstatSync(fd);
+    if (approvalAnswersRead && approvalAnswersRead.size === size && approvalAnswersRead.mtimeMs === mtimeMs) return approvalAnswersRead;
+    const n = Math.min(size, APPROVAL_ANSWERS_BYTES), b = Buffer.alloc(n);
+    fs.readSync(fd, b, 0, n, size - n);
+    const lines = b.toString('utf8').split('\n');
+    if (n < size) lines.shift(); // the read began inside a row
+    const rows = []; let oldest = Infinity;
+    for (const line of lines) {
+      let o; try { o = JSON.parse(line); } catch { continue; }
+      const t = Date.parse(o?.at);
+      if (Number.isFinite(t) && t < oldest) oldest = t;
+      if (!Number.isFinite(t) || o.source === 'app' || o.source === 'auto-trusted' || !o.source || (o.event !== 'decision' && o.event !== 'refused')) continue;
+      rows.push({ t, at: o.at, sessionId: typeof o.sessionId === 'string' ? o.sessionId : null, requestId: o.requestId || null, action: o.action || null, kind: o.kind || null,
+        result: o.event === 'refused' ? 'refused' : o.decision === 'allow' ? 'allowed' : 'not_allowed', ...(o.event === 'refused' ? { reason: o.reason || null } : {}),
+        source: o.source, device: o.device || 'unknown', pushService: o.pushService || null, where: o.pushService ? apush.serviceLabel(o.pushService) : 'unknown' });
+    }
+    return (approvalAnswersRead = { size, mtimeMs, rows, oldest, cut: n < size });
+  } finally { fs.closeSync(fd); }
+}
 app.get('/api/approval-push/answers', requireAuth, (_req, res) => {
   res.setHeader('Cache-Control', 'private, no-store');
-  let text = '';
-  try {
-    const fd = fs.openSync(APPROVAL_DECISIONS_FILE, 'r');
-    try { const { size } = fs.fstatSync(fd), n = Math.min(size, 4 * 1024 * 1024), b = Buffer.alloc(n); fs.readSync(fd, b, 0, n, size - n); text = b.toString('utf8'); } finally { fs.closeSync(fd); }
-  } catch (e) { if (e.code !== 'ENOENT') return res.status(503).json({ error: 'The record of answers could not be read. Try again.' }); }
-  const since = Date.now() - 7 * 86_400_000, rows = [];
-  for (const line of text.split('\n')) {
-    let o; try { o = JSON.parse(line); } catch { continue; }
-    const t = Date.parse(o?.at);
-    if (!(t >= since) || o.source === 'app' || o.source === 'auto-trusted' || !o.source || (o.event !== 'decision' && o.event !== 'refused')) continue;
-    rows.push({ at: o.at, sessionId: o.sessionId || null, conversation: o.sessionId ? titleOf(o.sessionId) || null : null, requestId: o.requestId || null,
-      action: o.action || null, kind: o.kind || null,
-      result: o.event === 'refused' ? 'refused' : o.decision === 'allow' ? 'allowed' : 'not_allowed', ...(o.event === 'refused' ? { reason: o.reason || null } : {}),
-      source: o.source, device: o.device || 'unknown', pushService: o.pushService || null, where: o.pushService ? apush.serviceLabel(o.pushService) : 'unknown' });
-  }
-  res.json({ answers: rows.reverse(), days: 7 });
+  let read = { rows: [], oldest: Infinity, cut: false };
+  try { read = readApprovalAnswers(); }
+  catch (e) { if (e.code !== 'ENOENT') return res.status(503).json({ error: 'The record of answers could not be read. Try again.' }); }
+  const since = Date.now() - 7 * 86_400_000;
+  const answers = read.rows.filter(r => r.t >= since).map(({ t, ...r }) => ({ ...r, conversation: r.sessionId ? titleOf(r.sessionId) || null : null })).reverse();
+  // F9: the file is longer than one listing reads and even its oldest row read is inside the 7 days: older answers exist
+  // that this list leaves out
+  res.json({ answers, days: 7, ...(read.cut && read.oldest >= since ? { olderNotListed: true } : {}) });
 });
 
 // ---------- 1.117: the longest unattended reply ----------
