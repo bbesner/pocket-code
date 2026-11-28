@@ -358,6 +358,10 @@ try {
     uncertain: 'Delivery of this decision is uncertain. Stop the reply and review the conversation; do not approve it again.',
     offline: 'This device was offline.',
     error: "Pocket couldn't take the answer. Review it here.",
+    // N35: an inherited key or a reason this build doesn't know reads as the error line (an own-key lookup)
+    constructor: "Pocket couldn't take the answer. Review it here.",
+    toString: "Pocket couldn't take the answer. Review it here.",
+    nonsense: "Pocket couldn't take the answer. Review it here.",
   };
   const openMissed = async (id, req, why, tap) => {
     await p.goto(`${base}/#/chat/${e(id)}?approval=${e(req)}${why ? `&missed=${why}&tap=${tap}` : ''}`);
@@ -402,15 +406,26 @@ try {
   assert.equal(await p.$eval('.approvals-sheet .approval-missed', x => x.parentElement.matches('[data-approval-list]') && x === x.parentElement.firstChild), true, 'no card: the line heads the list');
   await closeSheet();
 
+  console.log('N50: an Allow from a notification after the app answered it is refused answered_in_app');
+  const inApp = await startWaiting('browser answered in app', 'echo in-app');
+  assert.equal((await call(`/session/${e(inApp.id)}/approvals/${e(inApp.req.id)}/decision`, { decision: 'deny' })).status, 200);
+  const lateAllow = await call(`/session/${e(inApp.id)}/approvals/${e(inApp.req.id)}/decision`, { decision: 'allow', via: 'notification', shown: 'x'.repeat(64), endpoint: endpointOf('other') });
+  assert.equal(lateAllow.body.code, 'answered_in_app');
+
   console.log('27: Usage → Answered away from the app, with rows');
+  // the rows take a title the server's record lacks from the conversation list, which leaves out a reply that ended without
+  // a transcript (the fake CLI writes none): name those two (both replies end on their own), so their rows have the server's title
+  for (const [c, name] of [[other, 'browser answered elsewhere'], [inApp, 'browser answered in app']]) assert.equal((await call(`/session/${e(c.id)}/rename`, { name })).status, 200);
   await p.evaluate(() => settingsSheet({ category: 'usage' }));
   await p.waitForSelector('#s-answers-usage .answers-away li');
   const rows = await p.$$eval('#s-answers-usage .answers-away li', x => x.map(li => ({ text: li.textContent, href: li.querySelector('a')?.getAttribute('href'), request: li.dataset.answer })));
-  assert.equal(rows.length, 2);
-  assert.equal(rows[0].request, convo.req.id, 'newest first');
-  assert.match(rows[0].text, new RegExp(`browser missed lines.* · Command · Refused: Allow was no longer offered for it · from ${reEscape(pushHost)}$`));
-  assert.equal(rows[0].href, '#/chat/' + e(convo.id));
-  assert.match(rows[1].text, new RegExp(`browser answered elsewhere.* · Command · Not allowed · from ${reEscape(pushHost)}$`));
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0].request, inApp.req.id, 'newest first');
+  assert.match(rows[0].text, new RegExp(`browser answered in app.* · Action · Refused: it had already been answered in Pocket · from ${reEscape(pushHost)}$`), 'N50');
+  assert.equal(rows[1].request, convo.req.id);
+  assert.match(rows[1].text, new RegExp(`browser missed lines.* · Command · Refused: Allow was no longer offered for it · from ${reEscape(pushHost)}$`));
+  assert.equal(rows[1].href, '#/chat/' + e(convo.id));
+  assert.match(rows[2].text, new RegExp(`browser answered elsewhere.* · Command · Not allowed · from ${reEscape(pushHost)}$`));
   await twoWidths('usage-rows', '#auto-answers-h');
   await axeOn('usage-rows', '#s-answers-usage');
   await detect('usage-rows');
