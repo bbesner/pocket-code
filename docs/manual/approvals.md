@@ -258,7 +258,8 @@ Allow shows only when all of these hold. Otherwise the notification has **Don't 
   already out the same way, once: "Answering from notifications was turned off. Open Pocket to review it." or
   "Notifications for this conversation were muted. Open Pocket to review it." This happens whatever **Update other
   devices after an answer** says: that setting is about your other devices after an answer, while this takes the
-  buttons back. An Allow from one of those old notifications is then refused, and so is any Allow from a muted
+  buttons back. An Allow from one of those old notifications is then refused, until that device
+  is sent the fresh notification described below, and so is any Allow from a muted
   conversation's notification (**Don't allow** still works). When you turn answers on again, or unmute the
   conversation, the requests still waiting get a fresh notification, under the usual limit per conversation.
 - If the answer doesn't go through, a second notification says so ("Your Allow didn't go through: … Open Pocket.") and

@@ -634,10 +634,13 @@ and SECURITY.md describe the code.
   unmuting, syncs each reply with requests waiting once: they get fresh notifications under the usual rules. While a
   conversation is muted, an Allow from its notifications is refused `not_offered` (Don't allow still works).
 - **Each device is recorded as its own push service accepts the push,** never before: one slow push service holds back
-  only its own device's Allow. A push send gives up after 30 seconds (web-push has no limit of its own), so a request
-  can't stay "sending" for ever; the legacy push path (`pushRaw`) has no such limit.
+  only its own device's Allow. A push send gives up when its push service has been silent for 30 seconds (web-push's
+  `timeout`, an idle limit, not a cap on the whole send), so a request does not stay "sending" on a service that never
+  answers; the legacy push path (`pushRaw`) has no such limit.
 - **A notification answer after the reply ended** says `answered_in_app` when the app answered it (Pocket keeps the
-  last 500 request ids answered in the app), else `gone`.
+  last 500 request ids answered in the app), else `gone`. Once a new reply runs in that conversation it says `gone`.
+  A notification answer that matches the app's answer is a silent duplicate while the reply runs and `answered_in_app`
+  after it ended.
 - **An ACP request whose `rawInput` is not an object** (a string, a number, `true`) shows its card as before 1.126,
   with the title as the command, and gets Don't allow only.
 - **A malformed request id is 400 `bad_request`** before anything else, with no record.
